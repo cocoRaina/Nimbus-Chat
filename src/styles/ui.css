@@ -5,7 +5,7 @@
   --font-rounded: 'Nunito', 'Quicksand', 'Comfortaa', 'Avenir Next Rounded', 'Arial Rounded MT Bold', var(--font-sans);
   --font-display: 'Rounded Mplus 1c', 'Nunito', system-ui, -apple-system, 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  --accent: #ffd6e7;
+  --accent: #DBEAFE;
   --accent-strong: #93C5FD;
   --text-main: #111827;
   --text-subtle: #6b7280;
@@ -16,7 +16,7 @@
   --radius-tile: 20px;
   --radius-btn: 16px;
   --blur: 16px;
-  --page-bg: linear-gradient(180deg, #EFF6FF0%, #f8fafc 52%, #f3f4f6 100%);
+  --page-bg: linear-gradient(180deg, #EFF6FF 0%, #f8fafc 52%, #f3f4f6 100%);
 }
 
 .ui-title {
