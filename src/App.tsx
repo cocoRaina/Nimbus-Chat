@@ -850,6 +850,33 @@ const App = () => {
           return meta
         }
 
+        // Transient status line shown only in the streaming bubble (never persisted).
+        // Used to surface "AI is searching memory…" while tool calls run between
+        // streaming iterations, so the chat doesn't feel like it's silently hung.
+        let toolStatusLine = ''
+
+        const buildDisplayContent = () => {
+          if (!toolStatusLine) {
+            return assistantContent
+          }
+          return assistantContent ? `${assistantContent}\n\n${toolStatusLine}` : toolStatusLine
+        }
+
+        const pushStreamingUpdate = () => {
+          const streamingUpdate = updateMessage(messagesRef.current, {
+            id: assistantClientId,
+            sessionId,
+            role: 'assistant',
+            clientId: assistantClientId,
+            content: buildDisplayContent(),
+            createdAt: assistantClientCreatedAt,
+            clientCreatedAt: assistantClientCreatedAt,
+            meta: buildAssistantMeta(true),
+            pending: true,
+          })
+          applySnapshot(sessionsRef.current, streamingUpdate)
+        }
+
         const flushPending = () => {
           if (!pendingDelta && !pendingReasoningDelta) {
             return
@@ -862,18 +889,12 @@ const App = () => {
             reasoningContent += pendingReasoningDelta
             pendingReasoningDelta = ''
           }
-          const streamingUpdate = updateMessage(messagesRef.current, {
-            id: assistantClientId,
-            sessionId,
-            role: 'assistant',
-            clientId: assistantClientId,
-            content: assistantContent,
-            createdAt: assistantClientCreatedAt,
-            clientCreatedAt: assistantClientCreatedAt,
-            meta: buildAssistantMeta(true),
-            pending: true,
-          })
-          applySnapshot(sessionsRef.current, streamingUpdate)
+          pushStreamingUpdate()
+        }
+
+        const setToolStatus = (line: string) => {
+          toolStatusLine = line
+          pushStreamingUpdate()
         }
 
         const scheduleFlush = () => {
@@ -1160,12 +1181,18 @@ const App = () => {
                 let resultText: string
                 try {
                   if (tc.function.name === 'search_memory' && supabase) {
-                    let args: Record<string, unknown> = {}
+                    let args: { query?: string; count?: number; category?: string } = {}
                     try {
-                      args = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
                     } catch (jsonError) {
                       console.warn('解析 search_memory 参数失败', jsonError)
                     }
+                    const queryLabel = (args.query ?? '').toString().trim().slice(0, 40)
+                    setToolStatus(
+                      queryLabel
+                        ? `🔍 正在搜索记忆库：${queryLabel}…`
+                        : '🔍 正在搜索记忆库…',
+                    )
                     const { data, error } = await supabase.functions.invoke('search_memory', {
                       body: {
                         query: args.query,
@@ -1188,6 +1215,7 @@ const App = () => {
                   content: resultText,
                 })
               }
+              setToolStatus('')
               // Loop back for another model turn
               continue
             }
