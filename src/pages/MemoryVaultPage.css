@@ -105,7 +105,7 @@
 }
 
 .memory-memo-pad {
-  border: 1px solid #ffd6e7;
+  border: 1px solid #DBEAFE;
   border-radius: 14px;
   background:
     repeating-linear-gradient(
@@ -139,7 +139,7 @@
   margin-top: 8px;
   border: none;
   border-radius: 999px;
-  background: #ffd6e7;
+  background: #DBEAFE;
   color: #5c5c5c;
   font-weight: 700;
   padding: 8px 16px;
@@ -156,7 +156,7 @@
 
 .memory-card--archive {
   background: #ffffff;
-  border: 1px solid #ffd6e7;
+  border: 1px solid #DBEAFE;
 }
 
 .memory-washi {
@@ -231,7 +231,7 @@
 }
 
 .ios-toggle.is-on .ios-toggle-track {
-  background: #ffd6e7;
+  background: #DBEAFE;
 }
 
 .ios-toggle.is-on .ios-toggle-thumb {
@@ -241,7 +241,7 @@
 .extract-button {
   border: none;
   border-radius: 999px;
-  background: linear-gradient(135deg, #ffd6e7, #ffe9f3);
+  background: linear-gradient(135deg, #DBEAFE, #BFDBFE);
   color: #5c5c5c;
   font-weight: 700;
   padding: 10px 14px;
@@ -266,7 +266,7 @@
 }
 
 .stamp-button--approve {
-  border-color: #ffd6e7;
+  border-color: #DBEAFE;
   color: #5c5c5c;
   background: rgba(219, 234, 254, 0.35);
 }

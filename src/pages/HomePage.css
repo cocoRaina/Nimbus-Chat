@@ -98,7 +98,7 @@
 }
 
 .home-mode-toggle button.active {
-  background: #ffd6e7;
+  background: #DBEAFE;
   color: #0f172a;
 }
 
@@ -318,7 +318,7 @@
 .checkin-streak-hero strong {
   font-size: 2rem;
   line-height: 0.95;
-  color: #ffd6e7;
+  color: #DBEAFE;
   font-family: var(--font-rounded);
 }
 
@@ -353,12 +353,12 @@
   font-weight: 800;
   letter-spacing: 0.01em;
   color: #5c5c5c;
-  background: linear-gradient(to right, #EFF6FF, #ffd6e7);
+  background: linear-gradient(to right, #EFF6FF, #DBEAFE);
   box-shadow: 0 4px 12px rgba(219, 234, 254, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.52);
 }
 
 .checkin-stamp-button.unchecked {
-  background: linear-gradient(to right, #EFF6FF, #ffd6e7);
+  background: linear-gradient(to right, #EFF6FF, #DBEAFE);
   color: #5c5c5c;
 }
 
@@ -403,14 +403,14 @@
 }
 
 .weekly-dot.unchecked {
-  border: 1px dashed #ffd6e7;
+  border: 1px dashed #DBEAFE;
   color: transparent;
   background: transparent;
 }
 
 .weekly-dot.checked {
-  border: 1px solid #ffd6e7;
-  background: #ffd6e7;
+  border: 1px solid #DBEAFE;
+  background: #DBEAFE;
   color: #ffffff;
 }
 

@@ -26,7 +26,7 @@
   position: relative;
   margin-top: 4px;
   border-radius: 18px;
-  border: 1px solid #ffd6e7;
+  border: 1px solid #DBEAFE;
   background: #fff;
   padding: 0 16px 16px;
   box-shadow: 0 10px 24px rgba(219, 234, 254, 0.25);
@@ -36,7 +36,7 @@
   height: 120px;
   border-radius: 16px 16px 12px 12px;
   background-color: #fff;
-  background-image: radial-gradient(circle at 2px 2px, #DBEAFE2px, transparent 2px);
+  background-image: radial-gradient(circle at 2px 2px, #DBEAFE 2px, transparent 2px);
   background-size: 14px 14px;
 }
 
@@ -113,7 +113,7 @@
   background: #fff;
   border-radius: 12px;
   padding: 10px 12px;
-  border: 1px solid #ffd6e7;
+  border: 1px solid #DBEAFE;
   margin-top: 6px;
 }
 
@@ -139,7 +139,7 @@
 
 .my-home-composer textarea:focus,
 .reply-composer textarea:focus {
-  border-color: #ffd6e7;
+  border-color: #DBEAFE;
   outline: none;
   box-shadow: 0 0 0 2px rgba(219, 234, 254, 0.25);
 }
@@ -161,7 +161,7 @@
   border-radius: 16px;
   background-color: #fcfcfc;
   background-image:
-    radial-gradient(circle at 1px 1px, #DBEAFE1.5px, transparent 1.5px),
+    radial-gradient(circle at 1px 1px, #DBEAFE 1.5px, transparent 1.5px),
     radial-gradient(circle at 1px 1px, #ffffff 1px, transparent 1px);
   background-size: 20px 20px, 10px 10px;
 }
@@ -170,7 +170,7 @@
   background: #fff;
   border-radius: 12px;
   padding: 12px;
-  border: 1px solid #ffd6e7;
+  border: 1px solid #DBEAFE;
   position: relative;
 }
 
@@ -224,7 +224,7 @@
 }
 
 .my-home-page .ghost:hover {
-  color: #ffd6e7;
+  color: #DBEAFE;
 }
 
 .my-home-page .ghost.danger {
@@ -292,7 +292,7 @@
 .reply-bubble {
   background: #ffffff;
   border: 1px solid #ebebeb;
-  border-left: 2px solid #ffd6e7;
+  border-left: 2px solid #DBEAFE;
   border-radius: 10px;
   padding: 8px 10px;
   display: flex;
@@ -324,7 +324,7 @@
   display: inline-block;
   padding: 1px 6px;
   border-radius: 999px;
-  background: #ffd6e7;
+  background: #DBEAFE;
   color: #5c5c5c;
   font-size: 11px;
   line-height: 1.4;
@@ -404,11 +404,11 @@
   gap: 4px;
   padding: 3px 10px;
   border-radius: 999px;
-  border: 1px solid #ffd6e7;
+  border: 1px solid #DBEAFE;
   color: #5c5c5c;
   font-size: 11px;
   line-height: 1.4;
-  background: #ffd6e7;
+  background: #DBEAFE;
 }
 
 .feed-badge::before {
@@ -422,13 +422,13 @@
 }
 
 .post-actions .ghost:hover {
-  color: #ffd6e7;
+  color: #DBEAFE;
 }
 
 .post-actions .primary {
   border-radius: 999px;
-  border: 1px solid #ffd6e7;
-  background: #ffd6e7;
+  border: 1px solid #DBEAFE;
+  background: #DBEAFE;
   color: #5c5c5c;
   transition: transform 0.15s ease, filter 0.15s ease;
 }

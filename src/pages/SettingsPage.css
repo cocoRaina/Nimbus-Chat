@@ -34,7 +34,7 @@
 .settings-ribbon-line {
   width: 100%;
   height: 1px;
-  border-bottom: 2px dashed #ffd6e7;
+  border-bottom: 2px dashed #DBEAFE;
 }
 
 .settings-ribbon-icon {
@@ -266,7 +266,7 @@
   min-height: 140px;
   resize: vertical;
   border-style: dashed;
-  border-color: #ffd6e7;
+  border-color: #DBEAFE;
   background: #fffefb;
 }
 
@@ -296,7 +296,7 @@
 
 .settings-page button.ghost {
   background: rgba(255, 255, 255, 0.8);
-  border-color: #ffd6e7;
+  border-color: #DBEAFE;
   color: #6d6d6d;
 }
 
@@ -311,7 +311,7 @@
 }
 
 .badge {
-  background: #ffd6e7;
+  background: #DBEAFE;
   color: #6d6d6d;
   font-size: 11px;
   padding: 4px 8px;
@@ -368,7 +368,7 @@
 }
 
 .toggle-control input:checked {
-  background: #ffd6e7;
+  background: #DBEAFE;
 }
 
 .toggle-control input:checked::after {
