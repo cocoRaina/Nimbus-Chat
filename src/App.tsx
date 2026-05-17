@@ -153,6 +153,51 @@ const buildOpenAiMessages = (
   return history
 }
 
+type OutgoingMessage =
+  | { role: string; content: string }
+  | {
+      role: string
+      content: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
+    }
+
+// For Claude / Anthropic models on OpenRouter, mark up to two cache breakpoints
+// so prompt caching can kick in: the system prompt and the prior conversation
+// (everything except the new user turn). Cached reads are ~10% of the input
+// price and the cache lives 5 minutes — great for active multi-turn chats.
+// Non-Claude models are returned untouched.
+const applyClaudeCaching = (
+  messages: Array<{ role: string; content: string }>,
+  model: string,
+): OutgoingMessage[] => {
+  if (!/claude|anthropic/i.test(model) || messages.length === 0) {
+    return messages
+  }
+  const firstNonSystemIdx = messages.findIndex((m) => m.role !== 'system')
+  const lastSystemIdx = firstNonSystemIdx === -1 ? messages.length - 1 : firstNonSystemIdx - 1
+  const breakpoints = new Set<number>()
+  if (lastSystemIdx >= 0) {
+    breakpoints.add(lastSystemIdx)
+  }
+  if (messages.length >= 2) {
+    breakpoints.add(messages.length - 2)
+  }
+  return messages.map((msg, idx) => {
+    if (!breakpoints.has(idx)) {
+      return msg
+    }
+    return {
+      role: msg.role,
+      content: [
+        {
+          type: 'text' as const,
+          text: msg.content,
+          cache_control: { type: 'ephemeral' as const },
+        },
+      ],
+    }
+  })
+}
+
 const buildRecentExtractionMessages = (
   sessionId: string,
   messages: ChatMessage[],
@@ -839,12 +884,13 @@ const App = () => {
             systemPrompt,
           )
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
+          const cachedMessages = applyClaudeCaching(messagesPayload, effectiveModel)
           const requestBody: Record<string, unknown> = {
             model: effectiveModel,
             modelId: effectiveModel,
             module: 'chitchat',
             conversationId: sessionId,
-            messages: messagesPayload,
+            messages: cachedMessages,
             temperature: paramsSnapshot.temperature,
             top_p: paramsSnapshot.top_p,
             max_tokens: paramsSnapshot.max_tokens,
