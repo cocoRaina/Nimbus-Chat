@@ -73,6 +73,7 @@ const SettingsPage = ({
   const [openRouterApiKeyInput, setOpenRouterApiKeyInput] = useState(() => getOpenRouterApiKey())
   const [openRouterApiKeyVisible, setOpenRouterApiKeyVisible] = useState(false)
   const [openRouterApiKeyStatus, setOpenRouterApiKeyStatus] = useState<'idle' | 'saved'>('idle')
+  const [catalogReloadKey, setCatalogReloadKey] = useState(0)
   const [draftDefaultModel, setDraftDefaultModel] = useState(defaultModelId)
   const [draftChatReasoning, setDraftChatReasoning] = useState(true)
   const [draftChatHighReasoning, setDraftChatHighReasoning] = useState(false)
@@ -226,7 +227,7 @@ const SettingsPage = ({
       active = false
       window.clearTimeout(timer)
     }
-  }, [user])
+  }, [user, catalogReloadKey])
 
   const handleSaveOpenRouterApiKey = () => {
     const trimmed = openRouterApiKeyInput.trim()
@@ -236,6 +237,7 @@ const SettingsPage = ({
     saveOpenRouterApiKey(trimmed)
     setOpenRouterApiKeyInput(trimmed)
     setOpenRouterApiKeyStatus('saved')
+    setCatalogReloadKey((value) => value + 1)
   }
 
   const handleClearOpenRouterApiKey = () => {
