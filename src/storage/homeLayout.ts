@@ -30,6 +30,7 @@ export type HomeSettingsState = {
   widgetOrder: string[]
   widgets: DecorativeWidget[]
   checkinSize?: '1x1' | '2x1'
+  togetherSince?: string | null
   showEmptySlots?: boolean
   iconTileBgColor?: string
   iconTileBgOpacity?: number
@@ -240,6 +241,10 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
       widgetOrder: Array.isArray(parsed.widgetOrder) ? parsed.widgetOrder : [],
       widgets: normalizedWidgets,
       checkinSize: parsed.checkinSize ?? '1x1',
+      togetherSince:
+        typeof parsed.togetherSince === 'string' && parsed.togetherSince.length > 0
+          ? parsed.togetherSince
+          : null,
       appIconConfigs: normalizedIconConfigs,
     }
   } catch (error) {
@@ -277,6 +282,7 @@ export const saveHomeSettings = (state: HomeSettingsState) => {
       size: widget.size ?? '1x1',
     })),
     checkinSize: state.checkinSize ?? '1x1',
+    togetherSince: state.togetherSince ?? null,
   }
   localStorage.setItem(HOME_SETTINGS_STORAGE_KEY, JSON.stringify(nextState))
   window.dispatchEvent(new Event('hamster-home-settings-changed'))

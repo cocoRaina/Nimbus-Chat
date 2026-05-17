@@ -9,11 +9,6 @@ import {
 import type { User } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
 import {
-  createTodayCheckin,
-  fetchCheckinTotalCount,
-  fetchRecentCheckins,
-} from "../storage/supabaseSync";
-import {
   loadHomeSettings,
   loadImageDataUrl,
   removeImageData,
@@ -101,48 +96,10 @@ const readFileAsDataUrl = (file: Blob): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-const formatDateKey = (date: Date) => {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const shiftDateKey = (dateKey: string, daysDelta: number) => {
-  const base = new Date(`${dateKey}T00:00:00`);
-  base.setDate(base.getDate() + daysDelta);
-  return formatDateKey(base);
-};
-
-const computeStreak = (dates: string[], todayKey: string) => {
-  const uniqueDates = Array.from(new Set(dates)).sort((a, b) =>
-    b.localeCompare(a),
-  );
-  const dateSet = new Set(uniqueDates);
-  const startDate = dateSet.has(todayKey)
-    ? todayKey
-    : shiftDateKey(todayKey, -1);
-  if (!dateSet.has(startDate)) {
-    return 0;
-  }
-
-  let streak = 0;
-  let cursor = startDate;
-  while (dateSet.has(cursor)) {
-    streak += 1;
-    cursor = shiftDateKey(cursor, -1);
-  }
-  return streak;
-};
-
-const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
+const HomePage = ({ onOpenChat, mode = "default" }: HomePageProps) => {
   const isSettingsPage = mode === "settings";
   const navigate = useNavigate();
   const [now, setNow] = useState(() => new Date());
-  const [checkinDates, setCheckinDates] = useState<string[]>([]);
-  const [checkinTotal, setCheckinTotal] = useState(0);
-  const [checkinSubmitting, setCheckinSubmitting] = useState(false);
-  const [checkinLoading, setCheckinLoading] = useState(false);
 
   const [editMode, setEditMode] = useState(false);
   const [mobileTab, setMobileTab] = useState<"settings" | "preview">(
@@ -155,6 +112,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   const [widgetOrder, setWidgetOrder] = useState<string[]>([CORE_WIDGET_ID]);
   const [widgets, setWidgets] = useState<DecorativeWidget[]>([]);
   const [checkinSize, setCheckinSize] = useState<WidgetSize>("1x1");
+  const [togetherSince, setTogetherSince] = useState<string | null>(null);
   const [showEmptySlots, setShowEmptySlots] = useState(false);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [iconTileBgColor, setIconTileBgColor] = useState(
@@ -209,35 +167,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     [appIcons],
   );
 
-  const todayKey = useMemo(() => formatDateKey(now), [now]);
-  const checkedToday = useMemo(
-    () => checkinDates.includes(todayKey),
-    [checkinDates, todayKey],
-  );
-  const streakDays = useMemo(
-    () => computeStreak(checkinDates, todayKey),
-    [checkinDates, todayKey],
-  );
-  const weeklyTracker = useMemo(() => {
-    const checkedSet = new Set(checkinDates);
-    const currentDay = now.getDay();
-    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay;
-    const monday = new Date(now);
-    monday.setHours(0, 0, 0, 0);
-    monday.setDate(now.getDate() + mondayOffset);
-
-    return Array.from({ length: 7 }).map((_, index) => {
-      const date = new Date(monday);
-      date.setDate(monday.getDate() + index);
-      const dateKey = formatDateKey(date);
-      return {
-        dateKey,
-        label: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index],
-        checked: checkedSet.has(dateKey),
-        isToday: dateKey === todayKey,
-      };
-    });
-  }, [checkinDates, now, todayKey]);
   const dateLabel = useMemo(
     () =>
       now.toLocaleDateString("zh-CN", {
@@ -247,6 +176,46 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       }),
     [now],
   );
+  const togetherElapsed = useMemo(() => {
+    if (!togetherSince) {
+      return null;
+    }
+    const start = new Date(togetherSince);
+    if (Number.isNaN(start.getTime())) {
+      return null;
+    }
+    const diffMs = Math.max(0, now.getTime() - start.getTime());
+    const seconds = Math.floor(diffMs / 1000);
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return { days, hours, minutes, seconds: secs };
+  }, [togetherSince, now]);
+  const togetherInputValue = useMemo(() => {
+    if (!togetherSince) {
+      return "";
+    }
+    const start = new Date(togetherSince);
+    if (Number.isNaN(start.getTime())) {
+      return "";
+    }
+    const pad = (value: number) => value.toString().padStart(2, "0");
+    return `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(
+      start.getDate(),
+    )}T${pad(start.getHours())}:${pad(start.getMinutes())}`;
+  }, [togetherSince]);
+  const handleTogetherSinceChange = useCallback((value: string) => {
+    if (!value) {
+      setTogetherSince(null);
+      return;
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return;
+    }
+    setTogetherSince(parsed.toISOString());
+  }, []);
   const timeLabel = useMemo(
     () =>
       now.toLocaleTimeString("en-GB", {
@@ -312,6 +281,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     setWidgets(safeWidgets);
     setWidgetOrder(Array.from(new Set([CORE_WIDGET_ID, ...restoredOrder])));
     setCheckinSize(cached.checkinSize ?? "1x1");
+    setTogetherSince(cached.togetherSince ?? null);
     setShowEmptySlots(cached.showEmptySlots ?? false);
     setIconTileBgColor(cached.iconTileBgColor ?? DEFAULT_ICON_TILE_BG_COLOR);
     setIconTileBgOpacity(
@@ -341,6 +311,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       widgetOrder,
       widgets,
       checkinSize,
+      togetherSince,
       showEmptySlots,
       iconTileBgColor,
       iconTileBgOpacity,
@@ -349,6 +320,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   }, [
     appIconConfigs,
     checkinSize,
+    togetherSince,
     iconOrder,
     iconTileBgColor,
     iconTileBgOpacity,
@@ -431,47 +403,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   }, [widgets]);
 
 
-
-  const loadCheckinData = useCallback(async () => {
-    if (!user) {
-      return;
-    }
-    setCheckinLoading(true);
-    try {
-      const [recent, total] = await Promise.all([
-        fetchRecentCheckins(60),
-        fetchCheckinTotalCount(),
-      ]);
-      setCheckinDates(recent.map((entry) => entry.checkinDate));
-      setCheckinTotal(total);
-    } catch (error) {
-      console.warn("加载打卡记录失败", error);
-      setNotice("加载打卡数据失败，请稍后重试");
-    } finally {
-      setCheckinLoading(false);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    void loadCheckinData();
-  }, [loadCheckinData]);
-
-  const handleCheckin = async () => {
-    if (!user || checkedToday || checkinSubmitting) {
-      return;
-    }
-    setCheckinSubmitting(true);
-    try {
-      const result = await createTodayCheckin(todayKey);
-      setNotice(result === "created" ? "打卡成功！" : "今日已打卡");
-      await loadCheckinData();
-    } catch (error) {
-      console.warn("打卡失败", error);
-      setNotice("打卡失败，请稍后重试");
-    } finally {
-      setCheckinSubmitting(false);
-    }
-  };
 
   const moveInList = (list: string[], fromId: string, toIndex: number) => {
     const fromIndex = list.indexOf(fromId);
@@ -921,78 +852,50 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                         ) : null}
                         {isCheckin ? (
                           <article
-                            className={`checkin-inner ${item.size === "2x1" ? "checkin-wide" : ""}`}
+                            className={`together-inner ${item.size === "2x1" ? "together-wide" : ""}`}
                           >
-                            {item.size === "2x1" ? (
-                              <>
-                                <div className="checkin-wide-left">
-                                  <div className="checkin-streak-hero">
-                                    <strong>{streakDays}</strong>
-                                    <span>Days Together</span>
+                            <div className="together-date">{dateLabel}</div>
+                            {togetherElapsed ? (
+                              item.size === "2x1" ? (
+                                <div className="together-counter together-counter-wide">
+                                  <div className="together-counter-main">
+                                    <strong>{togetherElapsed.days}</strong>
+                                    <span>天</span>
                                   </div>
-                                  <div className="checkin-metrics-mini">
-                                    <span>累计陪伴 {checkinTotal} 天</span>
-                                    <span>{dateLabel}</span>
-                                  </div>
-                                  <div className="checkin-stamp-row">
-                                    <button
-                                      type="button"
-                                      className={`checkin-stamp-button ${checkedToday ? "checked" : "unchecked"}`}
-                                      disabled={
-                                        checkedToday ||
-                                        checkinSubmitting ||
-                                        checkinLoading
-                                      }
-                                      onClick={() => void handleCheckin()}
-                                    >
-                                      {checkedToday
-                                        ? "已陪伴 💖"
-                                        : checkinSubmitting
-                                          ? "盖章中…"
-                                          : "打卡 / Stamp"}
-                                    </button>
+                                  <div className="together-counter-sub">
+                                    {String(togetherElapsed.hours).padStart(2, "0")}:
+                                    {String(togetherElapsed.minutes).padStart(2, "0")}:
+                                    {String(togetherElapsed.seconds).padStart(2, "0")}
                                   </div>
                                 </div>
-                                <div className="weekly-tracker" aria-label="weekly checkin tracker">
-                                  {weeklyTracker.map((day) => (
-                                    <div key={day.dateKey} className="weekly-day-item">
-                                      <span
-                                        className={`weekly-dot ${day.checked ? "checked" : "unchecked"} ${day.isToday ? "today" : ""}`}
-                                        aria-label={`${day.label} ${day.checked ? "已打卡" : "未打卡"}`}
-                                      >
-                                        {day.checked ? "✓" : ""}
-                                      </span>
-                                      <small>{day.label}</small>
-                                    </div>
-                                  ))}
+                              ) : (
+                                <div className="together-counter">
+                                  <strong>{togetherElapsed.days}</strong>
+                                  <span className="together-counter-unit">天</span>
+                                  <span className="together-counter-time">
+                                    {String(togetherElapsed.hours).padStart(2, "0")}:
+                                    {String(togetherElapsed.minutes).padStart(2, "0")}:
+                                    {String(togetherElapsed.seconds).padStart(2, "0")}
+                                  </span>
                                 </div>
-                              </>
+                              )
                             ) : (
-                              <>
-                                <div className="checkin-streak-hero">
-                                  <strong>{streakDays}</strong>
-                                  <span>Days Together</span>
-                                </div>
-                                <div className="checkin-stamp-row">
-                                  <button
-                                    type="button"
-                                    className={`checkin-stamp-button ${checkedToday ? "checked" : "unchecked"}`}
-                                    disabled={
-                                      checkedToday ||
-                                      checkinSubmitting ||
-                                      checkinLoading
-                                    }
-                                    onClick={() => void handleCheckin()}
-                                  >
-                                    {checkedToday
-                                      ? "已陪伴 💖"
-                                      : checkinSubmitting
-                                        ? "盖章中…"
-                                        : "打卡 / Stamp"}
-                                  </button>
-                                </div>
-                              </>
+                              <div className="together-empty">
+                                {editMode ? "下方填写起始时间" : "进入编辑模式设置起始时间"}
+                              </div>
                             )}
+                            {editMode ? (
+                              <label className="together-input">
+                                <span>起始时间</span>
+                                <input
+                                  type="datetime-local"
+                                  value={togetherInputValue}
+                                  onChange={(event) =>
+                                    handleTogetherSinceChange(event.target.value)
+                                  }
+                                />
+                              </label>
+                            ) : null}
                           </article>
                         ) : widget ? (
                           widget.type === "text" ? (
