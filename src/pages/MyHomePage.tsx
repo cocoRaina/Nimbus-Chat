@@ -6,6 +6,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import LocalAvatar from '../components/LocalAvatar'
 import { fetchOpenRouter } from '../api/openrouter'
+import { recordUsage } from '../storage/usageStats'
 import type { SnackPost, SnackReply } from '../types'
 import {
   createSnackPost,
@@ -462,10 +463,25 @@ const MyHomePage = ({ user, snackAiConfig }: MyHomePageProps) => {
       .filter((value): value is string => typeof value === 'string' && value.length > 0)
       .join('')
 
+    const resolvedModel = typeof payload.model === 'string' ? payload.model : snackAiConfig.model
+    const usage = payload.usage as
+      | { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+      | undefined
+    if (user && usage) {
+      void recordUsage({
+        userId: user.id,
+        model: resolvedModel,
+        promptTokens: Number(usage.prompt_tokens ?? 0),
+        completionTokens: Number(usage.completion_tokens ?? 0),
+        totalTokens: Number(usage.total_tokens ?? 0),
+        source: 'snacks',
+      })
+    }
+
     return {
       content: content || '（空回复）',
       reasoningText: reasoningText || undefined,
-      model: typeof payload.model === 'string' ? payload.model : snackAiConfig.model,
+      model: resolvedModel,
     }
   }
 

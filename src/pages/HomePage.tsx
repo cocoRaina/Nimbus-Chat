@@ -54,6 +54,7 @@ const DEFAULT_ICON_ORDER = [
   "memory",
   "snacks",
   "syzygy",
+  "usage",
   "settings",
   "export",
 ];
@@ -185,6 +186,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       },
       { id: "snacks", defaultEmoji: "🍪", label: "我的主页", route: "/snacks" },
       { id: "syzygy", defaultEmoji: "📘", label: "TA的主页", route: "/syzygy" },
+      { id: "usage", defaultEmoji: "📊", label: "用量统计", route: "/usage" },
       { id: "settings", defaultEmoji: "⚙️", label: "设置", route: "/settings" },
       { id: "export", defaultEmoji: "📦", label: "导出", route: "/export" },
     ],

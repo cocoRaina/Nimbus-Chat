@@ -50,6 +50,7 @@ import CheckinPage from './pages/CheckinPage'
 import ExportPage from './pages/ExportPage'
 import HomePage from './pages/HomePage'
 import HomeLayoutSettingsPage from './pages/HomeLayoutSettingsPage'
+import UsagePage from './pages/UsagePage'
 import {
   resolveSnackSystemOverlay,
   resolveSyzygyPostPrompt,
@@ -57,6 +58,7 @@ import {
 } from './constants/aiOverlays'
 import { resolveModelId } from './utils/modelResolver'
 import { fetchOpenRouter } from './api/openrouter'
+import { recordUsage } from './storage/usageStats'
 import { isGpt5Auto } from './utils/openrouterReasoning'
 
 const sortSessions = (sessions: ChatSession[]) =>
@@ -660,6 +662,22 @@ const App = () => {
         let flushTimer: number | null = null
         let thinkCarry = ''
         let isInThink = false
+        let lastUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null
+
+        const flushUsageRecord = () => {
+          if (!user || !lastUsage) {
+            return
+          }
+          void recordUsage({
+            userId: user.id,
+            model: actualModel,
+            promptTokens: Number(lastUsage.prompt_tokens ?? 0),
+            completionTokens: Number(lastUsage.completion_tokens ?? 0),
+            totalTokens: Number(lastUsage.total_tokens ?? 0),
+            source: 'chat',
+          })
+          lastUsage = null
+        }
 
         const openTag = '<think>'
         const closeTag = '</think>'
@@ -831,6 +849,7 @@ const App = () => {
             top_p: paramsSnapshot.top_p,
             max_tokens: paramsSnapshot.max_tokens,
             stream: true,
+            usage: { include: true },
             isFirstMessage: isFirstMessageInSession,
           }
           if (reasoningEnabled && isClaudeModel(effectiveModel)) {
@@ -866,6 +885,9 @@ const App = () => {
               const payload = (await response.json()) as Record<string, unknown>
               if (typeof payload?.model === 'string') {
                 actualModel = payload.model
+              }
+              if (payload?.usage && typeof payload.usage === 'object') {
+                lastUsage = payload.usage as { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
               }
               const choice = (payload as { choices?: unknown[] })?.choices?.[0] as
                 | Record<string, unknown>
@@ -917,6 +939,7 @@ const App = () => {
                 session.id === sessionId ? { ...session, updatedAt } : session,
               )
               applySnapshot(updatedSessions, updatedMessages)
+              flushUsageRecord()
             } catch (error) {
               console.warn('解析非流式响应失败', error)
               throw error
@@ -958,6 +981,9 @@ const App = () => {
                 const delta = typeof deltaPayload?.content === 'string' ? deltaPayload.content : ''
                 if (payload?.model) {
                   actualModel = payload.model
+                }
+                if (payload?.usage && typeof payload.usage === 'object') {
+                  lastUsage = payload.usage
                 }
                 const explicitReasoning =
                   typeof deltaPayload?.reasoning === 'string' && deltaPayload.reasoning.length > 0
@@ -1013,12 +1039,14 @@ const App = () => {
             session.id === sessionId ? { ...session, updatedAt } : session,
           )
           applySnapshot(updatedSessions, updatedMessages)
+          flushUsageRecord()
         } catch (error) {
           if (flushTimer !== null) {
             window.clearTimeout(flushTimer)
             flushTimer = null
           }
           flushPending()
+          flushUsageRecord()
           if (error instanceof DOMException && error.name === 'AbortError') {
             if (assistantContent.trim().length > 0) {
               const { message: assistantMessage, updatedAt } = await addRemoteMessage(
@@ -1405,6 +1433,14 @@ const App = () => {
           element={
             <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
               <ExportPage user={user} />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/usage"
+          element={
+            <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
+              <UsagePage user={user} />
             </RequireAuth>
           }
         />
