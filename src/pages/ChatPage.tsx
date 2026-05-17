@@ -52,6 +52,7 @@ const ChatPage = ({
   const [headerMenuPosition, setHeaderMenuPosition] = useState({ top: 0, right: 0 })
   const [pendingDelete, setPendingDelete] = useState<ChatMessage | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const hasScrolledOnceRef = useRef(false)
   const headerMenuRef = useRef<HTMLDivElement | null>(null)
   const headerMenuButtonRef = useRef<HTMLButtonElement | null>(null)
   const actionTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({})
@@ -116,7 +117,13 @@ const ChatPage = ({
   }, [defaultModel, enabledModels, sessionOverride])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!bottomRef.current) {
+      return
+    }
+    bottomRef.current.scrollIntoView({
+      behavior: hasScrolledOnceRef.current ? 'smooth' : 'auto',
+    })
+    hasScrolledOnceRef.current = true
   }, [messages.length])
 
   useEffect(() => {
