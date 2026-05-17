@@ -152,7 +152,7 @@ const renderMarkdown = (
   modules: ExportModules,
   data: ExportDataBundle,
 ) => {
-  const lines: string[] = ['# Nibble Chat 导出', `- 导出时间: ${exportedAtIso}`, '- 版本: 1', '']
+  const lines: string[] = ['# Nimbus Chat 导出', `- 导出时间: ${exportedAtIso}`, '- 版本: 1', '']
 
   if (modules.chat) {
     lines.push('## 聊天区')
