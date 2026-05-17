@@ -125,12 +125,22 @@ const updateMessage = (messages: ChatMessage[], next: ChatMessage) =>
 
 const initialSnapshot = loadSnapshot()
 
-type OutgoingMessage =
-  | { role: string; content: string }
-  | {
-      role: string
-      content: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
-    }
+type StreamingToolCall = {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+type ChatRequestMessage =
+  | { role: 'system' | 'user'; content: string }
+  | { role: 'assistant'; content: string | null; tool_calls?: StreamingToolCall[] }
+  | { role: 'tool'; tool_call_id: string; content: string }
+
+type OutgoingTextBlock = {
+  type: 'text'
+  text: string
+  cache_control?: { type: 'ephemeral' }
+}
 
 // For Claude / Anthropic models on OpenRouter, mark up to two cache breakpoints
 // so prompt caching can kick in: the system prompt and the prior conversation
@@ -138,9 +148,9 @@ type OutgoingMessage =
 // price and the cache lives 5 minutes — great for active multi-turn chats.
 // Non-Claude models are returned untouched.
 const applyClaudeCaching = (
-  messages: Array<{ role: string; content: string }>,
+  messages: ChatRequestMessage[],
   model: string,
-): OutgoingMessage[] => {
+): unknown[] => {
   if (!/claude|anthropic/i.test(model) || messages.length === 0) {
     return messages
   }
@@ -154,21 +164,60 @@ const applyClaudeCaching = (
     breakpoints.add(messages.length - 2)
   }
   return messages.map((msg, idx) => {
+    // Only wrap plain text content; leave tool_calls / tool result messages untouched
     if (!breakpoints.has(idx)) {
       return msg
     }
+    if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+      return msg
+    }
+    if (msg.role === 'tool') {
+      return msg
+    }
+    const text = typeof msg.content === 'string' ? msg.content : ''
     return {
       role: msg.role,
       content: [
         {
           type: 'text' as const,
-          text: msg.content,
+          text,
           cache_control: { type: 'ephemeral' as const },
         },
-      ],
+      ] as OutgoingTextBlock[],
     }
   })
 }
+
+// Tool definitions exposed to the LLM.
+const TOOL_SEARCH_MEMORY = {
+  type: 'function' as const,
+  function: {
+    name: 'search_memory',
+    description:
+      '搜索用户的长期记忆库（含偏好、习惯、过去事件、关系细节等）。当用户提到「记得 / 之前 / 我喜欢 / 我有 / 我们」之类需要回忆具体细节的内容，或你需要确认某件用户已告诉过你的事时调用。基于向量语义检索，按相似度返回最相关的若干条。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: '搜索关键词，建议用自然语言描述要找什么（如「用户对食物的偏好」「克劳德的性格特征」）',
+        },
+        count: {
+          type: 'integer',
+          description: '返回多少条结果，1-20，默认 5',
+        },
+        category: {
+          type: 'string',
+          description: '可选，限定某个分类，不填则搜全部分类',
+        },
+      },
+      required: ['query'],
+    },
+  },
+}
+
+const isToolCapableModel = (model: string) =>
+  /claude|anthropic|gpt-4|gpt-5|openai\//i.test(model)
 
 const App = () => {
   const navigate = useNavigate()
@@ -851,64 +900,77 @@ const App = () => {
               summarizerModel: activeSettings.summarizerModel,
             },
           )
-          const messagesPayload: Array<{ role: string; content: string }> = []
+          const baseMessages: ChatRequestMessage[] = []
           if (compressionOutcome.systemPromptText.trim()) {
-            messagesPayload.push({ role: 'system', content: compressionOutcome.systemPromptText })
+            baseMessages.push({ role: 'system', content: compressionOutcome.systemPromptText })
           }
           if (compressionOutcome.summaryText) {
-            messagesPayload.push({
+            baseMessages.push({
               role: 'system',
               content: `## 前面对话的摘要（用作上下文，不要直接复述）\n${compressionOutcome.summaryText}`,
             })
           }
           for (const message of compressionOutcome.recentMessages) {
-            messagesPayload.push({ role: message.role, content: message.content })
+            baseMessages.push({ role: message.role, content: message.content } as ChatRequestMessage)
           }
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
-          const cachedMessages = applyClaudeCaching(messagesPayload, effectiveModel)
-          const requestBody: Record<string, unknown> = {
-            model: effectiveModel,
-            modelId: effectiveModel,
-            module: 'chitchat',
-            conversationId: sessionId,
-            messages: cachedMessages,
-            temperature: paramsSnapshot.temperature,
-            top_p: paramsSnapshot.top_p,
-            max_tokens: paramsSnapshot.max_tokens,
-            stream: true,
-            usage: { include: true },
-            isFirstMessage: isFirstMessageInSession,
-          }
-          if (reasoningEnabled && isClaudeModel(effectiveModel)) {
-            requestBody.reasoning = {
-              effort: 'high',
-            }
-          }
-          if (
-            reasoningEnabled &&
-            activeSettings.chatHighReasoningEnabled &&
-            isGpt5Auto(effectiveModel)
-          ) {
-            requestBody.reasoning = {
-              effort: 'high',
-            }
-          }
+          const toolsEnabled = isToolCapableModel(effectiveModel) && Boolean(supabase)
+          const MAX_TOOL_ITERATIONS = 4
+
           const controller = new AbortController()
           streamingControllerRef.current?.abort()
           streamingControllerRef.current = controller
           setIsStreaming(true)
-          const response = await fetchOpenRouter('/chat/completions', {
-            body: requestBody,
-            signal: controller.signal,
-          })
-          if (!response.ok) {
-            const errorText = await response.text()
-            throw new Error(errorText || '请求失败')
-          }
-          const contentType = response.headers.get('content-type') ?? ''
-          const isEventStream = contentType.includes('text/event-stream')
-          if (!isEventStream) {
-            try {
+
+          let iteration = 0
+          let conversationDone = false
+
+          while (!conversationDone && iteration < MAX_TOOL_ITERATIONS) {
+            iteration++
+            const cachedMessages = applyClaudeCaching(baseMessages, effectiveModel)
+            const requestBody: Record<string, unknown> = {
+              model: effectiveModel,
+              modelId: effectiveModel,
+              module: 'chitchat',
+              conversationId: sessionId,
+              messages: cachedMessages,
+              temperature: paramsSnapshot.temperature,
+              top_p: paramsSnapshot.top_p,
+              max_tokens: paramsSnapshot.max_tokens,
+              stream: true,
+              usage: { include: true },
+              isFirstMessage: isFirstMessageInSession,
+            }
+            if (toolsEnabled) {
+              requestBody.tools = [TOOL_SEARCH_MEMORY]
+              requestBody.tool_choice = 'auto'
+            }
+            if (reasoningEnabled && isClaudeModel(effectiveModel)) {
+              requestBody.reasoning = { effort: 'high' }
+            }
+            if (
+              reasoningEnabled &&
+              activeSettings.chatHighReasoningEnabled &&
+              isGpt5Auto(effectiveModel)
+            ) {
+              requestBody.reasoning = { effort: 'high' }
+            }
+
+            const response = await fetchOpenRouter('/chat/completions', {
+              body: requestBody,
+              signal: controller.signal,
+            })
+            if (!response.ok) {
+              const errorText = await response.text()
+              throw new Error(errorText || '请求失败')
+            }
+            const contentType = response.headers.get('content-type') ?? ''
+            const isEventStream = contentType.includes('text/event-stream')
+
+            const accumulatedToolCalls = new Map<number, StreamingToolCall>()
+            let finishReason: string | null = null
+
+            if (!isEventStream) {
               const payload = (await response.json()) as Record<string, unknown>
               if (typeof payload?.model === 'string') {
                 actualModel = payload.model
@@ -928,7 +990,7 @@ const App = () => {
                     : ''
               if (content) {
                 const { contentChunk, reasoningChunk } = splitReasoningFromContent(content)
-                assistantContent = contentChunk
+                assistantContent += contentChunk
                 if (reasoningChunk) {
                   appendReasoningDelta(reasoningChunk, 'thinking', 'final')
                 }
@@ -949,105 +1011,183 @@ const App = () => {
                   appendReasoningDelta(payloadReasoning.text, payloadReasoning.type, 'final')
                 }
               }
-              const { message: assistantMessage, updatedAt } = await addRemoteMessage(
-                sessionId,
-                user.id,
-                'assistant',
-                assistantContent,
-                assistantClientId,
-                assistantClientCreatedAt,
-                buildAssistantMeta(false),
-              )
-              const updatedMessages = updateMessage(messagesRef.current, {
-                ...assistantMessage,
-                pending: false,
-              })
-              const updatedSessions = sessionsRef.current.map((session) =>
-                session.id === sessionId ? { ...session, updatedAt } : session,
-              )
-              applySnapshot(updatedSessions, updatedMessages)
-              flushUsageRecord()
-            } catch (error) {
-              console.warn('解析非流式响应失败', error)
-              throw error
-            }
-            return
-          }
-          if (!response.body) {
-            throw new Error('响应体为空')
-          }
-          const reader = response.body.getReader()
-          const decoder = new TextDecoder('utf-8')
-          let buffer = ''
-          let done = false
-          while (!done) {
-            const { value, done: readerDone } = await reader.read()
-            if (readerDone) {
-              break
-            }
-            buffer += decoder.decode(value, { stream: true })
-            const events = buffer.split('\n\n')
-            buffer = events.pop() ?? ''
-            for (const event of events) {
-              const data = event
-                .split('\n')
-                .map((line) => line.trim())
-                .filter((line) => line.startsWith('data:'))
-                .map((line) => line.replace(/^data:\s*/, ''))
-                .join('\n')
-              if (!data) {
-                continue
-              }
-              if (data === '[DONE]') {
-                done = true
-                break
-              }
-              try {
-                const payload = JSON.parse(data)
-                const deltaPayload = payload?.choices?.[0]?.delta ?? {}
-                const delta = typeof deltaPayload?.content === 'string' ? deltaPayload.content : ''
-                if (payload?.model) {
-                  actualModel = payload.model
-                }
-                if (payload?.usage && typeof payload.usage === 'object') {
-                  lastUsage = payload.usage
-                }
-                const explicitReasoning =
-                  typeof deltaPayload?.reasoning === 'string' && deltaPayload.reasoning.length > 0
-                    ? deltaPayload.reasoning
-                    : ''
-                if (explicitReasoning) {
-                  appendReasoningDelta(explicitReasoning, 'reasoning')
-                  scheduleFlush()
-                }
-                const deltaReasoning = collectReasoningFromObject(
-                  deltaPayload as Record<string, unknown>,
-                )
-                if (deltaReasoning.text && deltaReasoning.text !== explicitReasoning) {
-                  appendReasoningDelta(deltaReasoning.text, deltaReasoning.type)
-                  scheduleFlush()
-                }
-                if (delta) {
-                  const { contentChunk, reasoningChunk } = splitReasoningFromContent(delta)
-                  if (contentChunk) {
-                    pendingDelta += contentChunk
+              const toolCallsField = (message as { tool_calls?: unknown[] })?.tool_calls
+              if (Array.isArray(toolCallsField)) {
+                toolCallsField.forEach((rawTc, idx) => {
+                  const tc = rawTc as {
+                    index?: number
+                    id?: string
+                    function?: { name?: string; arguments?: string }
                   }
-                  if (reasoningChunk) {
-                    appendReasoningDelta(reasoningChunk, 'thinking')
-                  }
-                  scheduleFlush()
+                  const slot = tc.index ?? idx
+                  accumulatedToolCalls.set(slot, {
+                    id: tc.id ?? `call_${slot}`,
+                    type: 'function',
+                    function: {
+                      name: tc.function?.name ?? '',
+                      arguments: tc.function?.arguments ?? '',
+                    },
+                  })
+                })
+              }
+              const fr = (choice as { finish_reason?: unknown })?.finish_reason
+              if (typeof fr === 'string') {
+                finishReason = fr
+              }
+            } else {
+              if (!response.body) {
+                throw new Error('响应体为空')
+              }
+              const reader = response.body.getReader()
+              const decoder = new TextDecoder('utf-8')
+              let buffer = ''
+              let done = false
+              while (!done) {
+                const { value, done: readerDone } = await reader.read()
+                if (readerDone) {
+                  break
                 }
-              } catch (error) {
-                console.warn('解析流式响应失败', error)
+                buffer += decoder.decode(value, { stream: true })
+                const events = buffer.split('\n\n')
+                buffer = events.pop() ?? ''
+                for (const event of events) {
+                  const data = event
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter((line) => line.startsWith('data:'))
+                    .map((line) => line.replace(/^data:\s*/, ''))
+                    .join('\n')
+                  if (!data) {
+                    continue
+                  }
+                  if (data === '[DONE]') {
+                    done = true
+                    break
+                  }
+                  try {
+                    const payload = JSON.parse(data)
+                    const choice = payload?.choices?.[0] ?? {}
+                    const deltaPayload = choice?.delta ?? {}
+                    const delta = typeof deltaPayload?.content === 'string' ? deltaPayload.content : ''
+                    if (payload?.model) {
+                      actualModel = payload.model
+                    }
+                    if (payload?.usage && typeof payload.usage === 'object') {
+                      lastUsage = payload.usage
+                    }
+                    if (typeof choice?.finish_reason === 'string') {
+                      finishReason = choice.finish_reason
+                    }
+                    const explicitReasoning =
+                      typeof deltaPayload?.reasoning === 'string' && deltaPayload.reasoning.length > 0
+                        ? deltaPayload.reasoning
+                        : ''
+                    if (explicitReasoning) {
+                      appendReasoningDelta(explicitReasoning, 'reasoning')
+                      scheduleFlush()
+                    }
+                    const deltaReasoning = collectReasoningFromObject(
+                      deltaPayload as Record<string, unknown>,
+                    )
+                    if (deltaReasoning.text && deltaReasoning.text !== explicitReasoning) {
+                      appendReasoningDelta(deltaReasoning.text, deltaReasoning.type)
+                      scheduleFlush()
+                    }
+                    if (delta) {
+                      const { contentChunk, reasoningChunk } = splitReasoningFromContent(delta)
+                      if (contentChunk) {
+                        pendingDelta += contentChunk
+                      }
+                      if (reasoningChunk) {
+                        appendReasoningDelta(reasoningChunk, 'thinking')
+                      }
+                      scheduleFlush()
+                    }
+                    if (Array.isArray(deltaPayload?.tool_calls)) {
+                      for (const rawTc of deltaPayload.tool_calls as Array<{
+                        index?: number
+                        id?: string
+                        function?: { name?: string; arguments?: string }
+                      }>) {
+                        const slot = rawTc.index ?? 0
+                        const existing =
+                          accumulatedToolCalls.get(slot) ?? {
+                            id: '',
+                            type: 'function' as const,
+                            function: { name: '', arguments: '' },
+                          }
+                        if (rawTc.id) existing.id = rawTc.id
+                        if (rawTc.function?.name) existing.function.name = rawTc.function.name
+                        if (typeof rawTc.function?.arguments === 'string') {
+                          existing.function.arguments += rawTc.function.arguments
+                        }
+                        accumulatedToolCalls.set(slot, existing)
+                      }
+                    }
+                  } catch (parseError) {
+                    console.warn('解析流式响应失败', parseError)
+                  }
+                }
               }
             }
-          }
 
-          if (flushTimer !== null) {
-            window.clearTimeout(flushTimer)
-            flushTimer = null
+            if (flushTimer !== null) {
+              window.clearTimeout(flushTimer)
+              flushTimer = null
+            }
+            flushPending()
+            flushUsageRecord()
+
+            const toolCallsArr = Array.from(accumulatedToolCalls.values()).filter(
+              (tc) => tc.function.name.length > 0,
+            )
+            if (
+              toolsEnabled &&
+              toolCallsArr.length > 0 &&
+              (finishReason === 'tool_calls' || finishReason === null)
+            ) {
+              baseMessages.push({
+                role: 'assistant',
+                content: assistantContent || '',
+                tool_calls: toolCallsArr,
+              })
+              for (const tc of toolCallsArr) {
+                let resultText: string
+                try {
+                  if (tc.function.name === 'search_memory' && supabase) {
+                    let args: Record<string, unknown> = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>
+                    } catch (jsonError) {
+                      console.warn('解析 search_memory 参数失败', jsonError)
+                    }
+                    const { data, error } = await supabase.functions.invoke('search_memory', {
+                      body: {
+                        query: args.query,
+                        count: args.count,
+                        category: args.category,
+                      },
+                    })
+                    resultText = error
+                      ? JSON.stringify({ error: error.message ?? String(error) })
+                      : JSON.stringify(data ?? {})
+                  } else {
+                    resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })
+                  }
+                } catch (toolError) {
+                  resultText = JSON.stringify({ error: String(toolError) })
+                }
+                baseMessages.push({
+                  role: 'tool',
+                  tool_call_id: tc.id,
+                  content: resultText,
+                })
+              }
+              // Loop back for another model turn
+              continue
+            }
+            conversationDone = true
           }
-          flushPending()
 
           const { message: assistantMessage, updatedAt } = await addRemoteMessage(
             sessionId,
@@ -1066,7 +1206,6 @@ const App = () => {
             session.id === sessionId ? { ...session, updatedAt } : session,
           )
           applySnapshot(updatedSessions, updatedMessages)
-          flushUsageRecord()
         } catch (error) {
           if (flushTimer !== null) {
             window.clearTimeout(flushTimer)
