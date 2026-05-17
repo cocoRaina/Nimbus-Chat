@@ -31,7 +31,6 @@ type SettingsPageProps = {
   settings: UserSettings | null
   ready: boolean
   onSaveSettings: (nextSettings: UserSettings) => Promise<void>
-  onSaveMemoryExtractModel: (modelId: string | null) => Promise<void>
   onSaveSnackSystemPrompt: (value: string) => Promise<void>
   onSaveSyzygyPostPrompt: (value: string) => Promise<void>
   onSaveSyzygyReplyPrompt: (value: string) => Promise<void>
@@ -44,7 +43,6 @@ const SettingsPage = ({
   settings,
   ready,
   onSaveSettings,
-  onSaveMemoryExtractModel,
   onSaveSnackSystemPrompt,
   onSaveSyzygyPostPrompt,
   onSaveSyzygyReplyPrompt,
@@ -65,7 +63,6 @@ const SettingsPage = ({
   const [modelSectionExpanded, setModelSectionExpanded] = useState(false)
   const [generationSectionExpanded, setGenerationSectionExpanded] = useState(false)
   const [reasoningSectionExpanded, setReasoningSectionExpanded] = useState(false)
-  const [memorySectionExpanded, setMemorySectionExpanded] = useState(false)
   const [compressionSectionExpanded, setCompressionSectionExpanded] = useState(false)
   const [systemPromptSectionExpanded, setSystemPromptSectionExpanded] = useState(false)
   const [openRouterKeySectionExpanded, setOpenRouterKeySectionExpanded] = useState(false)
@@ -77,13 +74,10 @@ const SettingsPage = ({
   const [draftDefaultModel, setDraftDefaultModel] = useState(defaultModelId)
   const [draftChatReasoning, setDraftChatReasoning] = useState(true)
   const [draftChatHighReasoning, setDraftChatHighReasoning] = useState(false)
-  const [draftMemoryExtractModel, setDraftMemoryExtractModel] = useState<string | null>(null)
   const [modelStatus, setModelStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [modelError, setModelError] = useState<string | null>(null)
   const [generationStatus, setGenerationStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [generationError, setGenerationError] = useState<string | null>(null)
-  const [extractModelStatus, setExtractModelStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [extractModelError, setExtractModelError] = useState<string | null>(null)
   const [draftSystemPrompt, setDraftSystemPrompt] = useState('')
   const [systemPromptStatus, setSystemPromptStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [draftSnackSystemPrompt, setDraftSnackSystemPrompt] = useState('')
@@ -125,7 +119,6 @@ const SettingsPage = ({
       setCompressionRatioInput(settings.compressionTriggerRatio.toString())
       setCompressionKeepRecentInput(settings.compressionKeepRecentMessages.toString())
       setDraftSummarizerModel(settings.summarizerModel)
-      setDraftMemoryExtractModel(settings.memoryExtractModel)
       setDraftChatReasoning(settings.chatReasoningEnabled)
       setDraftChatHighReasoning(settings.chatHighReasoningEnabled)
     }, 0)
@@ -318,14 +311,11 @@ const SettingsPage = ({
   const hasUnsavedSyzygyReplyPrompt = settings
     ? draftSyzygyReplyPrompt !== resolveSyzygyReplyPrompt(settings.syzygyReplySystemPrompt)
     : false
-  const hasUnsavedExtractModel =
-    (settings?.memoryExtractModel ?? '') !== (draftMemoryExtractModel ?? '')
   const hasUnsavedPrompt =
     hasUnsavedSystemPrompt ||
     hasUnsavedSnackOverlay ||
     hasUnsavedSyzygyPostPrompt ||
     hasUnsavedSyzygyReplyPrompt ||
-    hasUnsavedExtractModel ||
     hasUnsavedModelSettings ||
     hasUnsavedGeneration
 
@@ -491,26 +481,6 @@ const SettingsPage = ({
     setGenerationStatus('idle')
   }
 
-  const resolvedExtractModel = draftMemoryExtractModel?.trim()
-    ? draftMemoryExtractModel
-    : draftDefaultModel
-  const extractModelValid = draftEnabledModels.includes(resolvedExtractModel)
-  const handleSaveExtractModel = async () => {
-    if (!hasUnsavedExtractModel || !extractModelValid) {
-      return
-    }
-    setExtractModelStatus('saving')
-    setExtractModelError(null)
-    try {
-      await onSaveMemoryExtractModel(draftMemoryExtractModel)
-      setExtractModelStatus('saved')
-    } catch (error) {
-      console.warn('保存记忆抽取模型失败', error)
-      setExtractModelStatus('error')
-      setExtractModelError('保存失败，请稍后重试。')
-    }
-  }
-
   const handleSaveGenerationSettings = async () => {
     if (!settings || !generationDraftValid || !hasUnsavedGeneration) {
       return
@@ -673,7 +643,6 @@ const SettingsPage = ({
       setMaxTokensInput(settings.maxTokens.toString())
       setDraftEnabledModels(settings.enabledModels)
       setDraftDefaultModel(settings.defaultModel)
-      setDraftMemoryExtractModel(settings.memoryExtractModel)
       setDraftChatReasoning(settings.chatReasoningEnabled)
       setDraftChatHighReasoning(settings.chatHighReasoningEnabled)
       setModelStatus('idle')
@@ -707,9 +676,6 @@ const SettingsPage = ({
     }
     if (hasUnsavedModelSettings) {
       void handleSaveModelSettings()
-    }
-    if (hasUnsavedExtractModel) {
-      void handleSaveExtractModel()
     }
     if (hasUnsavedSyzygyPostPrompt) {
       void handleSaveSyzygyPostPrompt()
@@ -1055,61 +1021,6 @@ const SettingsPage = ({
               </label>
             </div>
             <p className="field-help">仅对 GPT-5.1 / GPT-5.2 生效；其他模型自动忽略。开启后会更积极触发思考（可能更慢/更耗费）。</p>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="settings-section" role="listitem">
-        <button
-          type="button"
-          className="collapse-header"
-          onClick={() => setMemorySectionExpanded((current) => !current)}
-          aria-expanded={memorySectionExpanded}
-        >
-          <span className="section-title">
-            <span className="section-icon" aria-hidden="true">🗂️</span>
-            <h2 className="ui-title">记忆相关</h2>
-            <p>配置记忆抽取模型；自动提取与归并可在记忆库中设置。</p>
-          </span>
-          <span className="collapse-indicator" aria-hidden="true">›</span>
-        </button>
-        {memorySectionExpanded ? (
-          <div className="accordion-content">
-            <div className="field-group">
-              <label htmlFor="memoryExtractModel">Memory Extract Model</label>
-              <select
-                id="memoryExtractModel"
-                value={draftMemoryExtractModel ?? ''}
-                onChange={(event) => {
-                  const next = event.target.value.trim()
-                  setDraftMemoryExtractModel(next.length > 0 ? next : null)
-                  setExtractModelStatus('idle')
-                }}
-              >
-                <option value="">跟随默认模型（{draftDefaultModel}）</option>
-                {draftEnabledModels.map((modelId) => (
-                  <option key={modelId} value={modelId}>
-                    {catalogMap.get(modelId) ?? modelId}
-                  </option>
-                ))}
-              </select>
-              {!extractModelValid ? (
-                <span className="field-error">所选模型不在 enabled_models 中，请先启用该模型。</span>
-              ) : null}
-              <div className="system-prompt-actions">
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => void handleSaveExtractModel()}
-                  disabled={!hasUnsavedExtractModel || !extractModelValid || extractModelStatus === 'saving'}
-                >
-                  {extractModelStatus === 'saving' ? '保存中…' : '保存'}
-                </button>
-                {hasUnsavedExtractModel ? <span className="system-prompt-status">有未保存修改</span> : null}
-                {extractModelStatus === 'saved' ? <span className="system-prompt-status">已保存</span> : null}
-                {extractModelStatus === 'error' ? <span className="field-error">{extractModelError}</span> : null}
-              </div>
-            </div>
           </div>
         ) : null}
       </section>

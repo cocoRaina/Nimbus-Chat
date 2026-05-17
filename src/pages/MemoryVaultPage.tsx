@@ -1,418 +1,272 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { ExtractMessageInput, MemoryEntry } from '../types'
+import type { Memory } from '../types'
 import {
-  confirmMemory,
   createMemory,
-  discardMemory,
+  deleteMemory,
   listMemories,
   updateMemory,
 } from '../storage/supabaseSync'
-import { invokeMemoryExtraction } from '../storage/memoryExtraction'
-import { loadMemoryMergeEnabled, saveMemoryMergeEnabled } from '../storage/userSettings'
-import { supabase } from '../supabase/client'
 import './MemoryVaultPage.css'
 
-const MemoryVaultPage = ({
-  recentMessages,
-  autoExtractEnabled,
-  onToggleAutoExtract,
-}: {
-  recentMessages: ExtractMessageInput[]
-  autoExtractEnabled: boolean
-  onToggleAutoExtract: (enabled: boolean) => Promise<void>
-}) => {
+const DEFAULT_CATEGORY = '日常'
+const ALL_CATEGORY = '__all__'
+
+const parseTagsInput = (raw: string): string[] => {
+  return raw
+    .split(/[,，;；\n]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0)
+}
+
+const stringifyTags = (tags: string[]) => tags.join('、')
+
+type DraftState = {
+  content: string
+  category: string
+  tagsInput: string
+}
+
+const emptyDraft = (): DraftState => ({
+  content: '',
+  category: DEFAULT_CATEGORY,
+  tagsInput: '',
+})
+
+const MemoryVaultPage = () => {
   const navigate = useNavigate()
-  const [confirmed, setConfirmed] = useState<MemoryEntry[]>([])
-  const [pending, setPending] = useState<MemoryEntry[]>([])
-  const [newMemory, setNewMemory] = useState('')
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editingDraft, setEditingDraft] = useState('')
+  const [memories, setMemories] = useState<Memory[]>([])
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [draft, setDraft] = useState<DraftState>(emptyDraft())
   const [saving, setSaving] = useState(false)
-  const [extracting, setExtracting] = useState(false)
-  const [extractMessage, setExtractMessage] = useState<string | null>(null)
-  const [mergeEnabled, setMergeEnabled] = useState(true)
-  const [mergeSaving, setMergeSaving] = useState(false)
-  const [autoExtractSaving, setAutoExtractSaving] = useState(false)
+  const [filterCategory, setFilterCategory] = useState<string>(ALL_CATEGORY)
+  const [searchTerm, setSearchTerm] = useState('')
 
-  const loadMemories = useCallback(async () => {
-    try {
-      const [confirmedRows, pendingRows] = await Promise.all([
-        listMemories('confirmed'),
-        listMemories('pending'),
-      ])
-      setConfirmed(confirmedRows)
-      setPending(pendingRows)
-      setError(null)
-    } catch (loadError) {
-      console.warn('加载记忆失败', loadError)
-      setError('加载记忆失败，请稍后重试')
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadMemories()
-  }, [loadMemories])
-
-  useEffect(() => {
-    if (!supabase) {
-      return
-    }
-    const client = supabase
-    let active = true
-    const loadMergeEnabled = async () => {
-      try {
-        const {
-          data: { user },
-          error: userError,
-        } = await client.auth.getUser()
-        if (userError || !user || !active) {
-          return
-        }
-        const enabled = await loadMemoryMergeEnabled(user.id)
-        if (active) {
-          setMergeEnabled(enabled)
-        }
-      } catch (loadError) {
-        console.warn('读取归并设置失败', loadError)
-      }
-    }
-    void loadMergeEnabled()
-    return () => {
-      active = false
-    }
-  }, [])
-
-  const handleToggleMerge = async () => {
-    if (!supabase || mergeSaving) {
-      return
-    }
-    const client = supabase
-    try {
-      setMergeSaving(true)
-      const {
-        data: { user },
-        error: userError,
-      } = await client.auth.getUser()
-      if (userError || !user) {
-        throw userError ?? new Error('登录状态异常，请重新登录')
-      }
-      const nextEnabled = !mergeEnabled
-      await saveMemoryMergeEnabled(user.id, nextEnabled)
-      setMergeEnabled(nextEnabled)
-    } catch (toggleError) {
-      console.warn('保存归并设置失败', toggleError)
-      setError('保存归并设置失败，请稍后重试')
-    } finally {
-      setMergeSaving(false)
-    }
-  }
-
-  const handleCreate = async () => {
-    const trimmed = newMemory.trim()
-    if (!trimmed) {
-      return
-    }
-    setSaving(true)
-    try {
-      await createMemory(trimmed)
-      setNewMemory('')
-      await loadMemories()
-    } catch (createError) {
-      console.warn('创建记忆失败', createError)
-      setError('创建记忆失败，请稍后重试')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleToggleAutoExtract = async () => {
-    if (autoExtractSaving) {
-      return
-    }
-    try {
-      setAutoExtractSaving(true)
-      setError(null)
-      await onToggleAutoExtract(!autoExtractEnabled)
-    } catch (toggleError) {
-      console.warn('保存自动抽取设置失败', toggleError)
-      setError('保存自动抽取设置失败，请稍后重试')
-    } finally {
-      setAutoExtractSaving(false)
-    }
-  }
-
-  const handleSaveEdit = async (id: string) => {
-    const trimmed = editingDraft.trim()
-    if (!trimmed) {
-      return
-    }
-    setSaving(true)
-    try {
-      await updateMemory(id, trimmed)
-      setEditingId(null)
-      setEditingDraft('')
-      await loadMemories()
-    } catch (updateError) {
-      console.warn('更新记忆失败', updateError)
-      setError('更新记忆失败，请稍后重试')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleConfirm = async (entry: MemoryEntry, editedContent?: string) => {
-    setSaving(true)
-    try {
-      await confirmMemory(entry.id, editedContent)
-      if (editingId === entry.id) {
-        setEditingId(null)
-        setEditingDraft('')
-      }
-      await loadMemories()
-    } catch (confirmError) {
-      console.warn('确认记忆失败', confirmError)
-      setError('确认记忆失败，请稍后重试')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDiscard = async (id: string) => {
-    setSaving(true)
-    try {
-      await discardMemory(id)
-      await loadMemories()
-    } catch (discardError) {
-      console.warn('删除记忆失败', discardError)
-      setError('删除记忆失败，请稍后重试')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleExtractSuggestions = async () => {
-    if (extracting) {
-      return
-    }
-    setExtracting(true)
-    setExtractMessage(null)
+  const refresh = useCallback(async () => {
+    setLoading(true)
     setError(null)
     try {
-      const result = await invokeMemoryExtraction(recentMessages, mergeEnabled)
-      setExtractMessage(`已抽取建议：新增 ${result.inserted} 条，跳过 ${result.skipped} 条。`)
-      await loadMemories()
-    } catch (extractError) {
-      console.warn('抽取建议失败', extractError)
-      setError(extractError instanceof Error ? extractError.message : '抽取建议失败，请稍后重试')
+      const rows = await listMemories()
+      setMemories(rows)
+    } catch (loadError) {
+      console.warn('加载记忆失败', loadError)
+      setError('加载失败，请检查网络或登录状态')
     } finally {
-      setExtracting(false)
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const categories = useMemo(() => {
+    const set = new Set<string>()
+    for (const m of memories) {
+      if (m.category) set.add(m.category)
+    }
+    return Array.from(set).sort()
+  }, [memories])
+
+  const filtered = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
+    return memories.filter((memory) => {
+      if (filterCategory !== ALL_CATEGORY && memory.category !== filterCategory) return false
+      if (!term) return true
+      if (memory.content.toLowerCase().includes(term)) return true
+      if (memory.tags.some((tag) => tag.toLowerCase().includes(term))) return true
+      return false
+    })
+  }, [memories, filterCategory, searchTerm])
+
+  const startNew = () => {
+    setEditingId(null)
+    setDraft(emptyDraft())
+  }
+
+  const startEdit = (memory: Memory) => {
+    setEditingId(memory.id)
+    setDraft({
+      content: memory.content,
+      category: memory.category,
+      tagsInput: stringifyTags(memory.tags),
+    })
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setDraft(emptyDraft())
+  }
+
+  const handleSave = async () => {
+    const content = draft.content.trim()
+    if (!content) {
+      setError('记忆内容不能为空')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      const tags = parseTagsInput(draft.tagsInput)
+      const category = draft.category.trim() || DEFAULT_CATEGORY
+      if (editingId !== null) {
+        await updateMemory(editingId, { content, category, tags })
+      } else {
+        await createMemory({ content, category, tags })
+      }
+      cancelEdit()
+      await refresh()
+    } catch (saveError) {
+      console.warn('保存记忆失败', saveError)
+      setError('保存失败，请稍后重试')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm('确认删除这条记忆？')) return
+    try {
+      await deleteMemory(id)
+      if (editingId === id) cancelEdit()
+      await refresh()
+    } catch (deleteError) {
+      console.warn('删除记忆失败', deleteError)
+      setError('删除失败，请稍后重试')
     }
   }
 
   return (
-    <div className="memory-page">
-      <header className="memory-header">
-        <button type="button" className="ghost" onClick={() => navigate(-1)}>
-          返回
+    <main className="memory-vault-page app-shell">
+      <header className="memory-vault-header">
+        <button type="button" className="ghost back" onClick={() => navigate(-1)}>
+          ← 返回
         </button>
         <h1 className="ui-title">记忆库</h1>
-        <button type="button" className="ghost" onClick={() => navigate('/')}>
-          聊天
+        <button type="button" className="ghost" onClick={() => void refresh()} disabled={loading}>
+          {loading ? '刷新中…' : '刷新'}
         </button>
       </header>
 
-      <section className="memory-section memory-section--archive">
-        <h2 className="ui-title">我们的珍藏 (Archived Memories)</h2>
-        <div className="memory-memo-pad">
+      <p className="memory-vault-hint">
+        这里写下的记忆会自动生成向量 embedding，AI 在聊天时可以语义检索。
+      </p>
+
+      {error ? <p className="memory-vault-error">{error}</p> : null}
+
+      <section className="memory-vault-editor">
+        <h2 className="ui-title">{editingId !== null ? '编辑记忆' : '新增记忆'}</h2>
+        <label className="memory-vault-field">
+          <span>内容</span>
           <textarea
-            value={newMemory}
-            onChange={(event) => setNewMemory(event.target.value)}
-            placeholder="写下一条值得收藏的记忆碎片..."
-            rows={3}
+            value={draft.content}
+            onChange={(event) => setDraft((s) => ({ ...s, content: event.target.value }))}
+            placeholder="写一条值得 AI 记住的事..."
+            rows={4}
           />
-          <button
-            type="button"
-            className="memory-save-sticker"
-            onClick={handleCreate}
-            disabled={saving || !newMemory.trim()}
-          >
-            Save
-          </button>
+        </label>
+        <div className="memory-vault-row">
+          <label className="memory-vault-field">
+            <span>分类</span>
+            <input
+              type="text"
+              value={draft.category}
+              onChange={(event) => setDraft((s) => ({ ...s, category: event.target.value }))}
+              placeholder={DEFAULT_CATEGORY}
+              list="memory-category-suggestions"
+            />
+            <datalist id="memory-category-suggestions">
+              {categories.map((category) => (
+                <option key={category} value={category} />
+              ))}
+            </datalist>
+          </label>
+          <label className="memory-vault-field">
+            <span>标签（逗号/分号分隔）</span>
+            <input
+              type="text"
+              value={draft.tagsInput}
+              onChange={(event) => setDraft((s) => ({ ...s, tagsInput: event.target.value }))}
+              placeholder="例如：偏好, 食物, 健康"
+            />
+          </label>
         </div>
-        <div className="memory-list memory-list--archive">
-          {confirmed.length === 0 ? <p className="tips">暂无 confirmed 记忆</p> : null}
-          {confirmed.map((entry) => (
-            <article key={entry.id} className="memory-card memory-card--archive">
-              <span className="memory-washi" aria-hidden="true" />
-              {editingId === entry.id ? (
-                <textarea
-                  rows={3}
-                  value={editingDraft}
-                  onChange={(event) => setEditingDraft(event.target.value)}
-                />
-              ) : (
-                <p>{entry.content}</p>
-              )}
-              <div className="memory-actions">
-                {editingId === entry.id ? (
-                  <>
-                    <button type="button" onClick={() => void handleSaveEdit(entry.id)} disabled={saving}>
-                      保存编辑
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost"
-                      onClick={() => {
-                        setEditingId(null)
-                        setEditingDraft('')
-                      }}
-                    >
-                      取消
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingId(entry.id)
-                        setEditingDraft(entry.content)
-                      }}
-                    >
-                      编辑
-                    </button>
-                    <button type="button" className="danger" onClick={() => void handleDiscard(entry.id)}>
-                      删除
-                    </button>
-                  </>
-                )}
-              </div>
-            </article>
-          ))}
+        <div className="memory-vault-editor-actions">
+          <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
+            {saving ? '保存中…' : editingId !== null ? '保存修改' : '添加'}
+          </button>
+          {editingId !== null ? (
+            <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
+              取消
+            </button>
+          ) : (
+            <button type="button" className="ghost" onClick={startNew} disabled={saving}>
+              清空
+            </button>
+          )}
         </div>
       </section>
 
-      <div className="memory-divider" aria-hidden="true">
-        <span className="memory-divider-line" />
-        <span className="memory-divider-bow">🎀</span>
-        <span className="memory-divider-line" />
-      </div>
-
-      <section className="memory-section memory-section--pending">
-        <div className="memory-section-heading">
-          <h2 className="ui-title">提取碎片</h2>
-        </div>
-        <div className="memory-control-bar">
-          <div className="memory-toggle-group">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoExtractEnabled}
-              className={`ios-toggle ${autoExtractEnabled ? 'is-on' : 'is-off'}`}
-              onClick={() => void handleToggleAutoExtract()}
-              disabled={autoExtractSaving}
-            >
-              <span className="ios-toggle-track" aria-hidden="true">
-                <span className="ios-toggle-thumb" />
-              </span>
-              <span className="ios-toggle-label">自动提取候选记忆（会产生费用）</span>
-            </button>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={mergeEnabled}
-              className={`ios-toggle ${mergeEnabled ? 'is-on' : 'is-off'}`}
-              onClick={() => void handleToggleMerge()}
-              disabled={mergeSaving}
-            >
-              <span className="ios-toggle-track" aria-hidden="true">
-                <span className="ios-toggle-thumb" />
-              </span>
-              <span className="ios-toggle-label">自动归并同类项（额外模型调用）</span>
-            </button>
-          </div>
-          <button
-            type="button"
-            className="extract-button"
-            onClick={() => void handleExtractSuggestions()}
-            disabled={extracting || recentMessages.length === 0}
+      <section className="memory-vault-list">
+        <div className="memory-vault-toolbar">
+          <input
+            className="memory-vault-search"
+            type="search"
+            placeholder="搜索内容 / 标签"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+          />
+          <select
+            className="memory-vault-filter"
+            value={filterCategory}
+            onChange={(event) => setFilterCategory(event.target.value)}
           >
-            ✨ {extracting ? 'Extracting…' : 'Extract suggestions'}
-          </button>
+            <option value={ALL_CATEGORY}>全部分类（{memories.length}）</option>
+            {categories.map((category) => (
+              <option key={category} value={category}>
+                {category}（{memories.filter((m) => m.category === category).length}）
+              </option>
+            ))}
+          </select>
         </div>
-        {recentMessages.length === 0 ? <p className="tips">暂无可抽取的聊天上下文</p> : null}
-        {extractMessage ? <p className="tips">{extractMessage}</p> : null}
-        <div className="memory-list memory-list--pending">
-          {pending.length === 0 ? <p className="tips">暂无 pending 记忆</p> : null}
-          {pending.map((entry) => (
-            <article key={entry.id} className="memory-card memory-card--pending">
-              {editingId === entry.id ? (
-                <textarea
-                  rows={3}
-                  value={editingDraft}
-                  onChange={(event) => setEditingDraft(event.target.value)}
-                />
-              ) : (
-                <p>{entry.content}</p>
-              )}
-              <div className="memory-actions">
-                {editingId === entry.id ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void handleConfirm(entry, editingDraft.trim())}
-                      disabled={saving || !editingDraft.trim()}
-                    >
-                      编辑并确认
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost"
-                      onClick={() => {
-                        setEditingId(null)
-                        setEditingDraft('')
-                      }}
-                    >
-                      取消
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="stamp-button stamp-button--approve"
-                      onClick={() => void handleConfirm(entry)}
-                      disabled={saving}
-                    >
-                      💗 Keep
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingId(entry.id)
-                        setEditingDraft(entry.content)
-                      }}
-                    >
-                      编辑+确认
-                    </button>
-                    <button
-                      type="button"
-                      className="stamp-button stamp-button--reject"
-                      onClick={() => void handleDiscard(entry.id)}
-                    >
-                      🗑 Reject
-                    </button>
-                  </>
-                )}
-              </div>
-            </article>
-          ))}
-        </div>
+
+        {filtered.length === 0 ? (
+          <p className="memory-vault-empty">
+            {memories.length === 0 ? '还没有记忆，写一条试试。' : '没有匹配的记忆。'}
+          </p>
+        ) : (
+          <ul className="memory-vault-items">
+            {filtered.map((memory) => (
+              <li key={memory.id} className={`memory-vault-item ${editingId === memory.id ? 'editing' : ''}`}>
+                <div className="memory-vault-item-meta">
+                  <span className="memory-vault-item-category">{memory.category}</span>
+                  {memory.tags.length > 0 ? (
+                    <span className="memory-vault-item-tags">
+                      {memory.tags.map((tag) => (
+                        <span key={tag} className="tag">
+                          #{tag}
+                        </span>
+                      ))}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="memory-vault-item-content">{memory.content}</p>
+                <div className="memory-vault-item-actions">
+                  <button type="button" className="ghost" onClick={() => startEdit(memory)}>
+                    编辑
+                  </button>
+                  <button type="button" className="danger" onClick={() => void handleDelete(memory.id)}>
+                    删除
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
-      {error ? <p className="error">{error}</p> : null}
-    </div>
+    </main>
   )
 }
 

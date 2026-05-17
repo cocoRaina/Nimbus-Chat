@@ -2,8 +2,7 @@ import type {
   ChatMessage,
   ChatSession,
   CheckinEntry,
-  MemoryEntry,
-  MemoryStatus,
+  Memory,
   SnackPost,
   SnackReply,
   SyzygyPost,
@@ -78,15 +77,13 @@ type SyzygyReplyRow = {
   is_deleted: boolean
 }
 
-type MemoryEntryRow = {
-  id: string
-  user_id: string
+type MemoryRow = {
+  id: number
+  category: string | null
   content: string
-  source: string
-  status: MemoryStatus
+  tags: string[] | null
   created_at: string
   updated_at: string
-  is_deleted: boolean
 }
 
 type CheckinRow = {
@@ -138,16 +135,16 @@ const mapSyzygyReplyRow = (row: SyzygyReplyRow): SyzygyReply => ({
   modelId: row.model_id ?? null,
 })
 
-const mapMemoryEntryRow = (row: MemoryEntryRow): MemoryEntry => ({
+const mapMemoryRow = (row: MemoryRow): Memory => ({
   id: row.id,
-  userId: row.user_id,
+  category: row.category ?? '日常',
   content: row.content,
-  source: row.source,
-  status: row.status,
+  tags: row.tags ?? [],
   createdAt: row.created_at,
   updatedAt: row.updated_at,
-  isDeleted: row.is_deleted,
 })
+
+const MEMORY_SELECT_FIELDS = 'id,category,content,tags,created_at,updated_at'
 
 const mapCheckinRow = (row: CheckinRow): CheckinEntry => ({
   id: row.id,
@@ -829,120 +826,100 @@ export const permanentlyDeleteSyzygyReply = async (replyId: string): Promise<voi
   }
 }
 
-export const listMemories = async (status: MemoryStatus): Promise<MemoryEntry[]> => {
+export const listMemories = async (): Promise<Memory[]> => {
   if (!supabase) {
     return []
   }
-  const userId = await requireAuthenticatedUserId()
   const { data, error } = await supabase
-    .from('memory_entries')
-    .select('id,user_id,content,source,status,created_at,updated_at,is_deleted')
-    .eq('user_id', userId)
-    .eq('status', status)
-    .eq('is_deleted', false)
+    .from('memories')
+    .select(MEMORY_SELECT_FIELDS)
     .order('created_at', { ascending: false })
   if (error) {
     throw error
   }
-  return (data ?? []).map((row) => mapMemoryEntryRow(row as MemoryEntryRow))
+  return (data ?? []).map((row) => mapMemoryRow(row as MemoryRow))
 }
 
-export const fetchPendingMemoryCount = async (userId: string): Promise<number> => {
-  if (!supabase) {
-    return 0
-  }
-  const { count, error } = await supabase
-    .from('memory_entries')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .eq('status', 'pending')
-    .eq('is_deleted', false)
-  if (error) {
-    throw error
-  }
-  return count ?? 0
-}
-
-export const createMemory = async (content: string): Promise<MemoryEntry> => {
+export const createMemory = async (input: {
+  content: string
+  category?: string
+  tags?: string[]
+}): Promise<Memory> => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
   }
-  const userId = await requireAuthenticatedUserId()
-  const now = new Date().toISOString()
   const { data, error } = await supabase
-    .from('memory_entries')
+    .from('memories')
     .insert({
-      user_id: userId,
-      content,
-      source: 'user_created',
-      status: 'confirmed',
-      created_at: now,
-      updated_at: now,
-      is_deleted: false,
+      content: input.content,
+      category: input.category?.trim() || '日常',
+      tags: input.tags ?? [],
     })
-    .select('id,user_id,content,source,status,created_at,updated_at,is_deleted')
+    .select(MEMORY_SELECT_FIELDS)
     .single()
   if (error || !data) {
     throw error ?? new Error('创建记忆失败')
   }
-  return mapMemoryEntryRow(data as MemoryEntryRow)
+  return mapMemoryRow(data as MemoryRow)
 }
 
-export const updateMemory = async (id: string, content: string): Promise<MemoryEntry> => {
+export const updateMemory = async (
+  id: number,
+  patch: {
+    content?: string
+    category?: string
+    tags?: string[]
+  },
+): Promise<Memory> => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
   }
-  const now = new Date().toISOString()
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (typeof patch.content === 'string') updates.content = patch.content
+  if (typeof patch.category === 'string') updates.category = patch.category.trim() || '日常'
+  if (Array.isArray(patch.tags)) updates.tags = patch.tags
+  // When content changes, clear embedding so the trigger recomputes it via auto_embed.
+  if (typeof patch.content === 'string') {
+    updates.embedding = null
+  }
   const { data, error } = await supabase
-    .from('memory_entries')
-    .update({ content, source: 'user_edited', updated_at: now })
+    .from('memories')
+    .update(updates)
     .eq('id', id)
-    .eq('is_deleted', false)
-    .select('id,user_id,content,source,status,created_at,updated_at,is_deleted')
+    .select(MEMORY_SELECT_FIELDS)
     .single()
   if (error || !data) {
     throw error ?? new Error('更新记忆失败')
   }
-  return mapMemoryEntryRow(data as MemoryEntryRow)
+  return mapMemoryRow(data as MemoryRow)
 }
 
-export const confirmMemory = async (id: string, content?: string): Promise<MemoryEntry> => {
+export const deleteMemory = async (id: number): Promise<void> => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
   }
-  const now = new Date().toISOString()
-  const updates: Record<string, unknown> = {
-    status: 'confirmed',
-    updated_at: now,
-  }
-  if (typeof content === 'string') {
-    updates.content = content
-    updates.source = 'user_edited'
-  }
-  const { data, error } = await supabase
-    .from('memory_entries')
-    .update(updates)
-    .eq('id', id)
-    .eq('is_deleted', false)
-    .select('id,user_id,content,source,status,created_at,updated_at,is_deleted')
-    .single()
-  if (error || !data) {
-    throw error ?? new Error('确认记忆失败')
-  }
-  return mapMemoryEntryRow(data as MemoryEntryRow)
-}
-
-export const discardMemory = async (id: string): Promise<void> => {
-  if (!supabase) {
-    throw new Error('Supabase 客户端未配置')
-  }
-  const { error } = await supabase
-    .from('memory_entries')
-    .update({ is_deleted: true, updated_at: new Date().toISOString() })
-    .eq('id', id)
+  const { error } = await supabase.from('memories').delete().eq('id', id)
   if (error) {
     throw error
   }
+}
+
+export const listMemoryCategories = async (): Promise<string[]> => {
+  if (!supabase) {
+    return []
+  }
+  const { data, error } = await supabase
+    .from('memories')
+    .select('category')
+    .order('category', { ascending: true })
+  if (error) {
+    throw error
+  }
+  const set = new Set<string>()
+  for (const row of (data ?? []) as Array<{ category: string | null }>) {
+    if (row.category) set.add(row.category)
+  }
+  return Array.from(set)
 }
 
 export const createTodayCheckin = async (checkinDate: string): Promise<'created' | 'already_checked_in'> => {

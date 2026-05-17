@@ -41,9 +41,6 @@ export type UserSettings = {
   compressionTriggerRatio: number
   compressionKeepRecentMessages: number
   summarizerModel: string | null
-  memoryExtractModel: string | null
-  memoryMergeEnabled: boolean
-  memoryAutoExtractEnabled: boolean
   temperature: number
   topP: number
   maxTokens: number
@@ -54,11 +51,6 @@ export type UserSettings = {
   chatReasoningEnabled: boolean
   chatHighReasoningEnabled: boolean
   updatedAt: string
-}
-
-export type ExtractMessageInput = {
-  role: 'user' | 'assistant' | 'system'
-  content: string
 }
 
 export type SnackPost = {
@@ -107,17 +99,13 @@ export type SyzygyReply = {
   modelId?: string | null
 }
 
-export type MemoryStatus = 'confirmed' | 'pending'
-
-export type MemoryEntry = {
-  id: string
-  userId: string
+export type Memory = {
+  id: number
+  category: string
   content: string
-  source: string
-  status: MemoryStatus
+  tags: string[]
   createdAt: string
   updatedAt: string
-  isDeleted: boolean
 }
 
 export type CheckinEntry = {

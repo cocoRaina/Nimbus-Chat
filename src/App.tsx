@@ -4,7 +4,7 @@ import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-do
 import ChatPage from './pages/ChatPage'
 import AuthPage from './pages/AuthPage'
 import SessionsDrawer from './components/SessionsDrawer'
-import type { ChatMessage, ChatSession, ExtractMessageInput, UserSettings } from './types'
+import type { ChatMessage, ChatSession, UserSettings } from './types'
 import {
   createSession,
   deleteMessage,
@@ -20,13 +20,10 @@ import {
   createDefaultSettings,
   ensureUserSettings,
   saveSnackSystemPrompt,
-  saveMemoryAutoExtractEnabled,
-  saveMemoryExtractModel,
   saveSyzygyPostSystemPrompt,
   saveSyzygyReplySystemPrompt,
   updateUserSettings,
 } from './storage/userSettings'
-import { invokeMemoryExtraction } from './storage/memoryExtraction'
 import {
   addRemoteMessage,
   createRemoteSession,
@@ -34,7 +31,6 @@ import {
   deleteRemoteSession,
   fetchRemoteMessages,
   fetchRemoteSessions,
-  fetchPendingMemoryCount,
   renameRemoteSession,
   updateRemoteSessionArchiveState,
   updateRemoteSessionOverride,
@@ -112,11 +108,6 @@ const createClientId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
 const defaultOpenRouterModel = 'openrouter/auto'
-const AUTO_EXTRACT_USER_TURN_INTERVAL = 12
-const AUTO_EXTRACT_COOLDOWN_MS = 10 * 60 * 1000
-const MEMORY_EXTRACT_RECENT_MESSAGES = 24
-const AUTO_EXTRACT_PENDING_LIMIT = 50
-
 const updateMessage = (messages: ChatMessage[], next: ChatMessage) =>
   sortMessages(
     messages.map((message) =>
@@ -179,22 +170,6 @@ const applyClaudeCaching = (
   })
 }
 
-const buildRecentExtractionMessages = (
-  sessionId: string,
-  messages: ChatMessage[],
-  limit: number,
-): ExtractMessageInput[] => {
-  const scoped = messages
-    .filter((message) => message.sessionId === sessionId && message.content.trim().length > 0)
-    .sort(
-      (a, b) =>
-        new Date(a.clientCreatedAt ?? a.createdAt).getTime() -
-          new Date(b.clientCreatedAt ?? b.createdAt).getTime() ||
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    )
-  return scoped.slice(-limit).map((message) => ({ role: message.role, content: message.content }))
-}
-
 const App = () => {
   const navigate = useNavigate()
   const [sessions, setSessions] = useState<ChatSession[]>(initialSnapshot.sessions)
@@ -207,13 +182,12 @@ const App = () => {
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null)
   const [settingsReady, setSettingsReady] = useState(false)
   const [sessionsReady, setSessionsReady] = useState(false)
-  const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null)
+  const [, setActiveChatSessionId] = useState<string | null>(null)
   const [supabaseConfigured, setSupabaseConfigured] = useState(() => hasSupabaseConfig())
   const sessionsRef = useRef(sessions)
   const messagesRef = useRef(messages)
   const streamingControllerRef = useRef<AbortController | null>(null)
   const settingsRef = useRef<UserSettings | null>(null)
-  const autoExtractStateRef = useRef<Record<string, { lastUserCount: number; lastExtractedAt: number }>>({})
   const fallbackSettings = useMemo(
     () => createDefaultSettings(user?.id ?? 'local'),
     [user?.id],
@@ -1229,25 +1203,6 @@ const App = () => {
     setUserSettings(nextSettings)
   }, [user])
 
-  const handleSaveMemoryExtractModel = useCallback(async (modelId: string | null) => {
-    if (!user) {
-      return
-    }
-    const normalizedModel = modelId?.trim() ? modelId.trim() : null
-    if (supabase) {
-      await saveMemoryExtractModel(user.id, normalizedModel)
-    }
-    setUserSettings((current) => {
-      const base = current ?? createDefaultSettings(user.id)
-      return {
-        ...base,
-        userId: user.id,
-        memoryExtractModel: normalizedModel,
-        updatedAt: new Date().toISOString(),
-      }
-    })
-  }, [user])
-
   const handleSaveSnackSystemPrompt = useCallback(async (nextSnackSystemPrompt: string) => {
     if (!user) {
       return
@@ -1294,80 +1249,6 @@ const App = () => {
     }
     setUserSettings(nextSettings)
   }, [user])
-
-  const handleToggleMemoryAutoExtract = useCallback(async (enabled: boolean) => {
-    if (!user) {
-      return
-    }
-    const nextSettings = {
-      ...(settingsRef.current ?? createDefaultSettings(user.id)),
-      userId: user.id,
-      memoryAutoExtractEnabled: enabled,
-      updatedAt: new Date().toISOString(),
-    }
-    if (supabase) {
-      await saveMemoryAutoExtractEnabled(user.id, enabled)
-    }
-    setUserSettings(nextSettings)
-  }, [user])
-
-  useEffect(() => {
-    if (!user || !supabase || isStreaming || !activeSettings.memoryAutoExtractEnabled) {
-      return
-    }
-    const latestBySession = new Map<string, number>()
-    messages.forEach((message) => {
-      if (message.role !== 'user' || !message.content.trim()) {
-        return
-      }
-      latestBySession.set(message.sessionId, (latestBySession.get(message.sessionId) ?? 0) + 1)
-    })
-
-    latestBySession.forEach((userCount, sessionId) => {
-      if (userCount < AUTO_EXTRACT_USER_TURN_INTERVAL) {
-        return
-      }
-      if (userCount % AUTO_EXTRACT_USER_TURN_INTERVAL !== 0) {
-        return
-      }
-      const currentState =
-        autoExtractStateRef.current[sessionId] ?? { lastUserCount: 0, lastExtractedAt: 0 }
-      const now = Date.now()
-      if (userCount <= currentState.lastUserCount) {
-        return
-      }
-      if (now - currentState.lastExtractedAt < AUTO_EXTRACT_COOLDOWN_MS) {
-        return
-      }
-      autoExtractStateRef.current[sessionId] = {
-        lastUserCount: userCount,
-        lastExtractedAt: currentState.lastExtractedAt,
-      }
-      const recentMessages = buildRecentExtractionMessages(
-        sessionId,
-        messagesRef.current,
-        MEMORY_EXTRACT_RECENT_MESSAGES,
-      )
-      if (recentMessages.length === 0) {
-        return
-      }
-      void (async () => {
-        try {
-          const pendingCount = await fetchPendingMemoryCount(user.id)
-          if (pendingCount >= AUTO_EXTRACT_PENDING_LIMIT) {
-            return
-          }
-          autoExtractStateRef.current[sessionId] = {
-            lastUserCount: userCount,
-            lastExtractedAt: Date.now(),
-          }
-          await invokeMemoryExtraction(recentMessages, activeSettings.memoryMergeEnabled)
-        } catch (error) {
-          console.warn('自动抽取记忆建议失败', error)
-        }
-      })()
-    })
-  }, [activeSettings.memoryAutoExtractEnabled, activeSettings.memoryMergeEnabled, isStreaming, messages, user])
 
 
   return (
@@ -1506,7 +1387,6 @@ const App = () => {
                 settings={userSettings}
                 ready={settingsReady}
                 onSaveSettings={handleSaveSettings}
-                onSaveMemoryExtractModel={handleSaveMemoryExtractModel}
                 onSaveSnackSystemPrompt={handleSaveSnackSystemPrompt}
                 onSaveSyzygyPostPrompt={handleSaveSyzygyPostSystemPrompt}
                 onSaveSyzygyReplyPrompt={handleSaveSyzygyReplySystemPrompt}
@@ -1527,15 +1407,7 @@ const App = () => {
           path="/memory-vault"
           element={
             <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
-              <MemoryVaultPage
-                recentMessages={buildRecentExtractionMessages(
-                  activeChatSessionId ?? latestSession?.id ?? '',
-                  messages,
-                  MEMORY_EXTRACT_RECENT_MESSAGES,
-                )}
-                autoExtractEnabled={activeSettings.memoryAutoExtractEnabled}
-                onToggleAutoExtract={handleToggleMemoryAutoExtract}
-              />
+              <MemoryVaultPage />
             </RequireAuth>
           }
         />

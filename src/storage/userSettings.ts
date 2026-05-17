@@ -13,13 +13,10 @@ type UserSettingsRow = {
   user_id: string
   enabled_models: string[] | null
   default_model: string | null
-  memory_extract_model: string | null
   compression_enabled: boolean | null
   compression_trigger_ratio: number | null
   compression_keep_recent_messages: number | null
   summarizer_model: string | null
-  memory_merge_enabled: boolean | null
-  memory_auto_extract_enabled: boolean | null
   temperature: number | null
   top_p: number | null
   max_tokens: number | null
@@ -88,9 +85,6 @@ export const createDefaultSettings = (userId: string): UserSettings => ({
   compressionTriggerRatio: 0.65,
   compressionKeepRecentMessages: 20,
   summarizerModel: 'openai/gpt-4o-mini',
-  memoryExtractModel: null,
-  memoryMergeEnabled: true,
-  memoryAutoExtractEnabled: false,
   temperature: 0.7,
   topP: 0.9,
   maxTokens: 1024,
@@ -113,9 +107,6 @@ const mapSettingsRow = (row: UserSettingsRow): UserSettings => {
     compressionTriggerRatio: row.compression_trigger_ratio ?? 0.65,
     compressionKeepRecentMessages: row.compression_keep_recent_messages ?? 20,
     summarizerModel: row.summarizer_model?.trim() ? row.summarizer_model : null,
-    memoryExtractModel: row.memory_extract_model?.trim() ? row.memory_extract_model : null,
-    memoryMergeEnabled: row.memory_merge_enabled ?? true,
-    memoryAutoExtractEnabled: row.memory_auto_extract_enabled ?? false,
     temperature: row.temperature ?? 0.7,
     topP: row.top_p ?? 0.9,
     maxTokens: row.max_tokens ?? 1024,
@@ -136,7 +127,7 @@ export const ensureUserSettings = async (userId: string): Promise<UserSettings> 
   const { data, error } = await supabase
     .from('user_settings')
     .select(
-      'user_id,enabled_models,default_model,memory_extract_model,compression_enabled,compression_trigger_ratio,compression_keep_recent_messages,summarizer_model,memory_merge_enabled,memory_auto_extract_enabled,temperature,top_p,max_tokens,system_prompt,user_home_system_prompt,assistant_post_system_prompt,assistant_reply_system_prompt,enable_reasoning,chat_reasoning_enabled,updated_at',
+      'user_id,enabled_models,default_model,compression_enabled,compression_trigger_ratio,compression_keep_recent_messages,summarizer_model,temperature,top_p,max_tokens,system_prompt,user_home_system_prompt,assistant_post_system_prompt,assistant_reply_system_prompt,enable_reasoning,chat_reasoning_enabled,updated_at',
     )
     .eq('user_id', userId)
     .maybeSingle()
@@ -152,13 +143,10 @@ export const ensureUserSettings = async (userId: string): Promise<UserSettings> 
         user_id: defaults.userId,
         enabled_models: defaults.enabledModels,
         default_model: defaults.defaultModel,
-        memory_extract_model: defaults.memoryExtractModel,
         compression_enabled: defaults.compressionEnabled,
         compression_trigger_ratio: defaults.compressionTriggerRatio,
         compression_keep_recent_messages: defaults.compressionKeepRecentMessages,
         summarizer_model: defaults.summarizerModel,
-        memory_merge_enabled: defaults.memoryMergeEnabled,
-        memory_auto_extract_enabled: defaults.memoryAutoExtractEnabled,
         temperature: defaults.temperature,
         top_p: defaults.topP,
         max_tokens: defaults.maxTokens,
@@ -171,7 +159,7 @@ export const ensureUserSettings = async (userId: string): Promise<UserSettings> 
         updated_at: now,
       })
       .select(
-        'user_id,enabled_models,default_model,memory_extract_model,compression_enabled,compression_trigger_ratio,compression_keep_recent_messages,summarizer_model,memory_merge_enabled,memory_auto_extract_enabled,temperature,top_p,max_tokens,system_prompt,user_home_system_prompt,assistant_post_system_prompt,assistant_reply_system_prompt,enable_reasoning,chat_reasoning_enabled,updated_at',
+        'user_id,enabled_models,default_model,compression_enabled,compression_trigger_ratio,compression_keep_recent_messages,summarizer_model,temperature,top_p,max_tokens,system_prompt,user_home_system_prompt,assistant_post_system_prompt,assistant_reply_system_prompt,enable_reasoning,chat_reasoning_enabled,updated_at',
       )
       .single()
     if (insertError || !inserted) {
@@ -192,13 +180,10 @@ export const updateUserSettings = async (settings: UserSettings): Promise<void> 
     .update({
       enabled_models: settings.enabledModels,
       default_model: settings.defaultModel,
-      memory_extract_model: settings.memoryExtractModel,
       compression_enabled: settings.compressionEnabled,
       compression_trigger_ratio: settings.compressionTriggerRatio,
       compression_keep_recent_messages: settings.compressionKeepRecentMessages,
       summarizer_model: settings.summarizerModel,
-      memory_merge_enabled: settings.memoryMergeEnabled,
-      memory_auto_extract_enabled: settings.memoryAutoExtractEnabled,
       temperature: settings.temperature,
       top_p: settings.topP,
       max_tokens: settings.maxTokens,
@@ -235,79 +220,6 @@ export const saveSnackSystemPrompt = async (userId: string, value: string): Prom
     throw error
   }
 }
-
-export const saveMemoryExtractModel = async (
-  userId: string,
-  modelId: string | null,
-): Promise<void> => {
-  if (!supabase) {
-    throw new Error('Supabase 客户端未配置')
-  }
-  const now = new Date().toISOString()
-  const { error } = await supabase
-    .from('user_settings')
-    .update({
-      memory_extract_model: modelId,
-      updated_at: now,
-    })
-    .eq('user_id', userId)
-  if (error) {
-    throw error
-  }
-}
-
-export const loadMemoryMergeEnabled = async (userId: string): Promise<boolean> => {
-  if (!supabase) {
-    throw new Error('Supabase 客户端未配置')
-  }
-  const { data, error } = await supabase
-    .from('user_settings')
-    .select('memory_merge_enabled')
-    .eq('user_id', userId)
-    .maybeSingle<{ memory_merge_enabled: boolean | null }>()
-  if (error) {
-    throw error
-  }
-  return data?.memory_merge_enabled ?? true
-}
-
-export const saveMemoryMergeEnabled = async (userId: string, enabled: boolean): Promise<void> => {
-  if (!supabase) {
-    throw new Error('Supabase 客户端未配置')
-  }
-  const now = new Date().toISOString()
-  const { error } = await supabase
-    .from('user_settings')
-    .update({
-      memory_merge_enabled: enabled,
-      updated_at: now,
-    })
-    .eq('user_id', userId)
-  if (error) {
-    throw error
-  }
-}
-
-export const saveMemoryAutoExtractEnabled = async (
-  userId: string,
-  enabled: boolean,
-): Promise<void> => {
-  if (!supabase) {
-    throw new Error('Supabase 客户端未配置')
-  }
-  const now = new Date().toISOString()
-  const { error } = await supabase
-    .from('user_settings')
-    .update({
-      memory_auto_extract_enabled: enabled,
-      updated_at: now,
-    })
-    .eq('user_id', userId)
-  if (error) {
-    throw error
-  }
-}
-
 
 export const saveSyzygyPostSystemPrompt = async (userId: string, value: string): Promise<void> => {
   if (!supabase) {
