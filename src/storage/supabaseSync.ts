@@ -2,6 +2,8 @@ import type {
   ChatMessage,
   ChatSession,
   CheckinEntry,
+  Diary,
+  HandoffLetter,
   Memory,
   SnackPost,
   SnackReply,
@@ -458,8 +460,10 @@ export const restoreSnackPost = async (postId: string): Promise<void> => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
   }
-  const { error } = await supabase.rpc('restore_snack_post', { p_post_id: postId })
-
+  const { error } = await supabase
+    .from('user_posts')
+    .update({ is_deleted: false, deleted_at: null })
+    .eq('id', postId)
   if (error) {
     throw error
   }
@@ -469,8 +473,10 @@ export const softDeleteSnackPost = async (postId: string): Promise<void> => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
   }
-  const { error } = await supabase.rpc('soft_delete_snack_post', { p_post_id: postId })
-
+  const { error } = await supabase
+    .from('user_posts')
+    .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+    .eq('id', postId)
   if (error) {
     throw error
   }
@@ -534,7 +540,10 @@ export const softDeleteSnackReply = async (replyId: string): Promise<void> => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
   }
-  const { error } = await supabase.rpc('soft_delete_snack_reply', { p_reply_id: replyId })
+  const { error } = await supabase
+    .from('user_replies')
+    .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+    .eq('id', replyId)
 
   if (error) {
     throw error
@@ -971,4 +980,167 @@ export const fetchCheckinTotalCount = async (): Promise<number> => {
     throw error
   }
   return count ?? 0
+}
+
+// ----- Diaries -----
+
+type DiaryRow = {
+  id: number
+  date: string
+  title: string | null
+  author: string | null
+  mood: string | null
+  content: string
+  created_at: string
+}
+
+const DIARY_SELECT_FIELDS = 'id,date,title,author,mood,content,created_at'
+
+const mapDiaryRow = (row: DiaryRow): Diary => ({
+  id: row.id,
+  date: row.date,
+  title: row.title,
+  author: row.author,
+  mood: row.mood,
+  content: row.content,
+  createdAt: row.created_at,
+})
+
+export const listDiaries = async (): Promise<Diary[]> => {
+  if (!supabase) return []
+  const { data, error } = await supabase
+    .from('diaries')
+    .select(DIARY_SELECT_FIELDS)
+    .order('date', { ascending: false })
+  if (error) throw error
+  return (data ?? []).map((row) => mapDiaryRow(row as DiaryRow))
+}
+
+export const createDiary = async (input: {
+  date: string
+  title?: string | null
+  author?: string | null
+  mood?: string | null
+  content: string
+}): Promise<Diary> => {
+  if (!supabase) throw new Error('Supabase 客户端未配置')
+  const { data, error } = await supabase
+    .from('diaries')
+    .insert({
+      date: input.date,
+      title: input.title ?? null,
+      author: input.author ?? null,
+      mood: input.mood ?? null,
+      content: input.content,
+    })
+    .select(DIARY_SELECT_FIELDS)
+    .single()
+  if (error || !data) throw error ?? new Error('创建日记失败')
+  return mapDiaryRow(data as DiaryRow)
+}
+
+export const updateDiary = async (
+  id: number,
+  patch: { date?: string; title?: string | null; author?: string | null; mood?: string | null; content?: string },
+): Promise<Diary> => {
+  if (!supabase) throw new Error('Supabase 客户端未配置')
+  const updates: Record<string, unknown> = {}
+  if (typeof patch.date === 'string') updates.date = patch.date
+  if (patch.title !== undefined) updates.title = patch.title
+  if (patch.author !== undefined) updates.author = patch.author
+  if (patch.mood !== undefined) updates.mood = patch.mood
+  if (typeof patch.content === 'string') updates.content = patch.content
+  const { data, error } = await supabase
+    .from('diaries')
+    .update(updates)
+    .eq('id', id)
+    .select(DIARY_SELECT_FIELDS)
+    .single()
+  if (error || !data) throw error ?? new Error('更新日记失败')
+  return mapDiaryRow(data as DiaryRow)
+}
+
+export const deleteDiary = async (id: number): Promise<void> => {
+  if (!supabase) throw new Error('Supabase 客户端未配置')
+  const { error } = await supabase.from('diaries').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ----- Handoff Letters -----
+
+type HandoffLetterRow = {
+  id: number
+  date: string
+  title: string | null
+  content: string
+  signature: string | null
+  created_at: string
+}
+
+const LETTER_SELECT_FIELDS = 'id,date,title,content,signature,created_at'
+
+const mapLetterRow = (row: HandoffLetterRow): HandoffLetter => ({
+  id: row.id,
+  date: row.date,
+  title: row.title,
+  content: row.content,
+  signature: row.signature,
+  createdAt: row.created_at,
+})
+
+export const listHandoffLetters = async (): Promise<HandoffLetter[]> => {
+  if (!supabase) return []
+  const { data, error } = await supabase
+    .from('handoff_letters')
+    .select(LETTER_SELECT_FIELDS)
+    .order('date', { ascending: false })
+  if (error) throw error
+  return (data ?? []).map((row) => mapLetterRow(row as HandoffLetterRow))
+}
+
+export const createHandoffLetter = async (input: {
+  date: string
+  title?: string | null
+  content: string
+  signature?: string | null
+}): Promise<HandoffLetter> => {
+  if (!supabase) throw new Error('Supabase 客户端未配置')
+  const { data, error } = await supabase
+    .from('handoff_letters')
+    .insert({
+      date: input.date,
+      title: input.title ?? null,
+      content: input.content,
+      signature: input.signature ?? null,
+    })
+    .select(LETTER_SELECT_FIELDS)
+    .single()
+  if (error || !data) throw error ?? new Error('创建交接信失败')
+  return mapLetterRow(data as HandoffLetterRow)
+}
+
+export const updateHandoffLetter = async (
+  id: number,
+  patch: { date?: string; title?: string | null; content?: string; signature?: string | null },
+): Promise<HandoffLetter> => {
+  if (!supabase) throw new Error('Supabase 客户端未配置')
+  const updates: Record<string, unknown> = {}
+  if (typeof patch.date === 'string') updates.date = patch.date
+  if (patch.title !== undefined) updates.title = patch.title
+  if (typeof patch.content === 'string') updates.content = patch.content
+  if (patch.signature !== undefined) updates.signature = patch.signature
+  const { data, error } = await supabase
+    .from('handoff_letters')
+    .update(updates)
+    .eq('id', id)
+    .select(LETTER_SELECT_FIELDS)
+    .single()
+  if (error || !data) throw error ?? new Error('更新交接信失败')
+  return mapLetterRow(data as HandoffLetterRow)
+}
+
+export const deleteHandoffLetter = async (id: number): Promise<void> => {
+  if (!supabase) throw new Error('Supabase 客户端未配置')
+  const { error } = await supabase.from('handoff_letters').delete().eq('id', id)
+  if (error) throw error
 }

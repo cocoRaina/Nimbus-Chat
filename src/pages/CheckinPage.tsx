@@ -77,8 +77,8 @@ const CheckinPage = ({ user }: CheckinPageProps) => {
     () => [
       { label: '聊天', path: '/' },
       { label: '记忆库', path: '/memory-vault' },
-      { label: '我的主页', path: '/snacks' },
-      { label: 'TA的主页', path: '/syzygy' },
+      { label: 'mimi', path: '/snacks' },
+      { label: 'Claude', path: '/syzygy' },
       { label: '打卡', path: '/checkin' },
       { label: '设置', path: '/settings' },
       { label: '数据导出', path: '/export' },

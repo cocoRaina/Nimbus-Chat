@@ -108,6 +108,25 @@ export type Memory = {
   updatedAt: string
 }
 
+export type Diary = {
+  id: number
+  date: string
+  title: string | null
+  author: string | null
+  mood: string | null
+  content: string
+  createdAt: string
+}
+
+export type HandoffLetter = {
+  id: number
+  date: string
+  title: string | null
+  content: string
+  signature: string | null
+  createdAt: string
+}
+
 export type CheckinEntry = {
   id: string
   userId: string

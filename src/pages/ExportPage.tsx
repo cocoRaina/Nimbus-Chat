@@ -64,12 +64,13 @@ type SyzygyReplyRow = {
   is_deleted: boolean
 }
 
-type MemoryEntryRow = {
-  id: string
+type MemoryRow = {
+  id: number
+  category: string
   content: string
-  status: 'confirmed' | 'pending'
+  tags: string[] | null
   created_at: string
-  is_deleted: boolean
+  updated_at: string
 }
 
 type CheckinRow = {
@@ -85,7 +86,7 @@ type ExportDataBundle = {
   snackReplies: SnackReplyRow[]
   syzygyPosts: SyzygyPostRow[]
   syzygyReplies: SyzygyReplyRow[]
-  memoryEntries: MemoryEntryRow[]
+  memoryEntries: MemoryRow[]
   checkins: CheckinRow[]
 }
 
@@ -235,21 +236,22 @@ const renderMarkdown = (
 
   if (modules.memory) {
     lines.push('## 记忆库')
-    const confirmed = data.memoryEntries.filter((entry) => entry.status === 'confirmed')
-    const pending = data.memoryEntries.filter((entry) => entry.status === 'pending')
-    lines.push('### Confirmed')
-    confirmed.forEach((entry) => {
-      lines.push(`- ${entry.created_at} ${safeMarkdownText(entry.content)}`)
+    const byCategory = new Map<string, MemoryRow[]>()
+    data.memoryEntries.forEach((entry) => {
+      const cat = entry.category || '未分类'
+      const list = byCategory.get(cat) ?? []
+      list.push(entry)
+      byCategory.set(cat, list)
     })
-    if (confirmed.length === 0) {
+    if (byCategory.size === 0) {
       lines.push('- (空)')
     }
-    lines.push('### Pending')
-    pending.forEach((entry) => {
-      lines.push(`- ${entry.created_at} ${safeMarkdownText(entry.content)}`)
-    })
-    if (pending.length === 0) {
-      lines.push('- (空)')
+    for (const [category, entries] of byCategory.entries()) {
+      lines.push(`### ${category}`)
+      entries.forEach((entry) => {
+        const tags = entry.tags && entry.tags.length > 0 ? ` [${entry.tags.join(', ')}]` : ''
+        lines.push(`- ${entry.created_at}${tags} ${safeMarkdownText(entry.content)}`)
+      })
     }
     lines.push('')
   }
@@ -399,14 +401,13 @@ const ExportPage = ({ user }: { user: User | null }) => {
 
       if (modules.memory) {
         const { data: memoryRows, error: memoryError } = await supabase
-          .from('memory_entries')
-          .select('id,content,status,created_at,is_deleted')
-          .eq('user_id', user.id)
+          .from('memories')
+          .select('id,category,content,tags,created_at,updated_at')
           .order('created_at', { ascending: false })
         if (memoryError) {
           throw memoryError
         }
-        baseData.memoryEntries = (memoryRows ?? []) as MemoryEntryRow[]
+        baseData.memoryEntries = (memoryRows ?? []) as MemoryRow[]
       }
 
       if (modules.checkins) {

@@ -581,7 +581,7 @@ const MyHomePage = ({ user, snackAiConfig }: MyHomePageProps) => {
         <button type="button" className="ghost" onClick={() => navigate('/')}>
           返回聊天
         </button>
-        <h1 className="ui-title">{showTrash ? '我的主页回收站' : '我的主页'}</h1>
+        <h1 className="ui-title">{showTrash ? 'mimi 回收站' : 'mimi'}</h1>
         <button
           type="button"
           className="ghost compact-action"
@@ -659,7 +659,7 @@ const MyHomePage = ({ user, snackAiConfig }: MyHomePageProps) => {
         </main>
       ) : (
         <>
-          <section className="profile-header-card" aria-label="我的主页头部">
+          <section className="profile-header-card" aria-label="mimi 主页头部">
             <div className="profile-cover-banner" />
             <LocalAvatar storageKey="my-homepage-avatar" alt="我的主页头像" />
             <div className="profile-meta">

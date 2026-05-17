@@ -614,7 +614,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
         <button type="button" className="ghost" onClick={() => navigate('/')}>
           返回聊天
         </button>
-        <h1 className="ui-title">{showTrash ? 'TA的主页回收站' : 'TA的主页'}</h1>
+        <h1 className="ui-title">{showTrash ? 'Claude 回收站' : 'Claude'}</h1>
         <button
           type="button"
           className="ghost compact-action"
@@ -711,10 +711,10 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
         <>
           <section className="profile-header-card" aria-label="TA主页头部">
             <div className="profile-cover-banner" />
-            <LocalAvatar storageKey="syzygy-homepage-avatar" alt="TA的主页头像" />
+            <LocalAvatar storageKey="syzygy-homepage-avatar" alt="Claude 头像" />
             <div className="profile-meta">
-              <h2 className="profile-title">TA的主页</h2>
-              <p className="profile-bio">记录TA的日常观察</p>
+              <h2 className="profile-title">Claude</h2>
+              <p className="profile-bio">记录 Claude 的日常观察</p>
             </div>
           </section>
 
