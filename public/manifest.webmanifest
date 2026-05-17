@@ -1,6 +1,6 @@
 {
-  "name": "Nibble Chat",
-  "short_name": "Nibble Chat",
+  "name": "Nimbus Chat",
+  "short_name": "Nimbus Chat",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
