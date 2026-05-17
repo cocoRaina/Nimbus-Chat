@@ -314,6 +314,18 @@
   white-space: pre-wrap;
 }
 
+.memory-vault-item-stars {
+  color: #F59E0B;
+  font-size: 0.85rem;
+  letter-spacing: 1px;
+}
+
+.memory-vault-field input[type='range'] {
+  padding: 0;
+  height: 28px;
+  accent-color: #2563EB;
+}
+
 .memory-vault-item-actions {
   display: flex;
   gap: 6px;

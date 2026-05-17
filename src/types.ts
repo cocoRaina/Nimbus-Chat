@@ -127,6 +127,16 @@ export type HandoffLetter = {
   createdAt: string
 }
 
+export type TimelineEvent = {
+  id: number
+  eventDate: string
+  title: string
+  description: string | null
+  category: string
+  importance: number
+  createdAt: string
+}
+
 export type CheckinEntry = {
   id: string
   userId: string

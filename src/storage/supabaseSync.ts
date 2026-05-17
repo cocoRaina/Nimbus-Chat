@@ -9,6 +9,7 @@ import type {
   SnackReply,
   SyzygyPost,
   SyzygyReply,
+  TimelineEvent,
 } from '../types'
 import { supabase } from '../supabase/client'
 
@@ -1142,5 +1143,98 @@ export const updateHandoffLetter = async (
 export const deleteHandoffLetter = async (id: number): Promise<void> => {
   if (!supabase) throw new Error('Supabase 客户端未配置')
   const { error } = await supabase.from('handoff_letters').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ----- Timeline (里程碑事件) -----
+
+type TimelineRow = {
+  id: number
+  event_date: string
+  title: string
+  description: string | null
+  category: string | null
+  importance: number | null
+  created_at: string
+}
+
+const TIMELINE_SELECT_FIELDS = 'id,event_date,title,description,category,importance,created_at'
+
+const mapTimelineRow = (row: TimelineRow): TimelineEvent => ({
+  id: row.id,
+  eventDate: row.event_date,
+  title: row.title,
+  description: row.description,
+  category: row.category ?? '日常',
+  importance: row.importance ?? 3,
+  createdAt: row.created_at,
+})
+
+export const listTimelineEvents = async (): Promise<TimelineEvent[]> => {
+  if (!supabase) return []
+  const { data, error } = await supabase
+    .from('timeline')
+    .select(TIMELINE_SELECT_FIELDS)
+    .order('event_date', { ascending: false })
+  if (error) throw error
+  return (data ?? []).map((row) => mapTimelineRow(row as TimelineRow))
+}
+
+export const createTimelineEvent = async (input: {
+  eventDate: string
+  title: string
+  description?: string | null
+  category?: string | null
+  importance?: number
+}): Promise<TimelineEvent> => {
+  if (!supabase) throw new Error('Supabase 客户端未配置')
+  const importance = Math.max(1, Math.min(5, Math.round(input.importance ?? 3)))
+  const { data, error } = await supabase
+    .from('timeline')
+    .insert({
+      event_date: input.eventDate,
+      title: input.title,
+      description: input.description ?? null,
+      category: input.category?.trim() || '日常',
+      importance,
+    })
+    .select(TIMELINE_SELECT_FIELDS)
+    .single()
+  if (error || !data) throw error ?? new Error('创建时间轴事件失败')
+  return mapTimelineRow(data as TimelineRow)
+}
+
+export const updateTimelineEvent = async (
+  id: number,
+  patch: {
+    eventDate?: string
+    title?: string
+    description?: string | null
+    category?: string | null
+    importance?: number
+  },
+): Promise<TimelineEvent> => {
+  if (!supabase) throw new Error('Supabase 客户端未配置')
+  const updates: Record<string, unknown> = {}
+  if (typeof patch.eventDate === 'string') updates.event_date = patch.eventDate
+  if (typeof patch.title === 'string') updates.title = patch.title
+  if (patch.description !== undefined) updates.description = patch.description
+  if (patch.category !== undefined) updates.category = patch.category?.trim() || '日常'
+  if (typeof patch.importance === 'number') {
+    updates.importance = Math.max(1, Math.min(5, Math.round(patch.importance)))
+  }
+  const { data, error } = await supabase
+    .from('timeline')
+    .update(updates)
+    .eq('id', id)
+    .select(TIMELINE_SELECT_FIELDS)
+    .single()
+  if (error || !data) throw error ?? new Error('更新时间轴事件失败')
+  return mapTimelineRow(data as TimelineRow)
+}
+
+export const deleteTimelineEvent = async (id: number): Promise<void> => {
+  if (!supabase) throw new Error('Supabase 客户端未配置')
+  const { error } = await supabase.from('timeline').delete().eq('id', id)
   if (error) throw error
 }

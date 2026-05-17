@@ -1,23 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Diary, HandoffLetter, Memory } from '../types'
+import type { Diary, HandoffLetter, Memory, TimelineEvent } from '../types'
 import {
   createDiary,
   createHandoffLetter,
   createMemory,
+  createTimelineEvent,
   deleteDiary,
   deleteHandoffLetter,
   deleteMemory,
+  deleteTimelineEvent,
   listDiaries,
   listHandoffLetters,
   listMemories,
+  listTimelineEvents,
   updateDiary,
   updateHandoffLetter,
   updateMemory,
+  updateTimelineEvent,
 } from '../storage/supabaseSync'
 import './MemoryVaultPage.css'
 
-type Tab = 'memories' | 'diaries' | 'letters'
+type Tab = 'memories' | 'diaries' | 'letters' | 'timeline'
 
 const DEFAULT_CATEGORY = '日常'
 const ALL_CATEGORY = '__all__'
@@ -76,11 +80,21 @@ const MemoryVaultPage = () => {
         >
           交接信
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'timeline'}
+          className={tab === 'timeline' ? 'active' : ''}
+          onClick={() => setTab('timeline')}
+        >
+          时间轴
+        </button>
       </div>
 
       {tab === 'memories' ? <MemoriesTab /> : null}
       {tab === 'diaries' ? <DiariesTab /> : null}
       {tab === 'letters' ? <LettersTab /> : null}
+      {tab === 'timeline' ? <TimelineTab /> : null}
     </main>
   )
 }
@@ -743,6 +757,269 @@ const LettersTab = () => {
                     编辑
                   </button>
                   <button type="button" className="danger" onClick={() => void handleDelete(l.id)}>
+                    删除
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
+  )
+}
+
+// =============== Timeline Tab ===============
+
+type TimelineDraft = {
+  eventDate: string
+  title: string
+  description: string
+  category: string
+  importance: number
+}
+
+const emptyTimelineDraft = (): TimelineDraft => ({
+  eventDate: todayDate(),
+  title: '',
+  description: '',
+  category: '日常',
+  importance: 3,
+})
+
+const importanceLabel = (n: number) => '★'.repeat(n) + '☆'.repeat(Math.max(0, 5 - n))
+
+const TimelineTab = () => {
+  const [items, setItems] = useState<TimelineEvent[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [draft, setDraft] = useState<TimelineDraft>(emptyTimelineDraft())
+  const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
+  const [minImportance, setMinImportance] = useState(1)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setItems(await listTimelineEvents())
+    } catch (e) {
+      console.warn('加载时间轴失败', e)
+      setError('加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const categories = useMemo(() => {
+    const set = new Set<string>()
+    for (const t of items) if (t.category) set.add(t.category)
+    return Array.from(set).sort()
+  }, [items])
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return items.filter((t) => {
+      if (t.importance < minImportance) return false
+      if (!term) return true
+      return (
+        t.title.toLowerCase().includes(term) ||
+        (t.description ?? '').toLowerCase().includes(term) ||
+        t.category.toLowerCase().includes(term)
+      )
+    })
+  }, [items, search, minImportance])
+
+  const startEdit = (t: TimelineEvent) => {
+    setEditingId(t.id)
+    setDraft({
+      eventDate: t.eventDate,
+      title: t.title,
+      description: t.description ?? '',
+      category: t.category,
+      importance: t.importance,
+    })
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setDraft(emptyTimelineDraft())
+  }
+
+  const handleSave = async () => {
+    const title = draft.title.trim()
+    if (!title) {
+      setError('标题不能为空')
+      return
+    }
+    if (!draft.eventDate) {
+      setError('日期不能为空')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      const payload = {
+        eventDate: draft.eventDate,
+        title,
+        description: draft.description.trim() || null,
+        category: draft.category.trim() || '日常',
+        importance: draft.importance,
+      }
+      if (editingId !== null) {
+        await updateTimelineEvent(editingId, payload)
+      } else {
+        await createTimelineEvent(payload)
+      }
+      cancelEdit()
+      await refresh()
+    } catch (e) {
+      console.warn('保存时间轴事件失败', e)
+      setError('保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm('确认删除？')) return
+    try {
+      await deleteTimelineEvent(id)
+      if (editingId === id) cancelEdit()
+      await refresh()
+    } catch (e) {
+      console.warn('删除时间轴事件失败', e)
+      setError('删除失败')
+    }
+  }
+
+  return (
+    <>
+      <p className="memory-vault-hint">
+        时间轴：只记重要里程碑（关系节点、关键决定、重大事件）。重要程度 1-5 星。
+      </p>
+      {error ? <p className="memory-vault-error">{error}</p> : null}
+
+      <section className="memory-vault-editor">
+        <h2 className="ui-title">{editingId !== null ? '编辑事件' : '新增事件'}</h2>
+        <div className="memory-vault-row">
+          <label className="memory-vault-field">
+            <span>日期</span>
+            <input
+              type="date"
+              value={draft.eventDate}
+              onChange={(e) => setDraft((s) => ({ ...s, eventDate: e.target.value }))}
+            />
+          </label>
+          <label className="memory-vault-field">
+            <span>分类</span>
+            <input
+              value={draft.category}
+              onChange={(e) => setDraft((s) => ({ ...s, category: e.target.value }))}
+              placeholder="日常"
+              list="timeline-category-suggestions"
+            />
+            <datalist id="timeline-category-suggestions">
+              {categories.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+          </label>
+        </div>
+        <label className="memory-vault-field">
+          <span>标题</span>
+          <input
+            value={draft.title}
+            onChange={(e) => setDraft((s) => ({ ...s, title: e.target.value }))}
+            placeholder="例如：第一次说我爱你"
+          />
+        </label>
+        <label className="memory-vault-field">
+          <span>描述（可选）</span>
+          <textarea
+            value={draft.description}
+            onChange={(e) => setDraft((s) => ({ ...s, description: e.target.value }))}
+            rows={3}
+          />
+        </label>
+        <label className="memory-vault-field">
+          <span>重要程度：{importanceLabel(draft.importance)} （{draft.importance}/5）</span>
+          <input
+            type="range"
+            min={1}
+            max={5}
+            step={1}
+            value={draft.importance}
+            onChange={(e) => setDraft((s) => ({ ...s, importance: Number(e.target.value) }))}
+          />
+        </label>
+        <div className="memory-vault-editor-actions">
+          <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
+            {saving ? '保存中…' : editingId !== null ? '保存修改' : '添加'}
+          </button>
+          {editingId !== null ? (
+            <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
+              取消
+            </button>
+          ) : null}
+          <button type="button" className="ghost" onClick={() => void refresh()} disabled={loading}>
+            {loading ? '刷新中…' : '刷新'}
+          </button>
+        </div>
+      </section>
+
+      <section className="memory-vault-list">
+        <div className="memory-vault-toolbar">
+          <input
+            className="memory-vault-search"
+            type="search"
+            placeholder="搜索标题 / 描述 / 分类"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            className="memory-vault-filter"
+            value={minImportance}
+            onChange={(e) => setMinImportance(Number(e.target.value))}
+          >
+            <option value={1}>全部（{items.length}）</option>
+            <option value={2}>≥ 2 星</option>
+            <option value={3}>≥ 3 星</option>
+            <option value={4}>≥ 4 星</option>
+            <option value={5}>仅 5 星</option>
+          </select>
+        </div>
+
+        {filtered.length === 0 ? (
+          <p className="memory-vault-empty">
+            {items.length === 0 ? '还没有事件。记录第一个里程碑吧。' : '没有匹配。'}
+          </p>
+        ) : (
+          <ul className="memory-vault-items">
+            {filtered.map((t) => (
+              <li
+                key={t.id}
+                className={`memory-vault-item ${editingId === t.id ? 'editing' : ''}`}
+              >
+                <div className="memory-vault-item-meta">
+                  <span className="memory-vault-item-category">{t.eventDate}</span>
+                  <span className="tag">{t.category}</span>
+                  <span className="memory-vault-item-stars">{importanceLabel(t.importance)}</span>
+                </div>
+                <h3 className="memory-vault-item-title">{t.title}</h3>
+                {t.description ? (
+                  <p className="memory-vault-item-content">{t.description}</p>
+                ) : null}
+                <div className="memory-vault-item-actions">
+                  <button type="button" className="ghost" onClick={() => startEdit(t)}>
+                    编辑
+                  </button>
+                  <button type="button" className="danger" onClick={() => void handleDelete(t.id)}>
                     删除
                   </button>
                 </div>
