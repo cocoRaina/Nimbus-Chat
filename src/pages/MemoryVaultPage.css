@@ -10,7 +10,7 @@
   background:
     radial-gradient(
         circle at 10px 10px,
-        rgba(255, 214, 231, 0.4) 2px,
+        rgba(219, 234, 254, 0.4) 2px,
         transparent 2.5px
       )
       0 0 / 24px 24px,
@@ -32,7 +32,7 @@
   background: rgba(255, 255, 255, 0.56);
   border-radius: 18px;
   padding: 14px;
-  border: 1px solid rgba(255, 214, 231, 0.7);
+  border: 1px solid rgba(219, 234, 254, 0.7);
   box-shadow: 0 10px 26px rgba(92, 92, 92, 0.1);
   backdrop-filter: blur(12px);
 }
@@ -110,14 +110,14 @@
   background:
     repeating-linear-gradient(
       180deg,
-      rgba(255, 214, 231, 0.24) 0,
-      rgba(255, 214, 231, 0.24) 1px,
+      rgba(219, 234, 254, 0.24) 0,
+      rgba(219, 234, 254, 0.24) 1px,
       transparent 1px,
       transparent 30px
     ),
     #ffffff;
   padding: 12px;
-  box-shadow: 0 8px 18px rgba(255, 214, 231, 0.28);
+  box-shadow: 0 8px 18px rgba(219, 234, 254, 0.28);
 }
 
 .memory-memo-pad textarea {
@@ -143,7 +143,7 @@
   color: #5c5c5c;
   font-weight: 700;
   padding: 8px 16px;
-  box-shadow: 0 6px 14px rgba(255, 214, 231, 0.7);
+  box-shadow: 0 6px 14px rgba(219, 234, 254, 0.7);
 }
 
 .memory-save-sticker:disabled {
@@ -167,7 +167,7 @@
   width: 72px;
   height: 16px;
   border-radius: 3px;
-  background: rgba(255, 214, 231, 0.56);
+  background: rgba(219, 234, 254, 0.56);
 }
 
 .memory-divider {
@@ -186,7 +186,7 @@
 }
 
 .memory-control-bar {
-  border: 1px solid rgba(255, 214, 231, 0.8);
+  border: 1px solid rgba(219, 234, 254, 0.8);
   background: rgba(252, 252, 252, 0.7);
   border-radius: 14px;
   padding: 12px;
@@ -245,7 +245,7 @@
   color: #5c5c5c;
   font-weight: 700;
   padding: 10px 14px;
-  box-shadow: 0 8px 20px rgba(255, 214, 231, 0.55);
+  box-shadow: 0 8px 20px rgba(219, 234, 254, 0.55);
 }
 
 .memory-list--pending {
@@ -268,7 +268,7 @@
 .stamp-button--approve {
   border-color: #ffd6e7;
   color: #5c5c5c;
-  background: rgba(255, 214, 231, 0.35);
+  background: rgba(219, 234, 254, 0.35);
 }
 
 .stamp-button--reject {

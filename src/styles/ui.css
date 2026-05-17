@@ -88,7 +88,7 @@
 }
 
 .btn-danger {
-  background: #fee2e2;
+  background: #DBEAFE;
   color: #b91c1c;
 }
 
@@ -106,8 +106,8 @@
 
 .input-glass:focus,
 .textarea-glass:focus {
-  border-color: color-mix(in srgb, var(--accent) 62%, #fda4af 38%);
-  box-shadow: 0 0 0 3px rgba(255, 214, 231, 0.36);
+  border-color: color-mix(in srgb, var(--accent) 62%, #60A5FA 38%);
+  box-shadow: 0 0 0 3px rgba(219, 234, 254, 0.36);
 }
 
 .top-nav {

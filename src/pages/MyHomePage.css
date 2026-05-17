@@ -29,14 +29,14 @@
   border: 1px solid #ffd6e7;
   background: #fff;
   padding: 0 16px 16px;
-  box-shadow: 0 10px 24px rgba(255, 214, 231, 0.25);
+  box-shadow: 0 10px 24px rgba(219, 234, 254, 0.25);
 }
 
 .profile-cover-banner {
   height: 120px;
   border-radius: 16px 16px 12px 12px;
   background-color: #fff;
-  background-image: radial-gradient(circle at 2px 2px, #ffd6e7 2px, transparent 2px);
+  background-image: radial-gradient(circle at 2px 2px, #DBEAFE2px, transparent 2px);
   background-size: 14px 14px;
 }
 
@@ -132,8 +132,8 @@
     to bottom,
     transparent 0,
     transparent 27px,
-    rgba(255, 214, 231, 0.55) 27px,
-    rgba(255, 214, 231, 0.55) 29px
+    rgba(219, 234, 254, 0.55) 27px,
+    rgba(219, 234, 254, 0.55) 29px
   );
 }
 
@@ -141,7 +141,7 @@
 .reply-composer textarea:focus {
   border-color: #ffd6e7;
   outline: none;
-  box-shadow: 0 0 0 2px rgba(255, 214, 231, 0.25);
+  box-shadow: 0 0 0 2px rgba(219, 234, 254, 0.25);
 }
 
 .composer-footer {
@@ -161,7 +161,7 @@
   border-radius: 16px;
   background-color: #fcfcfc;
   background-image:
-    radial-gradient(circle at 1px 1px, #ffd6e7 1.5px, transparent 1.5px),
+    radial-gradient(circle at 1px 1px, #DBEAFE1.5px, transparent 1.5px),
     radial-gradient(circle at 1px 1px, #ffffff 1px, transparent 1px);
   background-size: 20px 20px, 10px 10px;
 }
@@ -181,7 +181,7 @@
   left: 18px;
   width: 72px;
   height: 14px;
-  background: rgba(255, 214, 231, 0.58);
+  background: rgba(219, 234, 254, 0.58);
   border-radius: 4px;
   transform: rotate(-2deg);
 }
@@ -366,8 +366,8 @@
     to bottom,
     transparent 0,
     transparent 27px,
-    rgba(255, 214, 231, 0.45) 27px,
-    rgba(255, 214, 231, 0.45) 29px
+    rgba(219, 234, 254, 0.45) 27px,
+    rgba(219, 234, 254, 0.45) 29px
   );
 }
 

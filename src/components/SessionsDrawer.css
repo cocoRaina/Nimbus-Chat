@@ -126,8 +126,8 @@
 
 .search-input:focus,
 .rename-row input:focus {
-  border-color: color-mix(in srgb, var(--accent) 62%, #fda4af 38%);
-  box-shadow: 0 0 0 3px rgba(255, 214, 231, 0.3);
+  border-color: color-mix(in srgb, var(--accent) 62%, #60A5FA 38%);
+  box-shadow: 0 0 0 3px rgba(219, 234, 254, 0.3);
 }
 
 .sessions-list {

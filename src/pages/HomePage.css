@@ -139,10 +139,10 @@
 
 .home-page .glass-card {
   border-radius: 24px;
-  border: 1px solid rgba(255, 214, 231, 0.78);
+  border: 1px solid rgba(219, 234, 254, 0.78);
   background: rgba(255, 255, 255, 0.45);
   box-shadow:
-    0 8px 24px rgba(255, 214, 231, 0.18),
+    0 8px 24px rgba(219, 234, 254, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.52);
   backdrop-filter: blur(20px);
 }
@@ -346,19 +346,19 @@
 
 .checkin-stamp-button {
   width: 100%;
-  border: 1px solid rgba(255, 214, 231, 0.72);
+  border: 1px solid rgba(219, 234, 254, 0.72);
   border-radius: 999px;
   padding: 0.56rem 0.9rem;
   font-size: 0.83rem;
   font-weight: 800;
   letter-spacing: 0.01em;
   color: #5c5c5c;
-  background: linear-gradient(to right, #fff0f5, #ffd6e7);
-  box-shadow: 0 4px 12px rgba(255, 214, 231, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.52);
+  background: linear-gradient(to right, #EFF6FF, #ffd6e7);
+  box-shadow: 0 4px 12px rgba(219, 234, 254, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.52);
 }
 
 .checkin-stamp-button.unchecked {
-  background: linear-gradient(to right, #fff0f5, #ffd6e7);
+  background: linear-gradient(to right, #EFF6FF, #ffd6e7);
   color: #5c5c5c;
 }
 
@@ -415,7 +415,7 @@
 }
 
 .weekly-dot.today {
-  box-shadow: 0 0 0 3px rgba(255, 214, 231, 0.24);
+  box-shadow: 0 0 0 3px rgba(219, 234, 254, 0.24);
 }
 
 .widget-delete {

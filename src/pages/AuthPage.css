@@ -21,12 +21,12 @@
   gap: 14px;
   background:
     linear-gradient(#fff, #fff) padding-box,
-    radial-gradient(circle at 18px 18px, rgba(255, 214, 231, 0.65) 0 4px, transparent 4px) border-box,
-    radial-gradient(circle at calc(100% - 18px) 18px, rgba(255, 214, 231, 0.65) 0 4px, transparent 4px)
+    radial-gradient(circle at 18px 18px, rgba(219, 234, 254, 0.65) 0 4px, transparent 4px) border-box,
+    radial-gradient(circle at calc(100% - 18px) 18px, rgba(219, 234, 254, 0.65) 0 4px, transparent 4px)
       border-box,
-    radial-gradient(circle at 18px calc(100% - 18px), rgba(255, 214, 231, 0.65) 0 4px, transparent 4px)
+    radial-gradient(circle at 18px calc(100% - 18px), rgba(219, 234, 254, 0.65) 0 4px, transparent 4px)
       border-box,
-    radial-gradient(circle at calc(100% - 18px) calc(100% - 18px), rgba(255, 214, 231, 0.65) 0 4px, transparent 4px)
+    radial-gradient(circle at calc(100% - 18px) calc(100% - 18px), rgba(219, 234, 254, 0.65) 0 4px, transparent 4px)
       border-box,
     linear-gradient(145deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 248, 252, 0.82) 100%);
   box-shadow: 0 18px 42px rgba(108, 88, 96, 0.12);
@@ -43,7 +43,7 @@
   height: 22px;
   border-radius: 9999px;
   border: 2px solid #ffc2d9;
-  background: linear-gradient(180deg, rgba(255, 214, 231, 0.95), rgba(255, 194, 217, 0.88));
+  background: linear-gradient(180deg, rgba(219, 234, 254, 0.95), rgba(255, 194, 217, 0.88));
   box-shadow: 0 6px 12px rgba(216, 124, 163, 0.2);
   transform: rotate(9deg);
 }
@@ -142,7 +142,7 @@
   border-radius: 15px;
   border: 1px solid #d87ca3;
   padding: 12px 14px;
-  background: linear-gradient(180deg, #ffd6e7 0%, #f9b9d3 100%);
+  background: linear-gradient(180deg, #DBEAFE0%, #60A5FA 100%);
   color: #fff;
   font-size: 1rem;
   font-weight: 700;
