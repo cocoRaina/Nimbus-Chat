@@ -202,7 +202,7 @@
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 6px 14px rgba(249, 168, 212, 0.34);
+  box-shadow: 0 6px 14px rgba(96, 165, 250, 0.34);
 }
 
 .sessions-drawer button.ghost,
@@ -219,7 +219,7 @@
 
 .sessions-drawer button.danger {
   color: #991b1b;
-  background: rgba(254, 226, 226, 0.75);
+  background: rgba(219, 234, 254, 0.75);
 }
 
 .sessions-drawer .empty {

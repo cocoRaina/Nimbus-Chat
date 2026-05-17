@@ -52,7 +52,7 @@
   height: 100%;
   border-radius: 50%;
   border: 6px solid #fff;
-  background: #ffe4ef;
+  background: #DBEAFE;
   box-shadow: 0 8px 18px rgba(92, 92, 92, 0.14);
   padding: 0;
   overflow: hidden;
@@ -69,7 +69,7 @@
   display: block;
   width: 100%;
   height: 100%;
-  background: linear-gradient(140deg, #ffe4ef, #fff7fb);
+  background: linear-gradient(140deg, #DBEAFE, #EFF6FF);
 }
 
 .profile-avatar-input {
@@ -302,7 +302,7 @@
 }
 
 .reply-bubble.user {
-  background: #fffafc;
+  background: #EFF6FF;
 }
 
 .reply-content-wrap {

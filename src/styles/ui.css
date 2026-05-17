@@ -69,7 +69,7 @@
 .btn-primary {
   background: var(--accent);
   color: var(--text-main);
-  box-shadow: 0 6px 14px rgba(249, 168, 212, 0.34);
+  box-shadow: 0 6px 14px rgba(96, 165, 250, 0.34);
 }
 
 .btn-primary:hover {

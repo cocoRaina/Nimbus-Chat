@@ -4,17 +4,17 @@
   align-items: center;
   justify-content: center;
   padding: 32px 16px;
-  color: #5f4b54;
+  color: #334155;
   background:
     radial-gradient(circle at 1px 1px, rgba(232, 232, 232, 0.55) 1px, transparent 0) 0 0 / 28px 28px,
-    linear-gradient(165deg, #fdfbfb 0%, #f4f5f7 100%);
+    linear-gradient(165deg, #F8FAFC 0%, #f4f5f7 100%);
 }
 
 .auth-card {
   position: relative;
   width: min(520px, 100%);
   border-radius: 28px;
-  border: 2px solid #f6d7e5;
+  border: 2px solid #DBEAFE;
   padding: 34px 30px 28px;
   display: flex;
   flex-direction: column;
@@ -28,7 +28,7 @@
       border-box,
     radial-gradient(circle at calc(100% - 18px) calc(100% - 18px), rgba(219, 234, 254, 0.65) 0 4px, transparent 4px)
       border-box,
-    linear-gradient(145deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 248, 252, 0.82) 100%);
+    linear-gradient(145deg, rgba(255, 255, 255, 0.9) 0%, rgba(239, 246, 255, 0.82) 100%);
   box-shadow: 0 18px 42px rgba(108, 88, 96, 0.12);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -43,8 +43,8 @@
   height: 22px;
   border-radius: 9999px;
   border: 2px solid #60A5FA;
-  background: linear-gradient(180deg, rgba(219, 234, 254, 0.95), rgba(255, 194, 217, 0.88));
-  box-shadow: 0 6px 12px rgba(216, 124, 163, 0.2);
+  background: linear-gradient(180deg, rgba(219, 234, 254, 0.95), rgba(96, 165, 250, 0.88));
+  box-shadow: 0 6px 12px rgba(59, 130, 246, 0.2);
   transform: rotate(9deg);
 }
 
@@ -69,7 +69,7 @@
 .auth-logo-icon {
   width: 56px;
   height: 56px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M31.8 21.3c-8.8-11.2-20-9.7-20 .8 0 7.8 9 12.5 15.3 14-6.4 1.7-12.5 6.2-12.5 12.3 0 9 10.7 9.7 17.2-2 6.5 11.7 17.2 11 17.2 2 0-6.1-6.1-10.6-12.5-12.3 6.3-1.5 15.3-6.2 15.3-14 0-10.5-11.2-12-20-.8z' fill='%23ffd6e7'/%3E%3Cpath d='M32 27.5c-5.2-7.4-12.8-6.7-12.8.1 0 5.6 6.8 8.7 11 9.6-4.3 1.1-8.9 4.4-8.9 9.2 0 6.3 7.7 6.8 10.7-1.9 3 8.7 10.7 8.2 10.7 1.9 0-4.8-4.6-8.1-8.9-9.2 4.2-.9 11-4 11-9.6 0-6.8-7.6-7.5-12.8-.1z' fill='%23fff8fc'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M31.8 21.3c-8.8-11.2-20-9.7-20 .8 0 7.8 9 12.5 15.3 14-6.4 1.7-12.5 6.2-12.5 12.3 0 9 10.7 9.7 17.2-2 6.5 11.7 17.2 11 17.2 2 0-6.1-6.1-10.6-12.5-12.3 6.3-1.5 15.3-6.2 15.3-14 0-10.5-11.2-12-20-.8z' fill='%23DBEAFE'/%3E%3Cpath d='M32 27.5c-5.2-7.4-12.8-6.7-12.8.1 0 5.6 6.8 8.7 11 9.6-4.3 1.1-8.9 4.4-8.9 9.2 0 6.3 7.7 6.8 10.7-1.9 3 8.7 10.7 8.2 10.7 1.9 0-4.8-4.6-8.1-8.9-9.2 4.2-.9 11-4 11-9.6 0-6.8-7.6-7.5-12.8-.1z' fill='%23EFF6FF'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
@@ -78,7 +78,7 @@
 .auth-card h1 {
   margin: 0;
   text-align: center;
-  color: #d87ca3;
+  color: #3B82F6;
   font-size: clamp(1.65rem, 3.2vw, 2.05rem);
   letter-spacing: 0.02em;
 }
@@ -98,7 +98,7 @@
 
 .field-label {
   font-size: 0.88rem;
-  color: #a46a86;
+  color: #1E40AF;
 }
 
 .input-shell {
@@ -106,20 +106,20 @@
   align-items: center;
   gap: 9px;
   border-radius: 15px;
-  border: 1px dashed #efb9ce;
+  border: 1px dashed #93C5FD;
   background: #fff;
   padding: 10px 12px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .input-shell:focus-within {
-  border-color: #f4a9c8;
+  border-color: #60A5FA;
   box-shadow: 0 0 0 3px #DBEAFE;
 }
 
 .input-icon {
   font-size: 0.95rem;
-  color: #c97ea0;
+  color: #3B82F6;
   font-weight: 700;
 }
 
@@ -128,21 +128,21 @@
   border: none;
   outline: none;
   background: transparent;
-  color: #5f4b54;
+  color: #334155;
   font-size: 0.95rem;
 }
 
 .field input::placeholder {
-  color: #cda2b6;
+  color: #94A3B8;
 }
 
 .auth-card .primary {
   position: relative;
   overflow: hidden;
   border-radius: 15px;
-  border: 1px solid #d87ca3;
+  border: 1px solid #3B82F6;
   padding: 12px 14px;
-  background: linear-gradient(180deg, #DBEAFE 0%, #60A5FA 100%);
+  background: linear-gradient(180deg, #60A5FA 0%, #2563EB 100%);
   color: #fff;
   font-size: 1rem;
   font-weight: 700;
@@ -173,7 +173,7 @@
   margin-top: -4px;
   border: none;
   background: transparent;
-  color: #d68db0;
+  color: #3B82F6;
   font-size: 0.8rem;
   cursor: pointer;
   padding: 0;
@@ -187,15 +187,15 @@
 .auth-card .danger {
   border-radius: 12px;
   padding: 8px 12px;
-  border: 1px solid #efb9ce;
-  background: #fff7fb;
-  color: #9f6f85;
+  border: 1px solid #93C5FD;
+  background: #EFF6FF;
+  color: #64748B;
   cursor: pointer;
 }
 
 .auth-card .danger {
-  border-color: #f3aac7;
-  color: #d16e99;
+  border-color: #93C5FD;
+  color: #2563EB;
 }
 
 .status {
@@ -204,13 +204,13 @@
 }
 
 .error {
-  color: #dd6d96;
+  color: #3B82F6;
   margin: 0;
 }
 
 .divider {
   height: 1px;
-  background: #f5d6e4;
+  background: #DBEAFE;
   margin: 6px 0;
 }
 
@@ -226,7 +226,7 @@
 }
 
 .hint {
-  color: #9f8f97;
+  color: #94A3B8;
   margin: 0;
 }
 
@@ -239,7 +239,7 @@
 .setup-entry {
   border: none;
   background: transparent;
-  color: #c67a9d;
+  color: #3B82F6;
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
@@ -250,12 +250,12 @@
 }
 
 .setup-entry:hover {
-  color: #d46f99;
+  color: #2563EB;
 }
 
 .setup-helper {
   margin: 0;
-  color: #9f8f97;
+  color: #94A3B8;
   font-size: 0.88rem;
   line-height: 1.5;
 }

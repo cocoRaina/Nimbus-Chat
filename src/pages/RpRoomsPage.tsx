@@ -30,7 +30,7 @@ type DeleteAction = {
 }
 
 const TILE_COLOR_PALETTE = [
-  '#F88FA4', '#F9A49A', '#F6B58A', '#F4C39A',
+  '#60A5FA', '#F9A49A', '#F6B58A', '#F4C39A',
   '#F3C2CC', '#E9BEDA', '#DAB9F2', '#C7C0F6',
   '#BFD0F8', '#B7DEE8', '#BFD9C8', '#CFD4DF',
   '#B8BECF', '#D9CED8', '#A4A9B8', '#8A90A1',
@@ -463,10 +463,10 @@ const RpRoomsPage = ({ user }: RpRoomsPageProps) => {
   const tabTitle = useMemo(() => (isArchivedView ? '已归档房间' : '活跃房间'), [isArchivedView])
   const activePaletteColor = useMemo(() => {
     if (!openPaletteRoomId) {
-      return '#F88FA4'
+      return '#60A5FA'
     }
     const room = rooms.find((item) => item.id === openPaletteRoomId)
-    return room ? resolveRoomTileColor(room).toUpperCase() : '#F88FA4'
+    return room ? resolveRoomTileColor(room).toUpperCase() : '#60A5FA'
   }, [openPaletteRoomId, rooms])
 
   return (

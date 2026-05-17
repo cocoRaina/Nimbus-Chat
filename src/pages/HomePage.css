@@ -364,7 +364,7 @@
 
 .checkin-stamp-button.checked {
   color: #5c5c5c;
-  background: linear-gradient(to right, #fff4f8, #ffe0eb);
+  background: linear-gradient(to right, #EFF6FF, #BFDBFE);
 }
 
 .checkin-stamp-button:disabled {

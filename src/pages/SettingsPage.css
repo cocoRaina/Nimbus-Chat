@@ -222,7 +222,7 @@
 .catalog-result-item,
 .catalog-dropdown {
   border-radius: 12px;
-  border: 1px solid #ffe3ee;
+  border: 1px solid #DBEAFE;
   background: rgba(255, 255, 255, 0.9);
 }
 
@@ -253,7 +253,7 @@
 .search-input,
 .compression-fields input,
 .compression-fields select {
-  border: 1px solid #ffdce9;
+  border: 1px solid #DBEAFE;
   border-radius: 12px;
   padding: 10px 12px;
   font-size: 14px;
@@ -267,14 +267,14 @@
   resize: vertical;
   border-style: dashed;
   border-color: #DBEAFE;
-  background: #fffefb;
+  background: #ffffff;
 }
 
 .system-prompt:focus {
   outline: none;
   border-style: solid;
   border-width: 2px;
-  border-color: #ffc2da;
+  border-color: #93C5FD;
 }
 
 .model-id {
@@ -287,8 +287,8 @@
   border: 1px solid transparent;
   border-radius: 999px;
   padding: 8px 12px;
-  background: #ffb7d2;
-  color: #5c5c5c;
+  background: #3B82F6;
+  color: #ffffff;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -306,8 +306,8 @@
 }
 
 .settings-page button.danger {
-  color: #b2547d;
-  border-color: #ffc9dd;
+  color: #1D4ED8;
+  border-color: #93C5FD;
 }
 
 .badge {
@@ -319,7 +319,7 @@
 }
 
 .badge.subtle {
-  background: #ffe7f1;
+  background: #DBEAFE;
 }
 
 .field-group {
@@ -376,7 +376,7 @@
 }
 
 .field-error {
-  color: #c35e86;
+  color: #1D4ED8;
   font-size: 12px;
 }
 
@@ -396,8 +396,8 @@
 }
 
 .system-prompt-actions .primary {
-  background: #ffb7d2;
-  color: #5c5c5c;
+  background: #3B82F6;
+  color: #ffffff;
 }
 
 .system-prompt-actions .primary:disabled {
@@ -433,5 +433,5 @@
 }
 
 .catalog-status.error {
-  color: #c35e86;
+  color: #1D4ED8;
 }
