@@ -194,13 +194,18 @@ const TOOL_SEARCH_MEMORY = {
   function: {
     name: 'search_memory',
     description:
-      '搜索用户的长期记忆库（含偏好、习惯、过去事件、关系细节等）。当用户提到「记得 / 之前 / 我喜欢 / 我有 / 我们」之类需要回忆具体细节的内容，或你需要确认某件用户已告诉过你的事时调用。基于向量语义检索，按相似度返回最相关的若干条。',
+      '搜索用户长期记录的内容，跨 3 个来源同时检索：\n' +
+      '- memory（结构化记忆条目，含偏好/习惯/关系细节）\n' +
+      '- diary（日记，按日期记录的心情与事件）\n' +
+      '- letter（交接信，上一窗口的你写给下一窗口的你）\n' +
+      '当用户提到「记得 / 之前 / 我喜欢 / 我们」之类需要回忆具体细节，或你需要确认某件已被告知/记录过的事时调用。' +
+      '基于向量语义检索，按相似度返回最相关的若干条。返回的每条都带 source 字段标明来自哪个表。',
     parameters: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: '搜索关键词，建议用自然语言描述要找什么（如「用户对食物的偏好」「克劳德的性格特征」）',
+          description: '搜索关键词，建议用自然语言描述要找什么（如「用户对食物的偏好」「上次的争吵」「交接信里提到的承诺」）',
         },
         count: {
           type: 'integer',
@@ -208,7 +213,7 @@ const TOOL_SEARCH_MEMORY = {
         },
         category: {
           type: 'string',
-          description: '可选，限定某个分类，不填则搜全部分类',
+          description: '可选，限定某个分类（仅对 memory 类生效，不填则全部）',
         },
       },
       required: ['query'],
