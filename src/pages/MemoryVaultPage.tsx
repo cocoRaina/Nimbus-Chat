@@ -345,6 +345,8 @@ const emptyDiaryDraft = (): DiaryDraft => ({
   content: '',
 })
 
+const COLLAPSE_THRESHOLD = 150
+
 const DiariesTab = () => {
   const [items, setItems] = useState<Diary[]>([])
   const [loading, setLoading] = useState(false)
@@ -353,6 +355,15 @@ const DiariesTab = () => {
   const [draft, setDraft] = useState<DiaryDraft>(emptyDiaryDraft())
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
+
+  const toggleExpanded = (id: number) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -536,7 +547,22 @@ const DiariesTab = () => {
                   {d.mood ? <span className="tag">#{d.mood}</span> : null}
                 </div>
                 {d.title ? <h3 className="memory-vault-item-title">{d.title}</h3> : null}
-                <p className="memory-vault-item-content">{d.content}</p>
+                <p
+                  className={`memory-vault-item-content ${
+                    d.content.length > COLLAPSE_THRESHOLD && !expandedIds.has(d.id) ? 'collapsed' : ''
+                  }`}
+                >
+                  {d.content}
+                </p>
+                {d.content.length > COLLAPSE_THRESHOLD ? (
+                  <button
+                    type="button"
+                    className="memory-vault-toggle"
+                    onClick={() => toggleExpanded(d.id)}
+                  >
+                    {expandedIds.has(d.id) ? '收起 ▲' : '展开 ▼'}
+                  </button>
+                ) : null}
                 <div className="memory-vault-item-actions">
                   <button type="button" className="ghost" onClick={() => startEdit(d)}>
                     编辑
@@ -578,6 +604,15 @@ const LettersTab = () => {
   const [draft, setDraft] = useState<LetterDraft>(emptyLetterDraft())
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
+
+  const toggleExpanded = (id: number) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -748,8 +783,23 @@ const LettersTab = () => {
                   <span className="memory-vault-item-category">{l.date}</span>
                 </div>
                 {l.title ? <h3 className="memory-vault-item-title">{l.title}</h3> : null}
-                <p className="memory-vault-item-content">{l.content}</p>
-                {l.signature ? (
+                <p
+                  className={`memory-vault-item-content ${
+                    l.content.length > COLLAPSE_THRESHOLD && !expandedIds.has(l.id) ? 'collapsed' : ''
+                  }`}
+                >
+                  {l.content}
+                </p>
+                {l.content.length > COLLAPSE_THRESHOLD ? (
+                  <button
+                    type="button"
+                    className="memory-vault-toggle"
+                    onClick={() => toggleExpanded(l.id)}
+                  >
+                    {expandedIds.has(l.id) ? '收起 ▲' : '展开 ▼'}
+                  </button>
+                ) : null}
+                {l.signature && expandedIds.has(l.id) ? (
                   <p className="memory-vault-item-signature">— {l.signature}</p>
                 ) : null}
                 <div className="memory-vault-item-actions">

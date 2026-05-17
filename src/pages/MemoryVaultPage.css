@@ -305,6 +305,42 @@
   word-break: break-word;
 }
 
+.memory-vault-item-content.collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  position: relative;
+}
+
+.memory-vault-item-content.collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 60%;
+  height: 1.55em;
+  background: linear-gradient(90deg, transparent, rgba(248, 250, 252, 0.95) 60%);
+  pointer-events: none;
+}
+
+.memory-vault-toggle {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: #2563EB;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  margin-top: -2px;
+}
+
+.memory-vault-toggle:hover {
+  text-decoration: underline;
+}
+
 .memory-vault-item-signature {
   margin: 4px 0 0;
   font-size: 0.85rem;
