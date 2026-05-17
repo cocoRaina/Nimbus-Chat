@@ -75,9 +75,7 @@ const SettingsPage = ({
   const [openRouterApiKeyStatus, setOpenRouterApiKeyStatus] = useState<'idle' | 'saved'>('idle')
   const [draftDefaultModel, setDraftDefaultModel] = useState(defaultModelId)
   const [draftChatReasoning, setDraftChatReasoning] = useState(true)
-  const [draftRpReasoning, setDraftRpReasoning] = useState(false)
   const [draftChatHighReasoning, setDraftChatHighReasoning] = useState(false)
-  const [draftRpHighReasoning, setDraftRpHighReasoning] = useState(false)
   const [draftMemoryExtractModel, setDraftMemoryExtractModel] = useState<string | null>(null)
   const [modelStatus, setModelStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [modelError, setModelError] = useState<string | null>(null)
@@ -128,9 +126,7 @@ const SettingsPage = ({
       setDraftSummarizerModel(settings.summarizerModel)
       setDraftMemoryExtractModel(settings.memoryExtractModel)
       setDraftChatReasoning(settings.chatReasoningEnabled)
-      setDraftRpReasoning(settings.rpReasoningEnabled)
       setDraftChatHighReasoning(settings.chatHighReasoningEnabled)
-      setDraftRpHighReasoning(settings.rpHighReasoningEnabled)
     }, 0)
     return () => {
       window.clearTimeout(timer)
@@ -308,9 +304,7 @@ const SettingsPage = ({
       settings.compressionKeepRecentMessages !== parsedCompressionKeepRecent ||
       (settings.summarizerModel ?? '') !== (draftSummarizerModel ?? '') ||
       settings.chatReasoningEnabled !== draftChatReasoning ||
-      settings.rpReasoningEnabled !== draftRpReasoning ||
-      settings.chatHighReasoningEnabled !== draftChatHighReasoning ||
-      settings.rpHighReasoningEnabled !== draftRpHighReasoning
+      settings.chatHighReasoningEnabled !== draftChatHighReasoning
     : false
   const hasUnsavedSystemPrompt = settings ? draftSystemPrompt !== settings.systemPrompt : false
   const hasUnsavedSnackOverlay = settings
@@ -460,18 +454,8 @@ const SettingsPage = ({
     setGenerationStatus('idle')
   }
 
-  const handleRpReasoningToggle = (enabled: boolean) => {
-    setDraftRpReasoning(enabled)
-    setGenerationStatus('idle')
-  }
-
   const handleChatHighReasoningToggle = (enabled: boolean) => {
     setDraftChatHighReasoning(enabled)
-    setGenerationStatus('idle')
-  }
-
-  const handleRpHighReasoningToggle = (enabled: boolean) => {
-    setDraftRpHighReasoning(enabled)
     setGenerationStatus('idle')
   }
 
@@ -538,9 +522,7 @@ const SettingsPage = ({
       compressionKeepRecentMessages: parsedCompressionKeepRecent,
       summarizerModel: draftSummarizerModel,
       chatReasoningEnabled: draftChatReasoning,
-      rpReasoningEnabled: draftRpReasoning,
       chatHighReasoningEnabled: draftChatHighReasoning,
-      rpHighReasoningEnabled: draftRpHighReasoning,
     })
     if (!nextSettings) {
       return
@@ -691,9 +673,7 @@ const SettingsPage = ({
       setDraftDefaultModel(settings.defaultModel)
       setDraftMemoryExtractModel(settings.memoryExtractModel)
       setDraftChatReasoning(settings.chatReasoningEnabled)
-      setDraftRpReasoning(settings.rpReasoningEnabled)
       setDraftChatHighReasoning(settings.chatHighReasoningEnabled)
-      setDraftRpHighReasoning(settings.rpHighReasoningEnabled)
       setModelStatus('idle')
       setModelError(null)
       setDraftSystemPrompt(settings.systemPrompt)
@@ -1061,18 +1041,6 @@ const SettingsPage = ({
               </label>
             </div>
             <div className="field-group">
-              <label htmlFor="rpReasoningEnabled">RP区思考链</label>
-              <label className="toggle-control">
-                <input
-                  id="rpReasoningEnabled"
-                  type="checkbox"
-                  checked={draftRpReasoning}
-                  onChange={(event) => handleRpReasoningToggle(event.target.checked)}
-                />
-                <span>{draftRpReasoning ? '已开启' : '已关闭'}</span>
-              </label>
-            </div>
-            <div className="field-group">
               <label htmlFor="chatHighReasoningEnabled">聊天：高触发 Thinking（仅 GPT-5.1/5.2）</label>
               <label className="toggle-control">
                 <input
@@ -1082,18 +1050,6 @@ const SettingsPage = ({
                   onChange={(event) => handleChatHighReasoningToggle(event.target.checked)}
                 />
                 <span>{draftChatHighReasoning ? '已开启' : '已关闭'}</span>
-              </label>
-            </div>
-            <div className="field-group">
-              <label htmlFor="rpHighReasoningEnabled">RP区：高触发 Thinking（仅 GPT-5.1/5.2）</label>
-              <label className="toggle-control">
-                <input
-                  id="rpHighReasoningEnabled"
-                  type="checkbox"
-                  checked={draftRpHighReasoning}
-                  onChange={(event) => handleRpHighReasoningToggle(event.target.checked)}
-                />
-                <span>{draftRpHighReasoning ? '已开启' : '已关闭'}</span>
               </label>
             </div>
             <p className="field-help">仅对 GPT-5.1 / GPT-5.2 生效；其他模型自动忽略。开启后会更积极触发思考（可能更慢/更耗费）。</p>

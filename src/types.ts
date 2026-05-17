@@ -52,9 +52,7 @@ export type UserSettings = {
   syzygyPostSystemPrompt: string
   syzygyReplySystemPrompt: string
   chatReasoningEnabled: boolean
-  rpReasoningEnabled: boolean
   chatHighReasoningEnabled: boolean
-  rpHighReasoningEnabled: boolean
   updatedAt: string
 }
 
@@ -129,44 +127,3 @@ export type CheckinEntry = {
   createdAt: string
 }
 
-export type RpSession = {
-  id: string
-  userId: string
-  title: string
-  tileColor: string | null
-  createdAt: string
-  updatedAt: string | null
-  isArchived: boolean
-  archivedAt: string | null
-  playerDisplayName: string | null
-  playerAvatarUrl: string | null
-  worldbookText: string | null
-  rpContextTokenLimit: number | null
-  rpKeepRecentMessages: number | null
-  settings: Record<string, unknown>
-}
-
-export type RpMessage = {
-  id: string
-  sessionId: string
-  userId: string
-  role: string
-  content: string
-  createdAt: string
-  clientId: string | null
-  clientCreatedAt: string | null
-  meta?: Record<string, unknown>
-}
-
-export type RpNpcCard = {
-  id: string
-  sessionId: string
-  userId: string
-  displayName: string
-  systemPrompt: string
-  modelConfig: Record<string, unknown>
-  apiConfig: Record<string, unknown>
-  enabled: boolean
-  createdAt: string
-  updatedAt: string | null
-}

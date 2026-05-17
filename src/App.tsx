@@ -48,8 +48,6 @@ import AssistantHomePage from './pages/AssistantHomePage'
 import MemoryVaultPage from './pages/MemoryVaultPage'
 import CheckinPage from './pages/CheckinPage'
 import ExportPage from './pages/ExportPage'
-import RpRoomsPage from './pages/RpRoomsPage'
-import RpRoomPage from './pages/RpRoomPage'
 import HomePage from './pages/HomePage'
 import HomeLayoutSettingsPage from './pages/HomeLayoutSettingsPage'
 import {
@@ -1150,26 +1148,6 @@ const App = () => {
     setUserSettings(nextSettings)
   }, [user])
 
-  const handleDisableRpReasoning = useCallback(async () => {
-    if (!user) {
-      return
-    }
-    const current = settingsRef.current ?? createDefaultSettings(user.id)
-    if (!current.rpReasoningEnabled) {
-      return
-    }
-    const nextSettings: UserSettings = {
-      ...current,
-      userId: user.id,
-      rpReasoningEnabled: false,
-      updatedAt: new Date().toISOString(),
-    }
-    if (supabase) {
-      await updateUserSettings(nextSettings)
-    }
-    setUserSettings(nextSettings)
-  }, [user])
-
   const handleSaveMemoryExtractModel = useCallback(async (modelId: string | null) => {
     if (!user) {
       return
@@ -1427,42 +1405,6 @@ const App = () => {
           element={
             <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
               <ExportPage user={user} />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/rp"
-          element={
-            <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
-              <RpRoomsPage user={user} />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/rp/:sessionId"
-          element={
-            <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
-              <RpRoomPage
-                user={user}
-                mode="chat"
-                rpReasoningEnabled={activeSettings.rpReasoningEnabled}
-                rpHighReasoningEnabled={activeSettings.rpHighReasoningEnabled}
-                onDisableRpReasoning={handleDisableRpReasoning}
-              />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/rp/:sessionId/dashboard"
-          element={
-            <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
-              <RpRoomPage
-                user={user}
-                mode="dashboard"
-                rpReasoningEnabled={activeSettings.rpReasoningEnabled}
-                rpHighReasoningEnabled={activeSettings.rpHighReasoningEnabled}
-                onDisableRpReasoning={handleDisableRpReasoning}
-              />
             </RequireAuth>
           }
         />

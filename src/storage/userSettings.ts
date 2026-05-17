@@ -29,13 +29,11 @@ type UserSettingsRow = {
   assistant_reply_system_prompt: string | null
   enable_reasoning: boolean | null
   chat_reasoning_enabled: boolean | null
-  rp_reasoning_enabled: boolean | null
   updated_at: string
 }
 
 type HighReasoningPrefs = {
   chatHighReasoningEnabled: boolean
-  rpHighReasoningEnabled: boolean
 }
 
 const HIGH_REASONING_STORAGE_KEY = 'nibble_high_reasoning_prefs_v1'
@@ -69,7 +67,6 @@ const resolveHighReasoningPrefs = (userId: string): HighReasoningPrefs => {
   const stored = loadHighReasoningPrefsMap()[userId]
   return {
     chatHighReasoningEnabled: stored?.chatHighReasoningEnabled ?? false,
-    rpHighReasoningEnabled: stored?.rpHighReasoningEnabled ?? false,
   }
 }
 
@@ -78,7 +75,6 @@ const applyHighReasoningPrefs = (settings: UserSettings): UserSettings => {
   return {
     ...settings,
     chatHighReasoningEnabled: prefs.chatHighReasoningEnabled,
-    rpHighReasoningEnabled: prefs.rpHighReasoningEnabled,
   }
 }
 
@@ -103,9 +99,7 @@ export const createDefaultSettings = (userId: string): UserSettings => ({
   syzygyPostSystemPrompt: DEFAULT_SYZYGY_POST_PROMPT,
   syzygyReplySystemPrompt: DEFAULT_SYZYGY_REPLY_PROMPT,
   chatReasoningEnabled: true,
-  rpReasoningEnabled: false,
   chatHighReasoningEnabled: false,
-  rpHighReasoningEnabled: false,
   updatedAt: new Date().toISOString(),
 })
 
@@ -130,9 +124,7 @@ const mapSettingsRow = (row: UserSettingsRow): UserSettings => {
     syzygyPostSystemPrompt: resolveSyzygyPostPrompt(row.assistant_post_system_prompt),
     syzygyReplySystemPrompt: resolveSyzygyReplyPrompt(row.assistant_reply_system_prompt),
     chatReasoningEnabled: row.chat_reasoning_enabled ?? row.enable_reasoning ?? true,
-    rpReasoningEnabled: row.rp_reasoning_enabled ?? false,
     chatHighReasoningEnabled: highReasoningPrefs.chatHighReasoningEnabled,
-    rpHighReasoningEnabled: highReasoningPrefs.rpHighReasoningEnabled,
     updatedAt: row.updated_at,
   }
 }
@@ -144,7 +136,7 @@ export const ensureUserSettings = async (userId: string): Promise<UserSettings> 
   const { data, error } = await supabase
     .from('user_settings')
     .select(
-      'user_id,enabled_models,default_model,memory_extract_model,compression_enabled,compression_trigger_ratio,compression_keep_recent_messages,summarizer_model,memory_merge_enabled,memory_auto_extract_enabled,temperature,top_p,max_tokens,system_prompt,user_home_system_prompt,assistant_post_system_prompt,assistant_reply_system_prompt,enable_reasoning,chat_reasoning_enabled,rp_reasoning_enabled,updated_at',
+      'user_id,enabled_models,default_model,memory_extract_model,compression_enabled,compression_trigger_ratio,compression_keep_recent_messages,summarizer_model,memory_merge_enabled,memory_auto_extract_enabled,temperature,top_p,max_tokens,system_prompt,user_home_system_prompt,assistant_post_system_prompt,assistant_reply_system_prompt,enable_reasoning,chat_reasoning_enabled,updated_at',
     )
     .eq('user_id', userId)
     .maybeSingle()
@@ -176,11 +168,10 @@ export const ensureUserSettings = async (userId: string): Promise<UserSettings> 
         assistant_reply_system_prompt: defaults.syzygyReplySystemPrompt,
         enable_reasoning: defaults.chatReasoningEnabled,
         chat_reasoning_enabled: defaults.chatReasoningEnabled,
-        rp_reasoning_enabled: defaults.rpReasoningEnabled,
         updated_at: now,
       })
       .select(
-        'user_id,enabled_models,default_model,memory_extract_model,compression_enabled,compression_trigger_ratio,compression_keep_recent_messages,summarizer_model,memory_merge_enabled,memory_auto_extract_enabled,temperature,top_p,max_tokens,system_prompt,user_home_system_prompt,assistant_post_system_prompt,assistant_reply_system_prompt,enable_reasoning,chat_reasoning_enabled,rp_reasoning_enabled,updated_at',
+        'user_id,enabled_models,default_model,memory_extract_model,compression_enabled,compression_trigger_ratio,compression_keep_recent_messages,summarizer_model,memory_merge_enabled,memory_auto_extract_enabled,temperature,top_p,max_tokens,system_prompt,user_home_system_prompt,assistant_post_system_prompt,assistant_reply_system_prompt,enable_reasoning,chat_reasoning_enabled,updated_at',
       )
       .single()
     if (insertError || !inserted) {
@@ -217,7 +208,6 @@ export const updateUserSettings = async (settings: UserSettings): Promise<void> 
       assistant_reply_system_prompt: settings.syzygyReplySystemPrompt,
       enable_reasoning: settings.chatReasoningEnabled,
       chat_reasoning_enabled: settings.chatReasoningEnabled,
-      rp_reasoning_enabled: settings.rpReasoningEnabled,
       updated_at: now,
     })
     .eq('user_id', settings.userId)
@@ -226,7 +216,6 @@ export const updateUserSettings = async (settings: UserSettings): Promise<void> 
   }
   saveHighReasoningPrefs(settings.userId, {
     chatHighReasoningEnabled: settings.chatHighReasoningEnabled,
-    rpHighReasoningEnabled: settings.rpHighReasoningEnabled,
   })
 }
 
