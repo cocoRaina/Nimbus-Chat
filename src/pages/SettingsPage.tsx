@@ -1024,7 +1024,7 @@ const SettingsPage = ({
           <span className="section-title">
             <span className="section-icon" aria-hidden="true">🔮</span>
             <h2 className="ui-title">思考链</h2>
-            <p>分别控制日常聊天与RP区是否请求思考链。</p>
+            <p>控制日常聊天是否请求思考链。</p>
           </span>
           <span className="collapse-indicator" aria-hidden="true">›</span>
         </button>

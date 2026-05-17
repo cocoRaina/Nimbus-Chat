@@ -309,10 +309,10 @@ const ChatPage = ({
                     type="button"
                     onClick={() => {
                       setOpenHeaderMenu(false)
-                      navigate('/rp')
+                      navigate('/usage')
                     }}
                   >
-                    RP房间
+                    用量统计
                   </button>
                   <button
                     type="button"
