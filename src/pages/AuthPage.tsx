@@ -163,7 +163,7 @@ const AuthPage = ({ user, supabaseConfigured }: AuthPageProps) => {
         <div className="hamster-logo" aria-hidden="true">
           <span className="auth-logo-icon" />
         </div>
-        <h1 className="ui-title">欢迎使用 Nibble-Chat</h1>
+        <h1 className="ui-title">欢迎使用 Nimbus-Chat</h1>
         {activePanel === 'login' ? (
           <>
             <p className="subtitle">请输入邮箱获取验证码并登录</p>
