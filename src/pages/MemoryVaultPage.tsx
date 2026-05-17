@@ -459,7 +459,7 @@ const DiariesTab = () => {
 
   return (
     <>
-      <p className="memory-vault-hint">日记按日期记录心情和事件，AI 暂不会主动检索。</p>
+      <p className="memory-vault-hint">日记按日期记录心情和事件。</p>
       {error ? <p className="memory-vault-error">{error}</p> : null}
 
       <section className="memory-vault-editor">
