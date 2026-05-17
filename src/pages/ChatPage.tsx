@@ -52,7 +52,8 @@ const ChatPage = ({
   const [headerMenuPosition, setHeaderMenuPosition] = useState({ top: 0, right: 0 })
   const [pendingDelete, setPendingDelete] = useState<ChatMessage | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
-  const hasScrolledOnceRef = useRef(false)
+  const lastSessionIdRef = useRef<string | null>(null)
+  const lastMessagesLengthRef = useRef(0)
   const headerMenuRef = useRef<HTMLDivElement | null>(null)
   const headerMenuButtonRef = useRef<HTMLButtonElement | null>(null)
   const actionTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({})
@@ -120,11 +121,18 @@ const ChatPage = ({
     if (!bottomRef.current) {
       return
     }
+    const isSessionSwitch = lastSessionIdRef.current !== session.id
+    const isInitialLoad = lastMessagesLengthRef.current === 0 && messages.length > 0
+    const shouldJump = isSessionSwitch || isInitialLoad
+    lastSessionIdRef.current = session.id
+    lastMessagesLengthRef.current = messages.length
+    if (messages.length === 0) {
+      return
+    }
     bottomRef.current.scrollIntoView({
-      behavior: hasScrolledOnceRef.current ? 'smooth' : 'auto',
+      behavior: shouldJump ? 'auto' : 'smooth',
     })
-    hasScrolledOnceRef.current = true
-  }, [messages.length])
+  }, [messages.length, session.id])
 
   useEffect(() => {
     document.body.classList.add('chat-page-active')
