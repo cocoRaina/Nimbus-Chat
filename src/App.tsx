@@ -59,6 +59,7 @@ import {
 import { resolveModelId } from './utils/modelResolver'
 import { fetchOpenRouter } from './api/openrouter'
 import { recordUsage } from './storage/usageStats'
+import { compressIfNeeded } from './storage/conversationCompression'
 import { isGpt5Auto } from './utils/openrouterReasoning'
 
 const sortSessions = (sessions: ChatSession[]) =>
@@ -132,26 +133,6 @@ const updateMessage = (messages: ChatMessage[], next: ChatMessage) =>
   )
 
 const initialSnapshot = loadSnapshot()
-
-const buildOpenAiMessages = (
-  sessionId: string,
-  messages: ChatMessage[],
-  systemPrompt?: string,
-) => {
-  const trimmedPrompt = systemPrompt?.trim()
-  const history = messages
-    .filter(
-      (message) =>
-        message.sessionId === sessionId &&
-        message.content.trim().length > 0 &&
-        !message.meta?.streaming,
-    )
-    .map((message) => ({ role: message.role, content: message.content }))
-  if (trimmedPrompt) {
-    return [{ role: 'system', content: trimmedPrompt }, ...history]
-  }
-  return history
-}
 
 type OutgoingMessage =
   | { role: string; content: string }
@@ -878,11 +859,37 @@ const App = () => {
         }
 
         try {
-          const messagesPayload = buildOpenAiMessages(
-            sessionId,
-            messagesRef.current,
-            systemPrompt,
+          const sessionMessages = messagesRef.current.filter(
+            (message) =>
+              message.sessionId === sessionId &&
+              message.content.trim().length > 0 &&
+              !message.meta?.streaming,
           )
+          const compressionOutcome = await compressIfNeeded(
+            sessionId,
+            sessionMessages,
+            systemPrompt ?? '',
+            effectiveModel,
+            {
+              enabled: activeSettings.compressionEnabled,
+              triggerRatio: activeSettings.compressionTriggerRatio,
+              keepRecentMessages: activeSettings.compressionKeepRecentMessages,
+              summarizerModel: activeSettings.summarizerModel,
+            },
+          )
+          const messagesPayload: Array<{ role: string; content: string }> = []
+          if (compressionOutcome.systemPromptText.trim()) {
+            messagesPayload.push({ role: 'system', content: compressionOutcome.systemPromptText })
+          }
+          if (compressionOutcome.summaryText) {
+            messagesPayload.push({
+              role: 'system',
+              content: `## 前面对话的摘要（用作上下文，不要直接复述）\n${compressionOutcome.summaryText}`,
+            })
+          }
+          for (const message of compressionOutcome.recentMessages) {
+            messagesPayload.push({ role: message.role, content: message.content })
+          }
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
           const cachedMessages = applyClaudeCaching(messagesPayload, effectiveModel)
           const requestBody: Record<string, unknown> = {
