@@ -259,23 +259,30 @@
 }
 
 .attach-button {
-  border: 1px solid #93C5FD;
-  background: #EFF6FF;
-  color: #1E40AF;
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 30px;
+  border-radius: 999px;
+  padding: 0 11px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-main);
+  cursor: pointer;
   white-space: nowrap;
   font-family: inherit;
+  transition: background-color 120ms ease, border-color 120ms ease;
 }
 
 .attach-button:hover:not(:disabled) {
-  background: #DBEAFE;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.attach-button:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.35);
 }
 
 .attach-button:disabled {
