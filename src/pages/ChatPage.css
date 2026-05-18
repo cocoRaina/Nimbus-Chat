@@ -149,6 +149,10 @@
   max-width: 100%;
 }
 
+.message .bubble.bubble-stacked + .bubble.bubble-stacked {
+  margin-top: 4px;
+}
+
 .message.in {
   align-items: flex-start;
 }

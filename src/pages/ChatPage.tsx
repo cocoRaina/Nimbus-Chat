@@ -25,6 +25,18 @@ export type ChatPageProps = {
   user: User | null
 }
 
+// Split an assistant message into multiple "WeChat-style" bubbles.
+// Splits on 2+ consecutive newlines (Claude's natural paragraph breaks) or an
+// explicit `[NEXT]` marker (case-insensitive). User messages stay as one bubble.
+const splitAssistantContent = (content: string): string[] => {
+  if (!content) return ['']
+  const parts = content
+    .split(/\[NEXT\]|\n{2,}/i)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+  return parts.length > 0 ? parts : [content]
+}
+
 const formatTime = (timestamp: string) =>
   new Date(timestamp).toLocaleTimeString([], {
     hour: '2-digit',
@@ -52,6 +64,7 @@ const ChatPage = ({
   const [headerMenuPosition, setHeaderMenuPosition] = useState({ top: 0, right: 0 })
   const [pendingDelete, setPendingDelete] = useState<ChatMessage | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const messagesRef = useRef<HTMLElement | null>(null)
   const lastSessionIdRef = useRef<string | null>(null)
   const lastMessagesLengthRef = useRef(0)
   const headerMenuRef = useRef<HTMLDivElement | null>(null)
@@ -118,7 +131,8 @@ const ChatPage = ({
   }, [defaultModel, enabledModels, sessionOverride])
 
   useEffect(() => {
-    if (!bottomRef.current) {
+    const container = messagesRef.current
+    if (!container) {
       return
     }
     const isSessionSwitch = lastSessionIdRef.current !== session.id
@@ -129,9 +143,14 @@ const ChatPage = ({
     if (messages.length === 0) {
       return
     }
-    bottomRef.current.scrollIntoView({
-      behavior: shouldJump ? 'auto' : 'smooth',
-    })
+    // Scroll only the messages container; never let scrollIntoView walk up to
+    // window/body and push the sticky header off-screen on mobile.
+    const top = container.scrollHeight
+    if (shouldJump) {
+      container.scrollTop = top
+    } else {
+      container.scrollTo({ top, behavior: 'smooth' })
+    }
   }, [messages.length, session.id])
 
   useEffect(() => {
@@ -338,38 +357,52 @@ const ChatPage = ({
             : null}
         </div>
       </header>
-      <main className="chat-messages glass-panel">
+      <main className="chat-messages glass-panel" ref={messagesRef}>
         {messages.length === 0 ? (
           <div className="empty-state">
             <p>暂无消息，开始聊点什么吧。</p>
           </div>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`message ${message.role === 'user' ? 'out' : 'in'}`}
-            >
-              <div className="bubble">
-                {(() => {
-                  const reasoningText =
-                    message.meta?.reasoning_text?.trim() ?? message.meta?.reasoning?.trim()
-                  return reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null
-                })()}
-                {message.role === 'assistant' ? (
-                  <div className="assistant-markdown">
-                    <MarkdownRenderer content={message.content} />
-                  </div>
-                ) : (
-                  <p>{message.content}</p>
-                )}
-                {message.role === 'assistant' && message.meta?.model ? (
-                  <div className="message-footer">
-                    <span className="model-tag">
-                      {message.meta.model === 'mock-model' ? '模拟模型' : message.meta.model}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
+          messages.map((message) => {
+            const reasoningText =
+              message.meta?.reasoning_text?.trim() ?? message.meta?.reasoning?.trim()
+            const chunks =
+              message.role === 'assistant'
+                ? splitAssistantContent(message.content)
+                : [message.content]
+            return (
+              <div
+                key={message.id}
+                className={`message ${message.role === 'user' ? 'out' : 'in'}`}
+              >
+                {chunks.map((chunk, chunkIdx) => {
+                  const isFirst = chunkIdx === 0
+                  const isLast = chunkIdx === chunks.length - 1
+                  return (
+                    <div
+                      key={`${message.id}-${chunkIdx}`}
+                      className={`bubble ${chunks.length > 1 ? 'bubble-stacked' : ''}`}
+                    >
+                      {isFirst && reasoningText ? (
+                        <ReasoningPanel reasoning={reasoningText} />
+                      ) : null}
+                      {message.role === 'assistant' ? (
+                        <div className="assistant-markdown">
+                          <MarkdownRenderer content={chunk} />
+                        </div>
+                      ) : (
+                        <p>{chunk}</p>
+                      )}
+                      {isLast && message.role === 'assistant' && message.meta?.model ? (
+                        <div className="message-footer">
+                          <span className="model-tag">
+                            {message.meta.model === 'mock-model' ? '模拟模型' : message.meta.model}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })}
               <div className="bubble-meta">
                 <span className="timestamp">{formatTime(message.createdAt)}</span>
                 <div className="message-actions">
@@ -392,7 +425,8 @@ const ChatPage = ({
                 </div>
               </div>
             </div>
-          ))
+            )
+          })
         )}
         <div ref={bottomRef} />
       </main>
