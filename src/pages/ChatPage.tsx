@@ -630,6 +630,15 @@ const ChatPage = ({
             <span>思考链</span>
             <span className="toggle-hint">{reasoningHint}</span>
           </label>
+          <button
+            type="button"
+            className="attach-button toolbar-attach"
+            aria-label="发送图片"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            📎 图片
+          </button>
         </div>
         <span className="model-hint">
           当前模型：{selectedModel}
@@ -652,15 +661,6 @@ const ChatPage = ({
               }
             }}
           />
-          <button
-            type="button"
-            className="attach-button"
-            aria-label="发送图片"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-          >
-            📎
-          </button>
           <button type="submit" className="btn-primary" disabled={uploading}>
             发送
           </button>
