@@ -266,15 +266,15 @@
   min-height: 30px;
   border-radius: 999px;
   padding: 0 11px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
+  border: none;
+  background: transparent;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-main);
   cursor: pointer;
   white-space: nowrap;
   font-family: inherit;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition: background-color 120ms ease;
 }
 
 .attach-button:hover:not(:disabled) {
