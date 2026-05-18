@@ -29,6 +29,12 @@ export type ChatMessage = {
       top_p?: number
       max_tokens?: number
     }
+    attachments?: Array<{
+      type: 'image'
+      url: string
+      width?: number
+      height?: number
+    }>
   }
   pending?: boolean
 }
