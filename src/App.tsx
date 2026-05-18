@@ -951,7 +951,8 @@ const App = () => {
           )
           const baseMessages: ChatRequestMessage[] = []
           if (compressionOutcome.systemPromptText.trim()) {
-            baseMessages.push({ role: 'system', content: compressionOutcome.systemPromptText })
+            const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+    baseMessages.push({ role: 'system', content: `[当前时间] ${now}\n\n${compressionOutcome.systemPromptText}`  })
           }
           if (compressionOutcome.summaryText) {
             baseMessages.push({
