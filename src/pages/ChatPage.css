@@ -153,6 +153,61 @@
   margin-top: 4px;
 }
 
+.message .bubble {
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: pan-y;
+}
+
+.quote-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(219, 234, 254, 0.5);
+  border-left: 3px solid #60A5FA;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #475569;
+  max-height: 4.5em;
+  overflow: hidden;
+  position: relative;
+}
+
+.quote-preview-label {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: #1E40AF;
+}
+
+.quote-preview-content {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.quote-preview-close {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: #64748B;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.quote-preview-close:hover {
+  color: #1E40AF;
+}
+
 .message.in {
   align-items: flex-start;
 }

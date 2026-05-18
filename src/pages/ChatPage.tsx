@@ -15,6 +15,7 @@ export type ChatPageProps = {
   onOpenDrawer: () => void
   onSendMessage: (text: string) => Promise<void>
   onDeleteMessage: (messageId: string) => void | Promise<void>
+  onRegenerate: (assistantMessageId: string) => void | Promise<void>
   isStreaming: boolean
   onStopStreaming: () => void
   enabledModels: string[]
@@ -49,6 +50,7 @@ const ChatPage = ({
   onOpenDrawer,
   onSendMessage,
   onDeleteMessage,
+  onRegenerate,
   isStreaming,
   onStopStreaming,
   enabledModels,
@@ -63,11 +65,14 @@ const ChatPage = ({
   const [openHeaderMenu, setOpenHeaderMenu] = useState(false)
   const [headerMenuPosition, setHeaderMenuPosition] = useState({ top: 0, right: 0 })
   const [pendingDelete, setPendingDelete] = useState<ChatMessage | null>(null)
+  const [quoted, setQuoted] = useState<{ role: ChatMessage['role']; content: string } | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const messagesRef = useRef<HTMLElement | null>(null)
   const lastSessionIdRef = useRef<string | null>(null)
   const lastMessagesLengthRef = useRef(0)
   const headerMenuRef = useRef<HTMLDivElement | null>(null)
+  const longPressTimerRef = useRef<number | null>(null)
+  const longPressTargetRef = useRef<{ id: string; element: HTMLElement | null } | null>(null)
   const headerMenuButtonRef = useRef<HTMLButtonElement | null>(null)
   const actionTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const actionsMenuRef = useRef<HTMLDivElement | null>(null)
@@ -78,8 +83,51 @@ const ChatPage = ({
     if (!trimmed) {
       return
     }
-    await onSendMessage(trimmed)
+    let payload = trimmed
+    if (quoted) {
+      const quoteBlock = quoted.content
+        .split('\n')
+        .map((line) => `> ${line}`)
+        .join('\n')
+      payload = `${quoteBlock}\n\n${trimmed}`
+    }
+    setQuoted(null)
+    await onSendMessage(payload)
     setDraft('')
+  }
+
+  const handleQuote = (message: ChatMessage) => {
+    setQuoted({ role: message.role, content: message.content })
+    setOpenActionsId(null)
+  }
+
+  const handleRegenerate = (message: ChatMessage) => {
+    setOpenActionsId(null)
+    void onRegenerate(message.id)
+  }
+
+  const cancelLongPress = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+    longPressTargetRef.current = null
+  }
+
+  const startLongPress = (event: React.PointerEvent<HTMLDivElement>, messageId: string) => {
+    if (event.pointerType === 'mouse') return
+    const element = event.currentTarget
+    longPressTargetRef.current = { id: messageId, element }
+    longPressTimerRef.current = window.setTimeout(() => {
+      const target = longPressTargetRef.current
+      longPressTimerRef.current = null
+      if (!target || target.id !== messageId) return
+      const rect = target.element?.getBoundingClientRect()
+      if (rect) {
+        setActionsMenuPosition({ top: rect.bottom + 4, left: rect.left })
+      }
+      setOpenActionsId(messageId)
+    }, 500)
   }
 
   const handleSubmit = async (event: FormEvent) => {
@@ -381,6 +429,17 @@ const ChatPage = ({
                     <div
                       key={`${message.id}-${chunkIdx}`}
                       className={`bubble ${chunks.length > 1 ? 'bubble-stacked' : ''}`}
+                      onPointerDown={(event) => startLongPress(event, message.id)}
+                      onPointerUp={cancelLongPress}
+                      onPointerLeave={cancelLongPress}
+                      onPointerCancel={cancelLongPress}
+                      onPointerMove={cancelLongPress}
+                      onContextMenu={(event) => {
+                        event.preventDefault()
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        setActionsMenuPosition({ top: rect.bottom + 4, left: rect.left })
+                        setOpenActionsId(message.id)
+                      }}
                     >
                       {isFirst && reasoningText ? (
                         <ReasoningPanel reasoning={reasoningText} />
@@ -423,6 +482,20 @@ const ChatPage = ({
         <div ref={bottomRef} />
       </main>
       <form className="chat-composer glass-card" onSubmit={handleSubmit}>
+        {quoted ? (
+          <div className="quote-preview">
+            <span className="quote-preview-label">{quoted.role === 'assistant' ? 'AI' : '我'}：</span>
+            <span className="quote-preview-content">{quoted.content}</span>
+            <button
+              type="button"
+              className="quote-preview-close"
+              aria-label="取消引用"
+              onClick={() => setQuoted(null)}
+            >
+              ✕
+            </button>
+          </div>
+        ) : null}
         {isStreaming ? (
           <div className="streaming-status">
             <span>生成中…</span>
@@ -509,6 +582,18 @@ const ChatPage = ({
                     <button type="button" role="menuitem" onClick={() => handleCopy(message)}>
                       复制
                     </button>
+                    <button type="button" role="menuitem" onClick={() => handleQuote(message)}>
+                      引用
+                    </button>
+                    {message.role === 'assistant' ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => handleRegenerate(message)}
+                      >
+                        重新生成
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       role="menuitem"

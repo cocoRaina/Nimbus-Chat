@@ -597,7 +597,8 @@ const App = () => {
 
 
   const sendMessage = useCallback(
-    async (sessionId: string, content: string) => {
+    async (sessionId: string, content: string, options?: { skipUser?: boolean }) => {
+      const skipUser = options?.skipUser === true
       const fallbackSettings = createDefaultSettings(user?.id ?? 'local')
       const activeSettings = settingsRef.current ?? fallbackSettings
       const effectiveModel = resolveSessionModel(sessionId)
@@ -649,7 +650,7 @@ const App = () => {
       }
       const nextMessages = sortMessages([
         ...messagesRef.current,
-        optimisticMessage,
+        ...(skipUser ? [] : [optimisticMessage]),
         optimisticAssistant,
       ])
       const nextSessions = sessionsRef.current.map((session) =>
@@ -684,28 +685,30 @@ const App = () => {
           return
         }
 
-        try {
-          const { message: savedUserMessage, updatedAt } = await addRemoteMessage(
-            sessionId,
-            user.id,
-            'user',
-            content,
-            clientId,
-            clientCreatedAt,
-            {},
-          )
-          const updatedMessages = updateMessage(messagesRef.current, {
-            ...savedUserMessage,
-            pending: false,
-          })
-          const updatedSessions = sessionsRef.current.map((session) =>
-            session.id === sessionId ? { ...session, updatedAt } : session,
-          )
-          applySnapshot(updatedSessions, updatedMessages)
-        } catch (error) {
-          console.warn('写入云端消息失败', error)
-          window.alert('发送失败，请稍后重试。')
-          return
+        if (!skipUser) {
+          try {
+            const { message: savedUserMessage, updatedAt } = await addRemoteMessage(
+              sessionId,
+              user.id,
+              'user',
+              content,
+              clientId,
+              clientCreatedAt,
+              {},
+            )
+            const updatedMessages = updateMessage(messagesRef.current, {
+              ...savedUserMessage,
+              pending: false,
+            })
+            const updatedSessions = sessionsRef.current.map((session) =>
+              session.id === sessionId ? { ...session, updatedAt } : session,
+            )
+            applySnapshot(updatedSessions, updatedMessages)
+          } catch (error) {
+            console.warn('写入云端消息失败', error)
+            window.alert('发送失败，请稍后重试。')
+            return
+          }
         }
 
         let assistantContent = ''
@@ -1313,6 +1316,50 @@ const App = () => {
     setIsStreaming(false)
   }, [])
 
+  const regenerateAssistantReply = useCallback(
+    async (assistantMessageId: string) => {
+      const all = messagesRef.current
+      const target = all.find(
+        (m) => m.id === assistantMessageId || m.clientId === assistantMessageId,
+      )
+      if (!target || target.role !== 'assistant') return
+      const sessionMessages = all
+        .filter((m) => m.sessionId === target.sessionId)
+        .sort(
+          (a, b) =>
+            new Date(a.clientCreatedAt ?? a.createdAt).getTime() -
+            new Date(b.clientCreatedAt ?? b.createdAt).getTime(),
+        )
+      const targetIdx = sessionMessages.findIndex((m) => m.id === target.id)
+      if (targetIdx <= 0) return
+      let priorUser: ChatMessage | undefined
+      for (let i = targetIdx - 1; i >= 0; i--) {
+        if (sessionMessages[i].role === 'user' && sessionMessages[i].content.trim().length > 0) {
+          priorUser = sessionMessages[i]
+          break
+        }
+      }
+      if (!priorUser) return
+      // Abort any active streaming for safety
+      streamingControllerRef.current?.abort()
+      // Delete the stale assistant message
+      try {
+        if (user && supabase && !target.pending) {
+          await deleteRemoteMessage(target.id)
+        }
+      } catch (deleteError) {
+        console.warn('删除旧 AI 回复失败', deleteError)
+      }
+      const filtered = messagesRef.current.filter(
+        (m) => m.id !== target.id && m.clientId !== target.id,
+      )
+      applySnapshot(sessionsRef.current, filtered)
+      // Re-stream using the existing user message (skipUser = true)
+      await sendMessage(target.sessionId, priorUser.content, { skipUser: true })
+    },
+    [user, sendMessage, applySnapshot],
+  )
+
   const removeMessage = useCallback(
     async (messageId: string) => {
       const targetMessage = messagesRef.current.find(
@@ -1514,6 +1561,7 @@ const App = () => {
                 onRenameSession={renameSessionEntry}
                 onSendMessage={sendMessage}
                 onDeleteMessage={removeMessage}
+                onRegenerate={regenerateAssistantReply}
                 onDeleteSession={removeSession}
                 enabledModels={enabledModels}
                 defaultModel={defaultModelId}
@@ -1685,6 +1733,7 @@ const ChatRoute = ({
   onRenameSession,
   onSendMessage,
   onDeleteMessage,
+  onRegenerate,
   onDeleteSession,
   enabledModels,
   defaultModel,
@@ -1709,6 +1758,7 @@ const ChatRoute = ({
   onRenameSession: (sessionId: string, title: string) => Promise<void>
   onSendMessage: (sessionId: string, text: string) => Promise<void>
   onDeleteMessage: (messageId: string) => Promise<void>
+  onRegenerate: (assistantMessageId: string) => Promise<void>
   onDeleteSession: (sessionId: string) => Promise<void>
   enabledModels: string[]
   defaultModel: string
@@ -1814,6 +1864,7 @@ const ChatRoute = ({
         onOpenDrawer={onOpenDrawer}
         onSendMessage={(text) => onSendMessage(activeSession.id, text)}
         onDeleteMessage={onDeleteMessage}
+        onRegenerate={onRegenerate}
         isStreaming={isStreaming}
         onStopStreaming={onStopStreaming}
         enabledModels={enabledModels}
