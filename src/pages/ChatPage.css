@@ -178,6 +178,7 @@
   margin: 0;
   white-space: pre-wrap;
   line-height: 1.6;
+  font-size: 14px;
 }
 
 .message.out .bubble {

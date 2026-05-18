@@ -377,7 +377,6 @@ const ChatPage = ({
               >
                 {chunks.map((chunk, chunkIdx) => {
                   const isFirst = chunkIdx === 0
-                  const isLast = chunkIdx === chunks.length - 1
                   return (
                     <div
                       key={`${message.id}-${chunkIdx}`}
@@ -393,13 +392,6 @@ const ChatPage = ({
                       ) : (
                         <p>{chunk}</p>
                       )}
-                      {isLast && message.role === 'assistant' && message.meta?.model ? (
-                        <div className="message-footer">
-                          <span className="model-tag">
-                            {message.meta.model === 'mock-model' ? '模拟模型' : message.meta.model}
-                          </span>
-                        </div>
-                      ) : null}
                     </div>
                   )
                 })}
