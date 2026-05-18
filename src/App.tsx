@@ -131,8 +131,13 @@ type StreamingToolCall = {
   function: { name: string; arguments: string }
 }
 
+type RequestContentBlock =
+  | { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
+  | { type: 'image_url'; image_url: { url: string } }
+
 type ChatRequestMessage =
-  | { role: 'system' | 'user'; content: string }
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string | RequestContentBlock[] }
   | { role: 'assistant'; content: string | null; tool_calls?: StreamingToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string }
 
@@ -164,7 +169,7 @@ const applyClaudeCaching = (
     breakpoints.add(messages.length - 2)
   }
   return messages.map((msg, idx) => {
-    // Only wrap plain text content; leave tool_calls / tool result messages untouched
+    // Only wrap plain text content; leave tool_calls / tool result / multimodal arrays untouched
     if (!breakpoints.has(idx)) {
       return msg
     }
@@ -172,6 +177,10 @@ const applyClaudeCaching = (
       return msg
     }
     if (msg.role === 'tool') {
+      return msg
+    }
+    // If user message already has array content (multimodal with images), leave as-is
+    if (msg.role === 'user' && Array.isArray(msg.content)) {
       return msg
     }
     const text = typeof msg.content === 'string' ? msg.content : ''
@@ -597,8 +606,16 @@ const App = () => {
 
 
   const sendMessage = useCallback(
-    async (sessionId: string, content: string, options?: { skipUser?: boolean }) => {
+    async (
+      sessionId: string,
+      content: string,
+      options?: {
+        skipUser?: boolean
+        attachments?: Array<{ type: 'image'; url: string; width?: number; height?: number }>
+      },
+    ) => {
       const skipUser = options?.skipUser === true
+      const userAttachments = options?.attachments ?? []
       const fallbackSettings = createDefaultSettings(user?.id ?? 'local')
       const activeSettings = settingsRef.current ?? fallbackSettings
       const effectiveModel = resolveSessionModel(sessionId)
@@ -617,6 +634,8 @@ const App = () => {
       )
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
+      const userMeta: ChatMessage['meta'] =
+        userAttachments.length > 0 ? { attachments: userAttachments } : {}
       const optimisticMessage: ChatMessage = {
         id: clientId,
         sessionId,
@@ -625,7 +644,7 @@ const App = () => {
         createdAt: clientCreatedAt,
         clientId,
         clientCreatedAt,
-        meta: {},
+        meta: userMeta,
         pending: true,
       }
       const assistantClientId = createClientId()
@@ -694,7 +713,7 @@ const App = () => {
               content,
               clientId,
               clientCreatedAt,
-              {},
+              userMeta,
             )
             const updatedMessages = updateMessage(messagesRef.current, {
               ...savedUserMessage,
@@ -941,7 +960,20 @@ const App = () => {
             })
           }
           for (const message of compressionOutcome.recentMessages) {
-            baseMessages.push({ role: message.role, content: message.content } as ChatRequestMessage)
+            const messageAttachments = message.meta?.attachments ?? []
+            const imageAttachments = messageAttachments.filter((a) => a.type === 'image')
+            if (message.role === 'user' && imageAttachments.length > 0) {
+              const blocks: RequestContentBlock[] = []
+              if (message.content.trim().length > 0) {
+                blocks.push({ type: 'text', text: message.content })
+              }
+              for (const att of imageAttachments) {
+                blocks.push({ type: 'image_url', image_url: { url: att.url } })
+              }
+              baseMessages.push({ role: 'user', content: blocks })
+            } else {
+              baseMessages.push({ role: message.role, content: message.content } as ChatRequestMessage)
+            }
           }
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
           const toolsEnabled = isToolCapableModel(effectiveModel) && Boolean(supabase)
@@ -1756,7 +1788,11 @@ const ChatRoute = ({
   onCloseDrawer: () => void
   onCreateSession: (title?: string) => Promise<ChatSession>
   onRenameSession: (sessionId: string, title: string) => Promise<void>
-  onSendMessage: (sessionId: string, text: string) => Promise<void>
+  onSendMessage: (
+    sessionId: string,
+    text: string,
+    options?: { attachments?: Array<{ type: 'image'; url: string; width?: number; height?: number }> },
+  ) => Promise<void>
   onDeleteMessage: (messageId: string) => Promise<void>
   onRegenerate: (assistantMessageId: string) => Promise<void>
   onDeleteSession: (sessionId: string) => Promise<void>
@@ -1862,7 +1898,7 @@ const ChatRoute = ({
         session={activeSession}
         messages={activeMessages}
         onOpenDrawer={onOpenDrawer}
-        onSendMessage={(text) => onSendMessage(activeSession.id, text)}
+        onSendMessage={(text, options) => onSendMessage(activeSession.id, text, options)}
         onDeleteMessage={onDeleteMessage}
         onRegenerate={onRegenerate}
         isStreaming={isStreaming}

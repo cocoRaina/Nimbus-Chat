@@ -13,7 +13,10 @@ export type ChatPageProps = {
   session: ChatSession
   messages: ChatMessage[]
   onOpenDrawer: () => void
-  onSendMessage: (text: string) => Promise<void>
+  onSendMessage: (
+    text: string,
+    options?: { attachments?: Array<{ type: 'image'; url: string; width?: number; height?: number }> },
+  ) => Promise<void>
   onDeleteMessage: (messageId: string) => void | Promise<void>
   onRegenerate: (assistantMessageId: string) => void | Promise<void>
   isStreaming: boolean
@@ -66,6 +69,11 @@ const ChatPage = ({
   const [headerMenuPosition, setHeaderMenuPosition] = useState({ top: 0, right: 0 })
   const [pendingDelete, setPendingDelete] = useState<ChatMessage | null>(null)
   const [quoted, setQuoted] = useState<{ role: ChatMessage['role']; content: string } | null>(null)
+  const [pendingAttachments, setPendingAttachments] = useState<
+    Array<{ type: 'image'; url: string; width?: number; height?: number; path?: string }>
+  >([])
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const messagesRef = useRef<HTMLElement | null>(null)
   const lastSessionIdRef = useRef<string | null>(null)
@@ -80,7 +88,7 @@ const ChatPage = ({
 
   const submitDraft = async () => {
     const trimmed = draft.trim()
-    if (!trimmed) {
+    if (!trimmed && pendingAttachments.length === 0) {
       return
     }
     let payload = trimmed
@@ -89,11 +97,49 @@ const ChatPage = ({
         .split('\n')
         .map((line) => `> ${line}`)
         .join('\n')
-      payload = `${quoteBlock}\n\n${trimmed}`
+      payload = payload ? `${quoteBlock}\n\n${payload}` : quoteBlock
     }
+    const attachments = pendingAttachments.map(({ type, url, width, height }) => ({
+      type,
+      url,
+      width,
+      height,
+    }))
     setQuoted(null)
-    await onSendMessage(payload)
+    setPendingAttachments([])
     setDraft('')
+    await onSendMessage(payload || '（已附图）', attachments.length > 0 ? { attachments } : undefined)
+  }
+
+  const handleFilePick = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setUploading(true)
+    try {
+      const { uploadChatImage } = await import('../storage/imageUpload')
+      const uploads = await Promise.all(Array.from(files).map((file) => uploadChatImage(file)))
+      setPendingAttachments((prev) => [
+        ...prev,
+        ...uploads.map((u) => ({
+          type: 'image' as const,
+          url: u.url,
+          width: u.width,
+          height: u.height,
+          path: u.path,
+        })),
+      ])
+    } catch (uploadError) {
+      console.warn('图片上传失败', uploadError)
+      window.alert('图片上传失败，请重试')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const removePendingAttachment = (index: number) => {
+    setPendingAttachments((prev) => prev.filter((_, i) => i !== index))
   }
 
   const handleQuote = (message: ChatMessage) => {
@@ -444,6 +490,23 @@ const ChatPage = ({
                       {isFirst && reasoningText ? (
                         <ReasoningPanel reasoning={reasoningText} />
                       ) : null}
+                      {isFirst && message.meta?.attachments && message.meta.attachments.length > 0 ? (
+                        <div className="message-attachments">
+                          {message.meta.attachments
+                            .filter((att) => att.type === 'image')
+                            .map((att, attIdx) => (
+                              <a
+                                key={`${message.id}-att-${attIdx}`}
+                                href={att.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="message-attachment-image"
+                              >
+                                <img src={att.url} alt="附件图片" loading="lazy" />
+                              </a>
+                            ))}
+                        </div>
+                      ) : null}
                       {message.role === 'assistant' ? (
                         <div className="assistant-markdown">
                           <MarkdownRenderer content={chunk} />
@@ -496,6 +559,36 @@ const ChatPage = ({
             </button>
           </div>
         ) : null}
+        {pendingAttachments.length > 0 ? (
+          <div className="attachment-preview-row">
+            {pendingAttachments.map((att, index) => (
+              <div key={`${att.url}-${index}`} className="attachment-preview-item">
+                <img src={att.url} alt="待发送图片" />
+                <button
+                  type="button"
+                  className="attachment-preview-remove"
+                  aria-label="移除图片"
+                  onClick={() => removePendingAttachment(index)}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            {uploading ? <div className="attachment-preview-uploading">上传中…</div> : null}
+          </div>
+        ) : uploading ? (
+          <div className="attachment-preview-row">
+            <div className="attachment-preview-uploading">上传中…</div>
+          </div>
+        ) : null}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          style={{ display: 'none' }}
+          onChange={(event) => void handleFilePick(event.target.files)}
+        />
         {isStreaming ? (
           <div className="streaming-status">
             <span>生成中…</span>
@@ -559,7 +652,16 @@ const ChatPage = ({
               }
             }}
           />
-          <button type="submit" className="btn-primary">
+          <button
+            type="button"
+            className="attach-button"
+            aria-label="发送图片"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            📎
+          </button>
+          <button type="submit" className="btn-primary" disabled={uploading}>
             发送
           </button>
         </div>
