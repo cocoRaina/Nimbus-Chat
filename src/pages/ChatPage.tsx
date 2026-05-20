@@ -42,9 +42,13 @@ const splitAssistantContent = (content: string): string[] => {
 }
 
 const formatTime = (timestamp: string) =>
-  new Date(timestamp).toLocaleTimeString([], {
+  new Date(timestamp).toLocaleString('en-US', {
+    month: 'numeric',
+    day: 'numeric',
+    year: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   })
 
 const ChatPage = ({
