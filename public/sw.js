@@ -1,5 +1,5 @@
 // bump SW_VERSION on every deploy that wants to invalidate old client caches
-const SW_VERSION = 'v3-2026-05-21-cache-debug'
+const SW_VERSION = 'v4-2026-05-21-edit-user-msg'
 const RUNTIME_CACHE = `nimbus-chat-runtime-${SW_VERSION}`
 const NAV_FALLBACK_CACHE = `nimbus-chat-nav-fallback-${SW_VERSION}`
 
