@@ -2,15 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import {
-  aggregateByModel,
   fetchUsageLogs,
   type UsageLogRow,
 } from '../storage/usageStats'
-import {
-  estimateCostUsd,
-  fetchModelPricing,
-  type ModelPricing,
-} from '../storage/openrouterPricing'
 import './UsagePage.css'
 
 type RangeKey = 'today' | 'week' | 'month' | 'all'
@@ -48,16 +42,6 @@ const formatTokenCount = (value: number): string => {
   return value.toLocaleString()
 }
 
-const formatUsd = (value: number): string => {
-  if (value === 0) {
-    return '$0.00'
-  }
-  if (value < 0.01) {
-    return `$${value.toFixed(5)}`
-  }
-  return `$${value.toFixed(2)}`
-}
-
 type UsagePageProps = {
   user: User | null
 }
@@ -66,10 +50,8 @@ const UsagePage = ({ user }: UsagePageProps) => {
   const navigate = useNavigate()
   const [range, setRange] = useState<RangeKey>('week')
   const [rows, setRows] = useState<UsageLogRow[]>([])
-  const [pricing, setPricing] = useState<Record<string, ModelPricing>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [pricingError, setPricingError] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     if (!user) {
@@ -93,25 +75,6 @@ const UsagePage = ({ user }: UsagePageProps) => {
     void loadData()
   }, [loadData])
 
-  useEffect(() => {
-    let active = true
-    fetchModelPricing()
-      .then((map) => {
-        if (active) {
-          setPricing(map)
-        }
-      })
-      .catch((pricingFetchError) => {
-        console.warn('加载模型单价失败', pricingFetchError)
-        if (active) {
-          setPricingError('未拉到模型单价（OpenRouter API key 缺失？），花销估算可能为 0')
-        }
-      })
-    return () => {
-      active = false
-    }
-  }, [])
-
   // Group rows by provider so we can render a separate panel per API source.
   const byProvider = useMemo(() => {
     const groups = new Map<string, typeof rows>()
@@ -133,26 +96,65 @@ const UsagePage = ({ user }: UsagePageProps) => {
   }, [rows])
 
   const computeTotals = (subset: typeof rows) => {
-    let calls = 0, prompt = 0, completion = 0, total = 0, cached = 0, cost = 0
+    let calls = 0, prompt = 0, completion = 0, total = 0, cached = 0
     for (const row of subset) {
       calls += 1
       prompt += row.promptTokens
       completion += row.completionTokens
       total += row.totalTokens
       cached += row.cachedTokens
-      cost += estimateCostUsd(
-        row.model,
-        row.promptTokens,
-        row.completionTokens,
-        pricing,
-        row.cachedTokens,
-      )
     }
-    return { calls, prompt, completion, total, cached, cost }
+    return { calls, prompt, completion, total, cached }
   }
 
   const providerLabel = (id: string) =>
     id === 'openrouter' ? 'OpenRouter' : id === 'msuicode' ? 'msuicode (备用)' : id
+
+  // Group rows by session and rank by total tokens. Sessions without a
+  // recorded id (legacy logs) get collapsed into one "未归属" bucket.
+  const aggregateBySession = (
+    subset: typeof rows,
+  ): Array<{
+    sessionId: string | null
+    title: string
+    calls: number
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+    cachedTokens: number
+  }> => {
+    const groups = new Map<string, {
+      sessionId: string | null
+      title: string
+      calls: number
+      promptTokens: number
+      completionTokens: number
+      totalTokens: number
+      cachedTokens: number
+    }>()
+    for (const row of subset) {
+      const key = row.sessionId ?? '__unknown__'
+      const existing = groups.get(key)
+      if (existing) {
+        existing.calls += 1
+        existing.promptTokens += row.promptTokens
+        existing.completionTokens += row.completionTokens
+        existing.totalTokens += row.totalTokens
+        existing.cachedTokens += row.cachedTokens
+      } else {
+        groups.set(key, {
+          sessionId: row.sessionId,
+          title: row.sessionTitle?.trim() || (row.sessionId ? `会话 ${row.sessionId.slice(0, 6)}` : '未归属（旧记录）'),
+          calls: 1,
+          promptTokens: row.promptTokens,
+          completionTokens: row.completionTokens,
+          totalTokens: row.totalTokens,
+          cachedTokens: row.cachedTokens,
+        })
+      }
+    }
+    return Array.from(groups.values()).sort((a, b) => b.totalTokens - a.totalTokens)
+  }
 
   return (
     <main className="usage-page app-shell">
@@ -182,14 +184,13 @@ const UsagePage = ({ user }: UsagePageProps) => {
       </div>
 
       {error ? <p className="usage-error">{error}</p> : null}
-      {pricingError ? <p className="usage-warning">{pricingError}</p> : null}
 
       {byProvider.length === 0 ? (
         <p className="usage-empty">这段时间还没有调用记录。</p>
       ) : (
         byProvider.map(([providerId, subset]) => {
           const totals = computeTotals(subset)
-          const aggregates = aggregateByModel(subset)
+          const sessionRanking = aggregateBySession(subset)
           return (
             <div key={providerId} className="usage-provider-panel">
               <h2 className="usage-provider-title">{providerLabel(providerId)}</h2>
@@ -213,50 +214,44 @@ const UsagePage = ({ user }: UsagePageProps) => {
                   <span className="label">输出 tokens</span>
                   <span className="value">{formatTokenCount(totals.completion)}</span>
                 </div>
-                <div className="usage-summary-card highlight">
-                  <span className="label">估算花销</span>
-                  <span className="value">{formatUsd(totals.cost)}</span>
-                </div>
               </section>
 
               <section className="usage-section">
-                <h3>按模型</h3>
+                <h3>按会话（token 消耗排行）</h3>
+                {sessionRanking.length === 0 ? (
+                  <p className="usage-empty">这段时间没有数据。</p>
+                ) : (
                 <div className="usage-table-wrap">
                   <table className="usage-table">
                     <thead>
                       <tr>
-                        <th>Model</th>
+                        <th>会话</th>
                         <th>次数</th>
                         <th>输入</th>
                         <th>输出</th>
                         <th>合计 tokens</th>
-                        <th>估算 $</th>
+                        <th>命中缓存</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {aggregates.map((row) => (
-                        <tr key={row.model}>
-                          <td className="model">{row.model}</td>
+                      {sessionRanking.map((row) => (
+                        <tr key={row.sessionId ?? '__unknown__'}>
+                          <td className="model">{row.title}</td>
                           <td>{row.calls.toLocaleString()}</td>
                           <td>{formatTokenCount(row.promptTokens)}</td>
                           <td>{formatTokenCount(row.completionTokens)}</td>
                           <td>{formatTokenCount(row.totalTokens)}</td>
                           <td>
-                            {formatUsd(
-                              estimateCostUsd(
-                                row.model,
-                                row.promptTokens,
-                                row.completionTokens,
-                                pricing,
-                                row.cachedTokens,
-                              ),
-                            )}
+                            {row.promptTokens > 0
+                              ? `${Math.round((row.cachedTokens / row.promptTokens) * 100)}%`
+                              : '—'}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                )}
               </section>
             </div>
           )
@@ -264,7 +259,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
       )}
 
       <p className="usage-footer-note">
-        花销估算基于 OpenRouter 公开单价（每日缓存）；msuicode 实际计费以平台为准，仅供参考。
+        实际计费请去对应提供商网站查看。这里只展示调用次数、token 用量、缓存命中率。
       </p>
     </main>
   )

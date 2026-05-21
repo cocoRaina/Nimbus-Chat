@@ -766,6 +766,7 @@ const App = () => {
             cachedTokens: cached,
             source: 'chat',
             provider: getActiveProvider(),
+            sessionId,
             rawUsage: lastUsage,
             requestDebug: currentRequestDebug,
           })
