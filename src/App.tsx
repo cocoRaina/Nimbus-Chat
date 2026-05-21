@@ -141,12 +141,6 @@ type ChatRequestMessage =
   | { role: 'assistant'; content: string | null; tool_calls?: StreamingToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string }
 
-type OutgoingTextBlock = {
-  type: 'text'
-  text: string
-  cache_control?: { type: 'ephemeral' }
-}
-
 // For Claude / Anthropic models on OpenRouter, mark up to two cache breakpoints
 // so prompt caching can kick in: the system prompt and the prior conversation
 // (everything except the new user turn). Cached reads are ~10% of the input
@@ -154,47 +148,14 @@ type OutgoingTextBlock = {
 // Non-Claude models are returned untouched.
 const applyClaudeCaching = (
   messages: ChatRequestMessage[],
-  model: string,
+  _model: string,
 ): unknown[] => {
-  if (!/claude|anthropic/i.test(model) || messages.length === 0) {
-    return messages
-  }
-  const firstNonSystemIdx = messages.findIndex((m) => m.role !== 'system')
-  const lastSystemIdx = firstNonSystemIdx === -1 ? messages.length - 1 : firstNonSystemIdx - 1
-  const breakpoints = new Set<number>()
-  // DIAGNOSTIC: only cache the system prompt. If even THIS doesn't hit on
-  // subsequent turns, the issue is deeper (model variant routing, OpenRouter
-  // passthrough, etc.) and the rolling-cache pattern won't help either.
-  if (lastSystemIdx >= 0) {
-    breakpoints.add(lastSystemIdx)
-  }
-  return messages.map((msg, idx) => {
-    // Only wrap plain text content; leave tool_calls / tool result / multimodal arrays untouched
-    if (!breakpoints.has(idx)) {
-      return msg
-    }
-    if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
-      return msg
-    }
-    if (msg.role === 'tool') {
-      return msg
-    }
-    // If user message already has array content (multimodal with images), leave as-is
-    if (msg.role === 'user' && Array.isArray(msg.content)) {
-      return msg
-    }
-    const text = typeof msg.content === 'string' ? msg.content : ''
-    return {
-      role: msg.role,
-      content: [
-        {
-          type: 'text' as const,
-          text,
-          cache_control: { type: 'ephemeral' as const },
-        },
-      ] as OutgoingTextBlock[],
-    }
-  })
+  // Per-message cache_control breakpoints don't reliably hit on OpenRouter for
+  // Anthropic Claude — we tested 1/2/3 marker placements and saw 0% cache reads
+  // (only cache writes). OpenRouter recommends top-level `cache_control` in the
+  // request body, which they manage with proper rolling markers themselves. So
+  // this is now a no-op pass-through; caching is enabled in requestBody below.
+  return messages
 }
 
 // Tool definitions exposed to the LLM.
@@ -1041,6 +1002,17 @@ const App = () => {
               stream: true,
               usage: { include: true },
               isFirstMessage: isFirstMessageInSession,
+            }
+            // For Claude / Anthropic on OpenRouter, enable automatic prompt
+            // caching via top-level cache_control. Force routing to Anthropic
+            // direct (skip Bedrock / Vertex) since top-level cache_control
+            // only works on the native Anthropic provider.
+            if (isClaudeModel(effectiveModel)) {
+              requestBody.cache_control = { type: 'ephemeral' }
+              requestBody.provider = {
+                order: ['anthropic'],
+                allow_fallbacks: false,
+              }
             }
             if (toolsEnabled) {
               requestBody.tools = [TOOL_SEARCH_MEMORY]
