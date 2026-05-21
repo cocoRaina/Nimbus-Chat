@@ -165,8 +165,22 @@ const applyClaudeCaching = (
   if (lastSystemIdx >= 0) {
     breakpoints.add(lastSystemIdx)
   }
+  // Rolling cache pattern: two cache points whose positions are stable across
+  // turns so the cache from turn N is read by turn N+1.
+  //
+  // Each new turn appends [assistant_N, user_{N+1}] — 2 messages. So a marker
+  // at index X in turn N lands at the SAME content X in turn N+1, and a marker
+  // at index X-2 in turn N+1 points to X-2 of new array = X of old array.
+  //
+  // - "old" marker = length - 3 → matches the cache written at "new" position
+  //   in the previous turn, gives the cache READ hit.
+  // - "new" marker = length - 1 → writes a fresh cache covering up through the
+  //   current user message, so the next turn can read it back.
+  if (messages.length >= 4) {
+    breakpoints.add(messages.length - 3)
+  }
   if (messages.length >= 2) {
-    breakpoints.add(messages.length - 2)
+    breakpoints.add(messages.length - 1)
   }
   return messages.map((msg, idx) => {
     // Only wrap plain text content; leave tool_calls / tool result / multimodal arrays untouched
