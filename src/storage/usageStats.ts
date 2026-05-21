@@ -11,6 +11,7 @@ export type UsageLogInput = {
   cachedTokens?: number
   source?: UsageSource | string
   rawUsage?: unknown
+  requestDebug?: unknown
 }
 
 export type UsageLogRow = {
@@ -69,6 +70,7 @@ export const recordUsage = async (input: UsageLogInput): Promise<void> => {
     cached_tokens: cachedTokens,
     source: input.source ?? 'chat',
     raw_usage: input.rawUsage ?? null,
+    request_debug: input.requestDebug ?? null,
   })
   if (error) {
     console.warn('记录 usage 失败', error)

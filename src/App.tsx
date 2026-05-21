@@ -760,6 +760,7 @@ const App = () => {
           prompt_tokens_details?: { cached_tokens?: number }
           cache_read_input_tokens?: number
         } | null = null
+        let currentRequestDebug: unknown = null
 
         const flushUsageRecord = () => {
           if (!user || !lastUsage) {
@@ -776,8 +777,10 @@ const App = () => {
             cachedTokens: cached,
             source: 'chat',
             rawUsage: lastUsage,
+            requestDebug: currentRequestDebug,
           })
           lastUsage = null
+          currentRequestDebug = null
         }
 
         const openTag = '<think>'
@@ -1015,6 +1018,31 @@ const App = () => {
           while (!conversationDone && iteration < MAX_TOOL_ITERATIONS) {
             iteration++
             const cachedMessages = applyClaudeCaching(baseMessages, effectiveModel)
+            const debugBreakpoints = cachedMessages.map((msg, mIdx) => {
+              const m = msg as { role: string; content: unknown; tool_calls?: unknown[] }
+              const hasCacheControl =
+                Array.isArray(m.content) &&
+                (m.content as Array<{ cache_control?: unknown }>).some((b) => b?.cache_control)
+              const contentLen = Array.isArray(m.content)
+                ? (m.content as Array<{ text?: string }>).reduce((s, b) => s + (b.text?.length ?? 0), 0)
+                : typeof m.content === 'string'
+                  ? m.content.length
+                  : 0
+              return {
+                idx: mIdx,
+                role: m.role,
+                tool_calls: Array.isArray(m.tool_calls) && m.tool_calls.length > 0,
+                cache_control: hasCacheControl,
+                chars: contentLen,
+              }
+            })
+            currentRequestDebug = {
+              model: effectiveModel,
+              iteration,
+              total_messages: cachedMessages.length,
+              cache_control_count: debugBreakpoints.filter((b) => b.cache_control).length,
+              breakpoints: debugBreakpoints,
+            }
             const requestBody: Record<string, unknown> = {
               model: effectiveModel,
               modelId: effectiveModel,
