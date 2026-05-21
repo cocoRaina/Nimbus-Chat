@@ -89,10 +89,21 @@ export const estimateCostUsd = (
   promptTokens: number,
   completionTokens: number,
   pricing: ModelPricingMap,
+  cachedTokens = 0,
 ): number => {
   const entry = pricing[model]
   if (!entry) {
     return 0
   }
-  return promptTokens * entry.promptUsdPerToken + completionTokens * entry.completionUsdPerToken
+  // Anthropic / OpenAI prompt caching: cached read is ~10% of full input price.
+  // Uncached input is full price. Output unchanged.
+  // (Cache write is 1.25x but OpenRouter doesn't report it separately, so we
+  //  let that imprecision slide — it averages out across hits.)
+  const safeCached = Math.max(0, Math.min(promptTokens, cachedTokens))
+  const uncachedPrompt = promptTokens - safeCached
+  return (
+    uncachedPrompt * entry.promptUsdPerToken +
+    safeCached * entry.promptUsdPerToken * 0.1 +
+    completionTokens * entry.completionUsdPerToken
+  )
 }

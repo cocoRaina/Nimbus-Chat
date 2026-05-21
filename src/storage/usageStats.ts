@@ -8,6 +8,7 @@ export type UsageLogInput = {
   promptTokens: number
   completionTokens: number
   totalTokens?: number
+  cachedTokens?: number
   source?: UsageSource | string
 }
 
@@ -18,6 +19,7 @@ export type UsageLogRow = {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  cachedTokens: number
   source: string
   createdAt: string
 }
@@ -29,6 +31,7 @@ type UsageLogRecord = {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+  cached_tokens: number | null
   source: string
   created_at: string
 }
@@ -40,6 +43,7 @@ const mapRow = (row: UsageLogRecord): UsageLogRow => ({
   promptTokens: row.prompt_tokens ?? 0,
   completionTokens: row.completion_tokens ?? 0,
   totalTokens: row.total_tokens ?? 0,
+  cachedTokens: row.cached_tokens ?? 0,
   source: row.source,
   createdAt: row.created_at,
 })
@@ -51,6 +55,7 @@ export const recordUsage = async (input: UsageLogInput): Promise<void> => {
   const promptTokens = Math.max(0, Math.round(input.promptTokens || 0))
   const completionTokens = Math.max(0, Math.round(input.completionTokens || 0))
   const totalTokens = Math.max(0, Math.round(input.totalTokens ?? promptTokens + completionTokens))
+  const cachedTokens = Math.max(0, Math.min(promptTokens, Math.round(input.cachedTokens ?? 0)))
   if (promptTokens === 0 && completionTokens === 0 && totalTokens === 0) {
     return
   }
@@ -60,6 +65,7 @@ export const recordUsage = async (input: UsageLogInput): Promise<void> => {
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
     total_tokens: totalTokens,
+    cached_tokens: cachedTokens,
     source: input.source ?? 'chat',
   })
   if (error) {
@@ -76,7 +82,7 @@ export const fetchUsageLogs = async (
   }
   let query = supabase
     .from('usage_logs')
-    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,source,created_at')
+    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,cached_tokens,source,created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(5000)
@@ -96,6 +102,7 @@ export type UsageAggregate = {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  cachedTokens: number
 }
 
 export const aggregateByModel = (rows: UsageLogRow[]): UsageAggregate[] => {
@@ -107,6 +114,7 @@ export const aggregateByModel = (rows: UsageLogRow[]): UsageAggregate[] => {
       existing.promptTokens += row.promptTokens
       existing.completionTokens += row.completionTokens
       existing.totalTokens += row.totalTokens
+      existing.cachedTokens += row.cachedTokens
     } else {
       map.set(row.model, {
         model: row.model,
@@ -114,6 +122,7 @@ export const aggregateByModel = (rows: UsageLogRow[]): UsageAggregate[] => {
         promptTokens: row.promptTokens,
         completionTokens: row.completionTokens,
         totalTokens: row.totalTokens,
+        cachedTokens: row.cachedTokens,
       })
     }
   }

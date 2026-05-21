@@ -128,15 +128,23 @@ const UsagePage = ({ user }: UsagePageProps) => {
     let prompt = 0
     let completion = 0
     let total = 0
+    let cached = 0
     let cost = 0
     for (const row of rows) {
       calls += 1
       prompt += row.promptTokens
       completion += row.completionTokens
       total += row.totalTokens
-      cost += estimateCostUsd(row.model, row.promptTokens, row.completionTokens, pricing)
+      cached += row.cachedTokens
+      cost += estimateCostUsd(
+        row.model,
+        row.promptTokens,
+        row.completionTokens,
+        pricing,
+        row.cachedTokens,
+      )
     }
-    return { calls, prompt, completion, total, cost }
+    return { calls, prompt, completion, total, cached, cost }
   }, [rows, pricing])
 
   const sourceBreakdown = useMemo(() => {
@@ -185,7 +193,14 @@ const UsagePage = ({ user }: UsagePageProps) => {
           <span className="value">{totals.calls.toLocaleString()}</span>
         </div>
         <div className="usage-summary-card">
-          <span className="label">输入 tokens</span>
+          <span className="label">
+            输入 tokens
+            {totals.cached > 0 ? (
+              <span className="label-hint">
+                ｜命中缓存 {formatTokenCount(totals.cached)}（{Math.round((totals.cached / totals.prompt) * 100)}%）
+              </span>
+            ) : null}
+          </span>
           <span className="value">{formatTokenCount(totals.prompt)}</span>
         </div>
         <div className="usage-summary-card">
@@ -223,7 +238,17 @@ const UsagePage = ({ user }: UsagePageProps) => {
                     <td>{formatTokenCount(row.promptTokens)}</td>
                     <td>{formatTokenCount(row.completionTokens)}</td>
                     <td>{formatTokenCount(row.totalTokens)}</td>
-                    <td>{formatUsd(estimateCostUsd(row.model, row.promptTokens, row.completionTokens, pricing))}</td>
+                    <td>
+                      {formatUsd(
+                        estimateCostUsd(
+                          row.model,
+                          row.promptTokens,
+                          row.completionTokens,
+                          pricing,
+                          row.cachedTokens,
+                        ),
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

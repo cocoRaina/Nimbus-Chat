@@ -739,18 +739,27 @@ const App = () => {
         let flushTimer: number | null = null
         let thinkCarry = ''
         let isInThink = false
-        let lastUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null
+        let lastUsage: {
+          prompt_tokens?: number
+          completion_tokens?: number
+          total_tokens?: number
+          prompt_tokens_details?: { cached_tokens?: number }
+          cache_read_input_tokens?: number
+        } | null = null
 
         const flushUsageRecord = () => {
           if (!user || !lastUsage) {
             return
           }
+          const cached =
+            Number(lastUsage.prompt_tokens_details?.cached_tokens ?? lastUsage.cache_read_input_tokens ?? 0)
           void recordUsage({
             userId: user.id,
             model: actualModel,
             promptTokens: Number(lastUsage.prompt_tokens ?? 0),
             completionTokens: Number(lastUsage.completion_tokens ?? 0),
             totalTokens: Number(lastUsage.total_tokens ?? 0),
+            cachedTokens: cached,
             source: 'chat',
           })
           lastUsage = null
@@ -1039,7 +1048,7 @@ const App = () => {
                 actualModel = payload.model
               }
               if (payload?.usage && typeof payload.usage === 'object') {
-                lastUsage = payload.usage as { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+                lastUsage = payload.usage as typeof lastUsage
               }
               const choice = (payload as { choices?: unknown[] })?.choices?.[0] as
                 | Record<string, unknown>

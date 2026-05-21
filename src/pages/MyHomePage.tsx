@@ -465,7 +465,13 @@ const MyHomePage = ({ user, snackAiConfig }: MyHomePageProps) => {
 
     const resolvedModel = typeof payload.model === 'string' ? payload.model : snackAiConfig.model
     const usage = payload.usage as
-      | { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+      | {
+          prompt_tokens?: number
+          completion_tokens?: number
+          total_tokens?: number
+          prompt_tokens_details?: { cached_tokens?: number }
+          cache_read_input_tokens?: number
+        }
       | undefined
     if (user && usage) {
       void recordUsage({
@@ -474,6 +480,9 @@ const MyHomePage = ({ user, snackAiConfig }: MyHomePageProps) => {
         promptTokens: Number(usage.prompt_tokens ?? 0),
         completionTokens: Number(usage.completion_tokens ?? 0),
         totalTokens: Number(usage.total_tokens ?? 0),
+        cachedTokens: Number(
+          usage.prompt_tokens_details?.cached_tokens ?? usage.cache_read_input_tokens ?? 0,
+        ),
         source: 'snacks',
       })
     }
