@@ -113,6 +113,9 @@ const summarizeMessages = async (
   newMessages: ChatMessage[],
 ): Promise<string> => {
   const response = await fetchOpenRouter('/chat/completions', {
+    // Always run compression on OpenRouter — its free-tier models (Llama,
+    // Gemini etc.) are good enough for summarization and cost nothing.
+    provider: 'openrouter',
     body: {
       model: summarizerModel,
       stream: false,

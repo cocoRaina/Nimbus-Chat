@@ -13,6 +13,7 @@ import {
 import {
   DEFAULT_MSUICODE_BASE,
   clearMsuicodeApiKey,
+  deriveProviderDisplayName,
   getActiveProvider,
   getMsuicodeApiKey,
   getMsuicodeBaseUrl,
@@ -87,6 +88,11 @@ const SettingsPage = ({
   const [msuicodeApiKeyVisible, setMsuicodeApiKeyVisible] = useState(false)
   const [msuicodeApiKeyStatus, setMsuicodeApiKeyStatus] = useState<'idle' | 'saved'>('idle')
   const [msuicodeBaseUrlInput, setMsuicodeBaseUrlInput] = useState(() => getMsuicodeBaseUrl())
+  // Friendly label for the custom provider, derived from its base URL hostname.
+  const customProviderName = useMemo(
+    () => deriveProviderDisplayName(msuicodeBaseUrlInput || DEFAULT_MSUICODE_BASE),
+    [msuicodeBaseUrlInput],
+  )
   const [catalogReloadKey, setCatalogReloadKey] = useState(0)
   const [draftDefaultModel, setDraftDefaultModel] = useState(defaultModelId)
   const [draftChatReasoning, setDraftChatReasoning] = useState(true)
@@ -233,7 +239,7 @@ const SettingsPage = ({
           return
         }
         setCatalogStatus('error')
-        const providerLabel = getActiveProvider() === 'msuicode' ? 'msuicode' : 'OpenRouter'
+        const providerLabel = getActiveProvider() === 'msuicode' ? customProviderName : 'OpenRouter'
         setCatalogError(error instanceof Error ? `[${providerLabel}] ${error.message}` : `无法加载 ${providerLabel} 模型库`)
       })
     return () => {
@@ -854,8 +860,8 @@ const SettingsPage = ({
         >
           <span className="section-title">
             <span className="section-icon" aria-hidden="true">🪞</span>
-            <h2 className="ui-title">msuicode API Key</h2>
-            <p>备用 API 提供商（OpenAI 兼容格式）。配置好后可在下方切换激活。</p>
+            <h2 className="ui-title">{customProviderName} API Key</h2>
+            <p>备用 API 提供商（OpenAI 兼容格式）。在模型库里切换激活。</p>
           </span>
           <span className="collapse-indicator" aria-hidden="true">›</span>
         </button>
@@ -915,36 +921,6 @@ const SettingsPage = ({
         ) : null}
       </section>
       <section className="settings-section" role="listitem">
-        <div className="accordion-content" style={{ paddingTop: 0 }}>
-          <label>当前使用的 API</label>
-          <div className="system-prompt-actions" role="radiogroup" aria-label="API 提供商">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={activeProvider === 'openrouter'}
-              className={activeProvider === 'openrouter' ? 'primary' : 'ghost'}
-              onClick={() => handleSwitchProvider('openrouter')}
-            >
-              OpenRouter
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={activeProvider === 'msuicode'}
-              className={activeProvider === 'msuicode' ? 'primary' : 'ghost'}
-              onClick={() => handleSwitchProvider('msuicode')}
-            >
-              msuicode
-            </button>
-            <span className="system-prompt-status">
-              {activeProvider === 'msuicode'
-                ? '⚠️ msuicode 下没有 prompt caching，单价按全价算'
-                : '🚀 OpenRouter 下走 Anthropic 缓存，可省 ~90%'}
-            </span>
-          </div>
-        </div>
-      </section>
-      <section className="settings-section" role="listitem">
         <button
           type="button"
           className="collapse-header"
@@ -960,6 +936,34 @@ const SettingsPage = ({
         </button>
         {modelSectionExpanded ? (
           <div className="accordion-content">
+            <div className="model-select-card">
+              <label>当前使用的 API</label>
+              <div className="system-prompt-actions" role="radiogroup" aria-label="API 提供商">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={activeProvider === 'openrouter'}
+                  className={activeProvider === 'openrouter' ? 'primary' : 'ghost'}
+                  onClick={() => handleSwitchProvider('openrouter')}
+                >
+                  OpenRouter
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={activeProvider === 'msuicode'}
+                  className={activeProvider === 'msuicode' ? 'primary' : 'ghost'}
+                  onClick={() => handleSwitchProvider('msuicode')}
+                >
+                  {customProviderName}
+                </button>
+                <span className="system-prompt-status">
+                  {activeProvider === 'msuicode'
+                    ? `⚠️ ${customProviderName} 下无 prompt caching（按全价）`
+                    : '🚀 OR 下走 Anthropic 缓存可省 ~90%'}
+                </span>
+              </div>
+            </div>
             {draftEnabledModels.length === 0 ? (
               <div className="empty-state">暂无启用模型，请从下方模型库启用。</div>
             ) : (
@@ -993,7 +997,7 @@ const SettingsPage = ({
             )}
 
             <div className="section-title nested-prompt-title">
-              <h2 className="ui-title">{activeProvider === 'msuicode' ? 'msuicode' : 'OpenRouter'} 模型库</h2>
+              <h2 className="ui-title">{activeProvider === 'msuicode' ? customProviderName : 'OpenRouter'} 模型库</h2>
               <p>搜索并启用你想使用的模型。</p>
             </div>
             <input

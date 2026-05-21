@@ -8,6 +8,21 @@ const STORAGE_MSUI_BASE = 'nimbus_msuicode_base_url'
 
 export const DEFAULT_MSUICODE_BASE = 'https://www.msuicode.com'
 
+// Pull a friendly label out of a base URL. "https://www.msuicode.com" → "msuicode",
+// "https://api.deepseek.com" → "deepseek", etc. Falls back to "自定义" if parse fails.
+export const deriveProviderDisplayName = (baseUrl: string): string => {
+  try {
+    const host = new URL(baseUrl).hostname.replace(/^(www\.|api\.|gateway\.)/, '')
+    const parts = host.split('.')
+    return parts.length >= 2 ? parts[0] : host
+  } catch {
+    return '自定义'
+  }
+}
+
+export const getCustomProviderDisplayName = (): string =>
+  deriveProviderDisplayName(getMsuicodeBaseUrl())
+
 const trimSlash = (s: string) => s.replace(/\/+$/, '')
 
 export const getActiveProvider = (): ProviderId => {
