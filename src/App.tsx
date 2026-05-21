@@ -1468,6 +1468,55 @@ const App = () => {
     [user, sendMessage, applySnapshot],
   )
 
+  const editUserMessage = useCallback(
+    async (userMessageId: string, newContent: string) => {
+      const trimmed = newContent.trim()
+      if (!trimmed) return
+      const all = messagesRef.current
+      const target = all.find(
+        (m) => m.id === userMessageId || m.clientId === userMessageId,
+      )
+      if (!target || target.role !== 'user') return
+      const sessionMessages = all
+        .filter((m) => m.sessionId === target.sessionId)
+        .sort(
+          (a, b) =>
+            new Date(a.clientCreatedAt ?? a.createdAt).getTime() -
+            new Date(b.clientCreatedAt ?? b.createdAt).getTime(),
+        )
+      const targetIdx = sessionMessages.findIndex((m) => m.id === target.id)
+      if (targetIdx < 0) return
+      // Stop any in-flight streaming before mutating message history.
+      streamingControllerRef.current?.abort()
+      // Remove the edited user message AND every message after it (assistant
+      // replies, follow-ups). The edit replays from this turn forward.
+      const removeIds = new Set(sessionMessages.slice(targetIdx).map((m) => m.id))
+      try {
+        if (user && supabase) {
+          for (const m of sessionMessages.slice(targetIdx)) {
+            if (!m.pending) {
+              try {
+                await deleteRemoteMessage(m.id)
+              } catch (err) {
+                console.warn('编辑时删除旧消息失败', err)
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('编辑时清理远端消息失败', err)
+      }
+      const filtered = messagesRef.current.filter(
+        (m) => !removeIds.has(m.id) && !removeIds.has(m.clientId ?? ''),
+      )
+      applySnapshot(sessionsRef.current, filtered)
+      // Resend with the new content. Attachments are dropped — user can
+      // re-attach if needed.
+      await sendMessage(target.sessionId, trimmed)
+    },
+    [user, sendMessage, applySnapshot],
+  )
+
   const removeMessage = useCallback(
     async (messageId: string) => {
       const targetMessage = messagesRef.current.find(
@@ -1670,6 +1719,7 @@ const App = () => {
                 onSendMessage={sendMessage}
                 onDeleteMessage={removeMessage}
                 onRegenerate={regenerateAssistantReply}
+                onEditUserMessage={editUserMessage}
                 onDeleteSession={removeSession}
                 enabledModels={enabledModels}
                 defaultModel={defaultModelId}

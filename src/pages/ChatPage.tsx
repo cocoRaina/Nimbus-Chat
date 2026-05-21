@@ -19,6 +19,7 @@ export type ChatPageProps = {
   ) => Promise<void>
   onDeleteMessage: (messageId: string) => void | Promise<void>
   onRegenerate: (assistantMessageId: string) => void | Promise<void>
+  onEditUserMessage: (userMessageId: string, newContent: string) => void | Promise<void>
   isStreaming: boolean
   onStopStreaming: () => void
   enabledModels: string[]
@@ -58,6 +59,7 @@ const ChatPage = ({
   onSendMessage,
   onDeleteMessage,
   onRegenerate,
+  onEditUserMessage,
   isStreaming,
   onStopStreaming,
   enabledModels,
@@ -73,6 +75,7 @@ const ChatPage = ({
   const [headerMenuPosition, setHeaderMenuPosition] = useState({ top: 0, right: 0 })
   const [pendingDelete, setPendingDelete] = useState<ChatMessage | null>(null)
   const [quoted, setQuoted] = useState<{ role: ChatMessage['role']; content: string } | null>(null)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [pendingAttachments, setPendingAttachments] = useState<
     Array<{ type: 'image'; url: string; width?: number; height?: number; path?: string }>
   >([])
@@ -112,7 +115,25 @@ const ChatPage = ({
     setQuoted(null)
     setPendingAttachments([])
     setDraft('')
+    if (editingMessageId) {
+      const idToEdit = editingMessageId
+      setEditingMessageId(null)
+      await onEditUserMessage(idToEdit, payload)
+      return
+    }
     await onSendMessage(payload || '（已附图）', attachments.length > 0 ? { attachments } : undefined)
+  }
+
+  const handleEdit = (message: ChatMessage) => {
+    setDraft(message.content)
+    setEditingMessageId(message.id)
+    setQuoted(null)
+    setOpenActionsId(null)
+  }
+
+  const cancelEdit = () => {
+    setEditingMessageId(null)
+    setDraft('')
   }
 
   const handleFilePick = async (files: FileList | null) => {
@@ -549,6 +570,20 @@ const ChatPage = ({
         <div ref={bottomRef} />
       </main>
       <form className="chat-composer glass-card" onSubmit={handleSubmit}>
+        {editingMessageId ? (
+          <div className="quote-preview">
+            <span className="quote-preview-label">✏️ 编辑中</span>
+            <span className="quote-preview-content">提交后会重新生成此条之后的全部回复</span>
+            <button
+              type="button"
+              className="quote-preview-close"
+              aria-label="取消编辑"
+              onClick={cancelEdit}
+            >
+              ✕
+            </button>
+          </div>
+        ) : null}
         {quoted ? (
           <div className="quote-preview">
             <span className="quote-preview-label">{quoted.role === 'assistant' ? 'AI' : '我'}：</span>
@@ -698,6 +733,17 @@ const ChatPage = ({
                         onClick={() => handleRegenerate(message)}
                       >
                         重新生成
+                      </button>
+                    ) : null}
+                    {message.role === 'user' ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          handleEdit(message)
+                        }}
+                      >
+                        编辑
                       </button>
                     ) : null}
                     <button
