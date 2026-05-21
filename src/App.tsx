@@ -933,20 +933,34 @@ const App = () => {
               content: `## 前面对话的摘要（用作上下文，不要直接复述）\n${compressionOutcome.summaryText}`,
             })
           }
+          // Use each message's own createdAt to build a stable time prefix.
+          // Critical for prompt caching: every prior turn must produce identical
+          // bytes across requests, so we cannot use a fresh `new Date()` here —
+          // that would change the prefix on every send.
+          const formatStamp = (iso: string) => {
+            const d = new Date(iso)
+            return Number.isNaN(d.getTime())
+              ? ''
+              : d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+          }
           for (const message of compressionOutcome.recentMessages) {
             const messageAttachments = message.meta?.attachments ?? []
             const imageAttachments = messageAttachments.filter((a) => a.type === 'image')
+            const stamp = message.role === 'user' ? formatStamp(message.createdAt) : ''
+            const prefix = stamp ? `[当前时间] ${stamp}\n\n` : ''
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []
-              if (message.content.trim().length > 0) {
-                blocks.push({ type: 'text', text: message.content })
+              const textContent = `${prefix}${message.content}`
+              if (textContent.trim().length > 0) {
+                blocks.push({ type: 'text', text: textContent })
               }
               for (const att of imageAttachments) {
                 blocks.push({ type: 'image_url', image_url: { url: att.url } })
               }
               baseMessages.push({ role: 'user', content: blocks })
             } else {
-              baseMessages.push({ role: message.role, content: message.content } as ChatRequestMessage)
+              const content = message.role === 'user' ? `${prefix}${message.content}` : message.content
+              baseMessages.push({ role: message.role, content } as ChatRequestMessage)
             }
           }
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
