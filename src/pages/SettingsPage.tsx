@@ -993,7 +993,7 @@ const SettingsPage = ({
             )}
 
             <div className="section-title nested-prompt-title">
-              <h2 className="ui-title">OpenRouter 模型库</h2>
+              <h2 className="ui-title">{activeProvider === 'msuicode' ? 'msuicode' : 'OpenRouter'} 模型库</h2>
               <p>搜索并启用你想使用的模型。</p>
             </div>
             <input
