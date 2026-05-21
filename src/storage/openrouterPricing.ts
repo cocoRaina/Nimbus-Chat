@@ -84,6 +84,37 @@ export const fetchModelPricing = async (force = false): Promise<ModelPricingMap>
   return pricing
 }
 
+// OpenRouter chat completions sometimes return Anthropic's underlying dated
+// model id (e.g., "anthropic/claude-4.6-opus-20260205") while the /models
+// catalog lists the canonical slug ("anthropic/claude-opus-4.6"). Try fuzzy
+// matching so cost estimates don't silently become 0.
+const findModelPricing = (model: string, pricing: ModelPricingMap): ModelPricing | undefined => {
+  if (pricing[model]) return pricing[model]
+  const lower = model.toLowerCase()
+  // 1) exact case-insensitive
+  for (const [key, val] of Object.entries(pricing)) {
+    if (key.toLowerCase() === lower) return val
+  }
+  // 2) strip trailing date suffix like -YYYYMMDD or :YYYYMMDD
+  const noDate = lower.replace(/[-:]\d{6,8}.*$/, '')
+  if (pricing[noDate]) return pricing[noDate]
+  // 3) token-based fuzzy match: extract [family, version, tier] tokens
+  const family = noDate.replace(/^[^/]+\//, '') // drop vendor prefix
+  const tokens = family.match(/[a-z]+|\d+(?:\.\d+)?/g) ?? []
+  if (tokens.length < 2) return undefined
+  let bestMatch: ModelPricing | undefined
+  let bestScore = 0
+  for (const [key, val] of Object.entries(pricing)) {
+    const keyLower = key.toLowerCase()
+    const matchedTokens = tokens.filter((t) => keyLower.includes(t)).length
+    if (matchedTokens === tokens.length && matchedTokens > bestScore) {
+      bestScore = matchedTokens
+      bestMatch = val
+    }
+  }
+  return bestMatch
+}
+
 export const estimateCostUsd = (
   model: string,
   promptTokens: number,
@@ -91,7 +122,7 @@ export const estimateCostUsd = (
   pricing: ModelPricingMap,
   cachedTokens = 0,
 ): number => {
-  const entry = pricing[model]
+  const entry = findModelPricing(model, pricing)
   if (!entry) {
     return 0
   }
