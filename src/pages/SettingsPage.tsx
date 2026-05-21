@@ -214,6 +214,8 @@ const SettingsPage = ({
       return
     }
     let active = true
+    // Clear stale catalog from previous provider so user sees the switch took effect
+    setCatalog([])
     const timer = window.setTimeout(() => {
       setCatalogStatus('loading')
       setCatalogError(null)
@@ -231,7 +233,8 @@ const SettingsPage = ({
           return
         }
         setCatalogStatus('error')
-        setCatalogError(error instanceof Error ? error.message : '无法加载 OpenRouter 模型库')
+        const providerLabel = getActiveProvider() === 'msuicode' ? 'msuicode' : 'OpenRouter'
+        setCatalogError(error instanceof Error ? `[${providerLabel}] ${error.message}` : `无法加载 ${providerLabel} 模型库`)
       })
     return () => {
       active = false
