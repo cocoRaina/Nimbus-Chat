@@ -1892,6 +1892,7 @@ const ChatRoute = ({
   onSendMessage,
   onDeleteMessage,
   onRegenerate,
+  onEditUserMessage,
   onDeleteSession,
   enabledModels,
   defaultModel,
@@ -1921,6 +1922,7 @@ const ChatRoute = ({
   ) => Promise<void>
   onDeleteMessage: (messageId: string) => Promise<void>
   onRegenerate: (assistantMessageId: string) => Promise<void>
+  onEditUserMessage: (userMessageId: string, newContent: string) => Promise<void>
   onDeleteSession: (sessionId: string) => Promise<void>
   enabledModels: string[]
   defaultModel: string
@@ -2027,6 +2029,7 @@ const ChatRoute = ({
         onSendMessage={(text, options) => onSendMessage(activeSession.id, text, options)}
         onDeleteMessage={onDeleteMessage}
         onRegenerate={onRegenerate}
+        onEditUserMessage={onEditUserMessage}
         isStreaming={isStreaming}
         onStopStreaming={onStopStreaming}
         enabledModels={enabledModels}
