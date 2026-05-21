@@ -479,7 +479,8 @@
 }
 
 .message.out .action-trigger {
-  opacity: 0.82;
+  opacity: 1;
+  background: rgba(15, 23, 42, 0.06);
 }
 
 .message:hover .action-trigger,
