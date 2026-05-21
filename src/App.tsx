@@ -223,6 +223,111 @@ const TOOL_WEB_SEARCH = {
   },
 }
 
+// === Write tools ===
+// User authorized: memory / diary / handoff letter / timeline / period
+// Only call when the user explicitly asks you to record / remember / log
+// something. Don't auto-save just because something interesting was said.
+
+const TOOL_ADD_MEMORY = {
+  type: 'function' as const,
+  function: {
+    name: 'add_memory',
+    description:
+      '把一条内容存进用户的长期记忆库。仅在用户明确说「记下 / 记住 / 帮我记一下」之类时调用。' +
+      '存进去的是 1-3 句话的事实/偏好/习惯，不要存大段对话。',
+    parameters: {
+      type: 'object',
+      properties: {
+        content: { type: 'string', description: '要记住的内容，1-3 句话' },
+        category: { type: 'string', description: '分类，可选。例如：偏好/习惯/关系/工作/日常' },
+        tags: { type: 'array', items: { type: 'string' }, description: '标签数组，可选' },
+      },
+      required: ['content'],
+    },
+  },
+}
+
+const TOOL_WRITE_DIARY = {
+  type: 'function' as const,
+  function: {
+    name: 'write_diary',
+    description:
+      '替用户写一篇日记。仅在用户明确说「帮我写日记 / 总结今天 / 记下今天」时调用。' +
+      'date 用 YYYY-MM-DD 格式。author 字段会自动设为 "Claude"。',
+    parameters: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: '日记对应的日期，YYYY-MM-DD 格式' },
+        content: { type: 'string', description: '日记正文' },
+        title: { type: 'string', description: '日记标题，可选' },
+        mood: { type: 'string', description: '心情，可选。例如：开心/平静/低落/焦虑' },
+      },
+      required: ['date', 'content'],
+    },
+  },
+}
+
+const TOOL_WRITE_LETTER = {
+  type: 'function' as const,
+  function: {
+    name: 'write_handoff_letter',
+    description:
+      '写一封交接信——这是「上一窗口的你」写给「下一窗口的你」的信，传递这次对话里的关键状态、未完事项、对用户的当前理解。' +
+      '只在用户说「帮我（你自己）写一封交接信」或类似明确指令时调用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: '信件标题，简短概括主题' },
+        content: { type: 'string', description: '信件正文，可以较长，含对下一个窗口的嘱托' },
+        date: { type: 'string', description: '日期 YYYY-MM-DD，不填默认今天' },
+        signature: { type: 'string', description: '署名，可选' },
+      },
+      required: ['title', 'content'],
+    },
+  },
+}
+
+const TOOL_ADD_TIMELINE = {
+  type: 'function' as const,
+  function: {
+    name: 'add_timeline_event',
+    description:
+      '往时间轴里加一个重要事件（里程碑）。门槛要高——只记真正重要的转折点（搬家/换工作/重要关系变化/纪念日），不要往里塞日常琐事。' +
+      '仅在用户明确说「这件事加到时间轴」时调用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        event_date: { type: 'string', description: '事件发生日期 YYYY-MM-DD' },
+        title: { type: 'string', description: '简短标题' },
+        description: { type: 'string', description: '描述，可选' },
+        category: { type: 'string', description: '分类，例如：工作/感情/家庭/健康/学习。默认日常' },
+        importance: { type: 'integer', description: '重要程度 1-5，默认 3' },
+      },
+      required: ['event_date', 'title'],
+    },
+  },
+}
+
+const TOOL_LOG_PERIOD = {
+  type: 'function' as const,
+  function: {
+    name: 'log_period',
+    description:
+      '记录用户的经期数据。仅在用户明确说「来事了 / 经期开始 / 经期结束了」之类时调用。' +
+      'start_date 必填，end_date 在用户说结束时才填。',
+    parameters: {
+      type: 'object',
+      properties: {
+        start_date: { type: 'string', description: '经期开始日期 YYYY-MM-DD' },
+        end_date: { type: 'string', description: '结束日期 YYYY-MM-DD，可选' },
+        cycle_length: { type: 'integer', description: '本周期长度（天数），可选' },
+        notes: { type: 'string', description: '备注，例如：痛经程度 / 情绪 / 流量，可选' },
+      },
+      required: ['start_date'],
+    },
+  },
+}
+
 const isToolCapableModel = (model: string) =>
   /claude|anthropic|gpt-4|gpt-5|openai\//i.test(model)
 
@@ -1071,7 +1176,15 @@ const App = () => {
               }
             }
             if (toolsEnabled) {
-              requestBody.tools = [TOOL_SEARCH_MEMORY, TOOL_WEB_SEARCH]
+              requestBody.tools = [
+                TOOL_SEARCH_MEMORY,
+                TOOL_WEB_SEARCH,
+                TOOL_ADD_MEMORY,
+                TOOL_WRITE_DIARY,
+                TOOL_WRITE_LETTER,
+                TOOL_ADD_TIMELINE,
+                TOOL_LOG_PERIOD,
+              ]
               requestBody.tool_choice = 'auto'
             }
             if (reasoningEnabled && isClaudeModel(effectiveModel)) {
@@ -1340,6 +1453,86 @@ const App = () => {
                     resultText = error
                       ? JSON.stringify({ error: error.message ?? String(error) })
                       : JSON.stringify(data ?? {})
+                  } else if (
+                    (tc.function.name === 'add_memory' ||
+                      tc.function.name === 'write_diary' ||
+                      tc.function.name === 'write_handoff_letter' ||
+                      tc.function.name === 'add_timeline_event' ||
+                      tc.function.name === 'log_period') &&
+                    supabase
+                  ) {
+                    let args: Record<string, unknown> = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}')
+                    } catch (jsonError) {
+                      console.warn(`解析 ${tc.function.name} 参数失败`, jsonError)
+                    }
+                    // Map tool name -> table + payload shape. Tables, fields, and
+                    // defaults match the schema (memories/diaries/handoff_letters/
+                    // timeline/period_tracking).
+                    let table = ''
+                    let payload: Record<string, unknown> = {}
+                    let labelText = ''
+                    if (tc.function.name === 'add_memory') {
+                      table = 'memories'
+                      payload = {
+                        content: String(args.content ?? '').trim(),
+                        category: typeof args.category === 'string' && args.category.trim() ? args.category.trim() : null,
+                        tags: Array.isArray(args.tags) ? args.tags.map(String) : null,
+                      }
+                      labelText = `📝 写入记忆：${payload.content?.toString().slice(0, 30) ?? ''}`
+                    } else if (tc.function.name === 'write_diary') {
+                      table = 'diaries'
+                      payload = {
+                        date: String(args.date ?? ''),
+                        content: String(args.content ?? '').trim(),
+                        title: typeof args.title === 'string' ? args.title : null,
+                        mood: typeof args.mood === 'string' ? args.mood : null,
+                      }
+                      labelText = `📔 写日记：${payload.date}`
+                    } else if (tc.function.name === 'write_handoff_letter') {
+                      table = 'handoff_letters'
+                      payload = {
+                        title: String(args.title ?? '').trim(),
+                        content: String(args.content ?? '').trim(),
+                        date: typeof args.date === 'string' && args.date ? args.date : new Date().toISOString().slice(0, 10),
+                        signature: typeof args.signature === 'string' ? args.signature : null,
+                      }
+                      labelText = `✉️ 写交接信：${payload.title}`
+                    } else if (tc.function.name === 'add_timeline_event') {
+                      table = 'timeline'
+                      payload = {
+                        event_date: String(args.event_date ?? ''),
+                        title: String(args.title ?? '').trim(),
+                        description: typeof args.description === 'string' ? args.description : null,
+                        category: typeof args.category === 'string' && args.category.trim() ? args.category.trim() : null,
+                        importance: typeof args.importance === 'number' ? Math.max(1, Math.min(5, Math.round(args.importance))) : null,
+                      }
+                      labelText = `📍 时间轴：${payload.title}`
+                    } else if (tc.function.name === 'log_period') {
+                      table = 'period_tracking'
+                      payload = {
+                        start_date: String(args.start_date ?? ''),
+                        end_date: typeof args.end_date === 'string' && args.end_date ? args.end_date : null,
+                        cycle_length: typeof args.cycle_length === 'number' ? args.cycle_length : null,
+                        notes: typeof args.notes === 'string' ? args.notes : null,
+                      }
+                      labelText = `🩸 记录经期：${payload.start_date}`
+                    }
+                    setToolStatus(labelText)
+                    // Strip nulls so DB defaults kick in.
+                    const cleaned: Record<string, unknown> = {}
+                    for (const [k, v] of Object.entries(payload)) {
+                      if (v !== null && v !== '') cleaned[k] = v
+                    }
+                    const { data: inserted, error: insertErr } = await supabase
+                      .from(table)
+                      .insert(cleaned)
+                      .select()
+                      .single()
+                    resultText = insertErr
+                      ? JSON.stringify({ error: insertErr.message })
+                      : JSON.stringify({ ok: true, table, inserted })
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })
                   }
