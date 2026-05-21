@@ -1010,7 +1010,7 @@ const App = () => {
             if (isClaudeModel(effectiveModel)) {
               requestBody.cache_control = { type: 'ephemeral' }
               requestBody.provider = {
-                order: ['anthropic'],
+                order: ['Anthropic'],
                 allow_fallbacks: false,
               }
             }
