@@ -925,8 +925,7 @@ const App = () => {
           )
           const baseMessages: ChatRequestMessage[] = []
           if (compressionOutcome.systemPromptText.trim()) {
-            const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
-    baseMessages.push({ role: 'system', content: `[当前时间] ${now}\n\n${compressionOutcome.systemPromptText}`  })
+            baseMessages.push({ role: 'system', content: compressionOutcome.systemPromptText })
           }
           if (compressionOutcome.summaryText) {
             baseMessages.push({
@@ -949,6 +948,26 @@ const App = () => {
             } else {
               baseMessages.push({ role: message.role, content: message.content } as ChatRequestMessage)
             }
+          }
+          // Inject [当前时间] into the LAST user message rather than the system
+          // prompt. Anything in the system prompt would change every request and
+          // invalidate the entire cached prefix; the last user message is
+          // uncached anyway since it's brand new each turn.
+          const nowStamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+          for (let i = baseMessages.length - 1; i >= 0; i--) {
+            const m = baseMessages[i]
+            if (m.role !== 'user') continue
+            if (typeof m.content === 'string') {
+              m.content = `[当前时间] ${nowStamp}\n\n${m.content}`
+            } else if (Array.isArray(m.content)) {
+              const textBlock = m.content.find((b) => b.type === 'text') as { type: 'text'; text: string } | undefined
+              if (textBlock) {
+                textBlock.text = `[当前时间] ${nowStamp}\n\n${textBlock.text}`
+              } else {
+                m.content.unshift({ type: 'text', text: `[当前时间] ${nowStamp}` })
+              }
+            }
+            break
           }
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
           const toolsEnabled = isToolCapableModel(effectiveModel) && Boolean(supabase)
