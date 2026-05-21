@@ -1260,19 +1260,24 @@ const SettingsPage = ({
             </div>
 
             <label htmlFor="summarizerModel">Summarizer Model</label>
-            <input
+            <select
               id="summarizerModel"
-              type="text"
               value={draftSummarizerModel ?? ''}
-              placeholder={draftSummarizerProvider === 'openrouter' ? '例如 meta-llama/llama-4-scout:free' : '在该提供商上的模型 ID'}
               onChange={(event) => {
                 const nextModel = event.target.value.trim()
                 setDraftSummarizerModel(nextModel.length > 0 ? nextModel : null)
                 setGenerationStatus('idle')
               }}
-            />
+            >
+              <option value="">自动（默认模型/经济模型）</option>
+              {draftEnabledModels.map((modelId) => (
+                <option key={modelId} value={modelId}>
+                  {catalogMap.get(modelId) ?? modelId}
+                </option>
+              ))}
+            </select>
             <span className="settings-hint">
-              不知道模型 ID？切到对应提供商，在「模型库」里挑一个，复制 ID 粘进来。
+              从你「启用的模型」里选。想用其他模型，先在模型库启用它。
             </span>
             </div>
             <div className="system-prompt-actions">
