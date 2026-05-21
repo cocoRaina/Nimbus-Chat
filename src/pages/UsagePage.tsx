@@ -108,7 +108,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
   }
 
   const providerLabel = (id: string) =>
-    id === 'openrouter' ? 'OpenRouter' : id === 'msuicode' ？'treegpt'? '中转站' : id
+    id === 'openrouter' ? 'OpenRouter' : id === 'treegpt'? '中转站' : id
 
   // Group rows by session and rank by total tokens. Sessions without a
   // recorded id (legacy logs) get collapsed into one "未归属" bucket.
