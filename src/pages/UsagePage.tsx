@@ -195,7 +195,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
         <div className="usage-summary-card">
           <span className="label">
             输入 tokens
-            {totals.cached > 0 ? (
+            {totals.cached > 0 && totals.prompt > 0 ? (
               <span className="label-hint">
                 ｜命中缓存 {formatTokenCount(totals.cached)}（{Math.round((totals.cached / totals.prompt) * 100)}%）
               </span>
