@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import './ReasoningPanel.css'
 
 type ReasoningPanelProps = {
   reasoning: string
 }
 
-const ReasoningPanel = ({ reasoning }: ReasoningPanelProps) => {
+const ReasoningPanel = memo(({ reasoning }: ReasoningPanelProps) => {
   const [isOpen, setIsOpen] = useState(false)
 
   return (
@@ -23,6 +23,6 @@ const ReasoningPanel = ({ reasoning }: ReasoningPanelProps) => {
       </div>
     </div>
   )
-}
+})
 
 export default ReasoningPanel
