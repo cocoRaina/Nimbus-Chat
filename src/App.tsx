@@ -753,6 +753,7 @@ const App = () => {
           }
           const cached =
             Number(lastUsage.prompt_tokens_details?.cached_tokens ?? lastUsage.cache_read_input_tokens ?? 0)
+          console.log('[OpenRouter usage]', JSON.stringify(lastUsage), '→ cached:', cached)
           void recordUsage({
             userId: user.id,
             model: actualModel,
