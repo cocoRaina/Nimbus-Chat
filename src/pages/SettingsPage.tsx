@@ -11,6 +11,17 @@ import {
   saveOpenRouterApiKey,
 } from '../storage/openrouterKey'
 import {
+  DEFAULT_MSUICODE_BASE,
+  clearMsuicodeApiKey,
+  getActiveProvider,
+  getMsuicodeApiKey,
+  getMsuicodeBaseUrl,
+  saveMsuicodeApiKey,
+  saveMsuicodeBaseUrl,
+  setActiveProvider,
+  type ProviderId,
+} from '../storage/apiProvider'
+import {
   DEFAULT_SNACK_SYSTEM_OVERLAY,
   DEFAULT_SYZYGY_POST_PROMPT,
   DEFAULT_SYZYGY_REPLY_PROMPT,
@@ -70,6 +81,12 @@ const SettingsPage = ({
   const [openRouterApiKeyInput, setOpenRouterApiKeyInput] = useState(() => getOpenRouterApiKey())
   const [openRouterApiKeyVisible, setOpenRouterApiKeyVisible] = useState(false)
   const [openRouterApiKeyStatus, setOpenRouterApiKeyStatus] = useState<'idle' | 'saved'>('idle')
+  const [activeProvider, setActiveProviderState] = useState<ProviderId>(() => getActiveProvider())
+  const [msuicodeSectionExpanded, setMsuicodeSectionExpanded] = useState(false)
+  const [msuicodeApiKeyInput, setMsuicodeApiKeyInput] = useState(() => getMsuicodeApiKey())
+  const [msuicodeApiKeyVisible, setMsuicodeApiKeyVisible] = useState(false)
+  const [msuicodeApiKeyStatus, setMsuicodeApiKeyStatus] = useState<'idle' | 'saved'>('idle')
+  const [msuicodeBaseUrlInput, setMsuicodeBaseUrlInput] = useState(() => getMsuicodeBaseUrl())
   const [catalogReloadKey, setCatalogReloadKey] = useState(0)
   const [draftDefaultModel, setDraftDefaultModel] = useState(defaultModelId)
   const [draftChatReasoning, setDraftChatReasoning] = useState(true)
@@ -237,6 +254,31 @@ const SettingsPage = ({
     clearOpenRouterApiKey()
     setOpenRouterApiKeyInput('')
     setOpenRouterApiKeyStatus('idle')
+  }
+
+  const handleSwitchProvider = (next: ProviderId) => {
+    if (next === activeProvider) return
+    setActiveProvider(next)
+    setActiveProviderState(next)
+    setCatalogReloadKey((value) => value + 1)
+  }
+
+  const handleSaveMsuicodeApiKey = () => {
+    const trimmed = msuicodeApiKeyInput.trim()
+    if (!trimmed) return
+    saveMsuicodeApiKey(trimmed)
+    saveMsuicodeBaseUrl(msuicodeBaseUrlInput.trim() || DEFAULT_MSUICODE_BASE)
+    setMsuicodeApiKeyInput(trimmed)
+    setMsuicodeApiKeyStatus('saved')
+    if (activeProvider === 'msuicode') {
+      setCatalogReloadKey((value) => value + 1)
+    }
+  }
+
+  const handleClearMsuicodeApiKey = () => {
+    clearMsuicodeApiKey()
+    setMsuicodeApiKeyInput('')
+    setMsuicodeApiKeyStatus('idle')
   }
 
   const catalogMap = useMemo(() => {
@@ -799,6 +841,105 @@ const SettingsPage = ({
             </div>
           </div>
         ) : null}
+      </section>
+      <section className="settings-section" role="listitem">
+        <button
+          type="button"
+          className="collapse-header"
+          onClick={() => setMsuicodeSectionExpanded((current) => !current)}
+          aria-expanded={msuicodeSectionExpanded}
+        >
+          <span className="section-title">
+            <span className="section-icon" aria-hidden="true">🪞</span>
+            <h2 className="ui-title">msuicode API Key</h2>
+            <p>备用 API 提供商（OpenAI 兼容格式）。配置好后可在下方切换激活。</p>
+          </span>
+          <span className="collapse-indicator" aria-hidden="true">›</span>
+        </button>
+        {msuicodeSectionExpanded ? (
+          <div className="accordion-content">
+            <label htmlFor="msuicode-base-url">Base URL</label>
+            <input
+              id="msuicode-base-url"
+              type="text"
+              value={msuicodeBaseUrlInput}
+              onChange={(event) => {
+                setMsuicodeBaseUrlInput(event.target.value)
+                setMsuicodeApiKeyStatus('idle')
+              }}
+              placeholder={DEFAULT_MSUICODE_BASE}
+            />
+            <label htmlFor="msuicode-api-key">API Key</label>
+            <div className="model-select-row">
+              <input
+                id="msuicode-api-key"
+                type={msuicodeApiKeyVisible ? 'text' : 'password'}
+                value={msuicodeApiKeyInput}
+                onChange={(event) => {
+                  setMsuicodeApiKeyInput(event.target.value)
+                  setMsuicodeApiKeyStatus('idle')
+                }}
+                placeholder="sk-..."
+              />
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => setMsuicodeApiKeyVisible((current) => !current)}
+              >
+                {msuicodeApiKeyVisible ? '隐藏' : '显示'}
+              </button>
+            </div>
+            <div className="system-prompt-actions">
+              <button
+                type="button"
+                className="primary"
+                onClick={handleSaveMsuicodeApiKey}
+                disabled={!msuicodeApiKeyInput.trim()}
+              >
+                保存
+              </button>
+              <button
+                type="button"
+                className="ghost danger"
+                onClick={handleClearMsuicodeApiKey}
+                disabled={!msuicodeApiKeyInput.trim()}
+              >
+                清除
+              </button>
+              {msuicodeApiKeyStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
+            </div>
+          </div>
+        ) : null}
+      </section>
+      <section className="settings-section" role="listitem">
+        <div className="accordion-content" style={{ paddingTop: 0 }}>
+          <label>当前使用的 API</label>
+          <div className="system-prompt-actions" role="radiogroup" aria-label="API 提供商">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={activeProvider === 'openrouter'}
+              className={activeProvider === 'openrouter' ? 'primary' : 'ghost'}
+              onClick={() => handleSwitchProvider('openrouter')}
+            >
+              OpenRouter
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={activeProvider === 'msuicode'}
+              className={activeProvider === 'msuicode' ? 'primary' : 'ghost'}
+              onClick={() => handleSwitchProvider('msuicode')}
+            >
+              msuicode
+            </button>
+            <span className="system-prompt-status">
+              {activeProvider === 'msuicode'
+                ? '⚠️ msuicode 下没有 prompt caching，单价按全价算'
+                : '🚀 OpenRouter 下走 Anthropic 缓存，可省 ~90%'}
+            </span>
+          </div>
+        </div>
       </section>
       <section className="settings-section" role="listitem">
         <button

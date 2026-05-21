@@ -1,22 +1,28 @@
-import { getOpenRouterApiKey, OPENROUTER_MISSING_KEY_MESSAGE } from '../storage/openrouterKey'
+import { getProviderConfig, PROVIDER_MISSING_KEY_MESSAGE } from '../storage/apiProvider'
+import { OPENROUTER_MISSING_KEY_MESSAGE } from '../storage/openrouterKey'
 
-type OpenRouterFetchOptions = {
+type FetchOptions = {
   body?: Record<string, unknown>
   signal?: AbortSignal
 }
 
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
-
+// Kept the name fetchOpenRouter for blast-radius reasons — it now routes
+// to whichever provider the user has selected (OpenRouter or msuicode).
+// Both expose OpenAI-compatible /v1/chat/completions + /v1/models.
 export const fetchOpenRouter = async (
   path: string,
-  { body, signal }: OpenRouterFetchOptions = {},
+  { body, signal }: FetchOptions = {},
 ): Promise<Response> => {
-  const apiKey = getOpenRouterApiKey()
+  const { baseUrl, apiKey, label, id } = getProviderConfig()
   if (!apiKey) {
-    throw new Error(OPENROUTER_MISSING_KEY_MESSAGE)
+    // Preserve the old, more specific message when on OpenRouter so existing
+    // error-handling UX doesn't regress.
+    throw new Error(
+      id === 'openrouter' ? OPENROUTER_MISSING_KEY_MESSAGE : PROVIDER_MISSING_KEY_MESSAGE(label),
+    )
   }
 
-  return fetch(`${OPENROUTER_BASE}${path}`, {
+  return fetch(`${baseUrl}${path}`, {
     method: body ? 'POST' : 'GET',
     headers: {
       Authorization: `Bearer ${apiKey}`,

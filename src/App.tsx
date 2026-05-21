@@ -54,6 +54,7 @@ import {
 } from './constants/aiOverlays'
 import { resolveModelId } from './utils/modelResolver'
 import { fetchOpenRouter } from './api/openrouter'
+import { getActiveProvider } from './storage/apiProvider'
 import { recordUsage } from './storage/usageStats'
 import { compressIfNeeded } from './storage/conversationCompression'
 import { isGpt5Auto } from './utils/openrouterReasoning'
@@ -1037,7 +1038,7 @@ const App = () => {
             // caching via top-level cache_control. Force routing to Anthropic
             // direct (skip Bedrock / Vertex) since top-level cache_control
             // only works on the native Anthropic provider.
-            if (isClaudeModel(effectiveModel)) {
+            if (isClaudeModel(effectiveModel) && getActiveProvider() === 'openrouter') {
               requestBody.cache_control = { type: 'ephemeral' }
               requestBody.provider = {
                 order: ['Anthropic'],
