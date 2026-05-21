@@ -192,6 +192,30 @@ const TOOL_SEARCH_MEMORY = {
   },
 }
 
+const TOOL_WEB_SEARCH = {
+  type: 'function' as const,
+  function: {
+    name: 'web_search',
+    description:
+      '在互联网上搜索最新信息。当用户问到需要时效性的内容（新闻、当前事件、最新数据）、超出你知识截止日期的话题、或你不确定的具体事实时使用。' +
+      '不要用来回忆用户私人的对话历史——那是 search_memory 的工作。返回若干条网页结果，含标题、URL、摘要。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: '搜索关键词，用自然语言描述要找的内容',
+        },
+        max_results: {
+          type: 'integer',
+          description: '返回多少条结果，1-10，默认 5',
+        },
+      },
+      required: ['query'],
+    },
+  },
+}
+
 const isToolCapableModel = (model: string) =>
   /claude|anthropic|gpt-4|gpt-5|openai\//i.test(model)
 
@@ -1021,7 +1045,7 @@ const App = () => {
               }
             }
             if (toolsEnabled) {
-              requestBody.tools = [TOOL_SEARCH_MEMORY]
+              requestBody.tools = [TOOL_SEARCH_MEMORY, TOOL_WEB_SEARCH]
               requestBody.tool_choice = 'auto'
             }
             if (reasoningEnabled && isClaudeModel(effectiveModel)) {
@@ -1262,6 +1286,28 @@ const App = () => {
                         query: args.query,
                         count: args.count,
                         category: args.category,
+                      },
+                    })
+                    resultText = error
+                      ? JSON.stringify({ error: error.message ?? String(error) })
+                      : JSON.stringify(data ?? {})
+                  } else if (tc.function.name === 'web_search' && supabase) {
+                    let args: { query?: string; max_results?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 web_search 参数失败', jsonError)
+                    }
+                    const queryLabel = (args.query ?? '').toString().trim().slice(0, 40)
+                    setToolStatus(
+                      queryLabel
+                        ? `🌐 正在搜索网络：${queryLabel}…`
+                        : '🌐 正在搜索网络…',
+                    )
+                    const { data, error } = await supabase.functions.invoke('web_search', {
+                      body: {
+                        query: args.query,
+                        max_results: args.max_results,
                       },
                     })
                     resultText = error
