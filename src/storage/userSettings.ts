@@ -29,13 +29,14 @@ type UserSettingsRow = {
   updated_at: string
 }
 
-type HighReasoningPrefs = {
+type LocalPrefs = {
   chatHighReasoningEnabled: boolean
+  summarizerProvider: 'openrouter' | 'msuicode'
 }
 
 const HIGH_REASONING_STORAGE_KEY = 'nibble_high_reasoning_prefs_v1'
 
-const loadHighReasoningPrefsMap = (): Record<string, HighReasoningPrefs> => {
+const loadLocalPrefsMap = (): Record<string, Partial<LocalPrefs>> => {
   if (typeof window === 'undefined') {
     return {}
   }
@@ -44,34 +45,36 @@ const loadHighReasoningPrefsMap = (): Record<string, HighReasoningPrefs> => {
     if (!raw) {
       return {}
     }
-    const parsed = JSON.parse(raw) as Record<string, HighReasoningPrefs>
+    const parsed = JSON.parse(raw) as Record<string, Partial<LocalPrefs>>
     return parsed && typeof parsed === 'object' ? parsed : {}
   } catch {
     return {}
   }
 }
 
-const saveHighReasoningPrefs = (userId: string, prefs: HighReasoningPrefs) => {
+const saveLocalPrefs = (userId: string, prefs: LocalPrefs) => {
   if (typeof window === 'undefined') {
     return
   }
-  const current = loadHighReasoningPrefsMap()
+  const current = loadLocalPrefsMap()
   current[userId] = prefs
   window.localStorage.setItem(HIGH_REASONING_STORAGE_KEY, JSON.stringify(current))
 }
 
-const resolveHighReasoningPrefs = (userId: string): HighReasoningPrefs => {
-  const stored = loadHighReasoningPrefsMap()[userId]
+const resolveLocalPrefs = (userId: string): LocalPrefs => {
+  const stored = loadLocalPrefsMap()[userId]
   return {
     chatHighReasoningEnabled: stored?.chatHighReasoningEnabled ?? false,
+    summarizerProvider: stored?.summarizerProvider === 'msuicode' ? 'msuicode' : 'openrouter',
   }
 }
 
-const applyHighReasoningPrefs = (settings: UserSettings): UserSettings => {
-  const prefs = resolveHighReasoningPrefs(settings.userId)
+const applyLocalPrefs = (settings: UserSettings): UserSettings => {
+  const prefs = resolveLocalPrefs(settings.userId)
   return {
     ...settings,
     chatHighReasoningEnabled: prefs.chatHighReasoningEnabled,
+    summarizerProvider: prefs.summarizerProvider,
   }
 }
 
@@ -94,11 +97,12 @@ export const createDefaultSettings = (userId: string): UserSettings => ({
   syzygyReplySystemPrompt: DEFAULT_SYZYGY_REPLY_PROMPT,
   chatReasoningEnabled: true,
   chatHighReasoningEnabled: false,
+  summarizerProvider: 'openrouter',
   updatedAt: new Date().toISOString(),
 })
 
 const mapSettingsRow = (row: UserSettingsRow): UserSettings => {
-  const highReasoningPrefs = resolveHighReasoningPrefs(row.user_id)
+  const highReasoningPrefs = resolveLocalPrefs(row.user_id)
   return {
     userId: row.user_id,
     enabledModels: row.enabled_models ?? [defaultModel],
@@ -116,6 +120,7 @@ const mapSettingsRow = (row: UserSettingsRow): UserSettings => {
     syzygyReplySystemPrompt: resolveSyzygyReplyPrompt(row.assistant_reply_system_prompt),
     chatReasoningEnabled: row.chat_reasoning_enabled ?? row.enable_reasoning ?? true,
     chatHighReasoningEnabled: highReasoningPrefs.chatHighReasoningEnabled,
+    summarizerProvider: highReasoningPrefs.summarizerProvider,
     updatedAt: row.updated_at,
   }
 }
@@ -165,9 +170,9 @@ export const ensureUserSettings = async (userId: string): Promise<UserSettings> 
     if (insertError || !inserted) {
       throw insertError ?? new Error('初始化设置失败')
     }
-    return applyHighReasoningPrefs(mapSettingsRow(inserted as UserSettingsRow))
+    return applyLocalPrefs(mapSettingsRow(inserted as UserSettingsRow))
   }
-  return applyHighReasoningPrefs(mapSettingsRow(data as UserSettingsRow))
+  return applyLocalPrefs(mapSettingsRow(data as UserSettingsRow))
 }
 
 export const updateUserSettings = async (settings: UserSettings): Promise<void> => {
@@ -199,8 +204,9 @@ export const updateUserSettings = async (settings: UserSettings): Promise<void> 
   if (error) {
     throw error
   }
-  saveHighReasoningPrefs(settings.userId, {
+  saveLocalPrefs(settings.userId, {
     chatHighReasoningEnabled: settings.chatHighReasoningEnabled,
+    summarizerProvider: settings.summarizerProvider,
   })
 }
 

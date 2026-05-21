@@ -72,6 +72,7 @@ const SettingsPage = ({
   const [compressionRatioInput, setCompressionRatioInput] = useState('0.65')
   const [compressionKeepRecentInput, setCompressionKeepRecentInput] = useState('20')
   const [draftSummarizerModel, setDraftSummarizerModel] = useState<string | null>(null)
+  const [draftSummarizerProvider, setDraftSummarizerProvider] = useState<ProviderId>('openrouter')
   const [modelSectionExpanded, setModelSectionExpanded] = useState(false)
   const [generationSectionExpanded, setGenerationSectionExpanded] = useState(false)
   const [reasoningSectionExpanded, setReasoningSectionExpanded] = useState(false)
@@ -142,6 +143,7 @@ const SettingsPage = ({
       setCompressionRatioInput(settings.compressionTriggerRatio.toString())
       setCompressionKeepRecentInput(settings.compressionKeepRecentMessages.toString())
       setDraftSummarizerModel(settings.summarizerModel)
+      setDraftSummarizerProvider(settings.summarizerProvider)
       setDraftChatReasoning(settings.chatReasoningEnabled)
       setDraftChatHighReasoning(settings.chatHighReasoningEnabled)
     }, 0)
@@ -349,6 +351,7 @@ const SettingsPage = ({
       settings.compressionTriggerRatio !== parsedCompressionRatio ||
       settings.compressionKeepRecentMessages !== parsedCompressionKeepRecent ||
       (settings.summarizerModel ?? '') !== (draftSummarizerModel ?? '') ||
+      settings.summarizerProvider !== draftSummarizerProvider ||
       settings.chatReasoningEnabled !== draftChatReasoning ||
       settings.chatHighReasoningEnabled !== draftChatHighReasoning
     : false
@@ -544,6 +547,7 @@ const SettingsPage = ({
       compressionTriggerRatio: parsedCompressionRatio,
       compressionKeepRecentMessages: parsedCompressionKeepRecent,
       summarizerModel: draftSummarizerModel,
+      summarizerProvider: draftSummarizerProvider,
       chatReasoningEnabled: draftChatReasoning,
       chatHighReasoningEnabled: draftChatHighReasoning,
     })
@@ -1227,23 +1231,49 @@ const SettingsPage = ({
             />
             {errors.compressionKeepRecent ? <span className="field-error">{errors.compressionKeepRecent}</span> : null}
 
+            <label>Summarizer 提供商</label>
+            <div className="system-prompt-actions" role="radiogroup" aria-label="压缩使用的 API">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={draftSummarizerProvider === 'openrouter'}
+                className={draftSummarizerProvider === 'openrouter' ? 'primary' : 'ghost'}
+                onClick={() => {
+                  setDraftSummarizerProvider('openrouter')
+                  setGenerationStatus('idle')
+                }}
+              >
+                OpenRouter
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={draftSummarizerProvider === 'msuicode'}
+                className={draftSummarizerProvider === 'msuicode' ? 'primary' : 'ghost'}
+                onClick={() => {
+                  setDraftSummarizerProvider('msuicode')
+                  setGenerationStatus('idle')
+                }}
+              >
+                {customProviderName}
+              </button>
+            </div>
+
             <label htmlFor="summarizerModel">Summarizer Model</label>
-            <select
+            <input
               id="summarizerModel"
+              type="text"
               value={draftSummarizerModel ?? ''}
+              placeholder={draftSummarizerProvider === 'openrouter' ? '例如 meta-llama/llama-4-scout:free' : '在该提供商上的模型 ID'}
               onChange={(event) => {
                 const nextModel = event.target.value.trim()
                 setDraftSummarizerModel(nextModel.length > 0 ? nextModel : null)
                 setGenerationStatus('idle')
               }}
-            >
-              <option value="">自动（默认模型/经济模型）</option>
-              {draftEnabledModels.map((modelId) => (
-                <option key={modelId} value={modelId}>
-                  {catalogMap.get(modelId) ?? modelId}
-                </option>
-              ))}
-            </select>
+            />
+            <span className="settings-hint">
+              不知道模型 ID？切到对应提供商，在「模型库」里挑一个，复制 ID 粘进来。
+            </span>
             </div>
             <div className="system-prompt-actions">
               <button

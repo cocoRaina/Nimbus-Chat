@@ -111,11 +111,10 @@ const summarizeMessages = async (
   summarizerModel: string,
   existingSummary: string,
   newMessages: ChatMessage[],
+  summarizerProvider: 'openrouter' | 'msuicode',
 ): Promise<string> => {
   const response = await fetchOpenRouter('/chat/completions', {
-    // Always run compression on OpenRouter — its free-tier models (Llama,
-    // Gemini etc.) are good enough for summarization and cost nothing.
-    provider: 'openrouter',
+    provider: summarizerProvider,
     body: {
       model: summarizerModel,
       stream: false,
@@ -145,6 +144,7 @@ export type CompressionSettings = {
   triggerRatio: number
   keepRecentMessages: number
   summarizerModel: string | null
+  summarizerProvider: 'openrouter' | 'msuicode'
 }
 
 export type CompressionResult = {
@@ -216,7 +216,7 @@ export const compressIfNeeded = async (
   const summarizerModel = settings.summarizerModel?.trim() || DEFAULT_SUMMARIZER_MODEL
   let summary: string
   try {
-    summary = await summarizeMessages(summarizerModel, cachedSummary, newOldMessages)
+    summary = await summarizeMessages(summarizerModel, cachedSummary, newOldMessages, settings.summarizerProvider)
   } catch (error) {
     console.warn('对话摘要生成失败，按未压缩处理', error)
     return baseResult

@@ -946,6 +946,7 @@ const App = () => {
               triggerRatio: activeSettings.compressionTriggerRatio,
               keepRecentMessages: activeSettings.compressionKeepRecentMessages,
               summarizerModel: activeSettings.summarizerModel,
+              summarizerProvider: activeSettings.summarizerProvider,
             },
           )
           const baseMessages: ChatRequestMessage[] = []

@@ -47,6 +47,9 @@ export type UserSettings = {
   compressionTriggerRatio: number
   compressionKeepRecentMessages: number
   summarizerModel: string | null
+  /** Which API provider runs compression. Defaults to 'openrouter' so users
+   *  can keep using OR's free summarizer models when chat is on another API. */
+  summarizerProvider: 'openrouter' | 'msuicode'
   temperature: number
   topP: number
   maxTokens: number
