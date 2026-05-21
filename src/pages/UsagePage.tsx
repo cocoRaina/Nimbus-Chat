@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom'
 import {
   aggregateByModel,
   fetchUsageLogs,
-  type UsageAggregate,
   type UsageLogRow,
 } from '../storage/usageStats'
 import {
@@ -22,14 +21,6 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
   { key: 'month', label: '本月' },
   { key: 'all', label: '全部' },
 ]
-
-const SOURCE_LABEL: Record<string, string> = {
-  chat: '聊天',
-  snacks: '我的主页',
-  syzygy: 'TA的主页',
-  memory_extract: '记忆抽取',
-  other: '其他',
-}
 
 const computeRangeStart = (range: RangeKey): Date | undefined => {
   if (range === 'all') {
@@ -121,16 +112,29 @@ const UsagePage = ({ user }: UsagePageProps) => {
     }
   }, [])
 
-  const aggregates = useMemo<UsageAggregate[]>(() => aggregateByModel(rows), [rows])
-
-  const totals = useMemo(() => {
-    let calls = 0
-    let prompt = 0
-    let completion = 0
-    let total = 0
-    let cached = 0
-    let cost = 0
+  // Group rows by provider so we can render a separate panel per API source.
+  const byProvider = useMemo(() => {
+    const groups = new Map<string, typeof rows>()
     for (const row of rows) {
+      const key = row.provider || 'openrouter'
+      const existing = groups.get(key)
+      if (existing) {
+        existing.push(row)
+      } else {
+        groups.set(key, [row])
+      }
+    }
+    // Stable order: openrouter first, then everything else alphabetically.
+    return Array.from(groups.entries()).sort(([a], [b]) => {
+      if (a === 'openrouter') return -1
+      if (b === 'openrouter') return 1
+      return a.localeCompare(b)
+    })
+  }, [rows])
+
+  const computeTotals = (subset: typeof rows) => {
+    let calls = 0, prompt = 0, completion = 0, total = 0, cached = 0, cost = 0
+    for (const row of subset) {
       calls += 1
       prompt += row.promptTokens
       completion += row.completionTokens
@@ -145,17 +149,10 @@ const UsagePage = ({ user }: UsagePageProps) => {
       )
     }
     return { calls, prompt, completion, total, cached, cost }
-  }, [rows, pricing])
+  }
 
-  const sourceBreakdown = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const row of rows) {
-      map.set(row.source, (map.get(row.source) ?? 0) + row.totalTokens)
-    }
-    return Array.from(map.entries())
-      .map(([source, tokens]) => ({ source, tokens }))
-      .sort((a, b) => b.tokens - a.tokens)
-  }, [rows])
+  const providerLabel = (id: string) =>
+    id === 'openrouter' ? 'OpenRouter' : id === 'msuicode' ? 'msuicode (备用)' : id
 
   return (
     <main className="usage-page app-shell">
@@ -187,93 +184,87 @@ const UsagePage = ({ user }: UsagePageProps) => {
       {error ? <p className="usage-error">{error}</p> : null}
       {pricingError ? <p className="usage-warning">{pricingError}</p> : null}
 
-      <section className="usage-summary">
-        <div className="usage-summary-card">
-          <span className="label">调用次数</span>
-          <span className="value">{totals.calls.toLocaleString()}</span>
-        </div>
-        <div className="usage-summary-card">
-          <span className="label">
-            输入 tokens
-            {totals.cached > 0 && totals.prompt > 0 ? (
-              <span className="label-hint">
-                ｜命中缓存 {formatTokenCount(totals.cached)}（{Math.round((totals.cached / totals.prompt) * 100)}%）
-              </span>
-            ) : null}
-          </span>
-          <span className="value">{formatTokenCount(totals.prompt)}</span>
-        </div>
-        <div className="usage-summary-card">
-          <span className="label">输出 tokens</span>
-          <span className="value">{formatTokenCount(totals.completion)}</span>
-        </div>
-        <div className="usage-summary-card highlight">
-          <span className="label">估算花销</span>
-          <span className="value">{formatUsd(totals.cost)}</span>
-        </div>
-      </section>
+      {byProvider.length === 0 ? (
+        <p className="usage-empty">这段时间还没有调用记录。</p>
+      ) : (
+        byProvider.map(([providerId, subset]) => {
+          const totals = computeTotals(subset)
+          const aggregates = aggregateByModel(subset)
+          return (
+            <div key={providerId} className="usage-provider-panel">
+              <h2 className="usage-provider-title">{providerLabel(providerId)}</h2>
+              <section className="usage-summary">
+                <div className="usage-summary-card">
+                  <span className="label">调用次数</span>
+                  <span className="value">{totals.calls.toLocaleString()}</span>
+                </div>
+                <div className="usage-summary-card">
+                  <span className="label">
+                    输入 tokens
+                    {totals.cached > 0 && totals.prompt > 0 ? (
+                      <span className="label-hint">
+                        ｜命中缓存 {formatTokenCount(totals.cached)}（{Math.round((totals.cached / totals.prompt) * 100)}%）
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="value">{formatTokenCount(totals.prompt)}</span>
+                </div>
+                <div className="usage-summary-card">
+                  <span className="label">输出 tokens</span>
+                  <span className="value">{formatTokenCount(totals.completion)}</span>
+                </div>
+                <div className="usage-summary-card highlight">
+                  <span className="label">估算花销</span>
+                  <span className="value">{formatUsd(totals.cost)}</span>
+                </div>
+              </section>
 
-      <section className="usage-section">
-        <h2>按模型</h2>
-        {aggregates.length === 0 ? (
-          <p className="usage-empty">这段时间还没有调用记录。</p>
-        ) : (
-          <div className="usage-table-wrap">
-            <table className="usage-table">
-              <thead>
-                <tr>
-                  <th>Model</th>
-                  <th>次数</th>
-                  <th>输入</th>
-                  <th>输出</th>
-                  <th>合计 tokens</th>
-                  <th>估算 $</th>
-                </tr>
-              </thead>
-              <tbody>
-                {aggregates.map((row) => (
-                  <tr key={row.model}>
-                    <td className="model">{row.model}</td>
-                    <td>{row.calls.toLocaleString()}</td>
-                    <td>{formatTokenCount(row.promptTokens)}</td>
-                    <td>{formatTokenCount(row.completionTokens)}</td>
-                    <td>{formatTokenCount(row.totalTokens)}</td>
-                    <td>
-                      {formatUsd(
-                        estimateCostUsd(
-                          row.model,
-                          row.promptTokens,
-                          row.completionTokens,
-                          pricing,
-                          row.cachedTokens,
-                        ),
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {sourceBreakdown.length > 0 ? (
-        <section className="usage-section">
-          <h2>按入口</h2>
-          <ul className="usage-source-list">
-            {sourceBreakdown.map((entry) => (
-              <li key={entry.source}>
-                <span>{SOURCE_LABEL[entry.source] ?? entry.source}</span>
-                <span>{formatTokenCount(entry.tokens)} tokens</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+              <section className="usage-section">
+                <h3>按模型</h3>
+                <div className="usage-table-wrap">
+                  <table className="usage-table">
+                    <thead>
+                      <tr>
+                        <th>Model</th>
+                        <th>次数</th>
+                        <th>输入</th>
+                        <th>输出</th>
+                        <th>合计 tokens</th>
+                        <th>估算 $</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {aggregates.map((row) => (
+                        <tr key={row.model}>
+                          <td className="model">{row.model}</td>
+                          <td>{row.calls.toLocaleString()}</td>
+                          <td>{formatTokenCount(row.promptTokens)}</td>
+                          <td>{formatTokenCount(row.completionTokens)}</td>
+                          <td>{formatTokenCount(row.totalTokens)}</td>
+                          <td>
+                            {formatUsd(
+                              estimateCostUsd(
+                                row.model,
+                                row.promptTokens,
+                                row.completionTokens,
+                                pricing,
+                                row.cachedTokens,
+                              ),
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          )
+        })
+      )}
 
       <p className="usage-footer-note">
-        数据从加上这次更新之后开始累计；只算 OpenRouter 返回 usage 信息的调用。花销估算基于 OpenRouter
-        当前公开单价，每天缓存一次。
+        花销估算基于 OpenRouter 公开单价（每日缓存）；msuicode 实际计费以平台为准，仅供参考。
       </p>
     </main>
   )

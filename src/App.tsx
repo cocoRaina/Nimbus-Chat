@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import ChatPage from './pages/ChatPage'
@@ -38,15 +38,17 @@ import {
 } from './storage/supabaseSync'
 import { hasSupabaseConfig, subscribeSupabaseConfigChange, supabase } from './supabase/client'
 import './App.css'
-import SettingsPage from './pages/SettingsPage'
-import MyHomePage from './pages/MyHomePage'
-import AssistantHomePage from './pages/AssistantHomePage'
-import MemoryVaultPage from './pages/MemoryVaultPage'
-import CheckinPage from './pages/CheckinPage'
-import ExportPage from './pages/ExportPage'
-import HomePage from './pages/HomePage'
-import HomeLayoutSettingsPage from './pages/HomeLayoutSettingsPage'
-import UsagePage from './pages/UsagePage'
+// Heavy routes are code-split — only the active route's chunk loads.
+// Keep AuthPage and ChatPage statically imported (they're hit immediately).
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const MyHomePage = lazy(() => import('./pages/MyHomePage'))
+const AssistantHomePage = lazy(() => import('./pages/AssistantHomePage'))
+const MemoryVaultPage = lazy(() => import('./pages/MemoryVaultPage'))
+const CheckinPage = lazy(() => import('./pages/CheckinPage'))
+const ExportPage = lazy(() => import('./pages/ExportPage'))
+const HomePage = lazy(() => import('./pages/HomePage'))
+const HomeLayoutSettingsPage = lazy(() => import('./pages/HomeLayoutSettingsPage'))
+const UsagePage = lazy(() => import('./pages/UsagePage'))
 import {
   resolveSnackSystemOverlay,
   resolveSyzygyPostPrompt,
@@ -748,6 +750,7 @@ const App = () => {
             totalTokens: Number(lastUsage.total_tokens ?? 0),
             cachedTokens: cached,
             source: 'chat',
+            provider: getActiveProvider(),
             rawUsage: lastUsage,
             requestDebug: currentRequestDebug,
           })
@@ -1630,6 +1633,7 @@ const App = () => {
 
   return (
     <div className="app-shell">
+      <Suspense fallback={<div className="page-loading">加载中…</div>}>
       <Routes>
         <Route
           path="/setup"
@@ -1803,6 +1807,7 @@ const App = () => {
           element={<Navigate to={supabaseConfigured ? '/' : '/auth'} replace />}
         />
       </Routes>
+      </Suspense>
     </div>
   )
 }

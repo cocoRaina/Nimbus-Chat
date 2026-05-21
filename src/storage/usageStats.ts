@@ -10,6 +10,7 @@ export type UsageLogInput = {
   totalTokens?: number
   cachedTokens?: number
   source?: UsageSource | string
+  provider?: string
   rawUsage?: unknown
   requestDebug?: unknown
 }
@@ -23,6 +24,7 @@ export type UsageLogRow = {
   totalTokens: number
   cachedTokens: number
   source: string
+  provider: string
   createdAt: string
 }
 
@@ -35,6 +37,7 @@ type UsageLogRecord = {
   total_tokens: number
   cached_tokens: number | null
   source: string
+  provider: string | null
   created_at: string
 }
 
@@ -47,6 +50,7 @@ const mapRow = (row: UsageLogRecord): UsageLogRow => ({
   totalTokens: row.total_tokens ?? 0,
   cachedTokens: row.cached_tokens ?? 0,
   source: row.source,
+  provider: row.provider ?? 'openrouter',
   createdAt: row.created_at,
 })
 
@@ -69,6 +73,7 @@ export const recordUsage = async (input: UsageLogInput): Promise<void> => {
     total_tokens: totalTokens,
     cached_tokens: cachedTokens,
     source: input.source ?? 'chat',
+    provider: input.provider ?? 'openrouter',
     raw_usage: input.rawUsage ?? null,
     request_debug: input.requestDebug ?? null,
   })
@@ -86,7 +91,7 @@ export const fetchUsageLogs = async (
   }
   let query = supabase
     .from('usage_logs')
-    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,cached_tokens,source,created_at')
+    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,cached_tokens,source,provider,created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(5000)
