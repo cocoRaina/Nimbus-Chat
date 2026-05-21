@@ -239,6 +239,9 @@ const App = () => {
   const sessionsRef = useRef(sessions)
   const messagesRef = useRef(messages)
   const streamingControllerRef = useRef<AbortController | null>(null)
+  // Track when we last received a streamed chunk. Used to detect streams
+  // that got silently killed while the app was backgrounded.
+  const lastChunkAtRef = useRef<number>(0)
   const settingsRef = useRef<UserSettings | null>(null)
   const fallbackSettings = useMemo(
     () => createDefaultSettings(user?.id ?? 'local'),
@@ -428,6 +431,18 @@ const App = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()
+        // Detect "dead stream": when mobile browsers (esp. iOS PWA) freeze
+        // the page in background, the streaming fetch silently dies — the
+        // reader never receives "done" and the UI sticks in "streaming…"
+        // forever. If we come back and the last chunk is ancient, kill the
+        // request so the partial response gets saved + isStreaming clears.
+        if (streamingControllerRef.current && lastChunkAtRef.current > 0) {
+          const ageMs = Date.now() - lastChunkAtRef.current
+          if (ageMs > 8000) {
+            streamingControllerRef.current.abort()
+            streamingControllerRef.current = null
+          }
+        }
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -999,6 +1014,7 @@ const App = () => {
           const controller = new AbortController()
           streamingControllerRef.current?.abort()
           streamingControllerRef.current = controller
+          lastChunkAtRef.current = Date.now()
           setIsStreaming(true)
 
           let iteration = 0
@@ -1166,6 +1182,7 @@ const App = () => {
                 if (readerDone) {
                   break
                 }
+                lastChunkAtRef.current = Date.now()
                 buffer += decoder.decode(value, { stream: true })
                 const events = buffer.split('\n\n')
                 buffer = events.pop() ?? ''
