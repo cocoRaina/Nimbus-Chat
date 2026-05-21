@@ -983,13 +983,6 @@ const App = () => {
                 chars: contentLen,
               }
             })
-            currentRequestDebug = {
-              model: effectiveModel,
-              iteration,
-              total_messages: cachedMessages.length,
-              cache_control_count: debugBreakpoints.filter((b) => b.cache_control).length,
-              breakpoints: debugBreakpoints,
-            }
             const requestBody: Record<string, unknown> = {
               model: effectiveModel,
               modelId: effectiveModel,
@@ -1027,6 +1020,17 @@ const App = () => {
               isGpt5Auto(effectiveModel)
             ) {
               requestBody.reasoning = { effort: 'high' }
+            }
+
+            currentRequestDebug = {
+              model: effectiveModel,
+              iteration,
+              total_messages: cachedMessages.length,
+              msg_level_markers: debugBreakpoints.filter((b) => b.cache_control).length,
+              top_level_cache_control: requestBody.cache_control ?? null,
+              provider: requestBody.provider ?? null,
+              has_tools: Array.isArray(requestBody.tools) && (requestBody.tools as unknown[]).length > 0,
+              breakpoints: debugBreakpoints,
             }
 
             const response = await fetchOpenRouter('/chat/completions', {
