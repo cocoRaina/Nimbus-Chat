@@ -1186,7 +1186,14 @@ const App = () => {
             }
           }
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
-          const toolsEnabled = isToolCapableModel(effectiveModel) && Boolean(supabase)
+          // Privacy: never send tool definitions on relay providers. Relays
+          // would see the tool_result contents (memories, diaries, period
+          // data) in plaintext in their logs. Tools only run on OpenRouter,
+          // where we have BYOK / accountable infra.
+          const toolsEnabled =
+            isToolCapableModel(effectiveModel) &&
+            Boolean(supabase) &&
+            getActiveProvider() === 'openrouter'
           const MAX_TOOL_ITERATIONS = 4
 
           const controller = new AbortController()
