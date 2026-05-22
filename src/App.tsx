@@ -59,6 +59,7 @@ import { fetchOpenRouter } from './api/openrouter'
 import { getActiveProvider } from './storage/apiProvider'
 import { recordUsage } from './storage/usageStats'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
+import { cancelProactiveNotification, scheduleProactiveNotification } from './storage/proactiveNotification'
 import { compressIfNeeded } from './storage/conversationCompression'
 import { isGpt5Auto } from './utils/openrouterReasoning'
 
@@ -584,6 +585,8 @@ const App = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()
+        // You're back — clear any scheduled "Claude misses you" notif.
+        void cancelProactiveNotification()
         // Detect "dead stream": when mobile browsers (esp. iOS PWA) freeze
         // the page in background, the streaming fetch silently dies — the
         // reader never receives "done" and the UI sticks in "streaming…"
@@ -860,11 +863,19 @@ const App = () => {
       )
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
-      // Snapshot current weather (if cached) and freeze it into this
-      // message's meta. Decorating user content with weather happens at
-      // request-build time, sourced from this snapshot — stable bytes
-      // across requests so the prompt cache prefix matches.
-      const weatherSnap = peekCachedWeather()
+      // Snapshot current weather (if cached) only on the day's first
+      // user message — Claude doesn't need to see it on every turn,
+      // and it keeps the prompt cleaner. Per-day tracker in localStorage.
+      const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
+      const WEATHER_DATE_KEY = 'nimbus_weather_injected_date'
+      const lastWeatherDate = typeof window !== 'undefined'
+        ? window.localStorage.getItem(WEATHER_DATE_KEY)
+        : null
+      const shouldInjectWeather = lastWeatherDate !== todayCN
+      const weatherSnap = shouldInjectWeather ? peekCachedWeather() : null
+      if (weatherSnap && typeof window !== 'undefined') {
+        window.localStorage.setItem(WEATHER_DATE_KEY, todayCN)
+      }
       const userMeta: ChatMessage['meta'] = {
         ...(userAttachments.length > 0 ? { attachments: userAttachments } : {}),
         ...(weatherSnap
@@ -1273,6 +1284,7 @@ const App = () => {
           // Cancel any pending keepalive — the real send is about to refresh
           // the cache anyway, no need to ping in parallel.
           cancelKeepalive()
+          void cancelProactiveNotification()
           lastChunkAtRef.current = Date.now()
           setIsStreaming(true)
 
@@ -1752,6 +1764,10 @@ const App = () => {
             keepaliveBodyRef.current = lastSentBody
             scheduleKeepalive()
           }
+          // Schedule a local notification 60min out so Claude can nudge
+          // even when you've closed the app. Cancelled when you return
+          // (visibility) or send a new message.
+          void scheduleProactiveNotification()
         } catch (error) {
           if (flushTimer !== null) {
             window.clearTimeout(flushTimer)

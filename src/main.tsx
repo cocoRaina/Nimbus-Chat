@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import './index.css'
 import './styles/ui.css'
@@ -32,6 +33,10 @@ if (Capacitor.getPlatform() === 'android') {
       CapacitorApp.exitApp()
     }
   })
+
+  // Ask for notification permission once. User can later revoke from
+  // Android settings if it bothers them.
+  void LocalNotifications.requestPermissions()
 }
 
 createRoot(document.getElementById('root')!).render(
