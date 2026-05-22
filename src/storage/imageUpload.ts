@@ -25,12 +25,16 @@ const compressImage = async (file: File): Promise<Blob> => {
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
-  if (!ctx) {
+  // try/finally so the bitmap GPU handle is always released — drawImage
+  // can throw on giant images on Android WebView and we shouldn't leak.
+  try {
+    if (!ctx) {
+      throw new Error('无法获取 canvas context')
+    }
+    ctx.drawImage(bitmap, 0, 0, width, height)
+  } finally {
     bitmap.close()
-    throw new Error('无法获取 canvas context')
   }
-  ctx.drawImage(bitmap, 0, 0, width, height)
-  bitmap.close()
   const blob: Blob | null = await new Promise((resolve) =>
     canvas.toBlob((b) => resolve(b), 'image/jpeg', TARGET_QUALITY),
   )

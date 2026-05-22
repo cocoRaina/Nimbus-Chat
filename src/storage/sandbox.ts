@@ -79,6 +79,21 @@ export const runSandboxCode = async (input: {
         '未配置代码沙盒地址。请前往 设置 → 代码沙盒 填入你的 Mac mini / VPS 上的服务地址。',
     }
   }
+  // Sanity-check the scheme before sending code anywhere. fetch() would
+  // reject file:// / data:// on its own, but javascript: and weird custom
+  // schemes can confuse it. Only http(s) is meaningful here.
+  let parsedEndpoint: URL
+  try {
+    parsedEndpoint = new URL(endpoint)
+  } catch {
+    return { ok: false, error: '沙盒地址无效，请检查 设置 → 代码沙盒 里的 URL' }
+  }
+  if (parsedEndpoint.protocol !== 'https:' && parsedEndpoint.protocol !== 'http:') {
+    return {
+      ok: false,
+      error: `沙盒地址协议不支持: ${parsedEndpoint.protocol}（只允许 http:// 或 https://）`,
+    }
+  }
   const token = getSandboxToken()
   const url = endpoint.replace(/\/+$/, '') + '/run'
   try {

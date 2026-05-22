@@ -68,7 +68,10 @@ export const scheduleProactiveNotification = async (notificationBody: string) =>
           title: 'Claude',
           body: notificationBody,
           schedule: { at: new Date(Date.now() + PROACTIVE_DELAY_MS) },
-          smallIcon: 'ic_stat_icon_config_sample',
+          // smallIcon omitted: Capacitor's docs example name
+          // 'ic_stat_icon_config_sample' isn't shipped in our drawable
+          // folders, so notifications would silently fall back. Letting
+          // Capacitor use the app icon is what we want anyway.
           channelId: 'proactive',
         },
       ],
