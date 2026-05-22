@@ -1,6 +1,6 @@
 # Nimbus Chat
 
-自托管的私人 AI 陪伴应用 —— 一个能记住你的事、写日记、控制智能家居（未来）的 Claude。
+自托管的私人 AI 陪伴应用 —— 一个能记住你的事、写日记、控制智能家居（未来）的 Claude。（完全依托于串串老师的开源程序修改~感谢老师~）
 
 部署：**GitHub Pages**（PWA）+ **Android APK**（Capacitor 打包）
 后端：你自己的 **Supabase** 项目（数据库 + 认证 + Edge Functions）
