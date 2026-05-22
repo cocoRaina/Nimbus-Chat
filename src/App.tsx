@@ -1327,14 +1327,10 @@ const App = () => {
             baseMessages.push({ role: 'system', content: proactiveNudge })
           }
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
-          // Privacy: never send tool definitions on relay providers. Relays
-          // would see the tool_result contents (memories, diaries, period
-          // data) in plaintext in their logs. Tools only run on OpenRouter,
-          // where we have BYOK / accountable infra.
-          const toolsEnabled =
-            isToolCapableModel(effectiveModel) &&
-            Boolean(supabase) &&
-            getActiveProvider() === 'openrouter'
+          // Tools enabled on every provider. User explicitly accepts the
+          // privacy trade-off — they switch between OR / relay manually
+          // based on the topic's sensitivity.
+          const toolsEnabled = isToolCapableModel(effectiveModel) && Boolean(supabase)
           const MAX_TOOL_ITERATIONS = 4
 
           const controller = new AbortController()
