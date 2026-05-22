@@ -14,6 +14,23 @@ const config: CapacitorConfig = {
     // need scheme: 'https' too — set this when we add iOS later.
     androidScheme: 'https',
   },
+  plugins: {
+    SplashScreen: {
+      // Stay visible until JS calls SplashScreen.hide() (which we do
+      // after React renders). Avoids the "boot → black flash → app"
+      // jarring transition.
+      launchShowDuration: 3000,
+      launchAutoHide: false,
+      backgroundColor: '#EFF6FF',
+      androidSplashResourceName: 'splash',
+      showSpinner: false,
+      splashFullScreen: false,
+      splashImmersive: false,
+      androidScaleType: 'CENTER_CROP',
+      useDialog: false,
+      fadeOutDuration: 400,
+    },
+  },
 }
 
 export default config

@@ -4,6 +4,7 @@ import { HashRouter } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
 import { LocalNotifications } from '@capacitor/local-notifications'
+import { SplashScreen } from '@capacitor/splash-screen'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import './index.css'
 import './styles/ui.css'
@@ -48,6 +49,15 @@ createRoot(document.getElementById('root')!).render(
     </HashRouter>
   </StrictMode>,
 )
+
+// Hide the native splash AFTER React has had a tick to paint the first
+// frame. Without this we'd flash from splash → black → app. With it we
+// get splash → fade → app. fadeOutDuration handled in capacitor.config.
+if (Capacitor.getPlatform() !== 'web') {
+  window.setTimeout(() => {
+    void SplashScreen.hide()
+  }, 600)
+}
 
 if ('serviceWorker' in navigator && Capacitor.getPlatform() === 'web') {
   // SW only useful for the PWA build. Inside Capacitor the assets are local

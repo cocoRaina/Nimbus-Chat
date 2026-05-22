@@ -573,6 +573,50 @@
 .app-icon-slot {
   display: flex;
   justify-content: center;
+  animation: tile-pop-in 420ms cubic-bezier(0.2, 0.9, 0.2, 1.05) both;
+}
+
+/* Stagger first 12 tiles so they don't all whoosh in at once. */
+.app-icon-slot:nth-child(1) { animation-delay: 60ms; }
+.app-icon-slot:nth-child(2) { animation-delay: 110ms; }
+.app-icon-slot:nth-child(3) { animation-delay: 160ms; }
+.app-icon-slot:nth-child(4) { animation-delay: 210ms; }
+.app-icon-slot:nth-child(5) { animation-delay: 260ms; }
+.app-icon-slot:nth-child(6) { animation-delay: 310ms; }
+.app-icon-slot:nth-child(7) { animation-delay: 360ms; }
+.app-icon-slot:nth-child(8) { animation-delay: 410ms; }
+.app-icon-slot:nth-child(9) { animation-delay: 460ms; }
+.app-icon-slot:nth-child(10) { animation-delay: 510ms; }
+.app-icon-slot:nth-child(11) { animation-delay: 560ms; }
+.app-icon-slot:nth-child(12) { animation-delay: 610ms; }
+
+@keyframes tile-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+html.no-fx .app-icon-slot {
+  animation: none;
+}
+
+.app-icon-button {
+  cursor: pointer;
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.app-icon-button:active .icon-emoji {
+  transform: scale(0.92);
+  transition: transform 80ms ease-out;
+}
+
+.app-icon-button .icon-emoji {
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 200ms ease;
 }
 
 .app-icon-button {
