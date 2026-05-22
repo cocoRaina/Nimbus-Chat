@@ -1168,19 +1168,15 @@ const App = () => {
             // caching via top-level cache_control. Force routing to Anthropic
             // direct (skip Bedrock / Vertex) since top-level cache_control
             // only works on the native Anthropic provider.
-            if (isClaudeModel(effectiveModel)) {
-              // Send cache_control on every Claude request — the relay says
-              // they run an enterprise AWS workspace that honors it. Worst
-              // case the relay strips the field; best case we get 90% cache
-              // hits the same way OpenRouter does.
+            if (isClaudeModel(effectiveModel) && getActiveProvider() === 'openrouter') {
+              // Only send cache_control on OpenRouter (clean workspace
+              // isolation). Relays that don't bill cache discounts back to
+              // us would otherwise just dump our prompts into their shared
+              // cache pool — no upside, real privacy risk.
               requestBody.cache_control = { type: 'ephemeral' }
-              // provider routing is OpenRouter-specific syntax; relays don't
-              // understand it and may 400.
-              if (getActiveProvider() === 'openrouter') {
-                requestBody.provider = {
-                  order: ['Anthropic'],
-                  allow_fallbacks: false,
-                }
+              requestBody.provider = {
+                order: ['Anthropic'],
+                allow_fallbacks: false,
               }
             }
             if (toolsEnabled) {
