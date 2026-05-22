@@ -181,10 +181,50 @@
 
 .message {
   margin-top: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.message.in {
+  /* row: avatar | bubble-stack */
+}
+
+.message.out {
+  flex-direction: row-reverse;
 }
 
 .message.group-with-previous {
   margin-top: 3px;
+}
+
+.message-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.message.group-with-previous .message-avatar {
+  visibility: hidden;
+}
+
+.bubble-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 78%;
+}
+
+.message.in .bubble-stack {
+  align-items: flex-start;
+}
+
+.message.out .bubble-stack {
+  align-items: flex-end;
 }
 
 .time-separator {
@@ -379,16 +419,8 @@
   object-fit: contain;
 }
 
-.message.in {
-  align-items: flex-start;
-}
-
-.message.out {
-  align-items: flex-end;
-}
-
 .message .bubble {
-  max-width: 78%;
+  max-width: 100%;
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.65);
   border-radius: 18px;

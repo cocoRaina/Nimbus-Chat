@@ -50,6 +50,8 @@ const splitAssistantContent = (content: string): string[] => {
 type MessageRowProps = {
   message: ChatMessage
   groupWithPrevious: boolean
+  userAvatar: string | null
+  assistantAvatar: string | null
   onStartLongPress: (event: ReactPointerEvent<HTMLDivElement>, messageId: string) => void
   onCancelLongPress: () => void
   onContextMenuOpen: (event: ReactMouseEvent<HTMLDivElement>, messageId: string) => void
@@ -58,6 +60,8 @@ type MessageRowProps = {
 const MessageRow = memo(function MessageRow({
   message,
   groupWithPrevious,
+  userAvatar,
+  assistantAvatar,
   onStartLongPress,
   onCancelLongPress,
   onContextMenuOpen,
@@ -66,51 +70,60 @@ const MessageRow = memo(function MessageRow({
     message.meta?.reasoning_text?.trim() ?? message.meta?.reasoning?.trim()
   const chunks =
     message.role === 'assistant' ? splitAssistantContent(message.content) : [message.content]
+  const isOut = message.role === 'user'
+  const avatar = isOut ? userAvatar : assistantAvatar
   return (
     <div
-      className={`message ${message.role === 'user' ? 'out' : 'in'} ${groupWithPrevious ? 'group-with-previous' : ''}`}
+      className={`message ${isOut ? 'out' : 'in'} ${groupWithPrevious ? 'group-with-previous' : ''}`}
     >
-      {chunks.map((chunk, chunkIdx) => {
-        const isFirst = chunkIdx === 0
-        return (
-          <div
-            key={`${message.id}-${chunkIdx}`}
-            className={`bubble ${chunks.length > 1 ? 'bubble-stacked' : ''}`}
-            onPointerDown={(event) => onStartLongPress(event, message.id)}
-            onPointerUp={onCancelLongPress}
-            onPointerLeave={onCancelLongPress}
-            onPointerCancel={onCancelLongPress}
-            onPointerMove={onCancelLongPress}
-            onContextMenu={(event) => onContextMenuOpen(event, message.id)}
-          >
-            {isFirst && reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
-            {isFirst && message.meta?.attachments && message.meta.attachments.length > 0 ? (
-              <div className="message-attachments">
-                {message.meta.attachments
-                  .filter((att) => att.type === 'image')
-                  .map((att, attIdx) => (
-                    <a
-                      key={`${message.id}-att-${attIdx}`}
-                      href={att.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="message-attachment-image"
-                    >
-                      <img src={att.url} alt="附件图片" loading="lazy" />
-                    </a>
-                  ))}
-              </div>
-            ) : null}
-            {message.role === 'assistant' ? (
-              <div className="assistant-markdown">
-                <MarkdownRenderer content={chunk} />
-              </div>
-            ) : (
-              <p>{chunk}</p>
-            )}
-          </div>
-        )
-      })}
+      {avatar ? (
+        <img className="message-avatar" src={avatar} alt="" aria-hidden="true" />
+      ) : (
+        <div className="message-avatar message-avatar-placeholder" aria-hidden="true" />
+      )}
+      <div className="bubble-stack">
+        {chunks.map((chunk, chunkIdx) => {
+          const isFirst = chunkIdx === 0
+          return (
+            <div
+              key={`${message.id}-${chunkIdx}`}
+              className={`bubble ${chunks.length > 1 ? 'bubble-stacked' : ''}`}
+              onPointerDown={(event) => onStartLongPress(event, message.id)}
+              onPointerUp={onCancelLongPress}
+              onPointerLeave={onCancelLongPress}
+              onPointerCancel={onCancelLongPress}
+              onPointerMove={onCancelLongPress}
+              onContextMenu={(event) => onContextMenuOpen(event, message.id)}
+            >
+              {isFirst && reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
+              {isFirst && message.meta?.attachments && message.meta.attachments.length > 0 ? (
+                <div className="message-attachments">
+                  {message.meta.attachments
+                    .filter((att) => att.type === 'image')
+                    .map((att, attIdx) => (
+                      <a
+                        key={`${message.id}-att-${attIdx}`}
+                        href={att.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="message-attachment-image"
+                      >
+                        <img src={att.url} alt="附件图片" loading="lazy" />
+                      </a>
+                    ))}
+                </div>
+              ) : null}
+              {message.role === 'assistant' ? (
+                <div className="assistant-markdown">
+                  <MarkdownRenderer content={chunk} />
+                </div>
+              ) : (
+                <p>{chunk}</p>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 })
@@ -169,6 +182,26 @@ const ChatPage = ({
   >([])
   const [uploading, setUploading] = useState(false)
   const [compressing, setCompressing] = useState(false)
+  const [userAvatar, setUserAvatar] = useState<string | null>(() =>
+    typeof window === 'undefined' ? null : localStorage.getItem('my-homepage-avatar'),
+  )
+  const [assistantAvatar, setAssistantAvatar] = useState<string | null>(() =>
+    typeof window === 'undefined' ? null : localStorage.getItem('syzygy-homepage-avatar'),
+  )
+  // Refresh from localStorage when the user changes the avatar elsewhere
+  // and storage events propagate. Same-tab updates aren't covered by the
+  // event, but navigating back to the chat remounts and re-reads anyway.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'my-homepage-avatar') {
+        setUserAvatar(event.newValue)
+      } else if (event.key === 'syzygy-homepage-avatar') {
+        setAssistantAvatar(event.newValue)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
   const handleManualCompress = useCallback(async () => {
     if (compressing) return
     setCompressing(true)
@@ -606,6 +639,8 @@ const ChatPage = ({
                 <MessageRow
                   message={message}
                   groupWithPrevious={groupWithPrevious}
+                  userAvatar={userAvatar}
+                  assistantAvatar={assistantAvatar}
                   onStartLongPress={startLongPress}
                   onCancelLongPress={cancelLongPress}
                   onContextMenuOpen={handleContextMenuOpen}
