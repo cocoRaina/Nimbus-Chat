@@ -27,6 +27,7 @@ export type ChatPageProps = {
   onSelectModel: (model: string | null) => void
   defaultReasoning: boolean
   onSelectReasoning: (reasoning: boolean | null) => void
+  onManualCompress: () => Promise<{ ok: boolean; message: string }>
   user: User | null
 }
 
@@ -158,6 +159,7 @@ const ChatPage = ({
   onSelectModel,
   defaultReasoning,
   onSelectReasoning,
+  onManualCompress,
 }: ChatPageProps) => {
   const [draft, setDraft] = useState('')
   const [openActionsId, setOpenActionsId] = useState<string | null>(null)
@@ -171,6 +173,18 @@ const ChatPage = ({
     Array<{ type: 'image'; url: string; width?: number; height?: number; path?: string }>
   >([])
   const [uploading, setUploading] = useState(false)
+  const [compressing, setCompressing] = useState(false)
+  const handleManualCompress = useCallback(async () => {
+    if (compressing) return
+    setCompressing(true)
+    setOpenHeaderMenu(false)
+    try {
+      const result = await onManualCompress()
+      window.alert(result.message)
+    } finally {
+      setCompressing(false)
+    }
+  }, [compressing, onManualCompress])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const messagesRef = useRef<HTMLElement | null>(null)
@@ -352,7 +366,6 @@ const ChatPage = ({
 
   const sessionOverride = session.overrideModel?.trim() || null
   const selectedModel = sessionOverride ?? defaultModel
-  const hasOverride = Boolean(sessionOverride && sessionOverride !== defaultModel)
   const sessionOverrideReasoning = session.overrideReasoning ?? null
   const reasoningEnabled = sessionOverrideReasoning ?? defaultReasoning
   const reasoningHint = sessionOverrideReasoning === null ? '（默认）' : '（会话覆盖）'
@@ -503,7 +516,7 @@ const ChatPage = ({
         </button>
         <div className="header-title">
           <h1 className="ui-title">{session.title}</h1>
-          <span className="subtitle">单聊</span>
+          <span className="subtitle" title={selectedModel}>{selectedModel}</span>
         </div>
         <div className="header-actions" ref={headerMenuRef}>
           <button
@@ -523,6 +536,23 @@ const ChatPage = ({
                   className="header-menu"
                   style={{ top: `${headerMenuPosition.top}px`, right: `${headerMenuPosition.right}px` }}
                 >
+                  <div className="header-menu-section-label">本对话</div>
+                  <label className="header-menu-toggle">
+                    <input
+                      type="checkbox"
+                      checked={reasoningEnabled}
+                      onChange={(event) => onSelectReasoning(event.target.checked)}
+                    />
+                    <span>🧠 思考链 {reasoningHint}</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleManualCompress}
+                    disabled={compressing}
+                  >
+                    {compressing ? '⏳ 压缩中…' : '📦 手动压缩对话'}
+                  </button>
+                  <div className="header-menu-divider" />
                   <button
                     type="button"
                     onClick={() => {
@@ -706,15 +736,6 @@ const ChatPage = ({
               ))}
             </select>
           </label>
-          <label className="composer-toggle">
-            <input
-              type="checkbox"
-              checked={reasoningEnabled}
-              onChange={(event) => onSelectReasoning(event.target.checked)}
-            />
-            <span>思考链</span>
-            <span className="toggle-hint">{reasoningHint}</span>
-          </label>
           <button
             type="button"
             className="attach-button toolbar-attach"
@@ -725,10 +746,6 @@ const ChatPage = ({
             📎 图片
           </button>
         </div>
-        <span className="model-hint">
-          当前模型：{selectedModel}
-          {hasOverride ? '（会话覆盖）' : '（默认）'}
-        </span>
         <div className="composer-row">
           <textarea
             className="textarea-glass"

@@ -2023,6 +2023,65 @@ const App = () => {
     setIsStreaming(false)
   }, [])
 
+  // Triggered by the "手动压缩对话" button in the chat header. Runs the
+  // same compressIfNeeded path that auto-compression uses, but with
+  // force=true so it bypasses the enabled flag + token-threshold guard.
+  // The summary goes into compression_cache and the next send picks
+  // it up automatically.
+  const handleManualCompress = useCallback(
+    async (
+      sessionId: string,
+    ): Promise<{ ok: boolean; message: string }> => {
+      if (!user || !supabase) {
+        return { ok: false, message: '云端未配置，无法压缩' }
+      }
+      const session = sessionsRef.current.find((s) => s.id === sessionId)
+      if (!session) {
+        return { ok: false, message: '会话不存在' }
+      }
+      const settings = settingsRef.current ?? fallbackSettings
+      const sessionMessages = messagesRef.current.filter(
+        (msg) =>
+          msg.sessionId === sessionId &&
+          msg.content.trim().length > 0 &&
+          !msg.meta?.streaming,
+      )
+      if (sessionMessages.length < 8) {
+        return { ok: false, message: '对话太短，不需要压缩' }
+      }
+      const effectiveModel = resolveSessionModel(sessionId)
+      try {
+        const outcome = await compressIfNeeded(
+          sessionId,
+          sessionMessages,
+          settings.systemPrompt ?? '',
+          effectiveModel,
+          {
+            enabled: settings.compressionEnabled,
+            triggerRatio: settings.compressionTriggerRatio,
+            keepRecentMessages: settings.compressionKeepRecentMessages,
+            summarizerModel: settings.summarizerModel,
+            summarizerProvider: settings.summarizerProvider,
+            force: true,
+          },
+        )
+        if (outcome.didCompress) {
+          return {
+            ok: true,
+            message: '已压缩，下次发送将使用更紧凑的上下文',
+          }
+        }
+        return { ok: false, message: '没有可压缩的旧消息' }
+      } catch (err) {
+        return {
+          ok: false,
+          message: `压缩失败：${err instanceof Error ? err.message : String(err)}`,
+        }
+      }
+    },
+    [user, resolveSessionModel, fallbackSettings],
+  )
+
   // Bind the pre-generated-proactive injector once user is known.
   useEffect(() => {
     insertPendingProactiveRef.current = async (entry) => {
@@ -2393,6 +2452,7 @@ const App = () => {
                 onSelectReasoning={handleSessionReasoningOverrideChange}
                 onArchiveSession={handleSessionArchiveStateChange}
                 onActiveSessionChange={setActiveChatSessionId}
+                onManualCompress={handleManualCompress}
                 user={user}
               />
             </RequireAuth>
@@ -2567,6 +2627,7 @@ const ChatRoute = ({
   onSelectReasoning,
   onArchiveSession,
   onActiveSessionChange,
+  onManualCompress,
   user,
 }: {
   sessions: ChatSession[]
@@ -2597,6 +2658,7 @@ const ChatRoute = ({
   onSelectReasoning: (sessionId: string, reasoning: boolean | null) => Promise<void>
   onArchiveSession: (sessionId: string, isArchived: boolean) => Promise<void>
   onActiveSessionChange: (sessionId: string) => void
+  onManualCompress: (sessionId: string) => Promise<{ ok: boolean; message: string }>
   user: User | null
 }) => {
   const { sessionId } = useParams()
@@ -2705,6 +2767,7 @@ const ChatRoute = ({
         onSelectReasoning={(reasoning) =>
           onSelectReasoning(activeSession.id, reasoning)
         }
+        onManualCompress={() => onManualCompress(activeSession.id)}
         user={user}
       />
       <SessionsDrawer

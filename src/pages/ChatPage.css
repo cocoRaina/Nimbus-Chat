@@ -78,12 +78,17 @@
 
 .header-title h1 {
   margin: 0;
-  font-size: 16px;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .header-title .subtitle {
   font-size: 12px;
   color: var(--text-subtle);
+  max-width: 60vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .header-actions {
@@ -108,14 +113,55 @@
   border: none;
   background: transparent;
   text-align: left;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .header-menu button:hover {
   background: #f3f4f6;
+}
+
+.header-menu button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.header-menu-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #94A3B8;
+  text-transform: uppercase;
+  padding: 6px 12px 2px;
+}
+
+.header-menu-divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.header-menu-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  user-select: none;
+}
+
+.header-menu-toggle:hover {
+  background: #f3f4f6;
+}
+
+.header-menu-toggle input[type='checkbox'] {
+  accent-color: var(--accent, #f97316);
+  width: 16px;
+  height: 16px;
 }
 
 .chat-messages {
@@ -322,11 +368,11 @@
 }
 
 .message .bubble {
-  max-width: 75%;
+  max-width: 78%;
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid rgba(255, 255, 255, 0.65);
   border-radius: 18px;
-  padding: 12px 12px 10px;
+  padding: 14px 16px 12px;
   position: relative;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
   display: flex;
@@ -337,8 +383,8 @@
 .message .bubble p {
   margin: 0;
   white-space: pre-wrap;
-  line-height: 1.6;
-  font-size: 14px;
+  line-height: 1.7;
+  font-size: 16px;
 }
 
 .message.out .bubble {
@@ -354,8 +400,8 @@
 }
 
 .assistant-markdown {
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.7;
   color: #1f2937;
   word-break: break-word;
 }
@@ -700,7 +746,9 @@
 .chat-composer textarea {
   flex: 1;
   resize: none;
-  min-height: 42px;
+  min-height: 48px;
+  font-size: 16px;
+  line-height: 1.5;
 }
 
 @media (max-width: 560px) {

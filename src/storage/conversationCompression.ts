@@ -145,6 +145,11 @@ export type CompressionSettings = {
   keepRecentMessages: number
   summarizerModel: string | null
   summarizerProvider: 'openrouter' | 'msuicode'
+  // When true, bypass the enabled flag and the token-ratio threshold.
+  // Used by the manual "压缩对话" button in the chat header — still
+  // respects the minimum-messages-for-compression guard because there's
+  // no point summarising 3 messages.
+  force?: boolean
 }
 
 export type CompressionResult = {
@@ -167,15 +172,20 @@ export const compressIfNeeded = async (
     summaryText: null,
     didCompress: false,
   }
-  if (!settings.enabled || fullHistory.length === 0) {
+  if (fullHistory.length === 0) {
     return baseResult
   }
-  const contextLimit = estimateModelContextLimit(model)
-  const triggerTokens = Math.floor(contextLimit * Math.max(0.1, Math.min(0.95, settings.triggerRatio)))
-  const systemTokens = estimateTokens(systemPromptText)
-  const historyTokens = estimateMessagesTokens(fullHistory)
-  if (systemTokens + historyTokens < triggerTokens) {
+  if (!settings.force && !settings.enabled) {
     return baseResult
+  }
+  if (!settings.force) {
+    const contextLimit = estimateModelContextLimit(model)
+    const triggerTokens = Math.floor(contextLimit * Math.max(0.1, Math.min(0.95, settings.triggerRatio)))
+    const systemTokens = estimateTokens(systemPromptText)
+    const historyTokens = estimateMessagesTokens(fullHistory)
+    if (systemTokens + historyTokens < triggerTokens) {
+      return baseResult
+    }
   }
   const keepRecent = Math.max(MIN_KEEP_RECENT, settings.keepRecentMessages)
   if (fullHistory.length <= keepRecent + MIN_EXTRA_OLD_FOR_COMPRESSION) {
