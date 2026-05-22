@@ -1358,6 +1358,12 @@ const App = () => {
 
           while (!conversationDone && iteration < MAX_TOOL_ITERATIONS) {
             iteration++
+            // Mark where this iteration's text starts in the cumulative
+            // assistantContent stream. When pushing this iteration's
+            // assistant-with-tool-calls message into baseMessages below,
+            // we slice from here — otherwise the previous iteration's text
+            // gets duplicated into the next request's assistant message.
+            const iterationContentStart = assistantContent.length
             const cachedMessages = applyClaudeCaching(baseMessages, effectiveModel)
             const debugBreakpoints = cachedMessages.map((msg, mIdx) => {
               const m = msg as { role: string; content: unknown; tool_calls?: unknown[] }
@@ -1600,7 +1606,12 @@ const App = () => {
                         const slot = rawTc.index ?? 0
                         const existing =
                           accumulatedToolCalls.get(slot) ?? {
-                            id: '',
+                            // Fallback id — some OpenRouter-routed providers
+                            // omit the id on the first chunk (or never), and
+                            // a `tool_call_id: ''` in the next request makes
+                            // them 400 the whole turn. Overwrite if a real
+                            // id arrives.
+                            id: `call_${slot}`,
                             type: 'function' as const,
                             function: { name: '', arguments: '' },
                           }
@@ -1636,7 +1647,7 @@ const App = () => {
             ) {
               baseMessages.push({
                 role: 'assistant',
-                content: assistantContent || '',
+                content: assistantContent.slice(iterationContentStart) || '',
                 tool_calls: toolCallsArr,
               })
               for (const tc of toolCallsArr) {
@@ -1816,6 +1827,54 @@ const App = () => {
             conversationDone = true
           }
 
+          // If we exited the loop because of MAX_TOOL_ITERATIONS (not because
+          // the model said "done"), the model never got to produce its final
+          // text reply. Do one more text-only, non-streaming call so the user
+          // sees an answer instead of a blank bubble.
+          if (!conversationDone && lastSentBody) {
+            try {
+              setToolStatus('收尾中…')
+              const finalBody: Record<string, unknown> = {
+                ...lastSentBody,
+                messages: applyClaudeCaching(baseMessages, effectiveModel),
+                stream: false,
+                tool_choice: 'none',
+              }
+              delete finalBody.tools
+              const finalResp = await fetchOpenRouter('/chat/completions', {
+                body: finalBody,
+                signal: controller.signal,
+              })
+              if (finalResp.ok) {
+                const data = (await finalResp.json()) as {
+                  choices?: Array<{ message?: { content?: unknown } }>
+                }
+                const text = data?.choices?.[0]?.message?.content
+                if (typeof text === 'string' && text.trim()) {
+                  if (assistantContent && !assistantContent.endsWith('\n')) {
+                    assistantContent += '\n\n'
+                  }
+                  assistantContent += text.trim()
+                }
+              }
+            } catch (forceErr) {
+              console.warn('force-final-text after tool cap failed', forceErr)
+            } finally {
+              setToolStatus('')
+            }
+          }
+
+          // Last-resort fallback: if streaming + tool loop + force-final all
+          // produced nothing, don't save a ghost empty bubble — surface the
+          // failure so the user knows to retry.
+          if (assistantContent.trim().length === 0) {
+            console.warn('empty assistant content after all retries', {
+              iteration,
+              conversationDone,
+            })
+            assistantContent = '（回复为空，请重试或换个问法）'
+          }
+
           const { message: assistantMessage, updatedAt } = await addRemoteMessage(
             sessionId,
             user.id,
@@ -1941,8 +2000,14 @@ const App = () => {
           const errorMessage = error instanceof Error && error.message ? error.message : '回复失败，请稍后重试。'
           window.alert(errorMessage)
         } finally {
-          setIsStreaming(false)
-          streamingControllerRef.current = null
+          // Only clear stream state if THIS persist's controller is still
+          // active. A regenerate/edit-user-message can abort our stream then
+          // start a new one before our catch resolves — if we clobbered the
+          // ref unconditionally, the new stream's "stop" button would break.
+          if (streamingControllerRef.current === controller) {
+            setIsStreaming(false)
+            streamingControllerRef.current = null
+          }
         }
       }
 
