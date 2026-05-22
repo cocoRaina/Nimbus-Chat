@@ -249,16 +249,6 @@
   padding: 24px;
 }
 
-.message {
-  display: flex;
-  flex-direction: column;
-  max-width: 100%;
-}
-
-.message .bubble.bubble-stacked + .bubble.bubble-stacked {
-  margin-top: 4px;
-}
-
 .message .bubble {
   user-select: text;
   -webkit-user-select: text;
