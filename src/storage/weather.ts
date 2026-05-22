@@ -1,3 +1,6 @@
+import { Capacitor } from '@capacitor/core'
+import { Geolocation } from '@capacitor/geolocation'
+
 // Open-Meteo weather fetcher — free, no API key required.
 // https://open-meteo.com/
 
@@ -67,6 +70,27 @@ const writeCache = (snap: WeatherSnapshot) => {
 }
 
 const getCoords = async (): Promise<{ lat: number; lon: number } | null> => {
+  // On Capacitor (APK), use the native Geolocation plugin so the OS
+  // permission dialog actually fires + Android manifest permission is
+  // respected. On web, fall back to navigator.geolocation.
+  if (Capacitor.getPlatform() !== 'web') {
+    try {
+      const perm = await Geolocation.checkPermissions()
+      if (perm.location !== 'granted') {
+        const req = await Geolocation.requestPermissions()
+        if (req.location !== 'granted') return null
+      }
+      const pos = await Geolocation.getCurrentPosition({
+        enableHighAccuracy: false,
+        timeout: 8000,
+        maximumAge: 60 * 60 * 1000,
+      })
+      return { lat: pos.coords.latitude, lon: pos.coords.longitude }
+    } catch (err) {
+      console.warn('Geolocation plugin failed', err)
+      return null
+    }
+  }
   if (typeof navigator === 'undefined' || !navigator.geolocation) return null
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(

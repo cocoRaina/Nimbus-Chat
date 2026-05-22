@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import ChatPage from './pages/ChatPage'
 import AuthPage from './pages/AuthPage'
 import SessionsDrawer from './components/SessionsDrawer'
@@ -60,6 +60,7 @@ import { getActiveProvider } from './storage/apiProvider'
 import { recordUsage } from './storage/usageStats'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
 import { runSandboxCode } from './storage/sandbox'
+import { syncStatusBarToPage } from './storage/statusBar'
 import {
   cancelProactiveNotification,
   clearPendingProactive,
@@ -396,6 +397,7 @@ const isToolCapableModel = (model: string) =>
 
 const App = () => {
   const navigate = useNavigate()
+  const location = useLocation()
   const [sessions, setSessions] = useState<ChatSession[]>(initialSnapshot.sessions)
   const [messages, setMessages] = useState<ChatMessage[]>(initialSnapshot.messages)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -509,6 +511,11 @@ const App = () => {
       setSupabaseConfigured(hasSupabaseConfig())
     })
   }, [])
+
+  // Status bar chameleons to current page's --page-bg whenever route changes
+  useEffect(() => {
+    syncStatusBarToPage()
+  }, [location.pathname])
 
   // Warm the weather cache on mount and refresh hourly. Each user message
   // snapshots the cache value at send time into its meta.

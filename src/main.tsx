@@ -19,9 +19,9 @@ if (noFxEnabled) {
 }
 
 // Keep the status bar visible (its own space at the top) so the app's
-// header buttons aren't hidden under the notification area. Background
-// matches the app's light theme (index.html meta theme-color), Dark
-// style = dark icons for light bg (Capacitor naming is inverted).
+// header buttons aren't hidden under the notification area. Color +
+// icon style are set dynamically per route by syncStatusBarToPage()
+// in App.tsx — just establish the baseline here.
 if (Capacitor.getPlatform() === 'android') {
   StatusBar.setOverlaysWebView({ overlay: false }).catch(() => undefined)
   StatusBar.setBackgroundColor({ color: '#EFF6FF' }).catch(() => undefined)

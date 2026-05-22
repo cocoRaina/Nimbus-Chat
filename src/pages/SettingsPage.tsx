@@ -100,6 +100,7 @@ const SettingsPage = ({
   const [sandboxEndpointInput, setSandboxEndpointInput] = useState(() => getSandboxEndpoint())
   const [sandboxTokenInput, setSandboxTokenInput] = useState(() => getSandboxToken())
   const [sandboxStatus, setSandboxStatus] = useState<'idle' | 'saved'>('idle')
+  const [toolListExpanded, setToolListExpanded] = useState(false)
   // Friendly label for the custom provider, derived from its base URL hostname.
   const customProviderName = useMemo(
     () => deriveProviderDisplayName(msuicodeBaseUrlInput || DEFAULT_MSUICODE_BASE),
@@ -1548,6 +1549,41 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
               </button>
               {syzygyReplyStatus === 'saved' ? <span className="system-prompt-status">已保存</span> : null}
             </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="settings-section" role="listitem">
+        <button
+          type="button"
+          className="collapse-header"
+          onClick={() => setToolListExpanded((current) => !current)}
+          aria-expanded={toolListExpanded}
+        >
+          <span className="section-title">
+            <span className="section-icon" aria-hidden="true">🛠️</span>
+            <h2 className="ui-title">Claude 能调用的工具</h2>
+            <p>列一下 Claude 现在身上挂着哪些技能。聊天里直接问它「你有什么工具」它也会列。</p>
+          </span>
+          <span className="collapse-indicator" aria-hidden="true">›</span>
+        </button>
+        {toolListExpanded ? (
+          <div className="accordion-content">
+            <ul style={{ lineHeight: '1.9', fontSize: 14 }}>
+              <li><strong>🔍 search_memory</strong> — 跨表搜你的记忆/日记/交接信/时间轴/朋友圈 + 自动带回最近经期 & 健康数据</li>
+              <li><strong>🌐 web_search</strong> — 上网搜东西（Tavily）</li>
+              <li><strong>📝 add_memory</strong> — 把你说的一件事记进记忆库（你明说"记下"才会调）</li>
+              <li><strong>📔 write_diary</strong> — 帮你写日记（你说"帮我写"才会调）</li>
+              <li><strong>✉️ write_handoff_letter</strong> — 写一封给下一个窗口的交接信</li>
+              <li><strong>📍 add_timeline_event</strong> — 在时间轴标记重大事件</li>
+              <li><strong>🩸 log_period</strong> — 记录经期开始/结束</li>
+              <li><strong>💗 log_health</strong> — 记录睡眠/步数/心率/状态</li>
+              <li><strong>🧪 run_code</strong> — 跑 Python/JS（需要在「代码沙盒」里配 endpoint，未配会报错）</li>
+            </ul>
+            <p className="settings-hint">
+              工具是按上下文自动调的——你不需要喊"调用 xxx"。直接说"今天我没睡好" Claude 就会 log_health。
+              如果它没调，可能是它觉得没必要，可以直接让它"记一下"。
+            </p>
           </div>
         ) : null}
       </section>
