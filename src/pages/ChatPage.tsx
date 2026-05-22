@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
@@ -43,47 +43,33 @@ const splitAssistantContent = (content: string): string[] => {
   return parts.length > 0 ? parts : [content]
 }
 
-const formatTime = (timestamp: string) =>
-  new Date(timestamp).toLocaleString('en-US', {
-    month: 'numeric',
-    day: 'numeric',
-    year: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
-
 // Memoised single-message renderer. The chat history can be hundreds of
 // messages; without this, every keystroke in the composer re-runs the
 // map over all of them. With stable handler refs from the parent, memo
 // bails for every unaffected row.
 type MessageRowProps = {
   message: ChatMessage
-  isActionsOpen: boolean
-  actionsLabel: string
+  groupWithPrevious: boolean
   onStartLongPress: (event: ReactPointerEvent<HTMLDivElement>, messageId: string) => void
   onCancelLongPress: () => void
   onContextMenuOpen: (event: ReactMouseEvent<HTMLDivElement>, messageId: string) => void
-  onToggleActions: (messageId: string) => void
-  setActionTriggerRef: (messageId: string, element: HTMLButtonElement | null) => void
 }
 
 const MessageRow = memo(function MessageRow({
   message,
-  isActionsOpen,
-  actionsLabel,
+  groupWithPrevious,
   onStartLongPress,
   onCancelLongPress,
   onContextMenuOpen,
-  onToggleActions,
-  setActionTriggerRef,
 }: MessageRowProps) {
   const reasoningText =
     message.meta?.reasoning_text?.trim() ?? message.meta?.reasoning?.trim()
   const chunks =
     message.role === 'assistant' ? splitAssistantContent(message.content) : [message.content]
   return (
-    <div className={`message ${message.role === 'user' ? 'out' : 'in'}`}>
+    <div
+      className={`message ${message.role === 'user' ? 'out' : 'in'} ${groupWithPrevious ? 'group-with-previous' : ''}`}
+    >
       {chunks.map((chunk, chunkIdx) => {
         const isFirst = chunkIdx === 0
         return (
@@ -125,23 +111,32 @@ const MessageRow = memo(function MessageRow({
           </div>
         )
       })}
-      <div className="bubble-meta">
-        <span className="timestamp">{formatTime(message.createdAt)}</span>
-        <div className="message-actions">
-          <button
-            type="button"
-            className="ghost action-trigger"
-            aria-expanded={isActionsOpen}
-            aria-label={actionsLabel}
-            ref={(element) => setActionTriggerRef(message.id, element)}
-            onClick={() => onToggleActions(message.id)}
-          >
-            •••
-          </button>
-        </div>
-      </div>
     </div>
   )
+})
+
+// Day/time separator shown above a message when there's a significant
+// gap since the previous one. Centred and light, like WeChat.
+const formatSeparatorTime = (iso: string) => {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const now = new Date()
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const hhmm = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+  if (sameDay(d, now)) return hhmm
+  if (sameDay(d, yesterday)) return `昨天 ${hhmm}`
+  // Within the same calendar year: show "M月D日 HH:MM". Otherwise prepend year.
+  if (d.getFullYear() === now.getFullYear()) {
+    return `${d.getMonth() + 1}月${d.getDate()}日 ${hhmm}`
+  }
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${hhmm}`
+}
+
+const TimeSeparator = memo(function TimeSeparator({ timestamp }: { timestamp: string }) {
+  return <div className="time-separator">{formatSeparatorTime(timestamp)}</div>
 })
 
 const ChatPage = ({
@@ -194,7 +189,6 @@ const ChatPage = ({
   const longPressTimerRef = useRef<number | null>(null)
   const longPressTargetRef = useRef<{ id: string; element: HTMLElement | null } | null>(null)
   const headerMenuButtonRef = useRef<HTMLButtonElement | null>(null)
-  const actionTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const actionsMenuRef = useRef<HTMLDivElement | null>(null)
   const navigate = useNavigate()
 
@@ -321,17 +315,6 @@ const ChatPage = ({
     [],
   )
 
-  const handleToggleActions = useCallback((messageId: string) => {
-    setOpenActionsId((current) => (current === messageId ? null : messageId))
-  }, [])
-
-  const setActionTriggerRef = useCallback(
-    (messageId: string, element: HTMLButtonElement | null) => {
-      actionTriggerRefs.current[messageId] = element
-    },
-    [],
-  )
-
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     await submitDraft()
@@ -359,10 +342,6 @@ const ChatPage = ({
     onDeleteMessage(pendingDelete.id)
     setPendingDelete(null)
   }
-
-  const actionsLabel = useMemo(() => {
-    return openActionsId ? '关闭操作菜单' : '打开操作菜单'
-  }, [openActionsId])
 
   const sessionOverride = session.overrideModel?.trim() || null
   const selectedModel = sessionOverride ?? defaultModel
@@ -414,30 +393,15 @@ const ChatPage = ({
       setActionsMenuPosition(null)
       return
     }
-
-    const updateActionsMenuPosition = () => {
-      const trigger = actionTriggerRefs.current[openActionsId]
-      if (!trigger) {
-        return
-      }
-      const rect = trigger.getBoundingClientRect()
-      const menuWidth = 160
-      const viewportPadding = 12
-      const left = Math.min(
-        Math.max(rect.right - menuWidth, viewportPadding),
-        window.innerWidth - menuWidth - viewportPadding,
-      )
-      const top = Math.min(rect.bottom + 6, window.innerHeight - 96)
-      setActionsMenuPosition({ top, left })
-    }
-
-    updateActionsMenuPosition()
-    window.addEventListener('resize', updateActionsMenuPosition)
-    window.addEventListener('scroll', updateActionsMenuPosition, true)
-
+    // Position is captured at open-time by startLongPress / handleContextMenuOpen.
+    // On scroll or resize the menu would drift off the originating bubble — closing
+    // it is the cleanest behaviour (also matches iOS native action menus).
+    const closeOnViewportChange = () => setOpenActionsId(null)
+    window.addEventListener('resize', closeOnViewportChange)
+    window.addEventListener('scroll', closeOnViewportChange, true)
     return () => {
-      window.removeEventListener('resize', updateActionsMenuPosition)
-      window.removeEventListener('scroll', updateActionsMenuPosition, true)
+      window.removeEventListener('resize', closeOnViewportChange)
+      window.removeEventListener('scroll', closeOnViewportChange, true)
     }
   }, [openActionsId])
 
@@ -448,10 +412,6 @@ const ChatPage = ({
 
     const handleClick = (event: MouseEvent) => {
       if (actionsMenuRef.current?.contains(event.target as Node)) {
-        return
-      }
-      const trigger = actionTriggerRefs.current[openActionsId]
-      if (trigger?.contains(event.target as Node)) {
         return
       }
       setOpenActionsId(null)
@@ -629,19 +589,30 @@ const ChatPage = ({
             <p>暂无消息，开始聊点什么吧。</p>
           </div>
         ) : (
-          messages.map((message) => (
-            <MessageRow
-              key={message.id}
-              message={message}
-              isActionsOpen={openActionsId === message.id}
-              actionsLabel={actionsLabel}
-              onStartLongPress={startLongPress}
-              onCancelLongPress={cancelLongPress}
-              onContextMenuOpen={handleContextMenuOpen}
-              onToggleActions={handleToggleActions}
-              setActionTriggerRef={setActionTriggerRef}
-            />
-          ))
+          messages.map((message, index) => {
+            const prev = index > 0 ? messages[index - 1] : null
+            const gapMs = prev
+              ? new Date(message.createdAt).getTime() - new Date(prev.createdAt).getTime()
+              : Infinity
+            // Show a centred timestamp when the very first message arrives
+            // or when there's a noticeable gap (>5min) from the previous one.
+            const showSeparator = !prev || gapMs > 5 * 60 * 1000
+            // Same-sender messages within 1 min hug each other tight.
+            const groupWithPrevious =
+              !!prev && prev.role === message.role && !showSeparator && gapMs < 60 * 1000
+            return (
+              <Fragment key={message.id}>
+                {showSeparator ? <TimeSeparator timestamp={message.createdAt} /> : null}
+                <MessageRow
+                  message={message}
+                  groupWithPrevious={groupWithPrevious}
+                  onStartLongPress={startLongPress}
+                  onCancelLongPress={cancelLongPress}
+                  onContextMenuOpen={handleContextMenuOpen}
+                />
+              </Fragment>
+            )
+          })
         )}
         <div ref={bottomRef} />
       </main>

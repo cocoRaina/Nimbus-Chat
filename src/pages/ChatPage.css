@@ -175,7 +175,27 @@
   padding: 2px 2px calc(16px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  /* Per-message margins instead of flex gap, so consecutive same-sender
+     messages can hug each other tighter via .message.group-with-previous. */
+}
+
+.message {
+  margin-top: 12px;
+}
+
+.message.group-with-previous {
+  margin-top: 3px;
+}
+
+.time-separator {
+  align-self: center;
+  font-size: 11px;
+  color: var(--text-subtle, #94A3B8);
+  background: rgba(15, 23, 42, 0.04);
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin: 18px 0 6px;
+  user-select: none;
 }
 
 .empty-state {
@@ -369,12 +389,12 @@
 
 .message .bubble {
   max-width: 78%;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.65);
   border-radius: 18px;
-  padding: 14px 16px 12px;
+  padding: 10px 14px 10px;
   position: relative;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -383,7 +403,7 @@
 .message .bubble p {
   margin: 0;
   white-space: pre-wrap;
-  line-height: 1.7;
+  line-height: 1.5;
   font-size: 16px;
 }
 
@@ -391,7 +411,7 @@
   background: #9fa2aa;
   color: #ffffff;
   border: none;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
 }
 
 .message.out .bubble a {
@@ -401,7 +421,7 @@
 
 .assistant-markdown {
   font-size: 16px;
-  line-height: 1.7;
+  line-height: 1.5;
   color: #1f2937;
   word-break: break-word;
 }
