@@ -1,34 +1,72 @@
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 
-// One stable notification id we reuse so re-scheduling cancels the
-// previous instead of accumulating.
 const PROACTIVE_NOTIFICATION_ID = 1001
 const PROACTIVE_DELAY_MS = 60 * 60 * 1000
 
-const messageVariants = [
-  '🌿 想你了，过来聊两句吗？',
-  '☕ 在干嘛呢？我这里有点话想跟你说',
-  '💭 突然想到一件事…',
-  '🌙 你好像有一阵没说话了，还好吗？',
-  '✨ 我有个想分享的事，回来看看？',
-]
+const STORAGE_KEY = 'nimbus_pending_proactive_v1'
 
-const pickMessage = () => messageVariants[Math.floor(Math.random() * messageVariants.length)]
+// Active hours: notifications only fire between [start, end). Outside
+// this window we skip entirely so the user isn't woken up + so we don't
+// burn API credits on a generation that won't be seen.
+const ACTIVE_START_HOUR = 7
+const ACTIVE_END_HOUR = 23
 
 const isAvailable = () => Capacitor.getPlatform() !== 'web'
 
-export const scheduleProactiveNotification = async () => {
+const isFireTimeInActiveHours = (): boolean => {
+  const fireAt = new Date(Date.now() + PROACTIVE_DELAY_MS)
+  const hour = fireAt.getHours()
+  return hour >= ACTIVE_START_HOUR && hour < ACTIVE_END_HOUR
+}
+
+export const shouldScheduleProactive = (): boolean => isFireTimeInActiveHours()
+
+export type PendingProactive = {
+  sessionId: string
+  text: string
+  fireAt: number // epoch ms
+}
+
+export const savePendingProactive = (entry: PendingProactive) => {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entry))
+  } catch {
+    // ignore
+  }
+}
+
+export const readPendingProactive = (): PendingProactive | null => {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as PendingProactive
+  } catch {
+    return null
+  }
+}
+
+export const clearPendingProactive = () => {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(STORAGE_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+export const scheduleProactiveNotification = async (notificationBody: string) => {
   if (!isAvailable()) return
   try {
-    // Cancel previous schedule if any.
     await LocalNotifications.cancel({ notifications: [{ id: PROACTIVE_NOTIFICATION_ID }] })
     await LocalNotifications.schedule({
       notifications: [
         {
           id: PROACTIVE_NOTIFICATION_ID,
           title: 'Claude',
-          body: pickMessage(),
+          body: notificationBody,
           schedule: { at: new Date(Date.now() + PROACTIVE_DELAY_MS) },
           smallIcon: 'ic_stat_icon_config_sample',
           channelId: 'proactive',

@@ -59,7 +59,15 @@ import { fetchOpenRouter } from './api/openrouter'
 import { getActiveProvider } from './storage/apiProvider'
 import { recordUsage } from './storage/usageStats'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
-import { cancelProactiveNotification, scheduleProactiveNotification } from './storage/proactiveNotification'
+import {
+  cancelProactiveNotification,
+  clearPendingProactive,
+  readPendingProactive,
+  savePendingProactive,
+  scheduleProactiveNotification,
+  shouldScheduleProactive,
+} from './storage/proactiveNotification'
+import { Capacitor } from '@capacitor/core'
 import { compressIfNeeded } from './storage/conversationCompression'
 import { isGpt5Auto } from './utils/openrouterReasoning'
 
@@ -380,6 +388,11 @@ const App = () => {
   const maybeSendProactiveRef = useRef<(sessionId: string) => Promise<void>>(
     async () => undefined,
   )
+  // Inserts a pre-generated proactive message into the session as an
+  // assistant turn. Set later, called via ref for same declaration reason.
+  const insertPendingProactiveRef = useRef<
+    (entry: { sessionId: string; text: string; fireAt: number }) => Promise<void>
+  >(async () => undefined)
   // Keepalive: stash a snapshot of the last successful request body so we
   // can ping it ~55 min later (just before 1h cache TTL expires) with
   // max_tokens: 0 to refresh the cache cheaply.
@@ -599,11 +612,26 @@ const App = () => {
             streamingControllerRef.current = null
           }
         }
-        // Proactive check: if you're on a chat page and haven't messaged
-        // in over an hour, nudge Claude to follow up based on context.
-        const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
-        if (hashMatch) {
-          void maybeSendProactiveRef.current(hashMatch[1])
+        // Proactive flow:
+        // 1) If we pre-generated a notification message and the fire time
+        //    has passed, the user must've come back via the notification.
+        //    Insert that pre-gen text as a real Claude message + clear.
+        // 2) If pending exists but fire time hasn't passed, user came
+        //    back early — silently clear, no need to manufacture a reply.
+        // 3) If no pending (pre-gen failed last time), fall back to
+        //    on-demand generation via maybeSendProactive.
+        const pending = readPendingProactive()
+        if (pending) {
+          if (Date.now() >= pending.fireAt) {
+            void insertPendingProactiveRef.current(pending)
+          } else {
+            clearPendingProactive()
+          }
+        } else {
+          const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
+          if (hashMatch) {
+            void maybeSendProactiveRef.current(hashMatch[1])
+          }
         }
       }
     }
@@ -1764,10 +1792,46 @@ const App = () => {
             keepaliveBodyRef.current = lastSentBody
             scheduleKeepalive()
           }
-          // Schedule a local notification 60min out so Claude can nudge
-          // even when you've closed the app. Cancelled when you return
-          // (visibility) or send a new message.
-          void scheduleProactiveNotification()
+          // Pre-generate the proactive "Claude misses you" message NOW,
+          // store it locally, and schedule a 60min notification that
+          // shows the actual generated text. When user opens the app
+          // after the notification fires, we insert that text as a
+          // real assistant message. Skip if fire time is past midnight
+          // (don't wake the user, don't burn API at night).
+          if (lastSentBody && shouldScheduleProactive() && Capacitor.getPlatform() !== 'web') {
+            void (async () => {
+              try {
+                const proactiveBody: Record<string, unknown> = {
+                  ...lastSentBody,
+                  stream: false,
+                  max_tokens: 120,
+                }
+                delete proactiveBody.tools
+                delete proactiveBody.tool_choice
+                const baseMsgs = Array.isArray(proactiveBody.messages)
+                  ? [...(proactiveBody.messages as ChatRequestMessage[])]
+                  : []
+                baseMsgs.push({
+                  role: 'system',
+                  content:
+                    '[内部系统提示] 假设过 1 小时后用户还没回复你，你会主动找她说什么？写**一两句**自然像朋友主动发的话，开头不要"你还好吗"、"我注意到你很久没说话"这种刻意的话。可以续上刚才的话题，或分享你想到的什么，或就是一句简短的关心。',
+                })
+                proactiveBody.messages = baseMsgs
+                const resp = await fetchOpenRouter('/chat/completions', { body: proactiveBody })
+                if (!resp.ok) return
+                const data = await resp.json()
+                const text = data?.choices?.[0]?.message?.content
+                if (typeof text === 'string' && text.trim()) {
+                  const trimmed = text.trim()
+                  const fireAt = Date.now() + 60 * 60 * 1000
+                  savePendingProactive({ sessionId, text: trimmed, fireAt })
+                  void scheduleProactiveNotification(trimmed)
+                }
+              } catch (err) {
+                console.warn('proactive pre-gen failed', err)
+              }
+            })()
+          }
         } catch (error) {
           if (flushTimer !== null) {
             window.clearTimeout(flushTimer)
@@ -1840,6 +1904,38 @@ const App = () => {
     streamingControllerRef.current?.abort()
     setIsStreaming(false)
   }, [])
+
+  // Bind the pre-generated-proactive injector once user is known.
+  useEffect(() => {
+    insertPendingProactiveRef.current = async (entry) => {
+      if (!user || !supabase) {
+        clearPendingProactive()
+        return
+      }
+      try {
+        const clientId = createClientId()
+        const clientCreatedAt = new Date().toISOString()
+        const { message: saved, updatedAt } = await addRemoteMessage(
+          entry.sessionId,
+          user.id,
+          'assistant',
+          entry.text,
+          clientId,
+          clientCreatedAt,
+          { model: 'proactive', provider: 'openrouter' },
+        )
+        const updatedMessages = sortMessages([...messagesRef.current, saved])
+        const updatedSessions = sessionsRef.current.map((s) =>
+          s.id === entry.sessionId ? { ...s, updatedAt } : s,
+        )
+        applySnapshot(updatedSessions, updatedMessages)
+      } catch (err) {
+        console.warn('insert pending proactive failed', err)
+      } finally {
+        clearPendingProactive()
+      }
+    }
+  }, [applySnapshot, user])
 
   // Bind the proactive-nudge function once sendMessage is available.
   // Used by the visibility handler above (which can't reference
