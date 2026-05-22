@@ -46,18 +46,34 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      - name: Decode signing keystore
+      - name: Decode + verify signing keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > android/release.keystore
-            ls -la android/release.keystore
-            echo "have_keystore=yes" >> "$GITHUB_ENV"
-          else
+          if [ -z "$KEYSTORE_BASE64" ]; then
             echo "No ANDROID_KEYSTORE_BASE64 secret set — will build unsigned debug APK"
             echo "have_keystore=no" >> "$GITHUB_ENV"
+            exit 0
           fi
+          # base64 from GH secrets sometimes has CR/LF or trailing whitespace; --ignore-garbage skips those.
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d --ignore-garbage > android/release.keystore
+          ls -la android/release.keystore
+          # Verify the keystore is parseable and the alias exists before we waste 2min on a doomed build.
+          if ! keytool -list -keystore android/release.keystore \
+                       -storepass "$KEYSTORE_PASSWORD" \
+                       -alias "${KEY_ALIAS:-nimbus}" > /tmp/keytool.out 2>&1; then
+            echo "::error::Keystore verification failed. Most common causes:"
+            echo "  - ANDROID_KEYSTORE_BASE64 has whitespace/newlines or isn't valid base64"
+            echo "  - ANDROID_KEYSTORE_PASSWORD is wrong"
+            echo "  - ANDROID_KEY_ALIAS doesn't match the alias inside the keystore"
+            echo "keytool output (passwords redacted by keytool):"
+            sed -E 's/(password|Password)=[^ ]+/\1=***/g' /tmp/keytool.out
+            exit 1
+          fi
+          echo "Keystore OK, alias '${KEY_ALIAS:-nimbus}' found."
+          echo "have_keystore=yes" >> "$GITHUB_ENV"
 
       - name: Build APK
         shell: bash
