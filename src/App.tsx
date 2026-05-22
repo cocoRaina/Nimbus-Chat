@@ -733,7 +733,19 @@ const App = () => {
       keepaliveTimerRef.current = null
     }
     if (!keepaliveBodyRef.current) return
+    // Only ping during waking hours (8:00 - 23:00). At night the cache can
+    // expire — first message next morning pays one-time recompute (~$0.10),
+    // cheaper than 8 hours of useless pings (~$0.10 too, but also wasteful).
+    const ACTIVE_HOUR_START = 8
+    const ACTIVE_HOUR_END = 23
     const KEEPALIVE_DELAY_MS = 55 * 60 * 1000
+    const now = new Date()
+    const fireAt = new Date(now.getTime() + KEEPALIVE_DELAY_MS)
+    const fireHour = fireAt.getHours()
+    if (fireHour < ACTIVE_HOUR_START || fireHour >= ACTIVE_HOUR_END) {
+      // Skip — the next ping window starts tomorrow at 8am, way past 1h TTL.
+      return
+    }
     keepaliveTimerRef.current = window.setTimeout(() => {
       keepaliveTimerRef.current = null
       const snapshot = keepaliveBodyRef.current
