@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+// CI decodes ANDROID_KEYSTORE_BASE64 secret into android/release.keystore
+// before running gradle. If absent (local debug, or missing CI secret),
+// we skip the signing config entirely — AGP 8 rejects empty configs.
+def releaseKeystore = rootProject.file("release.keystore")
+def hasReleaseKeystore = releaseKeystore.exists()
+
 android {
     namespace = "com.cocoraina.nimbuschat"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,13 +22,10 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-    signingConfigs {
-        release {
-            // CI decodes ANDROID_KEYSTORE_BASE64 secret to android/release.keystore.
-            // rootProject = the `android/` dir, so this finds it.
-            def ksFile = rootProject.file("release.keystore")
-            if (ksFile.exists()) {
-                storeFile ksFile
+    if (hasReleaseKeystore) {
+        signingConfigs {
+            release {
+                storeFile releaseKeystore
                 storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ""
                 keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "nimbus"
                 keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: ""
@@ -33,7 +36,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            if (rootProject.file("release.keystore").exists()) {
+            if (hasReleaseKeystore) {
                 signingConfig signingConfigs.release
             }
         }
