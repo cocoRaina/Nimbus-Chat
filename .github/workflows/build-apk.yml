@@ -6,8 +6,8 @@ name: Build Android APK
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 jobs:
@@ -51,8 +51,9 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p out
+          SUFFIX="${{ github.ref_name }}-$(date +%Y%m%d-%H%M)"
           cp android/app/build/outputs/apk/debug/app-debug.apk \
-             out/nimbus-chat-${{ github.ref_name }}.apk
+             out/nimbus-chat-${SUFFIX}.apk
 
       - name: Upload APK as workflow artifact
         uses: actions/upload-artifact@v4
