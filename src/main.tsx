@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
+import { App as CapacitorApp } from '@capacitor/app'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import './index.css'
 import './styles/ui.css'
@@ -15,11 +16,22 @@ if (noFxEnabled) {
   document.documentElement.classList.add('no-fx')
 }
 
-// Make the webview draw under the system status bar on Android so the app
-// looks fullscreen. Light icons since our background is mostly white.
+// Keep the status bar visible (its own space at the top) so the app's
+// header buttons aren't hidden under the notification area. Light icon
+// theme since our app background is light.
 if (Capacitor.getPlatform() === 'android') {
-  StatusBar.setOverlaysWebView({ overlay: true }).catch(() => undefined)
+  StatusBar.setOverlaysWebView({ overlay: false }).catch(() => undefined)
   StatusBar.setStyle({ style: Style.Light }).catch(() => undefined)
+
+  // Hardware back button: navigate within the app instead of exiting.
+  // Only exit when there's nowhere left to go back to.
+  CapacitorApp.addListener('backButton', () => {
+    if (window.history.length > 1) {
+      window.history.back()
+    } else {
+      CapacitorApp.exitApp()
+    }
+  })
 }
 
 createRoot(document.getElementById('root')!).render(
