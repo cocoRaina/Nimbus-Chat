@@ -18,11 +18,13 @@ if (noFxEnabled) {
 }
 
 // Keep the status bar visible (its own space at the top) so the app's
-// header buttons aren't hidden under the notification area. Light icon
-// theme since our app background is light.
+// header buttons aren't hidden under the notification area. Background
+// matches the app's light theme (index.html meta theme-color), Dark
+// style = dark icons for light bg (Capacitor naming is inverted).
 if (Capacitor.getPlatform() === 'android') {
   StatusBar.setOverlaysWebView({ overlay: false }).catch(() => undefined)
-  StatusBar.setStyle({ style: Style.Light }).catch(() => undefined)
+  StatusBar.setBackgroundColor({ color: '#EFF6FF' }).catch(() => undefined)
+  StatusBar.setStyle({ style: Style.Dark }).catch(() => undefined)
 
   // Hardware back button: navigate within the app instead of exiting.
   // Only exit when there's nowhere left to go back to.
