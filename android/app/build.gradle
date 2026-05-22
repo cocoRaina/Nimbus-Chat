@@ -18,12 +18,9 @@ android {
     }
     signingConfigs {
         release {
-            // Stable signing so every APK install is treated as an upgrade
-            // of the same app (data preserved, no re-login). CI decodes
-            // ANDROID_KEYSTORE_BASE64 secret → release.keystore and sets
-            // these env vars before running gradle.
-            def keystorePath = System.getenv("ANDROID_KEYSTORE_FILE") ?: "../../release.keystore"
-            def ksFile = file(keystorePath)
+            // CI decodes ANDROID_KEYSTORE_BASE64 secret to android/release.keystore.
+            // rootProject = the `android/` dir, so this finds it.
+            def ksFile = rootProject.file("release.keystore")
             if (ksFile.exists()) {
                 storeFile ksFile
                 storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ""
@@ -36,10 +33,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            // Only attach signing config if a keystore is present at build
-            // time. Lets local debug builds continue to work without one.
-            def ksFile = file(System.getenv("ANDROID_KEYSTORE_FILE") ?: "../../release.keystore")
-            if (ksFile.exists()) {
+            if (rootProject.file("release.keystore").exists()) {
                 signingConfig signingConfigs.release
             }
         }

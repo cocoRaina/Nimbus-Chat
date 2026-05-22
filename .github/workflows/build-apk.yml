@@ -47,15 +47,22 @@ jobs:
         run: chmod +x android/gradlew
 
       - name: Decode signing keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/release.keystore
-          ls -la android/release.keystore
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/release.keystore
+            ls -la android/release.keystore
+            echo "have_keystore=yes" >> "$GITHUB_ENV"
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret set — will build unsigned debug APK"
+            echo "have_keystore=no" >> "$GITHUB_ENV"
+          fi
 
       - name: Build APK
         run: |
           cd android
-          if [ -f release.keystore ]; then
+          if [ "$have_keystore" = "yes" ]; then
             echo "Building signed RELEASE APK"
             ./gradlew assembleRelease --no-daemon
           else
@@ -63,7 +70,6 @@ jobs:
             ./gradlew assembleDebug --no-daemon
           fi
         env:
-          ANDROID_KEYSTORE_FILE: release.keystore
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
@@ -72,12 +78,20 @@ jobs:
         run: |
           mkdir -p out
           SUFFIX="${{ github.ref_name }}-$(date +%Y%m%d-%H%M)"
-          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
-            cp android/app/build/outputs/apk/release/app-release.apk \
-               out/nimbus-chat-${SUFFIX}.apk
+          RELEASE_APK=android/app/build/outputs/apk/release/app-release.apk
+          UNSIGNED_APK=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          DEBUG_APK=android/app/build/outputs/apk/debug/app-debug.apk
+          if [ -f "$RELEASE_APK" ]; then
+            cp "$RELEASE_APK" "out/nimbus-chat-${SUFFIX}.apk"
+          elif [ -f "$UNSIGNED_APK" ]; then
+            echo "::warning::Release APK is unsigned — re-installs won't preserve data. Check keystore secrets."
+            cp "$UNSIGNED_APK" "out/nimbus-chat-${SUFFIX}-unsigned.apk"
+          elif [ -f "$DEBUG_APK" ]; then
+            cp "$DEBUG_APK" "out/nimbus-chat-${SUFFIX}-debug.apk"
           else
-            cp android/app/build/outputs/apk/debug/app-debug.apk \
-               out/nimbus-chat-${SUFFIX}.apk
+            echo "::error::No APK found in build outputs"
+            find android/app/build/outputs -name '*.apk' || true
+            exit 1
           fi
 
       - name: Upload APK as workflow artifact
