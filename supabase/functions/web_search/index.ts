@@ -1,4 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -7,6 +8,14 @@ const corsHeaders = {
 }
 
 const TAVILY_KEY = Deno.env.get('TAVILY_API_KEY') ?? ''
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+
+const jsonError = (message: string, status: number) =>
+  new Response(
+    JSON.stringify({ error: message }),
+    { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+  )
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -16,10 +25,27 @@ Deno.serve(async (req) => {
     return new Response('Method not allowed', { status: 405, headers: corsHeaders })
   }
   if (!TAVILY_KEY) {
-    return new Response(
-      JSON.stringify({ error: 'TAVILY_API_KEY not configured' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    )
+    return jsonError('TAVILY_API_KEY not configured', 500)
+  }
+
+  // Defense-in-depth JWT check. The dashboard's verify_jwt setting is the
+  // primary gate, but the other edge functions all do an explicit getUser()
+  // too. Match that pattern so an accidental dashboard toggle doesn't open
+  // the Tavily quota to the world.
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return jsonError('Supabase env vars not configured', 500)
+  }
+  const authHeader = req.headers.get('authorization')
+  const apikey = req.headers.get('apikey')
+  if (!authHeader || !apikey) {
+    return jsonError('missing auth headers', 401)
+  }
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader, apikey } },
+  })
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return jsonError('invalid auth token', 401)
   }
 
   try {
