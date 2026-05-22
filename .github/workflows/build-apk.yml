@@ -1,8 +1,8 @@
 name: Build Android APK
 
-# Builds a debug APK every time you tag with v* (e.g. v0.1.0).
-# Output ends up as a release asset you can download to your Huawei.
-# Also triggerable manually from the Actions tab.
+# Builds a release APK every time you push to main (or tag with v*).
+# Signed with a stable keystore from secrets so re-installs are treated
+# as upgrades (data preserved, no re-login).
 
 on:
   push:
@@ -46,17 +46,39 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      - name: Build debug APK
+      - name: Decode signing keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/release.keystore
+          ls -la android/release.keystore
+
+      - name: Build APK
         run: |
           cd android
-          ./gradlew assembleDebug --no-daemon
+          if [ -f release.keystore ]; then
+            echo "Building signed RELEASE APK"
+            ./gradlew assembleRelease --no-daemon
+          else
+            echo "No keystore — falling back to DEBUG APK (data won't persist across installs!)"
+            ./gradlew assembleDebug --no-daemon
+          fi
+        env:
+          ANDROID_KEYSTORE_FILE: release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
       - name: Rename APK
         run: |
           mkdir -p out
           SUFFIX="${{ github.ref_name }}-$(date +%Y%m%d-%H%M)"
-          cp android/app/build/outputs/apk/debug/app-debug.apk \
-             out/nimbus-chat-${SUFFIX}.apk
+          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk \
+               out/nimbus-chat-${SUFFIX}.apk
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk \
+               out/nimbus-chat-${SUFFIX}.apk
+          fi
 
       - name: Upload APK as workflow artifact
         uses: actions/upload-artifact@v4

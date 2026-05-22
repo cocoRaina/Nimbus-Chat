@@ -16,10 +16,32 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            // Stable signing so every APK install is treated as an upgrade
+            // of the same app (data preserved, no re-login). CI decodes
+            // ANDROID_KEYSTORE_BASE64 secret → release.keystore and sets
+            // these env vars before running gradle.
+            def keystorePath = System.getenv("ANDROID_KEYSTORE_FILE") ?: "../../release.keystore"
+            def ksFile = file(keystorePath)
+            if (ksFile.exists()) {
+                storeFile ksFile
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ""
+                keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "nimbus"
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: ""
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Only attach signing config if a keystore is present at build
+            // time. Lets local debug builds continue to work without one.
+            def ksFile = file(System.getenv("ANDROID_KEYSTORE_FILE") ?: "../../release.keystore")
+            if (ksFile.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
