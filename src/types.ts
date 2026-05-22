@@ -35,6 +35,11 @@ export type ChatMessage = {
       width?: number
       height?: number
     }>
+    weather?: {
+      temperatureC: number
+      condition: string
+      feelsLikeC?: number
+    }
   }
   pending?: boolean
 }

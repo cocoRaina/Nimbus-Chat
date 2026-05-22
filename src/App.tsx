@@ -58,6 +58,7 @@ import { resolveModelId } from './utils/modelResolver'
 import { fetchOpenRouter } from './api/openrouter'
 import { getActiveProvider } from './storage/apiProvider'
 import { recordUsage } from './storage/usageStats'
+import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
 import { compressIfNeeded } from './storage/conversationCompression'
 import { isGpt5Auto } from './utils/openrouterReasoning'
 
@@ -176,8 +177,8 @@ const TOOL_SEARCH_MEMORY = {
       '- snack_reply（朋友圈下面的回复）\n' +
       '当用户提到「记得 / 之前 / 我喜欢 / 我们 / 那次」之类需要回忆具体细节，或你需要确认某件已被告知/记录过的事时调用。' +
       '每条结果带 source 字段标明来源。\n\n' +
-      '另外：响应里还会附一份 period_data（用户的经期记录最近 10 条，按 start_date 倒序）。' +
-      '不需要专门查也会带回来——涉及到生理期/月经话题直接看这块。',
+      '另外：响应里还会附 period_data（最近 10 条经期记录）和 health_data（最近 7 天的睡眠/心率/步数）。' +
+      '涉及到生理期 / 月经 / 身体状态 / 累不累 / 睡得好不好 的话题直接看这两块，不用专门查。',
     parameters: {
       type: 'object',
       properties: {
@@ -328,6 +329,28 @@ const TOOL_LOG_PERIOD = {
   },
 }
 
+const TOOL_LOG_HEALTH = {
+  type: 'function' as const,
+  function: {
+    name: 'log_health',
+    description:
+      '记录某一天的身体状态。仅在用户主动提到睡眠/步数/心率/累/精神状态等时调用。' +
+      '不需要全部字段填齐——填能确定的就行。同一天再次写入会合并更新而不是新建。',
+    parameters: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: '日期 YYYY-MM-DD，不填默认今天' },
+        sleep_hours: { type: 'number', description: '睡眠小时数，例如 6.5' },
+        sleep_quality: { type: 'string', description: '睡眠质量，例如：好/一般/差/做了噩梦' },
+        heart_rate_avg: { type: 'integer', description: '当天平均心率 bpm，可选' },
+        heart_rate_rest: { type: 'integer', description: '静息心率 bpm，可选' },
+        steps: { type: 'integer', description: '步数，可选' },
+        notes: { type: 'string', description: '其他备注，例如：腿酸 / 头疼 / 状态不好' },
+      },
+    },
+  },
+}
+
 const isToolCapableModel = (model: string) =>
   /claude|anthropic|gpt-4|gpt-5|openai\//i.test(model)
 
@@ -351,6 +374,11 @@ const App = () => {
   // Track when we last received a streamed chunk. Used to detect streams
   // that got silently killed while the app was backgrounded.
   const lastChunkAtRef = useRef<number>(0)
+  // Set later (after sendMessage is defined). Visibility handler calls it
+  // through the ref to dodge declaration-order.
+  const maybeSendProactiveRef = useRef<(sessionId: string) => Promise<void>>(
+    async () => undefined,
+  )
   // Keepalive: stash a snapshot of the last successful request body so we
   // can ping it ~55 min later (just before 1h cache TTL expires) with
   // max_tokens: 0 to refresh the cache cheaply.
@@ -435,6 +463,16 @@ const App = () => {
     return subscribeSupabaseConfigChange(() => {
       setSupabaseConfigured(hasSupabaseConfig())
     })
+  }, [])
+
+  // Warm the weather cache on mount and refresh hourly. Each user message
+  // snapshots the cache value at send time into its meta.
+  useEffect(() => {
+    void fetchCurrentWeather()
+    const id = window.setInterval(() => {
+      void fetchCurrentWeather()
+    }, 60 * 60 * 1000)
+    return () => window.clearInterval(id)
   }, [])
 
   useEffect(() => {
@@ -557,6 +595,12 @@ const App = () => {
             streamingControllerRef.current.abort()
             streamingControllerRef.current = null
           }
+        }
+        // Proactive check: if you're on a chat page and haven't messaged
+        // in over an hour, nudge Claude to follow up based on context.
+        const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
+        if (hashMatch) {
+          void maybeSendProactiveRef.current(hashMatch[1])
         }
       }
     }
@@ -792,10 +836,12 @@ const App = () => {
       options?: {
         skipUser?: boolean
         attachments?: Array<{ type: 'image'; url: string; width?: number; height?: number }>
+        proactiveNudge?: string
       },
     ) => {
       const skipUser = options?.skipUser === true
       const userAttachments = options?.attachments ?? []
+      const proactiveNudge = options?.proactiveNudge
       const fallbackSettings = createDefaultSettings(user?.id ?? 'local')
       const activeSettings = settingsRef.current ?? fallbackSettings
       const effectiveModel = resolveSessionModel(sessionId)
@@ -814,8 +860,23 @@ const App = () => {
       )
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
-      const userMeta: ChatMessage['meta'] =
-        userAttachments.length > 0 ? { attachments: userAttachments } : {}
+      // Snapshot current weather (if cached) and freeze it into this
+      // message's meta. Decorating user content with weather happens at
+      // request-build time, sourced from this snapshot — stable bytes
+      // across requests so the prompt cache prefix matches.
+      const weatherSnap = peekCachedWeather()
+      const userMeta: ChatMessage['meta'] = {
+        ...(userAttachments.length > 0 ? { attachments: userAttachments } : {}),
+        ...(weatherSnap
+          ? {
+              weather: {
+                temperatureC: weatherSnap.temperatureC,
+                feelsLikeC: weatherSnap.feelsLikeC,
+                condition: weatherSnap.condition,
+              },
+            }
+          : {}),
+      }
       const optimisticMessage: ChatMessage = {
         id: clientId,
         sessionId,
@@ -1169,7 +1230,11 @@ const App = () => {
             const messageAttachments = message.meta?.attachments ?? []
             const imageAttachments = messageAttachments.filter((a) => a.type === 'image')
             const stamp = message.role === 'user' ? formatStamp(message.createdAt) : ''
-            const prefix = stamp ? `[当前时间] ${stamp}\n\n` : ''
+            const weatherMeta = message.role === 'user' ? message.meta?.weather : undefined
+            const weatherStr = weatherMeta
+              ? ` [当时天气] ${weatherMeta.temperatureC}°C ${weatherMeta.condition}`
+              : ''
+            const prefix = stamp ? `[当前时间] ${stamp}${weatherStr}\n\n` : ''
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []
               const textContent = `${prefix}${message.content}`
@@ -1184,6 +1249,12 @@ const App = () => {
               const content = message.role === 'user' ? `${prefix}${message.content}` : message.content
               baseMessages.push({ role: message.role, content } as ChatRequestMessage)
             }
+          }
+          // Proactive mode: append a transient system instruction at the
+          // tail so Claude generates a follow-up based on context. Not
+          // stored anywhere — only this request sees it.
+          if (proactiveNudge) {
+            baseMessages.push({ role: 'system', content: proactiveNudge })
           }
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
           // Privacy: never send tool definitions on relay providers. Relays
@@ -1270,6 +1341,7 @@ const App = () => {
                 TOOL_WRITE_LETTER,
                 TOOL_ADD_TIMELINE,
                 TOOL_LOG_PERIOD,
+                TOOL_LOG_HEALTH,
               ]
               requestBody.tool_choice = 'auto'
             }
@@ -1545,7 +1617,8 @@ const App = () => {
                       tc.function.name === 'write_diary' ||
                       tc.function.name === 'write_handoff_letter' ||
                       tc.function.name === 'add_timeline_event' ||
-                      tc.function.name === 'log_period') &&
+                      tc.function.name === 'log_period' ||
+                      tc.function.name === 'log_health') &&
                     supabase
                   ) {
                     let args: Record<string, unknown> = {}
@@ -1605,6 +1678,19 @@ const App = () => {
                         notes: typeof args.notes === 'string' ? args.notes : null,
                       }
                       labelText = `🩸 记录经期：${payload.start_date}`
+                    } else if (tc.function.name === 'log_health') {
+                      table = 'health_data'
+                      const todayStr = new Date().toISOString().slice(0, 10)
+                      payload = {
+                        date: typeof args.date === 'string' && args.date ? args.date : todayStr,
+                        sleep_hours: typeof args.sleep_hours === 'number' ? args.sleep_hours : null,
+                        sleep_quality: typeof args.sleep_quality === 'string' ? args.sleep_quality : null,
+                        heart_rate_avg: typeof args.heart_rate_avg === 'number' ? Math.round(args.heart_rate_avg) : null,
+                        heart_rate_rest: typeof args.heart_rate_rest === 'number' ? Math.round(args.heart_rate_rest) : null,
+                        steps: typeof args.steps === 'number' ? Math.round(args.steps) : null,
+                        notes: typeof args.notes === 'string' ? args.notes : null,
+                      }
+                      labelText = `💗 记录身体状态：${payload.date}`
                     }
                     setToolStatus(labelText)
                     // Strip nulls so DB defaults kick in.
@@ -1738,6 +1824,39 @@ const App = () => {
     streamingControllerRef.current?.abort()
     setIsStreaming(false)
   }, [])
+
+  // Bind the proactive-nudge function once sendMessage is available.
+  // Used by the visibility handler above (which can't reference
+  // sendMessage directly due to declaration order).
+  useEffect(() => {
+    maybeSendProactiveRef.current = async (sessionId: string) => {
+      if (!user) return
+      if (streamingControllerRef.current) return
+      const sessionMessages = messagesRef.current
+        .filter((m) => m.sessionId === sessionId)
+        .sort(
+          (a, b) =>
+            new Date(a.clientCreatedAt ?? a.createdAt).getTime() -
+            new Date(b.clientCreatedAt ?? b.createdAt).getTime(),
+        )
+      if (sessionMessages.length === 0) return
+      const last = sessionMessages[sessionMessages.length - 1]
+      if (last.pending) return
+      if (last.role !== 'user') return
+      const elapsedMs = Date.now() - new Date(last.createdAt).getTime()
+      const ONE_HOUR = 60 * 60 * 1000
+      if (elapsedMs < ONE_HOUR) return
+
+      const nudge =
+        '[内部系统提示] 用户已经超过 1 小时没回应你了。请基于之前的对话内容主动找她聊聊——可以是一句关心、续上之前的话题、或者分享你想到的什么。一两句话就好，自然像朋友主动发的消息，不要刻意点出"我注意到你很久没说话"这种话。'
+
+      try {
+        await sendMessage(sessionId, '', { skipUser: true, proactiveNudge: nudge })
+      } catch (err) {
+        console.warn('proactive nudge failed', err)
+      }
+    }
+  }, [sendMessage, user])
 
   const regenerateAssistantReply = useCallback(
     async (assistantMessageId: string) => {
