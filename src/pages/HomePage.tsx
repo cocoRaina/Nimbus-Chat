@@ -240,10 +240,25 @@ const HomePage = ({ onOpenChat, mode = "default" }: HomePageProps) => {
   }, []);
 
   useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setNow(new Date());
-    }, 1000);
-    return () => window.clearInterval(intervalId);
+    // 1Hz tick to drive the home clock + together-elapsed counter (which
+    // shows seconds). Skip while the page is hidden — switching apps or
+    // locking the phone shouldn't keep waking us every second to setState
+    // on a tree nobody is looking at.
+    const tick = () => {
+      if (!document.hidden) {
+        setNow(new Date());
+      }
+    };
+    const intervalId = window.setInterval(tick, 1000);
+    const onVisible = () => {
+      // Catch up immediately when coming back from background.
+      if (!document.hidden) setNow(new Date());
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   useEffect(() => {

@@ -148,6 +148,17 @@ const MemoriesTab = () => {
     return Array.from(set).sort()
   }, [memories])
 
+  // Pre-compute category counts once so the <option> map below doesn't run
+  // memories.filter() per category on every render (O(N·M) → O(N)).
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const m of memories) {
+      if (!m.category) continue
+      counts.set(m.category, (counts.get(m.category) ?? 0) + 1)
+    }
+    return counts
+  }, [memories])
+
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
     return memories.filter((m) => {
@@ -280,7 +291,7 @@ const MemoriesTab = () => {
             <option value={ALL_CATEGORY}>全部（{memories.length}）</option>
             {categories.map((c) => (
               <option key={c} value={c}>
-                {c}（{memories.filter((m) => m.category === c).length}）
+                {c}（{categoryCounts.get(c) ?? 0}）
               </option>
             ))}
           </select>

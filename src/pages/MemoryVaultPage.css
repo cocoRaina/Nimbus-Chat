@@ -368,12 +368,15 @@
   justify-content: flex-end;
 }
 
+/* Bumped padding so the edit/delete buttons hit closer to Android's
+   recommended 44px tap target — previously ~26px and easy to misfire. */
 .memory-vault-item-actions .ghost {
   border: 1px solid #93C5FD;
   background: #EFF6FF;
   color: #1E40AF;
   border-radius: 8px;
-  padding: 4px 10px;
+  padding: 8px 14px;
+  min-height: 36px;
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -384,7 +387,8 @@
   background: #fef2f2;
   color: #b91c1c;
   border-radius: 8px;
-  padding: 4px 10px;
+  padding: 8px 14px;
+  min-height: 36px;
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;

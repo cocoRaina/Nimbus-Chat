@@ -146,28 +146,20 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
   }, [refreshTrashPosts, showTrash])
 
   useEffect(() => {
-    const refreshCurrentView = () => {
+    // Only watch visibilitychange — `focus` fires for the same logical
+    // transition on Android Capacitor (return-to-foreground) and used to
+    // double-trigger a full feed refetch.
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
       if (showTrash) {
         void refreshTrashPosts()
       } else {
         void refreshPosts()
       }
     }
-
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        refreshCurrentView()
-      }
-    }
-    const onFocus = () => {
-      refreshCurrentView()
-    }
-
     document.addEventListener('visibilitychange', onVisible)
-    window.addEventListener('focus', onFocus)
     return () => {
       document.removeEventListener('visibilitychange', onVisible)
-      window.removeEventListener('focus', onFocus)
     }
   }, [refreshPosts, refreshTrashPosts, showTrash])
 
@@ -761,7 +753,6 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
             {posts.map((post) => {
               const replies = repliesByPost[post.id] ?? []
               const isExpanded = expandedPostIds[post.id] ?? false
-              const isGenerating = generatingPostId === post.id
               const latestReply = replies.at(-1)
               const replyDraft = replyDrafts[post.id] ?? ''
               return (
@@ -839,7 +830,9 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                           </button>
                         </div>
                       ))}
-                      {isGenerating ? <div className="reply-bubble pending">生成中…</div> : null}
+                      {/* The pending placeholder is already pushed into `replies`
+                          as a synthetic row with content "生成中…", so rendering
+                          it again here would double-stack the bubble. */}
 
                       <div className="reply-composer">
                         <textarea

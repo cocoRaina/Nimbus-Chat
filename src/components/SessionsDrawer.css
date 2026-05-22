@@ -1,9 +1,10 @@
 .drawer-scrim {
   position: fixed;
   inset: 0;
-  background: rgba(248, 250, 252, 0.42);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  /* Drop the scrim blur — backdrop-filter is the #1 paint cost on Android
+     WebView during the 0.2s open animation. A darker rgba reads as a scrim
+     just fine without a per-frame composite. */
+  background: rgba(15, 23, 42, 0.32);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
