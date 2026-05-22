@@ -2,6 +2,7 @@
 -- Run this file once in Supabase SQL Editor.
 
 create extension if not exists pgcrypto;
+create extension if not exists vector;
 
 create table if not exists public.sessions (
   id uuid primary key default gen_random_uuid(),
@@ -33,59 +34,6 @@ create table if not exists public.checkins (
   checkin_date date not null,
   created_at timestamptz not null default now(),
   unique (user_id, checkin_date)
-);
-
-create table if not exists public.memory_entries (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  content text not null,
-  source text not null,
-  status text not null check (status in ('confirmed', 'pending')),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  is_deleted boolean not null default false
-);
-
-create table if not exists public.rp_sessions (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  title text not null,
-  tile_color text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz,
-  is_archived boolean not null default false,
-  archived_at timestamptz,
-  player_display_name text,
-  player_avatar_url text,
-  worldbook_text text,
-  rp_context_token_limit integer,
-  rp_keep_recent_messages integer not null default 10,
-  settings jsonb not null default '{}'::jsonb
-);
-
-create table if not exists public.rp_messages (
-  id uuid primary key default gen_random_uuid(),
-  session_id uuid not null references public.rp_sessions(id) on delete cascade,
-  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  role text not null,
-  content text not null,
-  created_at timestamptz not null default now(),
-  client_id text,
-  client_created_at timestamptz,
-  meta jsonb not null default '{}'::jsonb
-);
-
-create table if not exists public.rp_npc_cards (
-  id uuid primary key default gen_random_uuid(),
-  session_id uuid not null references public.rp_sessions(id) on delete cascade,
-  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  display_name text not null,
-  system_prompt text,
-  model_config jsonb not null default '{}'::jsonb,
-  api_config jsonb not null default '{}'::jsonb,
-  enabled boolean not null default true,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz
 );
 
 create table if not exists public.user_settings (
@@ -167,19 +115,87 @@ create table if not exists public.assistant_replies (
   deleted_at timestamptz
 );
 
+-- Single-tenant tool tables (LLM-driven writes from the chat tool loop).
+-- No user_id column by design — this app runs single-account; RLS policy
+-- further down is intentionally "authenticated, no restriction" to match.
+create table if not exists public.memories (
+  id bigserial primary key,
+  category text default '日常',
+  content text not null,
+  tags text[],
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  embedding vector(1024)
+);
+
+create table if not exists public.diaries (
+  id bigserial primary key,
+  date date not null,
+  title text,
+  author text default 'Claude',
+  mood text,
+  content text not null,
+  created_at timestamptz default now(),
+  embedding vector(1024)
+);
+
+create table if not exists public.handoff_letters (
+  id bigserial primary key,
+  date date not null,
+  title text,
+  content text not null,
+  signature text,
+  created_at timestamptz default now(),
+  embedding vector(1024)
+);
+
+create table if not exists public.timeline (
+  id bigserial primary key,
+  event_date date not null,
+  title text not null,
+  description text,
+  category text default '日常',
+  importance integer default 3,
+  created_at timestamptz default now(),
+  embedding vector(1024)
+);
+
+create table if not exists public.period_tracking (
+  id bigserial primary key,
+  start_date date not null,
+  end_date date,
+  cycle_length integer,
+  notes text,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.health_data (
+  id bigserial primary key,
+  date date not null,
+  sleep_hours numeric,
+  sleep_quality text,
+  heart_rate_avg integer,
+  heart_rate_rest integer,
+  steps integer,
+  notes text,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.essays (
+  id bigserial primary key,
+  date date not null,
+  title text,
+  content text not null,
+  topic text,
+  created_at timestamptz default now()
+);
+
 create index if not exists sessions_user_id_idx on public.sessions (user_id);
 create index if not exists sessions_user_archive_updated_idx on public.sessions (user_id, is_archived, updated_at desc, created_at desc);
 create index if not exists messages_user_id_idx on public.messages (user_id);
 create index if not exists messages_session_id_idx on public.messages (session_id);
 create index if not exists messages_session_client_time_idx on public.messages (session_id, client_created_at, created_at);
 create index if not exists checkins_user_id_idx on public.checkins (user_id);
-create index if not exists memory_entries_user_status_deleted_idx on public.memory_entries (user_id, status, is_deleted, created_at desc);
-create index if not exists rp_sessions_user_archive_updated_idx on public.rp_sessions (user_id, is_archived, updated_at desc, created_at desc);
-create index if not exists rp_messages_user_id_idx on public.rp_messages (user_id);
-create index if not exists rp_messages_session_id_idx on public.rp_messages (session_id);
-create index if not exists rp_messages_session_client_time_idx on public.rp_messages (session_id, client_created_at, created_at);
-create index if not exists rp_npc_cards_user_id_idx on public.rp_npc_cards (user_id);
-create index if not exists rp_npc_cards_session_id_idx on public.rp_npc_cards (session_id);
 create index if not exists user_posts_user_deleted_created_idx on public.user_posts (user_id, is_deleted, created_at desc);
 create index if not exists user_replies_post_deleted_created_idx on public.user_replies (post_id, is_deleted, created_at);
 create index if not exists user_replies_user_id_idx on public.user_replies (user_id);
@@ -190,16 +206,19 @@ create index if not exists assistant_replies_user_id_idx on public.assistant_rep
 alter table public.sessions enable row level security;
 alter table public.messages enable row level security;
 alter table public.checkins enable row level security;
-alter table public.memory_entries enable row level security;
-alter table public.rp_sessions enable row level security;
-alter table public.rp_messages enable row level security;
-alter table public.rp_npc_cards enable row level security;
 alter table public.user_settings enable row level security;
 alter table public.compression_cache enable row level security;
 alter table public.user_posts enable row level security;
 alter table public.user_replies enable row level security;
 alter table public.assistant_posts enable row level security;
 alter table public.assistant_replies enable row level security;
+alter table public.memories enable row level security;
+alter table public.diaries enable row level security;
+alter table public.handoff_letters enable row level security;
+alter table public.timeline enable row level security;
+alter table public.period_tracking enable row level security;
+alter table public.health_data enable row level security;
+alter table public.essays enable row level security;
 
 drop policy if exists sessions_owner_all on public.sessions;
 create policy sessions_owner_all on public.sessions
@@ -215,30 +234,6 @@ create policy messages_owner_all on public.messages
 
 drop policy if exists checkins_owner_all on public.checkins;
 create policy checkins_owner_all on public.checkins
-  for all to authenticated
-  using (user_id = auth.uid())
-  with check (user_id = auth.uid());
-
-drop policy if exists memory_entries_owner_all on public.memory_entries;
-create policy memory_entries_owner_all on public.memory_entries
-  for all to authenticated
-  using (user_id = auth.uid())
-  with check (user_id = auth.uid());
-
-drop policy if exists rp_sessions_owner_all on public.rp_sessions;
-create policy rp_sessions_owner_all on public.rp_sessions
-  for all to authenticated
-  using (user_id = auth.uid())
-  with check (user_id = auth.uid());
-
-drop policy if exists rp_messages_owner_all on public.rp_messages;
-create policy rp_messages_owner_all on public.rp_messages
-  for all to authenticated
-  using (user_id = auth.uid())
-  with check (user_id = auth.uid());
-
-drop policy if exists rp_npc_cards_owner_all on public.rp_npc_cards;
-create policy rp_npc_cards_owner_all on public.rp_npc_cards
   for all to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
@@ -280,6 +275,50 @@ create policy assistant_replies_owner_all on public.assistant_replies
   for all to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
+
+-- Single-tenant tool tables: no user_id column. Policy is intentionally
+-- permissive — if you ever multi-tenant this, add user_id and tighten.
+drop policy if exists memories_authenticated_all on public.memories;
+create policy memories_authenticated_all on public.memories
+  for all to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists diaries_authenticated_all on public.diaries;
+create policy diaries_authenticated_all on public.diaries
+  for all to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists handoff_letters_authenticated_all on public.handoff_letters;
+create policy handoff_letters_authenticated_all on public.handoff_letters
+  for all to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists timeline_authenticated_all on public.timeline;
+create policy timeline_authenticated_all on public.timeline
+  for all to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists period_tracking_authenticated_all on public.period_tracking;
+create policy period_tracking_authenticated_all on public.period_tracking
+  for all to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists health_data_authenticated_all on public.health_data;
+create policy health_data_authenticated_all on public.health_data
+  for all to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists essays_authenticated_all on public.essays;
+create policy essays_authenticated_all on public.essays
+  for all to authenticated
+  using (true)
+  with check (true);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -360,24 +399,6 @@ before update on public.sessions
 for each row
 execute function public.set_updated_at();
 
-drop trigger if exists memory_entries_set_updated_at on public.memory_entries;
-create trigger memory_entries_set_updated_at
-before update on public.memory_entries
-for each row
-execute function public.set_updated_at();
-
-drop trigger if exists rp_sessions_set_updated_at on public.rp_sessions;
-create trigger rp_sessions_set_updated_at
-before update on public.rp_sessions
-for each row
-execute function public.set_updated_at();
-
-drop trigger if exists rp_npc_cards_set_updated_at on public.rp_npc_cards;
-create trigger rp_npc_cards_set_updated_at
-before update on public.rp_npc_cards
-for each row
-execute function public.set_updated_at();
-
 drop trigger if exists user_settings_set_updated_at on public.user_settings;
 create trigger user_settings_set_updated_at
 before update on public.user_settings
@@ -399,5 +420,11 @@ execute function public.set_updated_at();
 drop trigger if exists compression_cache_set_updated_at on public.compression_cache;
 create trigger compression_cache_set_updated_at
 before update on public.compression_cache
+for each row
+execute function public.set_updated_at();
+
+drop trigger if exists memories_set_updated_at on public.memories;
+create trigger memories_set_updated_at
+before update on public.memories
 for each row
 execute function public.set_updated_at();
