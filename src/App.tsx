@@ -351,6 +351,12 @@ const App = () => {
   // Track when we last received a streamed chunk. Used to detect streams
   // that got silently killed while the app was backgrounded.
   const lastChunkAtRef = useRef<number>(0)
+  // Keepalive: stash a snapshot of the last successful request body so we
+  // can ping it ~55 min later (just before 1h cache TTL expires) with
+  // max_tokens: 0 to refresh the cache cheaply.
+  const keepaliveTimerRef = useRef<number | null>(null)
+  const keepaliveBodyRef = useRef<Record<string, unknown> | null>(null)
+  const keepaliveControllerRef = useRef<AbortController | null>(null)
   const settingsRef = useRef<UserSettings | null>(null)
   const fallbackSettings = useMemo(
     () => createDefaultSettings(user?.id ?? 'local'),
@@ -716,6 +722,56 @@ const App = () => {
     [applySnapshot, user],
   )
 
+  // Send a max_tokens:0 ping to refresh the prompt cache before 1h TTL expires.
+  // Anthropic serves the prefix from cache (0.1x of input price), writes a
+  // fresh entry, and returns empty content. Net cost ≈ $0.013 for a 20K
+  // prompt vs $0.10 to fully recompute if the cache expires. Schedules itself
+  // again to keep the chain alive while the app stays open.
+  const scheduleKeepalive = useCallback(() => {
+    if (keepaliveTimerRef.current !== null) {
+      window.clearTimeout(keepaliveTimerRef.current)
+      keepaliveTimerRef.current = null
+    }
+    if (!keepaliveBodyRef.current) return
+    const KEEPALIVE_DELAY_MS = 55 * 60 * 1000
+    keepaliveTimerRef.current = window.setTimeout(() => {
+      keepaliveTimerRef.current = null
+      const snapshot = keepaliveBodyRef.current
+      if (!snapshot) return
+      const pingBody: Record<string, unknown> = {
+        ...snapshot,
+        max_tokens: 0,
+        stream: false,
+      }
+      // Tools / tool_choice don't need to ride along on a keepalive.
+      delete pingBody.tools
+      delete pingBody.tool_choice
+      const controller = new AbortController()
+      keepaliveControllerRef.current?.abort()
+      keepaliveControllerRef.current = controller
+      void fetchOpenRouter('/chat/completions', { body: pingBody, signal: controller.signal })
+        .then((response) => {
+          if (!response.ok) {
+            console.warn('keepalive non-2xx', response.status)
+            return
+          }
+          scheduleKeepalive()
+        })
+        .catch((err) => {
+          if (err instanceof DOMException && err.name === 'AbortError') return
+          console.warn('keepalive failed', err)
+        })
+    }, KEEPALIVE_DELAY_MS)
+  }, [])
+
+  const cancelKeepalive = useCallback(() => {
+    if (keepaliveTimerRef.current !== null) {
+      window.clearTimeout(keepaliveTimerRef.current)
+      keepaliveTimerRef.current = null
+    }
+    keepaliveControllerRef.current?.abort()
+    keepaliveControllerRef.current = null
+  }, [])
 
   const sendMessage = useCallback(
     async (
@@ -1124,11 +1180,17 @@ const App = () => {
           const controller = new AbortController()
           streamingControllerRef.current?.abort()
           streamingControllerRef.current = controller
+          // Cancel any pending keepalive — the real send is about to refresh
+          // the cache anyway, no need to ping in parallel.
+          cancelKeepalive()
           lastChunkAtRef.current = Date.now()
           setIsStreaming(true)
 
           let iteration = 0
           let conversationDone = false
+          // Captured on every iteration so we can snapshot the final-iteration
+          // body for keepalive after success.
+          let lastSentBody: Record<string, unknown> | null = null
 
           while (!conversationDone && iteration < MAX_TOOL_ITERATIONS) {
             iteration++
@@ -1214,6 +1276,7 @@ const App = () => {
               breakpoints: debugBreakpoints,
             }
 
+            lastSentBody = requestBody
             const response = await fetchOpenRouter('/chat/completions', {
               body: requestBody,
               signal: controller.signal,
@@ -1574,6 +1637,16 @@ const App = () => {
             session.id === sessionId ? { ...session, updatedAt } : session,
           )
           applySnapshot(updatedSessions, updatedMessages)
+
+          // If this request was cached (Claude on OpenRouter), stash the body
+          // and schedule a keepalive ping ~55min out to refresh the 1h cache.
+          if (
+            lastSentBody &&
+            (lastSentBody as { cache_control?: unknown }).cache_control != null
+          ) {
+            keepaliveBodyRef.current = lastSentBody
+            scheduleKeepalive()
+          }
         } catch (error) {
           if (flushTimer !== null) {
             window.clearTimeout(flushTimer)
@@ -1639,7 +1712,7 @@ const App = () => {
 
       void persist()
     },
-    [applySnapshot, resolveSessionReasoning, resolveSessionModel, user],
+    [applySnapshot, cancelKeepalive, resolveSessionReasoning, resolveSessionModel, scheduleKeepalive, user],
   )
 
   const handleStopStreaming = useCallback(() => {
