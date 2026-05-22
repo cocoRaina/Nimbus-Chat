@@ -60,19 +60,31 @@ jobs:
           fi
 
       - name: Build APK
+        shell: bash
         run: |
+          set -o pipefail
           cd android
           if [ "$have_keystore" = "yes" ]; then
             echo "Building signed RELEASE APK"
-            ./gradlew assembleRelease --no-daemon
+            ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee ../gradle-build.log
           else
             echo "No keystore — falling back to DEBUG APK (data won't persist across installs!)"
-            ./gradlew assembleDebug --no-daemon
+            ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee ../gradle-build.log
           fi
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Upload gradle log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-log
+          path: |
+            gradle-build.log
+            android/app/build/reports/**
+          if-no-files-found: ignore
 
       - name: Rename APK
         run: |
