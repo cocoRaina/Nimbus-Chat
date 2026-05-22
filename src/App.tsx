@@ -1169,11 +1169,12 @@ const App = () => {
             // direct (skip Bedrock / Vertex) since top-level cache_control
             // only works on the native Anthropic provider.
             if (isClaudeModel(effectiveModel) && getActiveProvider() === 'openrouter') {
-              // Only send cache_control on OpenRouter (clean workspace
-              // isolation). Relays that don't bill cache discounts back to
-              // us would otherwise just dump our prompts into their shared
-              // cache pool — no upside, real privacy risk.
-              requestBody.cache_control = { type: 'ephemeral' }
+              // 1h TTL: writes cost 2x (vs 1.25x for default 5min) but reads
+              // stay 0.1x. Break-even at ~3 reads — easily covered for any
+              // active chat that lasts more than a few minutes. Survives
+              // short breaks (washing dishes, sleeping in) that would expire
+              // the 5min default.
+              requestBody.cache_control = { type: 'ephemeral', ttl: '1h' }
               requestBody.provider = {
                 order: ['Anthropic'],
                 allow_fallbacks: false,
