@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { FormEvent } from 'react'
+import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import type { ChatMessage, ChatSession } from '../types'
@@ -51,6 +51,97 @@ const formatTime = (timestamp: string) =>
     minute: '2-digit',
     hour12: false,
   })
+
+// Memoised single-message renderer. The chat history can be hundreds of
+// messages; without this, every keystroke in the composer re-runs the
+// map over all of them. With stable handler refs from the parent, memo
+// bails for every unaffected row.
+type MessageRowProps = {
+  message: ChatMessage
+  isActionsOpen: boolean
+  actionsLabel: string
+  onStartLongPress: (event: ReactPointerEvent<HTMLDivElement>, messageId: string) => void
+  onCancelLongPress: () => void
+  onContextMenuOpen: (event: ReactMouseEvent<HTMLDivElement>, messageId: string) => void
+  onToggleActions: (messageId: string) => void
+  setActionTriggerRef: (messageId: string, element: HTMLButtonElement | null) => void
+}
+
+const MessageRow = memo(function MessageRow({
+  message,
+  isActionsOpen,
+  actionsLabel,
+  onStartLongPress,
+  onCancelLongPress,
+  onContextMenuOpen,
+  onToggleActions,
+  setActionTriggerRef,
+}: MessageRowProps) {
+  const reasoningText =
+    message.meta?.reasoning_text?.trim() ?? message.meta?.reasoning?.trim()
+  const chunks =
+    message.role === 'assistant' ? splitAssistantContent(message.content) : [message.content]
+  return (
+    <div className={`message ${message.role === 'user' ? 'out' : 'in'}`}>
+      {chunks.map((chunk, chunkIdx) => {
+        const isFirst = chunkIdx === 0
+        return (
+          <div
+            key={`${message.id}-${chunkIdx}`}
+            className={`bubble ${chunks.length > 1 ? 'bubble-stacked' : ''}`}
+            onPointerDown={(event) => onStartLongPress(event, message.id)}
+            onPointerUp={onCancelLongPress}
+            onPointerLeave={onCancelLongPress}
+            onPointerCancel={onCancelLongPress}
+            onPointerMove={onCancelLongPress}
+            onContextMenu={(event) => onContextMenuOpen(event, message.id)}
+          >
+            {isFirst && reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
+            {isFirst && message.meta?.attachments && message.meta.attachments.length > 0 ? (
+              <div className="message-attachments">
+                {message.meta.attachments
+                  .filter((att) => att.type === 'image')
+                  .map((att, attIdx) => (
+                    <a
+                      key={`${message.id}-att-${attIdx}`}
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="message-attachment-image"
+                    >
+                      <img src={att.url} alt="附件图片" loading="lazy" />
+                    </a>
+                  ))}
+              </div>
+            ) : null}
+            {message.role === 'assistant' ? (
+              <div className="assistant-markdown">
+                <MarkdownRenderer content={chunk} />
+              </div>
+            ) : (
+              <p>{chunk}</p>
+            )}
+          </div>
+        )
+      })}
+      <div className="bubble-meta">
+        <span className="timestamp">{formatTime(message.createdAt)}</span>
+        <div className="message-actions">
+          <button
+            type="button"
+            className="ghost action-trigger"
+            aria-expanded={isActionsOpen}
+            aria-label={actionsLabel}
+            ref={(element) => setActionTriggerRef(message.id, element)}
+            onClick={() => onToggleActions(message.id)}
+          >
+            •••
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+})
 
 const ChatPage = ({
   session,
@@ -177,29 +268,55 @@ const ChatPage = ({
     void onRegenerate(message.id)
   }
 
-  const cancelLongPress = () => {
+  // useCallback for handlers passed into MessageRow — keep refs stable
+  // so the memoised row doesn't churn on every parent render.
+  const cancelLongPress = useCallback(() => {
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current)
       longPressTimerRef.current = null
     }
     longPressTargetRef.current = null
-  }
+  }, [])
 
-  const startLongPress = (event: React.PointerEvent<HTMLDivElement>, messageId: string) => {
-    if (event.pointerType === 'mouse') return
-    const element = event.currentTarget
-    longPressTargetRef.current = { id: messageId, element }
-    longPressTimerRef.current = window.setTimeout(() => {
-      const target = longPressTargetRef.current
-      longPressTimerRef.current = null
-      if (!target || target.id !== messageId) return
-      const rect = target.element?.getBoundingClientRect()
-      if (rect) {
-        setActionsMenuPosition({ top: rect.bottom + 4, left: rect.left })
-      }
+  const startLongPress = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>, messageId: string) => {
+      if (event.pointerType === 'mouse') return
+      const element = event.currentTarget
+      longPressTargetRef.current = { id: messageId, element }
+      longPressTimerRef.current = window.setTimeout(() => {
+        const target = longPressTargetRef.current
+        longPressTimerRef.current = null
+        if (!target || target.id !== messageId) return
+        const rect = target.element?.getBoundingClientRect()
+        if (rect) {
+          setActionsMenuPosition({ top: rect.bottom + 4, left: rect.left })
+        }
+        setOpenActionsId(messageId)
+      }, 500)
+    },
+    [],
+  )
+
+  const handleContextMenuOpen = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>, messageId: string) => {
+      event.preventDefault()
+      const rect = event.currentTarget.getBoundingClientRect()
+      setActionsMenuPosition({ top: rect.bottom + 4, left: rect.left })
       setOpenActionsId(messageId)
-    }, 500)
-  }
+    },
+    [],
+  )
+
+  const handleToggleActions = useCallback((messageId: string) => {
+    setOpenActionsId((current) => (current === messageId ? null : messageId))
+  }, [])
+
+  const setActionTriggerRef = useCallback(
+    (messageId: string, element: HTMLButtonElement | null) => {
+      actionTriggerRefs.current[messageId] = element
+    },
+    [],
+  )
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
@@ -482,90 +599,19 @@ const ChatPage = ({
             <p>暂无消息，开始聊点什么吧。</p>
           </div>
         ) : (
-          messages.map((message) => {
-            const reasoningText =
-              message.meta?.reasoning_text?.trim() ?? message.meta?.reasoning?.trim()
-            const chunks =
-              message.role === 'assistant'
-                ? splitAssistantContent(message.content)
-                : [message.content]
-            return (
-              <div
-                key={message.id}
-                className={`message ${message.role === 'user' ? 'out' : 'in'}`}
-              >
-                {chunks.map((chunk, chunkIdx) => {
-                  const isFirst = chunkIdx === 0
-                  return (
-                    <div
-                      key={`${message.id}-${chunkIdx}`}
-                      className={`bubble ${chunks.length > 1 ? 'bubble-stacked' : ''}`}
-                      onPointerDown={(event) => startLongPress(event, message.id)}
-                      onPointerUp={cancelLongPress}
-                      onPointerLeave={cancelLongPress}
-                      onPointerCancel={cancelLongPress}
-                      onPointerMove={cancelLongPress}
-                      onContextMenu={(event) => {
-                        event.preventDefault()
-                        const rect = event.currentTarget.getBoundingClientRect()
-                        setActionsMenuPosition({ top: rect.bottom + 4, left: rect.left })
-                        setOpenActionsId(message.id)
-                      }}
-                    >
-                      {isFirst && reasoningText ? (
-                        <ReasoningPanel reasoning={reasoningText} />
-                      ) : null}
-                      {isFirst && message.meta?.attachments && message.meta.attachments.length > 0 ? (
-                        <div className="message-attachments">
-                          {message.meta.attachments
-                            .filter((att) => att.type === 'image')
-                            .map((att, attIdx) => (
-                              <a
-                                key={`${message.id}-att-${attIdx}`}
-                                href={att.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="message-attachment-image"
-                              >
-                                <img src={att.url} alt="附件图片" loading="lazy" />
-                              </a>
-                            ))}
-                        </div>
-                      ) : null}
-                      {message.role === 'assistant' ? (
-                        <div className="assistant-markdown">
-                          <MarkdownRenderer content={chunk} />
-                        </div>
-                      ) : (
-                        <p>{chunk}</p>
-                      )}
-                    </div>
-                  )
-                })}
-              <div className="bubble-meta">
-                <span className="timestamp">{formatTime(message.createdAt)}</span>
-                <div className="message-actions">
-                  <button
-                    type="button"
-                    className="ghost action-trigger"
-                    aria-expanded={openActionsId === message.id}
-                    aria-label={actionsLabel}
-                    ref={(element) => {
-                      actionTriggerRefs.current[message.id] = element
-                    }}
-                    onClick={() =>
-                      setOpenActionsId((current) =>
-                        current === message.id ? null : message.id,
-                      )
-                    }
-                  >
-                    •••
-                  </button>
-                </div>
-              </div>
-            </div>
-            )
-          })
+          messages.map((message) => (
+            <MessageRow
+              key={message.id}
+              message={message}
+              isActionsOpen={openActionsId === message.id}
+              actionsLabel={actionsLabel}
+              onStartLongPress={startLongPress}
+              onCancelLongPress={cancelLongPress}
+              onContextMenuOpen={handleContextMenuOpen}
+              onToggleActions={handleToggleActions}
+              setActionTriggerRef={setActionTriggerRef}
+            />
+          ))
         )}
         <div ref={bottomRef} />
       </main>

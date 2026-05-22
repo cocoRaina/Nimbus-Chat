@@ -1263,6 +1263,8 @@ const App = () => {
           }, 50)
         }
 
+        // Declared outside the try so the finally block can compare against it.
+        let controller: AbortController | null = null
         try {
           const sessionMessages = messagesRef.current.filter(
             (message) =>
@@ -1340,7 +1342,7 @@ const App = () => {
           const toolsEnabled = isToolCapableModel(effectiveModel) && Boolean(supabase)
           const MAX_TOOL_ITERATIONS = 4
 
-          const controller = new AbortController()
+          controller = new AbortController()
           streamingControllerRef.current?.abort()
           streamingControllerRef.current = controller
           // Cancel any pending keepalive — the real send is about to refresh
@@ -2004,7 +2006,7 @@ const App = () => {
           // active. A regenerate/edit-user-message can abort our stream then
           // start a new one before our catch resolves — if we clobbered the
           // ref unconditionally, the new stream's "stop" button would break.
-          if (streamingControllerRef.current === controller) {
+          if (controller && streamingControllerRef.current === controller) {
             setIsStreaming(false)
             streamingControllerRef.current = null
           }
