@@ -59,6 +59,7 @@ import { fetchOpenRouter } from './api/openrouter'
 import { getActiveProvider } from './storage/apiProvider'
 import { recordUsage } from './storage/usageStats'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
+import { runSandboxCode } from './storage/sandbox'
 import {
   cancelProactiveNotification,
   clearPendingProactive,
@@ -356,6 +357,36 @@ const TOOL_LOG_HEALTH = {
         steps: { type: 'integer', description: '步数，可选' },
         notes: { type: 'string', description: '其他备注，例如：腿酸 / 头疼 / 状态不好' },
       },
+    },
+  },
+}
+
+const TOOL_RUN_CODE = {
+  type: 'function' as const,
+  function: {
+    name: 'run_code',
+    description:
+      '在用户的代码沙盒里执行一段代码并拿回结果。当用户让你算数据 / 画图 / 跑脚本 / 处理文件时调用。' +
+      '当前只支持 python 和 javascript。返回 stdout / stderr。' +
+      '如果用户还没配置 sandbox endpoint，此工具会返回错误——告诉用户去 设置 → 代码沙盒 里配。',
+    parameters: {
+      type: 'object',
+      properties: {
+        language: {
+          type: 'string',
+          enum: ['python', 'javascript'],
+          description: '编程语言',
+        },
+        code: {
+          type: 'string',
+          description: '要执行的代码。Python 用 stdout 打印结果（print）；JS 用 console.log',
+        },
+        timeout_seconds: {
+          type: 'integer',
+          description: '执行超时秒数，默认 30，最大 120',
+        },
+      },
+      required: ['language', 'code'],
     },
   },
 }
@@ -1382,6 +1413,7 @@ const App = () => {
                 TOOL_ADD_TIMELINE,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
+                TOOL_RUN_CODE,
               ]
               requestBody.tool_choice = 'auto'
             }
@@ -1652,6 +1684,22 @@ const App = () => {
                     resultText = error
                       ? JSON.stringify({ error: error.message ?? String(error) })
                       : JSON.stringify(data ?? {})
+                  } else if (tc.function.name === 'run_code') {
+                    let args: { language?: 'python' | 'javascript'; code?: string; timeout_seconds?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 run_code 参数失败', jsonError)
+                    }
+                    const language = args.language === 'javascript' ? 'javascript' : 'python'
+                    const codeSnippet = String(args.code ?? '')
+                    setToolStatus(`🧪 沙盒执行 ${language}…`)
+                    const out = await runSandboxCode({
+                      language,
+                      code: codeSnippet,
+                      timeout_seconds: typeof args.timeout_seconds === 'number' ? args.timeout_seconds : undefined,
+                    })
+                    resultText = JSON.stringify(out)
                   } else if (
                     (tc.function.name === 'add_memory' ||
                       tc.function.name === 'write_diary' ||
