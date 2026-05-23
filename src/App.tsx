@@ -2132,21 +2132,25 @@ const App = () => {
         clearPendingProactive()
         return
       }
+      // Prefer the chat the user is currently looking at; fall back to the
+      // session that generated the pending message.
+      const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
+      const targetSessionId = hashMatch?.[1] ?? entry.sessionId
       try {
         const clientId = createClientId()
         const clientCreatedAt = new Date().toISOString()
         const { message: saved, updatedAt } = await addRemoteMessage(
-          entry.sessionId,
+          targetSessionId,
           user.id,
           'assistant',
           entry.text,
           clientId,
           clientCreatedAt,
-          { model: 'proactive', provider: 'openrouter' },
+          { model: 'proactive', provider: getActiveProvider() },
         )
         const updatedMessages = sortMessages([...messagesRef.current, saved])
         const updatedSessions = sessionsRef.current.map((s) =>
-          s.id === entry.sessionId ? { ...s, updatedAt } : s,
+          s.id === targetSessionId ? { ...s, updatedAt } : s,
         )
         applySnapshot(updatedSessions, updatedMessages)
       } catch (err) {
