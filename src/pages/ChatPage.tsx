@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
@@ -50,8 +50,6 @@ const splitAssistantContent = (content: string): string[] => {
 type MessageRowProps = {
   message: ChatMessage
   groupWithPrevious: boolean
-  userAvatar: string | null
-  assistantAvatar: string | null
   onStartLongPress: (event: ReactPointerEvent<HTMLDivElement>, messageId: string) => void
   onCancelLongPress: () => void
   onContextMenuOpen: (event: ReactMouseEvent<HTMLDivElement>, messageId: string) => void
@@ -60,8 +58,6 @@ type MessageRowProps = {
 const MessageRow = memo(function MessageRow({
   message,
   groupWithPrevious,
-  userAvatar,
-  assistantAvatar,
   onStartLongPress,
   onCancelLongPress,
   onContextMenuOpen,
@@ -71,59 +67,51 @@ const MessageRow = memo(function MessageRow({
   const chunks =
     message.role === 'assistant' ? splitAssistantContent(message.content) : [message.content]
   const isOut = message.role === 'user'
-  const avatar = isOut ? userAvatar : assistantAvatar
   return (
     <div
       className={`message ${isOut ? 'out' : 'in'} ${groupWithPrevious ? 'group-with-previous' : ''}`}
     >
-      {avatar ? (
-        <img className="message-avatar" src={avatar} alt="" aria-hidden="true" />
-      ) : (
-        <div className="message-avatar message-avatar-placeholder" aria-hidden="true" />
-      )}
-      <div className="bubble-stack">
-        {chunks.map((chunk, chunkIdx) => {
-          const isFirst = chunkIdx === 0
-          return (
-            <div
-              key={`${message.id}-${chunkIdx}`}
-              className={`bubble ${chunks.length > 1 ? 'bubble-stacked' : ''}`}
-              onPointerDown={(event) => onStartLongPress(event, message.id)}
-              onPointerUp={onCancelLongPress}
-              onPointerLeave={onCancelLongPress}
-              onPointerCancel={onCancelLongPress}
-              onPointerMove={onCancelLongPress}
-              onContextMenu={(event) => onContextMenuOpen(event, message.id)}
-            >
-              {isFirst && reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
-              {isFirst && message.meta?.attachments && message.meta.attachments.length > 0 ? (
-                <div className="message-attachments">
-                  {message.meta.attachments
-                    .filter((att) => att.type === 'image')
-                    .map((att, attIdx) => (
-                      <a
-                        key={`${message.id}-att-${attIdx}`}
-                        href={att.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="message-attachment-image"
-                      >
-                        <img src={att.url} alt="附件图片" loading="lazy" />
-                      </a>
-                    ))}
-                </div>
-              ) : null}
-              {message.role === 'assistant' ? (
-                <div className="assistant-markdown">
-                  <MarkdownRenderer content={chunk} />
-                </div>
-              ) : (
-                <p>{chunk}</p>
-              )}
-            </div>
-          )
-        })}
-      </div>
+      {chunks.map((chunk, chunkIdx) => {
+        const isFirst = chunkIdx === 0
+        return (
+          <div
+            key={`${message.id}-${chunkIdx}`}
+            className={`bubble ${chunks.length > 1 ? 'bubble-stacked' : ''}`}
+            onPointerDown={(event) => onStartLongPress(event, message.id)}
+            onPointerUp={onCancelLongPress}
+            onPointerLeave={onCancelLongPress}
+            onPointerCancel={onCancelLongPress}
+            onPointerMove={onCancelLongPress}
+            onContextMenu={(event) => onContextMenuOpen(event, message.id)}
+          >
+            {isFirst && reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
+            {isFirst && message.meta?.attachments && message.meta.attachments.length > 0 ? (
+              <div className="message-attachments">
+                {message.meta.attachments
+                  .filter((att) => att.type === 'image')
+                  .map((att, attIdx) => (
+                    <a
+                      key={`${message.id}-att-${attIdx}`}
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="message-attachment-image"
+                    >
+                      <img src={att.url} alt="附件图片" loading="lazy" />
+                    </a>
+                  ))}
+              </div>
+            ) : null}
+            {message.role === 'assistant' ? (
+              <div className="assistant-markdown">
+                <MarkdownRenderer content={chunk} />
+              </div>
+            ) : (
+              <p>{chunk}</p>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 })
@@ -182,26 +170,42 @@ const ChatPage = ({
   >([])
   const [uploading, setUploading] = useState(false)
   const [compressing, setCompressing] = useState(false)
-  const [userAvatar, setUserAvatar] = useState<string | null>(() =>
-    typeof window === 'undefined' ? null : localStorage.getItem('my-homepage-avatar'),
-  )
-  const [assistantAvatar, setAssistantAvatar] = useState<string | null>(() =>
-    typeof window === 'undefined' ? null : localStorage.getItem('syzygy-homepage-avatar'),
-  )
-  // Refresh from localStorage when the user changes the avatar elsewhere
-  // and storage events propagate. Same-tab updates aren't covered by the
-  // event, but navigating back to the chat remounts and re-reads anyway.
+  // Lazy load: only render the last N messages on entry. The full
+  // history is in the prop, but rendering 500+ bubbles + their
+  // markdown was the source of the "进入会卡" the user reported.
+  const PAGE_SIZE = 30
+  const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE)
   useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === 'my-homepage-avatar') {
-        setUserAvatar(event.newValue)
-      } else if (event.key === 'syzygy-homepage-avatar') {
-        setAssistantAvatar(event.newValue)
-      }
+    setDisplayLimit(PAGE_SIZE)
+  }, [session.id])
+  const displayedMessages = useMemo(
+    () => (messages.length > displayLimit ? messages.slice(-displayLimit) : messages),
+    [messages, displayLimit],
+  )
+  const hiddenCount = messages.length - displayedMessages.length
+  // Preserve the user's visible content when "加载更早" expands the window
+  // upward — without this, the new older messages would shove the scroll
+  // position downward and the user's current view would jump.
+  const scrollPreservationRef = useRef<number | null>(null)
+  const handleLoadEarlier = useCallback(() => {
+    const container = messagesRef.current
+    if (container) {
+      // Distance from bottom is invariant across the expansion: after the
+      // older batch renders we just set scrollTop = scrollHeight - dist.
+      scrollPreservationRef.current = container.scrollHeight - container.scrollTop
     }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
+    setDisplayLimit((current) => current + PAGE_SIZE)
   }, [])
+  useLayoutEffect(() => {
+    if (scrollPreservationRef.current === null) return
+    const container = messagesRef.current
+    if (!container) {
+      scrollPreservationRef.current = null
+      return
+    }
+    container.scrollTop = container.scrollHeight - scrollPreservationRef.current
+    scrollPreservationRef.current = null
+  }, [displayedMessages])
   const handleManualCompress = useCallback(async () => {
     if (compressing) return
     setCompressing(true)
@@ -617,18 +621,23 @@ const ChatPage = ({
         </div>
       </header>
       <main className="chat-messages glass-panel" ref={messagesRef}>
-        {messages.length === 0 ? (
+        {hiddenCount > 0 ? (
+          <button type="button" className="load-earlier" onClick={handleLoadEarlier}>
+            加载更早（剩余 {hiddenCount} 条）
+          </button>
+        ) : null}
+        {displayedMessages.length === 0 ? (
           <div className="empty-state">
             <p>暂无消息，开始聊点什么吧。</p>
           </div>
         ) : (
-          messages.map((message, index) => {
-            const prev = index > 0 ? messages[index - 1] : null
+          displayedMessages.map((message, index) => {
+            const prev = index > 0 ? displayedMessages[index - 1] : null
             const gapMs = prev
               ? new Date(message.createdAt).getTime() - new Date(prev.createdAt).getTime()
               : Infinity
-            // Show a centred timestamp when the very first message arrives
-            // or when there's a noticeable gap (>5min) from the previous one.
+            // Show a centred timestamp when the very first displayed message
+            // arrives or when there's a noticeable gap (>5min) from previous.
             const showSeparator = !prev || gapMs > 5 * 60 * 1000
             // Same-sender messages within 1 min hug each other tight.
             const groupWithPrevious =
@@ -639,8 +648,6 @@ const ChatPage = ({
                 <MessageRow
                   message={message}
                   groupWithPrevious={groupWithPrevious}
-                  userAvatar={userAvatar}
-                  assistantAvatar={assistantAvatar}
                   onStartLongPress={startLongPress}
                   onCancelLongPress={cancelLongPress}
                   onContextMenuOpen={handleContextMenuOpen}
