@@ -42,6 +42,13 @@ if (Capacitor.getPlatform() === 'android') {
   void LocalNotifications.requestPermissions()
 }
 
+void LocalNotifications.createChannel({
+  id: 'proactive',
+  name: '主动消息',
+  description: 'Claude的主动关心提醒',
+  importance: 4,
+  sound: 'default',
+})
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <HashRouter>
