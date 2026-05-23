@@ -40,15 +40,19 @@ if (Capacitor.getPlatform() === 'android') {
   // Ask for notification permission once. User can later revoke from
   // Android settings if it bothers them.
   void LocalNotifications.requestPermissions()
+
+  // Android 8+ (API 26+) requires a channel before any notification
+  // can be shown. Without this, schedule() silently drops the notification.
+  void LocalNotifications.createChannel({
+    id: 'proactive',
+    name: '主动消息',
+    description: 'Claude 间隔一段时间后的主动消息提醒',
+    importance: 4,
+    sound: 'default',
+    vibration: true,
+  })
 }
 
-void LocalNotifications.createChannel({
-  id: 'proactive',
-  name: '主动消息',
-  description: 'Claude的主动关心提醒',
-  importance: 4,
-  sound: 'default',
-})
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <HashRouter>

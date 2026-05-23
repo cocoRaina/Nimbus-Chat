@@ -661,10 +661,13 @@ const App = () => {
         const pending = readPendingProactive()
         if (pending) {
           if (Date.now() >= pending.fireAt) {
+            // Fire time passed — user likely returned via the notification
+            // (or just opened the app late). Insert the pre-gen message.
             void insertPendingProactiveRef.current(pending)
-          } else {
-            clearPendingProactive()
           }
+          // If fire time hasn't passed, keep the pending — don't clear it.
+          // The user might've just briefly switched apps. The OS notification
+          // is still scheduled and will remind them later.
         } else {
           const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
           if (hashMatch) {
@@ -1923,6 +1926,12 @@ const App = () => {
                 const baseMsgs = Array.isArray(proactiveBody.messages)
                   ? [...(proactiveBody.messages as ChatRequestMessage[])]
                   : []
+                // Include the assistant's actual reply so the pre-gen model
+                // sees the full context — without this it doesn't know what
+                // it just said and the proactive message ends up unrelated.
+                if (assistantContent.trim()) {
+                  baseMsgs.push({ role: 'assistant', content: assistantContent })
+                }
                 baseMsgs.push({
                   role: 'system',
                   content:
