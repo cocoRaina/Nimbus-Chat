@@ -31,13 +31,16 @@ export type ChatPageProps = {
   user: User | null
 }
 
-// Split an assistant message into multiple "WeChat-style" bubbles.
-// Splits on 2+ consecutive newlines (Claude's natural paragraph breaks) or an
-// explicit `[NEXT]` marker (case-insensitive). User messages stay as one bubble.
+// Split an assistant message into multiple "WeChat-style" bubbles ONLY when
+// Claude explicitly emits the [NEXT] marker. Paragraph breaks inside the
+// reply stay as paragraphs within a single bubble — same behaviour as the
+// Claude desktop/web app: long replies = one long bubble, short replies =
+// one short bubble. If you want a multi-bubble feel, instruct Claude to
+// drop [NEXT] between bubbles (case-insensitive).
 const splitAssistantContent = (content: string): string[] => {
   if (!content) return ['']
   const parts = content
-    .split(/\[NEXT\]|\n{2,}/i)
+    .split(/\[NEXT\]/i)
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
   return parts.length > 0 ? parts : [content]
