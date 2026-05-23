@@ -70,6 +70,8 @@ import {
   shouldScheduleProactive,
 } from './storage/proactiveNotification'
 import { Capacitor } from '@capacitor/core'
+import { App as CapacitorApp } from '@capacitor/app'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import { compressIfNeeded } from './storage/conversationCompression'
 import { isGpt5Auto } from './utils/openrouterReasoning'
 
@@ -677,8 +679,17 @@ const App = () => {
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    const appStateSubPromise = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) handleVisibilityChange()
+    })
+    const notifSubPromise = LocalNotifications.addListener(
+      'localNotificationActionPerformed',
+      () => handleVisibilityChange(),
+    )
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      void appStateSubPromise.then((s) => s.remove())
+      void notifSubPromise.then((s) => s.remove())
     }
   }, [refreshRemoteSessions, user])
 
