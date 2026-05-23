@@ -42,7 +42,7 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 
 **读取（Claude 主动调）**：
 - `search_memory` — 跨表语义搜索 + 结构化数据
-- `web_search` — 网页搜索（Tavily API via `supabase/functions/web_search/`）
+- `web_search` — 网页搜索（Tavily API via `supabase/functions/web_search/`，函数体内有显式 `getUser()` JWT 校验做 defense-in-depth）
 
 **写入（用户明确要求时调）**：
 - `add_memory` — 写一条结构化记忆
@@ -55,6 +55,7 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 **计算（未来用）**：
 - `run_code` — 通过用户配置的代码沙盒（Mac mini / VPS）跑 Python/JS
 - 协议契约：`POST {endpoint}/run` + `X-Sandbox-Token` header，详见 设置 → 代码沙盒
+- 客户端先校验 endpoint 协议必须是 `http(s)://`，防止手抖配错 URL
 
 工具定义和分发逻辑：`src/App.tsx` 头部的 `TOOL_*` 常量 + `sendMessage` 内的工具循环
 
@@ -108,9 +109,21 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 
 ### 🩹 各种 polish
 - 后台返回后 stuck stream 自动恢复（基于 `lastChunkAtRef` 8 秒判定）
-- 性能：MarkdownRenderer 和 ReasoningPanel 用 React.memo
+- 性能：MarkdownRenderer / ReasoningPanel / **MessageRow** 都用 React.memo，几百条消息打字也不卡
 - 路由按需加载（除 ChatPage / AuthPage 外都 `lazy()`），主 bundle 750→639 KB
 - 时间戳从 system prompt 挪到每条 user message（用 message.createdAt 保证不变）——避免破坏 prompt cache
+- HomePage 的 1Hz 时钟 tick 在 `document.hidden` 时停,锁屏/切到后台不再每秒唤醒整棵树
+
+### 💬 聊天界面交互
+- **气泡分组**:同人 1 分钟内连发的消息紧贴（3px gap），换人或间隔大就拉开（12px）
+- **居中时间分隔**:第一条消息或前后间隔 >5 分钟才显示一行"14:23 / 昨天 21:30 / 5月20日 14:23"
+- **一条消息 = 一个气泡**:Claude 回复默认整段一个气泡。需要"短句串"效果在回复里用 `[NEXT]` 显式拆（系统 prompt 没默认加这个指令，要的话自己写）
+- **懒加载**:进入聊天只渲染最近 30 条，顶部出"加载更早（剩余 N 条）"按钮，点一下再加载 30 条；切 session 重置
+- **header 副标题**:显示当前模型名（替代"单聊"），一眼能看到聊天在用哪个模型
+- **聊天操作菜单**:本对话设置(思考链 toggle + 📦 手动压缩对话) + 导航到其他页
+- **手动压缩对话**:不用等阈值，强制摘要一次，写入 `compression_cache`，下次发送自动用紧凑上下文（≥8 条消息才有意义）
+- 长按消息 / 右键消息出操作菜单（复制/引用/重新生成/编辑/删除）
+- 代码：`src/pages/ChatPage.tsx`（MessageRow / TimeSeparator / formatSeparatorTime）
 
 ---
 
@@ -125,13 +138,18 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
    (数据库 + 认证          (LLM 推理)         (sandbox + 智能家居)
     + Edge Functions)
             │
-            ├─→ tables: messages, sessions, memories, diaries,
-            │           handoff_letters, timeline, user_posts,
-            │           user_replies, period_tracking, health_data,
-            │           usage_logs, compression_cache
+            ├─→ tables: messages, sessions, checkins, user_settings,
+            │           compression_cache, user_posts, user_replies,
+            │           assistant_posts, assistant_replies, memories,
+            │           diaries, handoff_letters, timeline,
+            │           period_tracking, health_data, essays, usage_logs
             │
-            └─→ functions: search_memory, web_search, log_health,
-                           auto_embed
+            ├─→ edge functions: openrouter-chat, openrouter-models,
+            │                   memory-extract, web_search
+            │
+            └─→ DB functions: search_memories (RPC, 跨表向量搜),
+                              auto_embed_* (INSERT trigger),
+                              soft_delete_user_post / restore_user_post
 ```
 
 GitHub Pages **只在用户首次访问**时分发静态资源给浏览器。运行时 GitHub 不参与。
@@ -144,19 +162,26 @@ GitHub Pages **只在用户首次访问**时分发静态资源给浏览器。运
 - `vector` (pgvector) — 向量搜索
 - `pg_net` — DB trigger 调 Edge Function（auto embedding）
 
-关键表（在 dashboard 自建或通过 migration 创建）：
-- 见 `supabase/migrations/` 历史 + Supabase Studio 表结构
+关键表 schema：
+- 全量 schema 在 `supabase/init.sql`（已和线上对齐）
+- 增量改动在 `supabase/migrations/*.sql`
+- 6 张工具表（`memories` / `diaries` / `handoff_letters` / `timeline` / `period_tracking` / `health_data`）+ `compression_cache` 是**单租户开放 RLS**（`USING (true) WITH CHECK (true)`,只有 `authenticated` 角色，by design 因为本项目就是一个账号自己用）。要做多租户得给这些表加 `user_id` 列并改 policy 成 `user_id = auth.uid()`
 
-Edge Functions（已部署）：
-- `search_memory` — 语义查询
-- `web_search` — Tavily 代理
-- `log_health` — Health Connect 数据接入（外部 token 鉴权）
-- `auto_embed` — 自动向量化（DB trigger 触发）
+Edge Functions（已部署，源码在 `supabase/functions/`）:
+- `openrouter-chat` — 聊天主入口，处理 compression cache + RP module + 多 provider 路由
+- `openrouter-models` — 拉取 OR 模型目录
+- `memory-extract` — 后台从对话里提候选记忆（pending 状态等用户确认）
+- `web_search` — Tavily 代理，函数体内显式 `getUser()` JWT 校验
 
-需要的 Secrets：
+DB 函数（不是 edge function）:
+- `search_memories(query_embedding, ...)` — 跨表向量 UNION 搜
+- `auto_embed_memory / auto_embed_diary / ...` — INSERT trigger 自动生成向量（已 `REVOKE EXECUTE FROM public, anon, authenticated`，防止陌生人当 RPC 直接调来烧 embedding 配额）
+- `soft_delete_user_post / restore_user_post / soft_delete_user_reply` — 软删除朋友圈 RPC
+
+需要的 Secrets（Supabase Dashboard → Edge Functions Secrets）:
 - `TAVILY_API_KEY` — Tavily 搜索 API key
-- `HEALTH_INGEST_TOKEN` — 外部 POST /log_health 的鉴权 token
-- `SILICONFLOW_API_KEY` —（已硬编码在 Edge Functions 里）向量化 API
+- `SILICONFLOW_API_KEY` — 向量化 API（被 search_memory edge function 用）
+- `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` — Supabase 默认注入
 
 ---
 
@@ -169,10 +194,21 @@ Edge Functions（已部署）：
 - Secrets 需要：`VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`
 
 ### Android APK (Capacitor)
-- push 到 main 触发 build；产物在 Actions Run → Artifacts → `nimbus-chat-apk`
+- push 到 main 或打 `v*` tag 触发 build；产物在 Actions Run → Artifacts → `nimbus-chat-apk`
 - workflow：`.github/workflows/build-apk.yml`
-- 调试版（debug APK），未签名，sideload 安装
+- **签名 release APK**(走稳定 keystore 从 GitHub Secrets 解出来)，覆盖安装会被识别为升级，**数据不丢、不要求重新登录**
 - 资产生成：`npx capacitor-assets generate --android`（基于 `assets/icon.png`）
+
+所需 GitHub Secrets:
+- `ANDROID_KEYSTORE_BASE64` — keystore 的 base64
+- `ANDROID_KEYSTORE_PASSWORD` — store 密码(**必须 ASCII**,Java PKCS12 PBE 拒收非 ASCII)
+- `ANDROID_KEY_PASSWORD` — key 密码(同上)
+- `ANDROID_KEY_ALIAS` — 别名(默认 `nimbus`)
+
+CI 在跑 gradle 之前会:
+1. 把 base64 解出来,验证 keystore 能 parse,alias 存在
+2. 用 `keytool -certreq` 真的取一次私钥,验证 key password 对得上
+3. 两个密码做纯 ASCII 预检,非 ASCII 字符立刻拒绝(否则会在 2 分钟后的 gradle 签名步骤才报错)
 
 ### Service Worker
 - 仅在 PWA 模式注册（`Capacitor.getPlatform() === 'web'`）
@@ -185,34 +221,39 @@ Edge Functions（已部署）：
 
 ```
 src/
-├── App.tsx                    # 主路由 + sendMessage + 工具循环（2000+ 行）
+├── App.tsx                    # 主路由 + sendMessage + 工具循环（~2700 行）
 ├── api/
 │   └── openrouter.ts          # 通用 LLM provider fetcher（OR/中转）
 ├── components/
-│   ├── MarkdownRenderer.tsx   # React.memo 包装的 markdown
-│   ├── ReasoningPanel.tsx     # 思考链可折叠面板
-│   └── ConfirmDialog.tsx
+│   ├── MarkdownRenderer.tsx   # React.memo 包装的 markdown（content equality）
+│   ├── ReasoningPanel.tsx     # 思考链可折叠面板（memo）
+│   ├── SessionsDrawer.tsx     # 左侧会话抽屉
+│   ├── ConfirmDialog.tsx
+│   └── LocalAvatar.tsx        # 头像上传组件（用于 MyHomePage / AssistantHomePage）
 ├── pages/
-│   ├── ChatPage.tsx           # 主聊天界面 + 长按菜单
+│   ├── ChatPage.tsx           # 主聊天界面 + MessageRow memo + 时间分隔 + 懒加载
 │   ├── SettingsPage.tsx       # 全部配置
 │   ├── MemoryVaultPage.tsx    # 4 张记忆表的 CRUD UI
 │   ├── UsagePage.tsx          # 按 provider + 按会话用量
-│   ├── SnackPage.tsx          # 朋友圈
-│   ├── MyHomePage.tsx         # 我的主页（mimi）
-│   ├── AssistantHomePage.tsx  # Claude 主页
-│   ├── HomePage.tsx           # 首页 dashboard
-│   ├── UsagePage.tsx
+│   ├── MyHomePage.tsx         # 我的主页（朋友圈帖子 + AI 回复）
+│   ├── AssistantHomePage.tsx  # Claude 主页（同上对镜版）
+│   ├── HomePage.tsx           # 首页 dashboard + 小组件
+│   ├── HomeLayoutSettingsPage.tsx # 首页布局编辑
 │   ├── ExportPage.tsx         # 导出对话
-│   └── CheckinPage.tsx
+│   ├── CheckinPage.tsx        # 每日打卡
+│   ├── AuthPage.tsx           # 邮箱 OTP 登录
+│   └── SupabaseSetupPage.tsx  # 首次配置 Supabase URL/key
 ├── storage/
 │   ├── apiProvider.ts         # OR / 中转切换 + base URL 派生名
 │   ├── openrouterKey.ts       # OR API key
 │   ├── usageStats.ts          # usage_logs 读写
 │   ├── userSettings.ts        # 用户设置（DB 表 + 部分 localStorage）
-│   ├── conversationCompression.ts  # 摘要 + cache
+│   ├── conversationCompression.ts  # 摘要 + cache（带 force flag 给手动按钮用）
 │   ├── weather.ts             # Open-Meteo 拉天气 + 缓存
 │   ├── proactiveNotification.ts  # 本地通知调度
-│   ├── sandbox.ts             # 未来 Mac mini sandbox 调用
+│   ├── sandbox.ts             # 未来 Mac mini sandbox 调用（带 https/http 协议校验）
+│   ├── statusBar.ts           # Android StatusBar 跟随当前页 bg
+│   ├── homeLayout.ts          # 首页布局 + 小组件配置（IndexedDB 存大数据）
 │   └── imageUpload.ts         # 图片压缩 + Supabase Storage 上传
 └── supabase/
     └── client.ts              # supabase 单例 + 本地配置覆盖
@@ -223,10 +264,12 @@ src/
 ## 已知限制 / 未做
 
 - **后台 keepalive**：app 关闭后 timer 不跑，下次开 app 第一条可能要付 cache 重写费（~$0.10）
-- **iOS PWA**：状态栏处理 / 长按某些场景未测试（用户在华为安卓上）
+- **单租户 RLS**：6 张工具表 + `compression_cache` 用的是 `USING (true)` 开放策略，**只适合一个账号自己用**。要做多租户需要给这些表加 `user_id` 列并改 policy
+- **iOS**：硬件返回 / 状态栏跟随 / 本地通知 都包在 `getPlatform() === 'android'` 守卫里，iOS 端这些功能不工作（用户只发 Android）
 - **Mac mini 集成**：契约就绪但服务端未实现，等用户买了 Mac mini 自己写
 - **Google Fit API**：已弃用（2025-2026 关停），不要再接
 - **Health Connect 自动同步**：需要 MacroDroid / Tasker 等工具配置 5 分钟，未来配
+- **`window.confirm/prompt/alert`**：MyHomePage / AssistantHomePage / MemoryVaultPage 还在用,Android WebView 弹原生 dialog 会带 origin URL,看起来不够干净。重构成共用 `ConfirmDialog` 是个待办
 
 ---
 
