@@ -75,24 +75,30 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 
 ### 🔔 真·主动消息（APK 限定）
 你每发一条消息：
-1. 后台用**当前激活的模型**预生成"假设 1h 后你没回我会说啥"
-2. 把生成的真实文字作为 60 分钟后的**本地通知**调度
-3. 你点通知打开 app → 自动把这句话作为 Claude 的实际回复展示在聊天里
-4. 你 1h 内回 app / 发新消息 → 通知撤销 + 丢弃预生成（避免人工痕迹）
-5. 凌晨 0-7 点跳过整套（不发通知、不烧 API）
+1. 后台用**当前激活的模型**，带上**包括 Claude 最新回复在内的完整上下文**，让 Claude 自己决定"多久后找你 + 说什么"
+2. Claude 返回 JSON `{"delay_minutes": 25, "text": "..."}`，延迟范围 15 分钟 ~ 8 小时
+3. 按 Claude 选的时间调度一条**本地通知**（走 Android NotificationChannel `proactive`）
+4. 你点通知打开 app → 自动把 Claude 预生成的那句话作为正式 assistant 消息写进 DB
+5. 你在通知到之前回 app → pending 保留、通知继续等（不再像以前一样提前清掉）
+6. 发新消息 → 旧通知取消 + 旧 pending 清空 + 生成新的
+7. 凌晨 0 点 ~ 7 点不做 pre-gen、不发通知（不烧 API、不吵人）
+8. 如果 Claude 选的延迟会落在 0 点之后 → 不调度
+
+如果模型返回的不是合法 JSON → 退回到 60 分钟固定延迟 + 整段响应当文本
 
 代码：
-- 调度：`src/storage/proactiveNotification.ts`
-- 预生成：`src/App.tsx` 中 sendMessage 结束 hook
+- 调度 + 通道：`src/storage/proactiveNotification.ts`（`shouldScheduleProactive(delayMs?)` / `scheduleProactiveNotification(text, delayMs?)`）
+- 通道创建：`src/main.tsx`（`LocalNotifications.createChannel({ id: 'proactive' })`）
+- 预生成：`src/App.tsx` 中 sendMessage 结束 hook，prompt 要求返回 `{delay_minutes, text}` JSON
 - 注入回复：visibilitychange 监听 + `insertPendingProactiveRef`
 
 ### ✏️ 用户消息编辑
-- 长按 ••• → 编辑
+- 长按消息 → 编辑
 - 提交后**替换那条消息 + 删除之后所有 AI 回复 + 重新生成**
 - 代码：`src/App.tsx` 中 `editUserMessage`、`src/pages/ChatPage.tsx` 中 `handleEdit`
 
 ### 🔄 重新生成 / 引用 / 复制
-都在每条消息的 ••• 三点菜单里。代码：`src/pages/ChatPage.tsx`
+长按消息呼出操作菜单（复制 / 引用 / 重新生成 / 编辑 / 删除）。代码：`src/pages/ChatPage.tsx`
 
 ### 📊 用量统计
 - 按 provider 分面板（OR / 中转站）
