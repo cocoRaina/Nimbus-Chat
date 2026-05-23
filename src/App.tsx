@@ -2684,13 +2684,15 @@ const ChatRoute = ({
 
   const handleCreateSession = useCallback(async () => {
     const newSession = await onCreateSession()
-    navigate(`/chat/${newSession.id}`)
+    // replace so the back button doesn't bounce the user into the chat
+    // they were just on — match the rest of the in-/chat/ navigations.
+    navigate(`/chat/${newSession.id}`, { replace: true })
     onCloseDrawer()
   }, [navigate, onCloseDrawer, onCreateSession])
 
   const handleSelectSession = useCallback(
     (id: string) => {
-      navigate(`/chat/${id}`)
+      navigate(`/chat/${id}`, { replace: true })
       onCloseDrawer()
     },
     [navigate, onCloseDrawer],
