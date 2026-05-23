@@ -1352,6 +1352,7 @@ const App = () => {
           // the cache anyway, no need to ping in parallel.
           cancelKeepalive()
           void cancelProactiveNotification()
+          clearPendingProactive()
           lastChunkAtRef.current = Date.now()
           setIsStreaming(true)
 
