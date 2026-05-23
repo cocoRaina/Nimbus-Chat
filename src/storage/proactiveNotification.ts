@@ -69,7 +69,7 @@ export const scheduleProactiveNotification = async (
       notifications: [
         {
           id: PROACTIVE_NOTIFICATION_ID,
-          title: 'Claude',
+          title: '哥哥',
           body: notificationBody,
           schedule: { at: new Date(Date.now() + delay) },
           // smallIcon omitted: Capacitor's docs example name
