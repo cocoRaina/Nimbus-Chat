@@ -1914,41 +1914,63 @@ const App = () => {
           // after the notification fires, we insert that text as a
           // real assistant message. Skip if fire time is past midnight
           // (don't wake the user, don't burn API at night).
-          if (lastSentBody && shouldScheduleProactive() && Capacitor.getPlatform() !== 'web') {
+          // Gate: only burn the pre-gen API call if it's currently daytime.
+          // shouldScheduleProactive(0) checks NOW against active hours.
+          if (lastSentBody && shouldScheduleProactive(0) && Capacitor.getPlatform() !== 'web') {
             void (async () => {
               try {
                 const proactiveBody: Record<string, unknown> = {
                   ...lastSentBody,
                   stream: false,
-                  max_tokens: 120,
+                  max_tokens: 200,
                 }
                 delete proactiveBody.tools
                 delete proactiveBody.tool_choice
                 const baseMsgs = Array.isArray(proactiveBody.messages)
                   ? [...(proactiveBody.messages as ChatRequestMessage[])]
                   : []
-                // Include the assistant's actual reply so the pre-gen model
-                // sees the full context — without this it doesn't know what
-                // it just said and the proactive message ends up unrelated.
                 if (assistantContent.trim()) {
                   baseMsgs.push({ role: 'assistant', content: assistantContent })
                 }
                 baseMsgs.push({
                   role: 'system',
                   content:
-                    '[内部系统提示] 假设过 1 小时后用户还没回复你，你会主动找她说什么？写**一两句**自然像朋友主动发的话，开头不要"你还好吗"、"我注意到你很久没说话"这种刻意的话。可以续上刚才的话题，或分享你想到的什么，或就是一句简短的关心。',
+                    '[内部系统提示] 用户可能过一会儿不会回复你了。根据刚才聊天的气氛和内容，你觉得：\n' +
+                    '1. 多久后主动找她比较自然？（最短 15 分钟，最长 8 小时）\n' +
+                    '2. 到时候你会说什么？\n\n' +
+                    '用 JSON 回答，不要有任何其他文字：\n' +
+                    '{"delay_minutes": 30, "text": "你的消息内容"}\n\n' +
+                    '注意：\n' +
+                    '- text 写一两句自然的话，像朋友/恋人主动发的\n' +
+                    '- 不要用"你还好吗"、"我注意到你很久没说话"这种刻意的开头\n' +
+                    '- 可以续上刚才的话题，分享你想到的什么，或一句简短的关心',
                 })
                 proactiveBody.messages = baseMsgs
                 const resp = await fetchOpenRouter('/chat/completions', { body: proactiveBody })
                 if (!resp.ok) return
-                const data = await resp.json()
-                const text = data?.choices?.[0]?.message?.content
-                if (typeof text === 'string' && text.trim()) {
-                  const trimmed = text.trim()
-                  const fireAt = Date.now() + 60 * 60 * 1000
-                  savePendingProactive({ sessionId, text: trimmed, fireAt })
-                  void scheduleProactiveNotification(trimmed)
+                const raw = ((await resp.json()) as {
+                  choices?: Array<{ message?: { content?: string } }>
+                })?.choices?.[0]?.message?.content
+                if (!raw) return
+                // Parse Claude's JSON response, fall back to treating the
+                // whole string as text with a default 60-min delay.
+                let delayMinutes = 60
+                let proactiveText = ''
+                try {
+                  const jsonStr = raw.replace(/^```json?\s*\n?|\n?```\s*$/g, '').trim()
+                  const parsed = JSON.parse(jsonStr) as { delay_minutes?: unknown; text?: unknown }
+                  delayMinutes = Math.max(15, Math.min(480, Number(parsed.delay_minutes) || 60))
+                  proactiveText = String(parsed.text ?? '').trim()
+                } catch {
+                  proactiveText = raw.trim()
                 }
+                if (!proactiveText) return
+                const delayMs = delayMinutes * 60 * 1000
+                // Re-check: will the notification land in active hours (before midnight)?
+                if (!shouldScheduleProactive(delayMs)) return
+                const fireAt = Date.now() + delayMs
+                savePendingProactive({ sessionId, text: proactiveText, fireAt })
+                void scheduleProactiveNotification(proactiveText, delayMs)
               } catch (err) {
                 console.warn('proactive pre-gen failed', err)
               }

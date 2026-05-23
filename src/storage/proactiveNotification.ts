@@ -2,7 +2,7 @@ import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 
 const PROACTIVE_NOTIFICATION_ID = 1001
-const PROACTIVE_DELAY_MS = 60 * 60 * 1000
+const DEFAULT_DELAY_MS = 60 * 60 * 1000
 
 const STORAGE_KEY = 'nimbus_pending_proactive_v1'
 
@@ -10,17 +10,17 @@ const STORAGE_KEY = 'nimbus_pending_proactive_v1'
 // this window we skip entirely so the user isn't woken up + so we don't
 // burn API credits on a generation that won't be seen.
 const ACTIVE_START_HOUR = 7
-const ACTIVE_END_HOUR = 23
+const ACTIVE_END_HOUR = 24
 
 const isAvailable = () => Capacitor.getPlatform() !== 'web'
 
-const isFireTimeInActiveHours = (): boolean => {
-  const fireAt = new Date(Date.now() + PROACTIVE_DELAY_MS)
+// Pass delayMs = 0 to check "is NOW in active hours?" (pre-gen gate).
+// Pass the actual delay after Claude picks one to verify the fire time.
+export const shouldScheduleProactive = (delayMs?: number): boolean => {
+  const fireAt = new Date(Date.now() + (delayMs ?? DEFAULT_DELAY_MS))
   const hour = fireAt.getHours()
   return hour >= ACTIVE_START_HOUR && hour < ACTIVE_END_HOUR
 }
-
-export const shouldScheduleProactive = (): boolean => isFireTimeInActiveHours()
 
 export type PendingProactive = {
   sessionId: string
@@ -57,8 +57,12 @@ export const clearPendingProactive = () => {
   }
 }
 
-export const scheduleProactiveNotification = async (notificationBody: string) => {
+export const scheduleProactiveNotification = async (
+  notificationBody: string,
+  delayMs?: number,
+) => {
   if (!isAvailable()) return
+  const delay = delayMs ?? DEFAULT_DELAY_MS
   try {
     await LocalNotifications.cancel({ notifications: [{ id: PROACTIVE_NOTIFICATION_ID }] })
     await LocalNotifications.schedule({
@@ -67,7 +71,7 @@ export const scheduleProactiveNotification = async (notificationBody: string) =>
           id: PROACTIVE_NOTIFICATION_ID,
           title: 'Claude',
           body: notificationBody,
-          schedule: { at: new Date(Date.now() + PROACTIVE_DELAY_MS) },
+          schedule: { at: new Date(Date.now() + delay) },
           // smallIcon omitted: Capacitor's docs example name
           // 'ic_stat_icon_config_sample' isn't shipped in our drawable
           // folders, so notifications would silently fall back. Letting
