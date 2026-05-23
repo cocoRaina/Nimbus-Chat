@@ -516,7 +516,6 @@ const ChatPage = ({
         </button>
         <div className="header-title">
           <h1 className="ui-title">哥哥</h1>
-          <span className="subtitle" title={selectedModel}>{selectedModel}</span>
         </div>
         <div className="header-actions" ref={headerMenuRef}>
           <button
