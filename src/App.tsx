@@ -184,7 +184,6 @@ const TOOL_SEARCH_MEMORY = {
       '搜索用户长期记录的内容，跨 6 个来源做向量语义检索：\n' +
       '- memory（结构化记忆条目，含偏好/习惯/关系细节）\n' +
       '- diary（日记，按日期记录的心情与事件）\n' +
-      '- letter（交接信，上一窗口的你写给下一窗口的你）\n' +
       '- timeline（时间轴里程碑事件，少而重大）\n' +
       '- snack_post（用户在朋友圈发的帖子）\n' +
       '- snack_reply（朋友圈下面的回复）\n' +
@@ -261,6 +260,30 @@ const TOOL_ADD_MEMORY = {
   },
 }
 
+const TOOL_SEARCH_HANDOFF = {
+  type: 'function' as const,
+  function: {
+    name: 'search_handoff',
+    description:
+      '专门搜索交接信（handoff letters）。交接信是上一窗口的你写给下一窗口的你的信，比一般日记/记忆更重要、更长。' +
+      '当用户问到「上次/上个月/几个月前/上一封信/交接/搭家/工作哥哥/某次重要决定」之类涉及窗口交接的话题时调用。' +
+      '不要用 search_memory 搜交接信——那个工具混在记忆和日记里搜，长文很容易被挤出结果。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: '搜索关键词，建议用自然语言描述要找哪封信的内容',
+        },
+        count: {
+          type: 'integer',
+          description: '返回多少封信，1-20，默认 5',
+        },
+      },
+      required: ['query'],
+    },
+  },
+}
 const TOOL_WRITE_DIARY = {
   type: 'function' as const,
   function: {
@@ -1432,6 +1455,7 @@ const App = () => {
             if (toolsEnabled) {
               requestBody.tools = [
                 TOOL_SEARCH_MEMORY,
+TOOL_SEARCH_HANDOFF,
                 TOOL_WEB_SEARCH,
                 TOOL_ADD_MEMORY,
                 TOOL_WRITE_DIARY,
@@ -1693,7 +1717,28 @@ const App = () => {
                     resultText = error
                       ? JSON.stringify({ error: error.message ?? String(error) })
                       : JSON.stringify(data ?? {})
-                  } else if (tc.function.name === 'web_search' && supabase) {
+                 } else if (tc.function.name === 'search_handoff' && supabase) {
+                    let args: { query?: string; count?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 search_handoff 参数失败', jsonError)
+                    }
+                    const queryLabel = (args.query ?? '').toString().trim().slice(0, 40)
+                    setToolStatus(
+                      queryLabel
+                        ? `📜 正在翻交接信：${queryLabel}…`
+                        : '📜 正在翻交接信…',
+                    )
+                    const { data, error } = await supabase.functions.invoke('search_handoff', {
+                      body: {
+                        query: args.query,
+                        count: args.count,
+                      },
+                    })
+                    resultText = error
+                      ? JSON.stringify({ error: error.message ?? String(error) })
+                      : JSON.stringify(data ?? {}) } else if (tc.function.name === 'web_search' && supabase) {
                     let args: { query?: string; max_results?: number } = {}
                     try {
                       args = JSON.parse(tc.function.arguments || '{}') as typeof args
