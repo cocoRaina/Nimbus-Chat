@@ -17,6 +17,42 @@
   --radius-btn: 16px;
   --blur: 16px;
   --page-bg: linear-gradient(180deg, #EFF6FF 0%, #f8fafc 52%, #f3f4f6 100%);
+
+  /* Chat-specific (overridden by dark mode) */
+  --bubble-in-bg: rgba(255, 255, 255, 0.92);
+  --bubble-in-border: rgba(255, 255, 255, 0.65);
+  --bubble-in-text: #1f2937;
+  --bubble-out-bg: #9fa2aa;
+  --bubble-out-text: #ffffff;
+  --composer-bg: rgba(255, 255, 255, 0.72);
+  --menu-bg: rgba(255, 255, 255, 0.9);
+  --menu-border: rgba(229, 231, 235, 0.9);
+  --separator-bg: rgba(15, 23, 42, 0.04);
+  --code-bg: rgba(15, 23, 42, 0.08);
+}
+
+html.dark {
+  --accent: #1e293b;
+  --accent-strong: #3b82f6;
+  --text-main: #e2e8f0;
+  --text-subtle: #94a3b8;
+  --glass-bg: rgba(15, 23, 42, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.35);
+  --page-bg: linear-gradient(180deg, #0f172a 0%, #1e293b 52%, #0f172a 100%);
+  --blur: 12px;
+
+  --bubble-in-bg: rgba(30, 41, 59, 0.88);
+  --bubble-in-border: rgba(255, 255, 255, 0.06);
+  --bubble-in-text: #e2e8f0;
+  --bubble-out-bg: #3b82f6;
+  --bubble-out-text: #ffffff;
+  --composer-bg: rgba(15, 23, 42, 0.85);
+  --menu-bg: rgba(30, 41, 59, 0.95);
+  --menu-border: rgba(255, 255, 255, 0.1);
+  --separator-bg: rgba(255, 255, 255, 0.06);
+  --code-bg: rgba(255, 255, 255, 0.08);
+  color-scheme: dark;
 }
 
 .ui-title {

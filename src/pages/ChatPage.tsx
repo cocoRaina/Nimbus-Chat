@@ -173,6 +173,24 @@ const ChatPage = ({
   >([])
   const [uploading, setUploading] = useState(false)
   const [compressing, setCompressing] = useState(false)
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
+  const [chatBg, setChatBg] = useState<string>(() =>
+    typeof window === 'undefined' ? '' : localStorage.getItem('nimbus_chat_bg') ?? '',
+  )
+  const toggleDarkMode = useCallback(() => {
+    const next = !document.documentElement.classList.contains('dark')
+    document.documentElement.classList.toggle('dark', next)
+    localStorage.setItem('nimbus_theme', next ? 'dark' : 'light')
+    setIsDark(next)
+  }, [])
+  const handleChatBgChange = useCallback((value: string) => {
+    setChatBg(value)
+    if (value) {
+      localStorage.setItem('nimbus_chat_bg', value)
+    } else {
+      localStorage.removeItem('nimbus_chat_bg')
+    }
+  }, [])
   // Lazy load: only render the last N messages on entry. The full
   // history is in the prop, but rendering 500+ bubbles + their
   // markdown was the source of the "进入会卡" the user reported.
@@ -551,6 +569,31 @@ const ChatPage = ({
                   >
                     {compressing ? '⏳ 压缩中…' : '📦 手动压缩对话'}
                   </button>
+                  <label className="header-menu-toggle">
+                    <input
+                      type="checkbox"
+                      checked={isDark}
+                      onChange={toggleDarkMode}
+                    />
+                    <span>🌙 暗黑模式</span>
+                  </label>
+                  <label className="header-menu-color-row">
+                    <span>🖼️ 聊天背景</span>
+                    <input
+                      type="color"
+                      value={chatBg || '#f8fafc'}
+                      onChange={(e) => handleChatBgChange(e.target.value)}
+                    />
+                    {chatBg ? (
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => handleChatBgChange('')}
+                      >
+                        重置
+                      </button>
+                    ) : null}
+                  </label>
                   <div className="header-menu-divider" />
                   <button
                     type="button"
@@ -622,7 +665,11 @@ const ChatPage = ({
             : null}
         </div>
       </header>
-      <main className="chat-messages glass-panel" ref={messagesRef}>
+      <main
+        className="chat-messages glass-panel"
+        ref={messagesRef}
+        style={chatBg ? { background: chatBg } : undefined}
+      >
         {hiddenCount > 0 ? (
           <button type="button" className="load-earlier" onClick={handleLoadEarlier}>
             加载更早（剩余 {hiddenCount} 条）
@@ -658,6 +705,16 @@ const ChatPage = ({
             )
           })
         )}
+        {isStreaming &&
+          displayedMessages.length > 0 &&
+          displayedMessages[displayedMessages.length - 1]?.role === 'assistant' &&
+          !displayedMessages[displayedMessages.length - 1]?.content?.trim() ? (
+            <div className="message in">
+              <div className="bubble typing-indicator">
+                <span /><span /><span />
+              </div>
+            </div>
+          ) : null}
         <div ref={bottomRef} />
       </main>
       <form className="chat-composer glass-card" onSubmit={handleSubmit}>

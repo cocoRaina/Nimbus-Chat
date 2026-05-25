@@ -18,6 +18,15 @@ if (noFxEnabled) {
   document.documentElement.classList.add('no-fx')
 }
 
+// Dark mode: apply before first paint to avoid a white flash.
+const storedTheme = localStorage.getItem('nimbus_theme')
+if (
+  storedTheme === 'dark' ||
+  (!storedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)
+) {
+  document.documentElement.classList.add('dark')
+}
+
 // Keep the status bar visible (its own space at the top) so the app's
 // header buttons aren't hidden under the notification area. Color +
 // icon style are set dynamically per route by syncStatusBarToPage()
