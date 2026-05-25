@@ -191,6 +191,45 @@ const ChatPage = ({
       localStorage.removeItem('nimbus_chat_bg')
     }
   }, [])
+  const bgFileRef = useRef<HTMLInputElement | null>(null)
+  const handleBgImagePick = useCallback(
+    async (file: File | undefined) => {
+      if (!file) return
+      // Compress to ≤1280px longest side, 0.65 JPEG to keep localStorage happy.
+      const bitmap = await createImageBitmap(file)
+      let { width, height } = bitmap
+      const longest = Math.max(width, height)
+      if (longest > 1280) {
+        const ratio = 1280 / longest
+        width = Math.round(width * ratio)
+        height = Math.round(height * ratio)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      try {
+        if (!ctx) throw new Error('canvas')
+        ctx.drawImage(bitmap, 0, 0, width, height)
+      } finally {
+        bitmap.close()
+      }
+      const dataUrl: string = await new Promise((resolve) =>
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) { resolve(''); return }
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result as string)
+            reader.readAsDataURL(blob)
+          },
+          'image/jpeg',
+          0.65,
+        ),
+      )
+      if (dataUrl) handleChatBgChange(dataUrl)
+    },
+    [handleChatBgChange],
+  )
   // Lazy load: only render the last N messages on entry. The full
   // history is in the prop, but rendering 500+ bubbles + their
   // markdown was the source of the "进入会卡" the user reported.
@@ -577,12 +616,29 @@ const ChatPage = ({
                     />
                     <span>🌙 暗黑模式</span>
                   </label>
-                  <label className="header-menu-color-row">
-                    <span>🖼️ 聊天背景</span>
+                  <div className="header-menu-color-row">
+                    <span>🖼️ 背景</span>
                     <input
                       type="color"
-                      value={chatBg || '#f8fafc'}
+                      value={chatBg.startsWith('#') ? chatBg : '#f8fafc'}
                       onChange={(e) => handleChatBgChange(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => bgFileRef.current?.click()}
+                    >
+                      📷 图片
+                    </button>
+                    <input
+                      ref={bgFileRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        void handleBgImagePick(e.target.files?.[0])
+                        e.target.value = ''
+                      }}
                     />
                     {chatBg ? (
                       <button
@@ -593,7 +649,7 @@ const ChatPage = ({
                         重置
                       </button>
                     ) : null}
-                  </label>
+                  </div>
                   <div className="header-menu-divider" />
                   <button
                     type="button"
@@ -668,7 +724,13 @@ const ChatPage = ({
       <main
         className="chat-messages glass-panel"
         ref={messagesRef}
-        style={chatBg ? { background: chatBg } : undefined}
+        style={
+          chatBg
+            ? chatBg.startsWith('data:') || chatBg.startsWith('http')
+              ? { backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+              : { background: chatBg }
+            : undefined
+        }
       >
         {hiddenCount > 0 ? (
           <button type="button" className="load-earlier" onClick={handleLoadEarlier}>
