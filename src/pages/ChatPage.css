@@ -164,34 +164,9 @@
   height: 16px;
 }
 
-.header-menu-color-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-size: 14px;
-}
 
-.header-menu-color-row:hover {
-  background: var(--separator-bg);
-}
 
-.header-menu-color-row input[type='color'] {
-  width: 28px;
-  height: 28px;
-  border: 2px solid var(--glass-border);
-  border-radius: 8px;
-  padding: 0;
-  cursor: pointer;
-  background: transparent;
-}
 
-.header-menu-color-row .ghost {
-  font-size: 12px;
-  padding: 2px 8px;
-  min-height: auto;
-}
 
 .chat-messages {
   flex: 1;
