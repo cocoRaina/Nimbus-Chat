@@ -173,28 +173,6 @@ const ChatPage = ({
   >([])
   const [uploading, setUploading] = useState(false)
   const [compressing, setCompressing] = useState(false)
-
-  // Theme accent color. Stored in localStorage, applied via CSS custom properties.
-  const THEME_PRESETS = [
-    { name: '蓝', accent: '#DBEAFE', strong: '#93C5FD' },
-    { name: '粉', accent: '#FCE7F3', strong: '#F9A8D4' },
-    { name: '紫', accent: '#EDE9FE', strong: '#C4B5FD' },
-    { name: '绿', accent: '#D1FAE5', strong: '#6EE7B7' },
-    { name: '橙', accent: '#FFEDD5', strong: '#FDBA74' },
-  ] as const
-  const [themeIdx, setThemeIdx] = useState<number>(() => {
-    const saved = localStorage.getItem('nimbus_theme_idx')
-    return saved ? Number(saved) || 0 : 0
-  })
-  useEffect(() => {
-    const t = THEME_PRESETS[themeIdx] ?? THEME_PRESETS[0]
-    document.documentElement.style.setProperty('--accent', t.accent)
-    document.documentElement.style.setProperty('--accent-strong', t.strong)
-  }, [themeIdx])
-  const cycleTheme = useCallback((idx: number) => {
-    setThemeIdx(idx)
-    localStorage.setItem('nimbus_theme_idx', String(idx))
-  }, [])
   // Lazy load: only render the last N messages on entry. The full
   // history is in the prop, but rendering 500+ bubbles + their
   // markdown was the source of the "进入会卡" the user reported.
@@ -573,19 +551,6 @@ const ChatPage = ({
                   >
                     {compressing ? '⏳ 压缩中…' : '📦 手动压缩对话'}
                   </button>
-                  <div className="header-menu-theme-row">
-                    <span>🎨</span>
-                    {THEME_PRESETS.map((t, i) => (
-                      <button
-                        key={t.name}
-                        type="button"
-                        className={`theme-dot ${i === themeIdx ? 'active' : ''}`}
-                        style={{ background: t.strong }}
-                        aria-label={t.name}
-                        onClick={() => cycleTheme(i)}
-                      />
-                    ))}
-                  </div>
                   <div className="header-menu-divider" />
                   <button
                     type="button"
