@@ -177,9 +177,7 @@
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   margin: 8px 16px;
-  /* Extra bottom padding so the last message can scroll up above the
-     floating composer overlay. ~120px ≈ composer height + safe area. */
-  padding: 2px 2px calc(120px + env(safe-area-inset-bottom));
+  padding: 2px 2px calc(16px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
 }
@@ -657,21 +655,15 @@
   color: #b91c1c;
 }
 
-/* Floating composer — positioned absolute over the message list so
-   messages scroll behind it. glass-card blur lets you see the last
-   few lines of the conversation ghosting through. */
 .chat-composer {
-  position: absolute;
-  bottom: calc(8px + env(safe-area-inset-bottom));
-  left: 12px;
-  right: 12px;
-  padding: 10px 14px 12px;
+  margin: 0 16px 12px;
+  padding: 12px 14px calc(16px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: sticky;
+  bottom: 0;
   z-index: 3;
-  border-radius: 22px;
-  box-shadow: 0 -4px 24px rgba(15, 23, 42, 0.08), var(--shadow-soft);
 }
 
 @media (max-width: 768px) {
