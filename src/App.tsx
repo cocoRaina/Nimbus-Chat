@@ -696,8 +696,6 @@ const App = () => {
         }
       }
     }
-      }
-    }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     const appStateSubPromise = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       if (isActive) handleVisibilityChange()
