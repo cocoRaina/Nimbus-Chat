@@ -1950,6 +1950,53 @@ TOOL_SEARCH_HANDOFF,
           )
           applySnapshot(updatedSessions, updatedMessages)
 
+          // Auto-generate a session title after the first assistant reply.
+          // "新会话" is the default placeholder — once we have real content,
+          // ask the model to condense the exchange into a short title.
+          const currentSession = sessionsRef.current.find((s) => s.id === sessionId)
+          if (
+            currentSession?.title === '新会话' &&
+            assistantContent.trim().length > 0 &&
+            lastSentBody
+          ) {
+            void (async () => {
+              try {
+                const titleBody: Record<string, unknown> = {
+                  ...lastSentBody,
+                  stream: false,
+                  max_tokens: 30,
+                }
+                delete titleBody.tools
+                delete titleBody.tool_choice
+                const titleMsgs = Array.isArray(titleBody.messages)
+                  ? [...(titleBody.messages as ChatRequestMessage[])]
+                  : []
+                if (assistantContent.trim()) {
+                  titleMsgs.push({ role: 'assistant', content: assistantContent })
+                }
+                titleMsgs.push({
+                  role: 'system',
+                  content:
+                    '[内部系统提示] 根据上面的对话,给这段聊天起一个简短标题(4-8个字,中文)。直接输出标题文字,不要引号不要解释。',
+                })
+                titleBody.messages = titleMsgs
+                const resp = await fetchOpenRouter('/chat/completions', {
+                  body: titleBody,
+                })
+                if (!resp.ok) return
+                const raw = ((await resp.json()) as {
+                  choices?: Array<{ message?: { content?: string } }>
+                })?.choices?.[0]?.message?.content
+                const title = raw?.trim().replace(/^["'《「]|["'》」]$/g, '').trim()
+                if (title && title.length >= 2 && title.length <= 20) {
+                  await renameSessionEntry(sessionId, title)
+                }
+              } catch {
+                // best-effort, don't block chat
+              }
+            })()
+          }
+
           // If this request was cached (Claude on OpenRouter), stash the body
           // and schedule a keepalive ping ~55min out to refresh the 1h cache.
           if (
