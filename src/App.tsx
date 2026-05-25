@@ -661,8 +661,6 @@ const App = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()
-        // You're back — clear any scheduled "Claude misses you" notif.
-        void cancelProactiveNotification()
         // Detect "dead stream": when mobile browsers (esp. iOS PWA) freeze
         // the page in background, the streaming fetch silently dies — the
         // reader never receives "done" and the UI sticks in "streaming…"
@@ -676,23 +674,17 @@ const App = () => {
           }
         }
         // Proactive flow:
-        // 1) If we pre-generated a notification message and the fire time
-        //    has passed, the user must've come back via the notification.
-        //    Insert that pre-gen text as a real Claude message + clear.
-        // 2) If pending exists but fire time hasn't passed, user came
-        //    back early — silently clear, no need to manufacture a reply.
-        // 3) If no pending (pre-gen failed last time), fall back to
-        //    on-demand generation via maybeSendProactive.
+        // 1) If fire time has passed → insert message, cancel notification.
+        // 2) If fire time hasn't passed → leave everything alone (the OS
+        //    notification is still scheduled and should remind the user
+        //    later — do NOT cancel it here).
+        // 3) If no pending → try the on-demand fallback.
         const pending = readPendingProactive()
         if (pending) {
           if (Date.now() >= pending.fireAt) {
-            // Fire time passed — user likely returned via the notification
-            // (or just opened the app late). Insert the pre-gen message.
+            void cancelProactiveNotification()
             void insertPendingProactiveRef.current(pending)
           }
-          // If fire time hasn't passed, keep the pending — don't clear it.
-          // The user might've just briefly switched apps. The OS notification
-          // is still scheduled and will remind them later.
         } else {
           const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
           if (hashMatch) {
