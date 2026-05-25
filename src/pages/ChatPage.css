@@ -243,7 +243,8 @@
 
 /* Three bouncing dots shown while Claude is thinking (before first token) */
 .typing-indicator {
-  display: inline-flex;
+  display: flex;
+  flex-direction: row !important;
   gap: 5px;
   padding: 12px 16px;
 }
