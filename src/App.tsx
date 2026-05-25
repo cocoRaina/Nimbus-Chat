@@ -184,11 +184,13 @@ const TOOL_SEARCH_MEMORY = {
       '搜索用户长期记录的内容，跨 6 个来源做向量语义检索：\n' +
       '- memory（结构化记忆条目，含偏好/习惯/关系细节）\n' +
       '- diary（日记，按日期记录的心情与事件）\n' +
+      '- letter（交接信，给下一个窗口的信）\n' +
       '- timeline（时间轴里程碑事件，少而重大）\n' +
       '- snack_post（用户在朋友圈发的帖子）\n' +
       '- snack_reply（朋友圈下面的回复）\n' +
       '当用户提到「记得 / 之前 / 我喜欢 / 我们 / 那次」之类需要回忆具体细节，或你需要确认某件已被告知/记录过的事时调用。' +
       '每条结果带 source 字段标明来源。\n\n' +
+      '可以通过 table 参数限定只搜某一个来源（如只搜日记传 "diary"，只搜记忆传 "memory"）。不传则搜全部。\n\n' +
       '另外：响应里还会附 period_data（最近 10 条经期记录）和 health_data（最近 7 天的睡眠/心率/步数）。' +
       '涉及到生理期 / 月经 / 身体状态 / 累不累 / 睡得好不好 的话题直接看这两块，不用专门查。',
     parameters: {
@@ -205,6 +207,11 @@ const TOOL_SEARCH_MEMORY = {
         category: {
           type: 'string',
           description: '可选，限定某个分类（仅对 memory 类生效，不填则全部）',
+        },
+        table: {
+          type: 'string',
+          enum: ['memory', 'diary', 'letter', 'timeline', 'snack_post', 'snack_reply'],
+          description: '可选，限定只搜某个来源。不填则搜全部 6 个来源',
         },
       },
       required: ['query'],
@@ -1690,16 +1697,17 @@ TOOL_SEARCH_HANDOFF,
                 let resultText: string
                 try {
                   if (tc.function.name === 'search_memory' && supabase) {
-                    let args: { query?: string; count?: number; category?: string } = {}
+                    let args: { query?: string; count?: number; category?: string; table?: string } = {}
                     try {
                       args = JSON.parse(tc.function.arguments || '{}') as typeof args
                     } catch (jsonError) {
                       console.warn('解析 search_memory 参数失败', jsonError)
                     }
+                    const tableLabel = args.table ? `(${args.table})` : ''
                     const queryLabel = (args.query ?? '').toString().trim().slice(0, 40)
                     setToolStatus(
                       queryLabel
-                        ? `🔍 正在搜索记忆库：${queryLabel}…`
+                        ? `🔍 正在搜索记忆库${tableLabel}：${queryLabel}…`
                         : '🔍 正在搜索记忆库…',
                     )
                     const { data, error } = await supabase.functions.invoke('search_memory', {
@@ -1707,6 +1715,7 @@ TOOL_SEARCH_HANDOFF,
                         query: args.query,
                         count: args.count,
                         category: args.category,
+                        table: args.table,
                       },
                     })
                     resultText = error
