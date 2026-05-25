@@ -661,11 +661,10 @@ const App = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()
-        // Detect "dead stream": when mobile browsers (esp. iOS PWA) freeze
-        // the page in background, the streaming fetch silently dies — the
-        // reader never receives "done" and the UI sticks in "streaming…"
-        // forever. If we come back and the last chunk is ancient, kill the
-        // request so the partial response gets saved + isStreaming clears.
+        // Cancel the OS notification while the user is in the app —
+        // it's weird to get a push while you're actively looking at the chat.
+        void cancelProactiveNotification()
+        // Detect "dead stream"
         if (streamingControllerRef.current && lastChunkAtRef.current > 0) {
           const ageMs = Date.now() - lastChunkAtRef.current
           if (ageMs > 8000) {
@@ -673,16 +672,11 @@ const App = () => {
             streamingControllerRef.current = null
           }
         }
-        // Proactive flow:
-        // 1) If fire time has passed → insert message, cancel notification.
-        // 2) If fire time hasn't passed → leave everything alone (the OS
-        //    notification is still scheduled and should remind the user
-        //    later — do NOT cancel it here).
-        // 3) If no pending → try the on-demand fallback.
+        // Proactive: if fire time passed → insert the message now.
+        // Otherwise leave pending alone (we'll re-arm when user leaves).
         const pending = readPendingProactive()
         if (pending) {
           if (Date.now() >= pending.fireAt) {
-            void cancelProactiveNotification()
             void insertPendingProactiveRef.current(pending)
           }
         } else {
@@ -691,6 +685,17 @@ const App = () => {
             void maybeSendProactiveRef.current(hashMatch[1])
           }
         }
+      } else {
+        // User left the app. If there's still a pending proactive whose
+        // fire time hasn't come, re-schedule the OS notification for the
+        // remaining time so they get reminded later.
+        const pending = readPendingProactive()
+        if (pending && Date.now() < pending.fireAt) {
+          const remainingMs = pending.fireAt - Date.now()
+          void scheduleProactiveNotification(pending.text, remainingMs)
+        }
+      }
+    }
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
