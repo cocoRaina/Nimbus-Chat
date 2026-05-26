@@ -74,23 +74,37 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 - 代码：`src/storage/weather.ts`
 
 ### 🔔 真·主动消息（APK 限定）
-你每发一条消息：
-1. 后台用**当前激活的模型**，带上**包括 Claude 最新回复在内的完整上下文**，让 Claude 自己决定"多久后找你 + 说什么"
-2. Claude 返回 JSON `{"delay_minutes": 25, "text": "..."}`，延迟范围 15 分钟 ~ 8 小时
-3. 按 Claude 选的时间调度一条**本地通知**（走 Android NotificationChannel `proactive`）
-4. 你点通知打开 app → 自动把 Claude 预生成的那句话作为正式 assistant 消息写进 DB
-5. 你在通知到之前回 app → pending 保留、通知继续等（不再像以前一样提前清掉）
-6. 发新消息 → 旧通知取消 + 旧 pending 清空 + 生成新的
-7. 凌晨 0 点 ~ 7 点不做 pre-gen、不发通知（不烧 API、不吵人）
-8. 如果 Claude 选的延迟会落在 0 点之后 → 不调度
+Claude 有一个工具 `schedule_proactive_message`，可以在聊天中**自主判断**是否要预设一条未来的主动消息。
 
-如果模型返回的不是合法 JSON → 退回到 60 分钟固定延迟 + 整段响应当文本
+**工作方式**：
+1. 聊天过程中，Claude 根据对话气氛判断用户是否要离开
+2. 如果判断合适，Claude 主动调用 `schedule_proactive_message(text, delay_minutes)` 工具
+3. 工具处理器调度一条**本地通知** + 写入 `proactive_queue` 表（FCM 备用）
+4. delay_minutes 由 Claude 自己决定（1-480 分钟），根据场景灵活选择
+5. 你点通知打开 app → 自动把预设的话作为正式 assistant 消息写进 DB
+6. 你在通知到之前回 app → 通知暂停（cancel），离开时重新调度（re-arm）
+7. 发新消息 → 旧通知取消 + 旧 pending 清空 + Claude 可能重新调工具
+
+**Claude 不会每轮都调** — 工具描述里约束了：
+- 用户要去做事/休息/离开 → 适合调用
+- 深度情绪交流当下 → 不调用
+- 用户说"别打扰" → 不调用
+- 夜间 23:00-07:00 → 工具自动拒绝（quiet hours）
+
+**与旧方案的区别**：不再需要第二次 API 调用（旧方案被中转站限流 502）。工具调用是主聊天 tool loop 的一部分，零额外请求、零延迟、任何中转站都能用。
+
+**FCM 服务端推送**（默认关闭，代码保留）：
+- `proactive_queue` 表 + `send_proactive_push` Edge Function + pg_cron 每分钟检查
+- FCM 需要 Google Play Services，华为手动装的 GMS 不稳定，所以默认关闭
+- 启用方法：取消 `src/main.tsx` 中 PushNotifications 注册的注释 + 添加 `GOOGLE_SERVICES_JSON` GitHub Secret
 
 代码：
-- 调度 + 通道：`src/storage/proactiveNotification.ts`（`shouldScheduleProactive(delayMs?)` / `scheduleProactiveNotification(text, delayMs?)`）
+- 工具定义：`src/App.tsx` 中 `TOOL_SCHEDULE_PROACTIVE`
+- 工具处理：`src/App.tsx` 中 `schedule_proactive_message` 分支
+- 调度 + 通道：`src/storage/proactiveNotification.ts`
 - 通道创建：`src/main.tsx`（`LocalNotifications.createChannel({ id: 'proactive' })`）
-- 预生成：`src/App.tsx` 中 sendMessage 结束 hook，prompt 要求返回 `{delay_minutes, text}` JSON
-- 注入回复：visibilitychange 监听 + `insertPendingProactiveRef`
+- 注入回复：visibilitychange + appStateChange 监听 + `insertPendingProactiveRef`
+- FCM Edge Function：`send_proactive_push`（Supabase 部署，pg_cron 触发）
 
 ### ✏️ 用户消息编辑
 - 长按消息 → 编辑
