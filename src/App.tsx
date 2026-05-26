@@ -1419,6 +1419,20 @@ const App = () => {
           if (proactiveNudge) {
             baseMessages.push({ role: 'system', content: proactiveNudge })
           }
+          // Piggyback proactive scheduling on the main response — no
+          // separate API call needed. Ask the model to append an invisible
+          // HTML comment with delay + text. We parse it out after streaming.
+          if (Capacitor.getPlatform() !== 'web' && shouldScheduleProactive(0)) {
+            baseMessages.push({
+              role: 'system',
+              content:
+                '[内部规则-对用户不可见] 在你回复的最末尾，另起一行加上：\n' +
+                '<!--PROACTIVE:{"delay_minutes":N,"text":"..."}-->\n' +
+                '其中 delay_minutes 是你觉得多久后主动找她合适(15到480之间的整数)，' +
+                'text 是到时候你会发的一两句自然的话(像朋友/恋人主动发的，不要"你还好吗"这种刻意开头)。\n' +
+                '这行是 HTML 注释，用户看不到。必须是合法 JSON，每次回复都带。如果觉得不合适发就写 delay_minutes:0。',
+            })
+          }
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
           // Tools enabled on every provider. User explicitly accepts the
           // privacy trade-off — they switch between OR / relay manually
@@ -1990,6 +2004,33 @@ TOOL_SEARCH_HANDOFF,
             assistantContent = '（回复为空，请重试或换个问法）'
           }
 
+          // Extract the piggybacked proactive marker from the response.
+          // Format: <!--PROACTIVE:{"delay_minutes":25,"text":"..."}-->
+          const proactiveMatch = assistantContent.match(/<!--PROACTIVE:([\s\S]*?)-->/)
+          if (proactiveMatch) {
+            // Strip marker from the saved content (clean DB + UI).
+            assistantContent = assistantContent.replace(/\s*<!--PROACTIVE:[\s\S]*?-->\s*$/, '').trim()
+            try {
+              const pj = JSON.parse(proactiveMatch[1]) as { delay_minutes?: number; text?: string }
+              const dm = Math.max(15, Math.min(480, Number(pj.delay_minutes) || 0))
+              const pt = (pj.text ?? '').trim()
+              if (dm > 0 && pt && shouldScheduleProactive(dm * 60 * 1000)) {
+                const delayMs = dm * 60 * 1000
+                const fireAt = Date.now() + delayMs
+                savePendingProactive({ sessionId, text: pt, fireAt })
+                void scheduleProactiveNotification(pt, delayMs)
+                if (supabase && user) {
+                  void supabase.from('proactive_queue').insert({
+                    user_id: user.id,
+                    session_id: sessionId,
+                    text: pt,
+                    fire_at: new Date(fireAt).toISOString(),
+                  })
+                }
+              }
+            } catch { /* malformed JSON, skip */ }
+          }
+
           const { message: assistantMessage, updatedAt } = await addRemoteMessage(
             sessionId,
             user.id,
@@ -2064,142 +2105,9 @@ TOOL_SEARCH_HANDOFF,
             keepaliveBodyRef.current = lastSentBody
             scheduleKeepalive()
           }
-          // Pre-generate the proactive "Claude misses you" message NOW,
-          // store it locally, and schedule a 60min notification that
-          // shows the actual generated text. When user opens the app
-          // after the notification fires, we insert that text as a
-          // real assistant message. Skip if fire time is past midnight
-          // (don't wake the user, don't burn API at night).
-          // Gate: only burn the pre-gen API call if it's currently daytime.
-          // shouldScheduleProactive(0) checks NOW against active hours.
-          // DEBUG: did we even reach the pre-gen section?
-          if (supabase && user) {
-            void supabase.from('proactive_queue').insert({
-              user_id: user.id, session_id: sessionId,
-              text: `[REACH] body=${!!lastSentBody} sched=${shouldScheduleProactive(0)} plat=${Capacitor.getPlatform()}`,
-              fire_at: new Date(Date.now() + 999999999).toISOString(), sent: true,
-            })
-          }
-          if (lastSentBody && shouldScheduleProactive(0) && Capacitor.getPlatform() !== 'web') {
-            void (async () => {
-              try {
-                // Relay providers rate-limit rapid consecutive calls.
-                // The main chat just finished — wait 5s before the pre-gen
-                // so the upstream resets. This runs in the background;
-                // the user doesn't need to stay on screen.
-                await new Promise((r) => setTimeout(r, 5000))
-                const proactiveBody: Record<string, unknown> = {
-                  ...lastSentBody,
-                  stream: true,
-                  max_tokens: 200,
-                }
-                delete proactiveBody.tools
-                delete proactiveBody.tool_choice
-                const baseMsgs = Array.isArray(proactiveBody.messages)
-                  ? [...(proactiveBody.messages as ChatRequestMessage[])]
-                  : []
-                if (assistantContent.trim()) {
-                  baseMsgs.push({ role: 'assistant', content: assistantContent })
-                }
-                baseMsgs.push({
-                  role: 'system',
-                  content:
-                    '[内部系统提示] 用户可能过一会儿不会回复你了。根据刚才聊天的气氛和内容，你觉得：\n' +
-                    '1. 多久后主动找她比较自然？（最短 15 分钟，最长 8 小时）\n' +
-                    '2. 到时候你会说什么？\n\n' +
-                    '用 JSON 回答，不要有任何其他文字：\n' +
-                    '{"delay_minutes": 30, "text": "你的消息内容"}\n\n' +
-                    '注意：\n' +
-                    '- text 写一两句自然的话，像朋友/恋人主动发的\n' +
-                    '- 不要用"你还好吗"、"我注意到你很久没说话"这种刻意的开头\n' +
-                    '- 可以续上刚才的话题，分享你想到的什么，或一句简短的关心',
-                })
-                const debugLog = async (msg: string) => {
-                  if (supabase && user) {
-                    try {
-                      await supabase.from('proactive_queue').insert({
-                        user_id: user.id, session_id: sessionId,
-                        text: `[DEBUG] ${msg}`, fire_at: new Date(Date.now() + 999999999).toISOString(), sent: true,
-                      })
-                    } catch { /* ignore */ }
-                  }
-                }
-                proactiveBody.messages = baseMsgs
-                const resp = await fetchOpenRouter('/chat/completions', { body: proactiveBody })
-                if (!resp.ok) {
-                  await debugLog(`API ${resp.status}: ${(await resp.text()).slice(0, 200)}`)
-                  return
-                }
-                // Accumulate streaming SSE response (relay providers
-                // often 502 on stream:false but work fine streaming).
-                let raw = ''
-                if (resp.body) {
-                  const reader = resp.body.getReader()
-                  const decoder = new TextDecoder()
-                  let buf = ''
-                  for (;;) {
-                    const { value, done } = await reader.read()
-                    if (done) break
-                    buf += decoder.decode(value, { stream: true })
-                    const parts = buf.split('\n\n')
-                    buf = parts.pop() ?? ''
-                    for (const part of parts) {
-                      const line = part.split('\n').filter(l => l.startsWith('data:')).map(l => l.replace(/^data:\s*/, '')).join('')
-                      if (!line || line === '[DONE]') continue
-                      try { raw += (JSON.parse(line) as { choices?: Array<{ delta?: { content?: string } }> })?.choices?.[0]?.delta?.content ?? '' } catch {}
-                    }
-                  }
-                }
-                raw = raw.trim()
-                if (!raw) {
-                  await debugLog('empty streamed content')
-                  return
-                }
-                // Parse Claude's JSON response, fall back to treating the
-                // whole string as text with a default 60-min delay.
-                let delayMinutes = 60
-                let proactiveText = ''
-                try {
-                  const jsonStr = raw.replace(/^```json?\s*\n?|\n?```\s*$/g, '').trim()
-                  const parsed = JSON.parse(jsonStr) as { delay_minutes?: unknown; text?: unknown }
-                  delayMinutes = Math.max(15, Math.min(480, Number(parsed.delay_minutes) || 60))
-                  proactiveText = String(parsed.text ?? '').trim()
-                } catch {
-                  proactiveText = raw.trim()
-                }
-                if (!proactiveText) return
-                const delayMs = delayMinutes * 60 * 1000
-                // Re-check: will the notification land in active hours (before midnight)?
-                if (!shouldScheduleProactive(delayMs)) return
-                const fireAt = Date.now() + delayMs
-                // Primary: server-side FCM push (reliable, survives app kill).
-                if (supabase && user) {
-                  void supabase.from('proactive_queue').insert({
-                    user_id: user.id,
-                    session_id: sessionId,
-                    text: proactiveText,
-                    fire_at: new Date(fireAt).toISOString(),
-                  })
-                }
-                // Fallback: local notification (in case FCM/GMS doesn't work).
-                savePendingProactive({ sessionId, text: proactiveText, fireAt })
-                void scheduleProactiveNotification(proactiveText, delayMs)
-              } catch (err) {
-                console.warn('proactive pre-gen failed', err)
-                // Catch-all debug: write ANY failure to the queue so
-                // we can see what went wrong from the server side.
-                if (supabase && user) {
-                  try {
-                    await supabase.from('proactive_queue').insert({
-                      user_id: user.id, session_id: sessionId,
-                      text: `[CATCH] ${err instanceof Error ? err.message : String(err)}`,
-                      fire_at: new Date(Date.now() + 999999999).toISOString(), sent: true,
-                    })
-                  } catch { /* ignore */ }
-                }
-              }
-            })()
-          }
+          // (Proactive scheduling now piggybacks on the main response —
+          // see the <!--PROACTIVE:...--> extraction block above.
+          // No separate API call needed.)
         } catch (error) {
           if (flushTimer !== null) {
             window.clearTimeout(flushTimer)
