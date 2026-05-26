@@ -2173,6 +2173,17 @@ TOOL_SEARCH_HANDOFF,
                 void scheduleProactiveNotification(proactiveText, delayMs)
               } catch (err) {
                 console.warn('proactive pre-gen failed', err)
+                // Catch-all debug: write ANY failure to the queue so
+                // we can see what went wrong from the server side.
+                if (supabase && user) {
+                  try {
+                    await supabase.from('proactive_queue').insert({
+                      user_id: user.id, session_id: sessionId,
+                      text: `[CATCH] ${err instanceof Error ? err.message : String(err)}`,
+                      fire_at: new Date(Date.now() + 999999999).toISOString(), sent: true,
+                    })
+                  } catch { /* ignore */ }
+                }
               }
             })()
           }
