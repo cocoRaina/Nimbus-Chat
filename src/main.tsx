@@ -4,6 +4,7 @@ import { HashRouter } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
 import { LocalNotifications } from '@capacitor/local-notifications'
+import { PushNotifications } from '@capacitor/push-notifications'
 import { SplashScreen } from '@capacitor/splash-screen'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import './index.css'
@@ -37,12 +38,7 @@ if (Capacitor.getPlatform() === 'android') {
     }
   })
 
-  // Ask for notification permission once. User can later revoke from
-  // Android settings if it bothers them.
   void LocalNotifications.requestPermissions()
-
-  // Android 8+ (API 26+) requires a channel before any notification
-  // can be shown. Without this, schedule() silently drops the notification.
   void LocalNotifications.createChannel({
     id: 'proactive',
     name: '主动消息',
@@ -50,6 +46,13 @@ if (Capacitor.getPlatform() === 'android') {
     importance: 4,
     sound: 'default',
     vibration: true,
+  })
+
+  // FCM push registration — get a device token so the server can push.
+  void PushNotifications.requestPermissions().then((result) => {
+    if (result.receive === 'granted') {
+      void PushNotifications.register()
+    }
   })
 }
 

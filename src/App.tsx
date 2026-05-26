@@ -72,6 +72,7 @@ import {
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
 import { LocalNotifications } from '@capacitor/local-notifications'
+import { PushNotifications } from '@capacitor/push-notifications'
 import { compressIfNeeded } from './storage/conversationCompression'
 import { isGpt5Auto } from './utils/openrouterReasoning'
 
@@ -445,6 +446,7 @@ const App = () => {
   const sessionsRef = useRef(sessions)
   const messagesRef = useRef(messages)
   const streamingControllerRef = useRef<AbortController | null>(null)
+  const fcmTokenRef = useRef<string | null>(null)
   // Track when we last received a streamed chunk. Used to detect streams
   // that got silently killed while the app was backgrounded.
   const lastChunkAtRef = useRef<number>(0)
@@ -660,6 +662,49 @@ const App = () => {
     }
     void refreshRemoteSessions()
   }, [drawerOpen, refreshRemoteSessions])
+
+  // FCM push token registration + incoming push handlers.
+  useEffect(() => {
+    if (!user || !supabase || Capacitor.getPlatform() === 'web') return
+    const sb = supabase
+    const regSub = PushNotifications.addListener('registration', async (token) => {
+      fcmTokenRef.current = token.value
+      try {
+        await sb.from('fcm_tokens').upsert({
+          user_id: user.id,
+          token: token.value,
+          updated_at: new Date().toISOString(),
+        })
+      } catch (err) {
+        console.warn('save FCM token failed', err)
+      }
+    })
+    const handleProactivePush = (data: Record<string, string> | undefined) => {
+      if (!data?.session_id || !data?.text) return
+      void insertPendingProactiveRef.current({
+        sessionId: data.session_id,
+        text: data.text,
+        fireAt: 0,
+      })
+      // Clean up the queue row
+      if (data.proactive_id) {
+        void sb.from('proactive_queue').delete().eq('id', data.proactive_id)
+      }
+    }
+    const receivedSub = PushNotifications.addListener(
+      'pushNotificationReceived',
+      (notification) => handleProactivePush(notification.data as Record<string, string>),
+    )
+    const actionSub = PushNotifications.addListener(
+      'pushNotificationActionPerformed',
+      (action) => handleProactivePush(action.notification.data as Record<string, string>),
+    )
+    return () => {
+      void regSub.then((s) => s.remove())
+      void receivedSub.then((s) => s.remove())
+      void actionSub.then((s) => s.remove())
+    }
+  }, [user])
 
   useEffect(() => {
     if (!user) {
@@ -1379,6 +1424,10 @@ const App = () => {
           cancelKeepalive()
           void cancelProactiveNotification()
           clearPendingProactive()
+          // Cancel any unsent server-side proactive pushes too.
+          if (supabase && user) {
+            void supabase.from('proactive_queue').delete().eq('user_id', user.id).eq('sent', false)
+          }
           lastChunkAtRef.current = Date.now()
           setIsStreaming(true)
 
@@ -2066,6 +2115,16 @@ TOOL_SEARCH_HANDOFF,
                 // Re-check: will the notification land in active hours (before midnight)?
                 if (!shouldScheduleProactive(delayMs)) return
                 const fireAt = Date.now() + delayMs
+                // Primary: server-side FCM push (reliable, survives app kill).
+                if (supabase && user) {
+                  void supabase.from('proactive_queue').insert({
+                    user_id: user.id,
+                    session_id: sessionId,
+                    text: proactiveText,
+                    fire_at: new Date(fireAt).toISOString(),
+                  })
+                }
+                // Fallback: local notification (in case FCM/GMS doesn't work).
                 savePendingProactive({ sessionId, text: proactiveText, fireAt })
                 void scheduleProactiveNotification(proactiveText, delayMs)
               } catch (err) {
