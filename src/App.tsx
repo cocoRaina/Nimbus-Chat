@@ -668,9 +668,6 @@ const App = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()
-        // Cancel the OS notification while the user is in the app —
-        // it's weird to get a push while you're actively looking at the chat.
-        void cancelProactiveNotification()
         // Detect "dead stream"
         if (streamingControllerRef.current && lastChunkAtRef.current > 0) {
           const ageMs = Date.now() - lastChunkAtRef.current
@@ -679,43 +676,26 @@ const App = () => {
             streamingControllerRef.current = null
           }
         }
-        // Proactive: if fire time passed → insert the message now.
-        // Otherwise leave pending alone (we'll re-arm when user leaves).
+        // Proactive: if fire time passed → insert message. Otherwise do nothing.
+        // We intentionally do NOT cancel the notification here — let it fire
+        // whenever the timer says, even if user is in the app. Trying to
+        // cancel on open + re-arm on leave was unreliable on Android.
         const pending = readPendingProactive()
-        if (pending) {
-          if (Date.now() >= pending.fireAt) {
-            void insertPendingProactiveRef.current(pending)
-          }
-        } else {
+        if (pending && Date.now() >= pending.fireAt) {
+          void cancelProactiveNotification()
+          void insertPendingProactiveRef.current(pending)
+        }
+        if (!pending) {
           const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
           if (hashMatch) {
             void maybeSendProactiveRef.current(hashMatch[1])
           }
         }
-      } else {
-        // User left the app. If there's still a pending proactive whose
-        // fire time hasn't come, re-schedule the OS notification for the
-        // remaining time so they get reminded later.
-        const pending = readPendingProactive()
-        if (pending && Date.now() < pending.fireAt) {
-          const remainingMs = pending.fireAt - Date.now()
-          void scheduleProactiveNotification(pending.text, remainingMs)
-        }
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     const appStateSubPromise = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-      if (isActive) {
-        handleVisibilityChange()
-      } else {
-        // App going to background. visibilitychange→hidden is unreliable
-        // on Android WebView, so re-arm the proactive notification here
-        // directly — otherwise the cancel-on-open kills it for good.
-        const pending = readPendingProactive()
-        if (pending && Date.now() < pending.fireAt) {
-          void scheduleProactiveNotification(pending.text, pending.fireAt - Date.now())
-        }
-      }
+      if (isActive) handleVisibilityChange()
     })
     const notifSubPromise = LocalNotifications.addListener(
       'localNotificationActionPerformed',
