@@ -2077,7 +2077,7 @@ TOOL_SEARCH_HANDOFF,
               try {
                 const proactiveBody: Record<string, unknown> = {
                   ...lastSentBody,
-                  stream: false,
+                  stream: true,
                   max_tokens: 200,
                 }
                 delete proactiveBody.tools
@@ -2112,19 +2112,34 @@ TOOL_SEARCH_HANDOFF,
                   }
                 }
                 proactiveBody.messages = baseMsgs
-                const resp = await fetchOpenRouter('/chat/completions', {
-                  body: proactiveBody,
-                  provider: 'openrouter',
-                })
+                const resp = await fetchOpenRouter('/chat/completions', { body: proactiveBody })
                 if (!resp.ok) {
                   await debugLog(`API ${resp.status}: ${(await resp.text()).slice(0, 200)}`)
                   return
                 }
-                const raw = ((await resp.json()) as {
-                  choices?: Array<{ message?: { content?: string } }>
-                })?.choices?.[0]?.message?.content
+                // Accumulate streaming SSE response (relay providers
+                // often 502 on stream:false but work fine streaming).
+                let raw = ''
+                if (resp.body) {
+                  const reader = resp.body.getReader()
+                  const decoder = new TextDecoder()
+                  let buf = ''
+                  for (;;) {
+                    const { value, done } = await reader.read()
+                    if (done) break
+                    buf += decoder.decode(value, { stream: true })
+                    const parts = buf.split('\n\n')
+                    buf = parts.pop() ?? ''
+                    for (const part of parts) {
+                      const line = part.split('\n').filter(l => l.startsWith('data:')).map(l => l.replace(/^data:\s*/, '')).join('')
+                      if (!line || line === '[DONE]') continue
+                      try { raw += (JSON.parse(line) as { choices?: Array<{ delta?: { content?: string } }> })?.choices?.[0]?.delta?.content ?? '' } catch {}
+                    }
+                  }
+                }
+                raw = raw.trim()
                 if (!raw) {
-                  await debugLog('empty response content')
+                  await debugLog('empty streamed content')
                   return
                 }
                 // Parse Claude's JSON response, fall back to treating the
