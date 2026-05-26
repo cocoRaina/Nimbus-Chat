@@ -2101,13 +2101,29 @@ TOOL_SEARCH_HANDOFF,
                     '- 不要用"你还好吗"、"我注意到你很久没说话"这种刻意的开头\n' +
                     '- 可以续上刚才的话题，分享你想到的什么，或一句简短的关心',
                 })
+                const debugLog = async (msg: string) => {
+                  if (supabase && user) {
+                    try {
+                      await supabase.from('proactive_queue').insert({
+                        user_id: user.id, session_id: sessionId,
+                        text: `[DEBUG] ${msg}`, fire_at: new Date(Date.now() + 999999999).toISOString(), sent: true,
+                      })
+                    } catch { /* ignore */ }
+                  }
+                }
                 proactiveBody.messages = baseMsgs
                 const resp = await fetchOpenRouter('/chat/completions', { body: proactiveBody })
-                if (!resp.ok) return
+                if (!resp.ok) {
+                  await debugLog(`API ${resp.status}: ${(await resp.text()).slice(0, 200)}`)
+                  return
+                }
                 const raw = ((await resp.json()) as {
                   choices?: Array<{ message?: { content?: string } }>
                 })?.choices?.[0]?.message?.content
-                if (!raw) return
+                if (!raw) {
+                  await debugLog('empty response content')
+                  return
+                }
                 // Parse Claude's JSON response, fall back to treating the
                 // whole string as text with a default 60-min delay.
                 let delayMinutes = 60
