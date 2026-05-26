@@ -16,6 +16,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+android/app/google-services.json
 
 # Editor directories and files
 .vscode/*
