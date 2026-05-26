@@ -34,4 +34,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Local notifications: exact alarms so the proactive message fires
+         at the time Claude chose, not "sometime in the next 30 minutes". -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Re-schedule notifications after phone reboot (otherwise a restart
+         wipes all pending local notifications). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Wake the screen to show the notification. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Android 13+ requires explicit notification permission. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>
