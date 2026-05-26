@@ -2083,6 +2083,11 @@ TOOL_SEARCH_HANDOFF,
           if (lastSentBody && shouldScheduleProactive(0) && Capacitor.getPlatform() !== 'web') {
             void (async () => {
               try {
+                // Relay providers rate-limit rapid consecutive calls.
+                // The main chat just finished — wait 5s before the pre-gen
+                // so the upstream resets. This runs in the background;
+                // the user doesn't need to stay on screen.
+                await new Promise((r) => setTimeout(r, 5000))
                 const proactiveBody: Record<string, unknown> = {
                   ...lastSentBody,
                   stream: true,
