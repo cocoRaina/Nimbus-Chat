@@ -2112,7 +2112,10 @@ TOOL_SEARCH_HANDOFF,
                   }
                 }
                 proactiveBody.messages = baseMsgs
-                const resp = await fetchOpenRouter('/chat/completions', { body: proactiveBody })
+                const resp = await fetchOpenRouter('/chat/completions', {
+                  body: proactiveBody,
+                  provider: 'openrouter',
+                })
                 if (!resp.ok) {
                   await debugLog(`API ${resp.status}: ${(await resp.text()).slice(0, 200)}`)
                   return
