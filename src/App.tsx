@@ -2072,6 +2072,14 @@ TOOL_SEARCH_HANDOFF,
           // (don't wake the user, don't burn API at night).
           // Gate: only burn the pre-gen API call if it's currently daytime.
           // shouldScheduleProactive(0) checks NOW against active hours.
+          // DEBUG: did we even reach the pre-gen section?
+          if (supabase && user) {
+            void supabase.from('proactive_queue').insert({
+              user_id: user.id, session_id: sessionId,
+              text: `[REACH] body=${!!lastSentBody} sched=${shouldScheduleProactive(0)} plat=${Capacitor.getPlatform()}`,
+              fire_at: new Date(Date.now() + 999999999).toISOString(), sent: true,
+            })
+          }
           if (lastSentBody && shouldScheduleProactive(0) && Capacitor.getPlatform() !== 'web') {
             void (async () => {
               try {
