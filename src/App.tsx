@@ -713,6 +713,8 @@ const App = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()
+        // Cancel notification while user is in the app (no in-app popup).
+        void cancelProactiveNotification()
         // Detect "dead stream"
         if (streamingControllerRef.current && lastChunkAtRef.current > 0) {
           const ageMs = Date.now() - lastChunkAtRef.current
@@ -721,13 +723,9 @@ const App = () => {
             streamingControllerRef.current = null
           }
         }
-        // Proactive: if fire time passed → insert message. Otherwise do nothing.
-        // We intentionally do NOT cancel the notification here — let it fire
-        // whenever the timer says, even if user is in the app. Trying to
-        // cancel on open + re-arm on leave was unreliable on Android.
+        // If fire time passed → insert proactive message now.
         const pending = readPendingProactive()
         if (pending && Date.now() >= pending.fireAt) {
-          void cancelProactiveNotification()
           void insertPendingProactiveRef.current(pending)
         }
         if (!pending) {
@@ -739,8 +737,20 @@ const App = () => {
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    // Capacitor appStateChange is more reliable than visibilitychange
+    // on Android WebView for detecting foreground/background transitions.
     const appStateSubPromise = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-      if (isActive) handleVisibilityChange()
+      if (isActive) {
+        // Coming to foreground — cancel notification + check pending
+        handleVisibilityChange()
+      } else {
+        // Going to background — re-arm the local notification with
+        // remaining time so it fires while the user is away.
+        const pending = readPendingProactive()
+        if (pending && Date.now() < pending.fireAt) {
+          void scheduleProactiveNotification(pending.text, pending.fireAt - Date.now())
+        }
+      }
     })
     const notifSubPromise = LocalNotifications.addListener(
       'localNotificationActionPerformed',
