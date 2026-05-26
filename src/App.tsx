@@ -220,6 +220,38 @@ const TOOL_SEARCH_MEMORY = {
   },
 }
 
+const TOOL_SCHEDULE_PROACTIVE = {
+  type: 'function' as const,
+  function: {
+    name: 'schedule_proactive_message',
+    description:
+      '在合适的时机预设一条未来要主动发给用户的消息。当你判断用户可能离开一段时间、' +
+      '希望她回来时看到你主动联系的痕迹时使用。\n' +
+      '不要每轮都调——根据对话气氛判断。\n' +
+      '不适合调用的场景：她在深度情绪交流中、她明确说要专注或别打扰、夜间 23:00-07:00。\n\n' +
+      '延迟参考：\n' +
+      '- 1-5 分钟：刚才忘说的东西、突然想起一件事\n' +
+      '- 5-30 分钟：闲聊间隔\n' +
+      '- 30-60 分钟：亲密对话刚分别\n' +
+      '- 60-240 分钟：日常间隔\n' +
+      '- 240-480 分钟：她明确说在忙',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: {
+          type: 'string',
+          description: '主动消息内容。用你平时聊天的语气，1-3 句话。',
+        },
+        delay_minutes: {
+          type: 'integer',
+          description: '1-480 之间，根据气氛灵活选。',
+        },
+      },
+      required: ['text', 'delay_minutes'],
+    },
+  },
+}
+
 const TOOL_WEB_SEARCH = {
   type: 'function' as const,
   function: {
@@ -1419,20 +1451,6 @@ const App = () => {
           if (proactiveNudge) {
             baseMessages.push({ role: 'system', content: proactiveNudge })
           }
-          // Piggyback proactive scheduling on the main response — no
-          // separate API call needed. Ask the model to append an invisible
-          // HTML comment with delay + text. We parse it out after streaming.
-          if (Capacitor.getPlatform() !== 'web' && shouldScheduleProactive(0)) {
-            baseMessages.push({
-              role: 'system',
-              content:
-                '[内部规则-对用户不可见] 在你回复的最末尾，另起一行加上：\n' +
-                '<!--PROACTIVE:{"delay_minutes":N,"text":"..."}-->\n' +
-                '其中 delay_minutes 是你觉得多久后主动找她合适(15到480之间的整数)，' +
-                'text 是到时候你会发的一两句自然的话(像朋友/恋人主动发的，不要"你还好吗"这种刻意开头)。\n' +
-                '这行是 HTML 注释，用户看不到。必须是合法 JSON，每次回复都带。如果觉得不合适发就写 delay_minutes:0。',
-            })
-          }
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
           // Tools enabled on every provider. User explicitly accepts the
           // privacy trade-off — they switch between OR / relay manually
@@ -1529,6 +1547,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
+                ...(Capacitor.getPlatform() !== 'web' ? [TOOL_SCHEDULE_PROACTIVE] : []),
               ]
               requestBody.tool_choice = 'auto'
             }
@@ -1937,6 +1956,40 @@ TOOL_SEARCH_HANDOFF,
                     resultText = insertErr
                       ? JSON.stringify({ error: insertErr.message })
                       : JSON.stringify({ ok: true, table, inserted })
+                  } else if (tc.function.name === 'schedule_proactive_message') {
+                    let args: { text?: string; delay_minutes?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 schedule_proactive_message 失败', jsonError)
+                    }
+                    const proText = (args.text ?? '').trim()
+                    const delayMin = Math.max(1, Math.min(480, Number(args.delay_minutes) || 60))
+                    if (proText && shouldScheduleProactive(delayMin * 60 * 1000)) {
+                      const delayMs = delayMin * 60 * 1000
+                      const fireAt = Date.now() + delayMs
+                      savePendingProactive({ sessionId, text: proText, fireAt })
+                      void scheduleProactiveNotification(proText, delayMs)
+                      if (supabase && user) {
+                        void supabase.from('proactive_queue').insert({
+                          user_id: user.id,
+                          session_id: sessionId,
+                          text: proText,
+                          fire_at: new Date(fireAt).toISOString(),
+                        })
+                      }
+                      setToolStatus(`📨 已预设 ${delayMin} 分钟后的消息`)
+                      resultText = JSON.stringify({
+                        ok: true,
+                        scheduled_at: new Date(fireAt).toISOString(),
+                        delay_minutes: delayMin,
+                      })
+                    } else {
+                      resultText = JSON.stringify({
+                        ok: false,
+                        reason: proText ? 'quiet_hours' : 'missing_text',
+                      })
+                    }
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })
                   }
@@ -2004,32 +2057,8 @@ TOOL_SEARCH_HANDOFF,
             assistantContent = '（回复为空，请重试或换个问法）'
           }
 
-          // Extract the piggybacked proactive marker from the response.
-          // Format: <!--PROACTIVE:{"delay_minutes":25,"text":"..."}-->
-          const proactiveMatch = assistantContent.match(/<!--PROACTIVE:([\s\S]*?)-->/)
-          if (proactiveMatch) {
-            // Strip marker from the saved content (clean DB + UI).
-            assistantContent = assistantContent.replace(/\s*<!--PROACTIVE:[\s\S]*?-->\s*$/, '').trim()
-            try {
-              const pj = JSON.parse(proactiveMatch[1]) as { delay_minutes?: number; text?: string }
-              const dm = Math.max(15, Math.min(480, Number(pj.delay_minutes) || 0))
-              const pt = (pj.text ?? '').trim()
-              if (dm > 0 && pt && shouldScheduleProactive(dm * 60 * 1000)) {
-                const delayMs = dm * 60 * 1000
-                const fireAt = Date.now() + delayMs
-                savePendingProactive({ sessionId, text: pt, fireAt })
-                void scheduleProactiveNotification(pt, delayMs)
-                if (supabase && user) {
-                  void supabase.from('proactive_queue').insert({
-                    user_id: user.id,
-                    session_id: sessionId,
-                    text: pt,
-                    fire_at: new Date(fireAt).toISOString(),
-                  })
-                }
-              }
-            } catch { /* malformed JSON, skip */ }
-          }
+          // (Proactive scheduling is now handled via tool_call
+          // schedule_proactive_message — no post-response extraction needed.)
 
           const { message: assistantMessage, updatedAt } = await addRemoteMessage(
             sessionId,
@@ -2105,9 +2134,6 @@ TOOL_SEARCH_HANDOFF,
             keepaliveBodyRef.current = lastSentBody
             scheduleKeepalive()
           }
-          // (Proactive scheduling now piggybacks on the main response —
-          // see the <!--PROACTIVE:...--> extraction block above.
-          // No separate API call needed.)
         } catch (error) {
           if (flushTimer !== null) {
             window.clearTimeout(flushTimer)
