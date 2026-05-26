@@ -9,7 +9,7 @@ const STORAGE_KEY = 'nimbus_pending_proactive_v1'
 // Active hours: notifications only fire between [start, end). Outside
 // this window we skip entirely so the user isn't woken up + so we don't
 // burn API credits on a generation that won't be seen.
-const ACTIVE_START_HOUR = 7
+const ACTIVE_START_HOUR = 0
 const ACTIVE_END_HOUR = 24
 
 const isAvailable = () => Capacitor.getPlatform() !== 'web'
