@@ -2075,10 +2075,6 @@ TOOL_SEARCH_HANDOFF,
           if (lastSentBody && shouldScheduleProactive(0) && Capacitor.getPlatform() !== 'web') {
             void (async () => {
               try {
-                // Wait a few seconds before the pre-gen call — relay
-                // providers often rate-limit and 502 if we call again
-                // immediately after the main chat response.
-                await new Promise((r) => setTimeout(r, 3000))
                 const proactiveBody: Record<string, unknown> = {
                   ...lastSentBody,
                   stream: true,
