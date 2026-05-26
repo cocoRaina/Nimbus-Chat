@@ -705,7 +705,17 @@ const App = () => {
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     const appStateSubPromise = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-      if (isActive) handleVisibilityChange()
+      if (isActive) {
+        handleVisibilityChange()
+      } else {
+        // App going to background. visibilitychange→hidden is unreliable
+        // on Android WebView, so re-arm the proactive notification here
+        // directly — otherwise the cancel-on-open kills it for good.
+        const pending = readPendingProactive()
+        if (pending && Date.now() < pending.fireAt) {
+          void scheduleProactiveNotification(pending.text, pending.fireAt - Date.now())
+        }
+      }
     })
     const notifSubPromise = LocalNotifications.addListener(
       'localNotificationActionPerformed',
