@@ -2060,23 +2060,26 @@ TOOL_SEARCH_HANDOFF,
           // (Proactive scheduling is now handled via tool_call
           // schedule_proactive_message — no post-response extraction needed.)
 
-          const { message: assistantMessage, updatedAt } = await addRemoteMessage(
-            sessionId,
-            user.id,
-            'assistant',
-            assistantContent,
-            assistantClientId,
-            assistantClientCreatedAt,
-            buildAssistantMeta(false),
-          )
-          const updatedMessages = updateMessage(messagesRef.current, {
-            ...assistantMessage,
-            pending: false,
-          })
-          const updatedSessions = sessionsRef.current.map((session) =>
-            session.id === sessionId ? { ...session, updatedAt } : session,
-          )
-          applySnapshot(updatedSessions, updatedMessages)
+          // Guard: tool loop can occasionally double-fire the save path.
+          if (!messagesRef.current.some((m) => m.clientId === assistantClientId && !m.pending)) {
+            const { message: assistantMessage, updatedAt } = await addRemoteMessage(
+              sessionId,
+              user.id,
+              'assistant',
+              assistantContent,
+              assistantClientId,
+              assistantClientCreatedAt,
+              buildAssistantMeta(false),
+            )
+            const updatedMessages = updateMessage(messagesRef.current, {
+              ...assistantMessage,
+              pending: false,
+            })
+            const updatedSessions = sessionsRef.current.map((session) =>
+              session.id === sessionId ? { ...session, updatedAt } : session,
+            )
+            applySnapshot(updatedSessions, updatedMessages)
+          }
 
           // Auto-generate a session title after the first assistant reply.
           // "新会话" is the default placeholder — once we have real content,
