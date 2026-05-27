@@ -471,6 +471,95 @@
   border-color: #2563EB;
 }
 
+/* ── Pending entries card ── */
+
+.pending-entries-card {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.pending-entries-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.pending-entries-title {
+  font-weight: 700;
+  color: #92400E;
+  font-size: 0.92rem;
+}
+
+.btn-confirm-all {
+  background: linear-gradient(180deg, #FBBF24, #D97706);
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pending-entries-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pending-entry-item {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid #FDE68A;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pending-entry-content {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #1f2937;
+}
+
+.pending-entry-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.btn-confirm {
+  background: linear-gradient(180deg, #34D399, #059669);
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 32px;
+}
+
+.btn-dismiss {
+  background: rgba(0, 0, 0, 0.04);
+  color: #6B7280;
+  border: 1px solid #D1D5DB;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 32px;
+}
+
 /* ── Auto source marker ── */
 
 .auto-mark {

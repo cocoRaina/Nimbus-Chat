@@ -117,6 +117,13 @@ const emptyMemoryDraft = (): MemoryDraft => ({
 
 type SourceFilter = 'all' | 'manual' | 'auto'
 
+type PendingEntry = {
+  id: number
+  content: string
+  source: string
+  created_at: string
+}
+
 const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[] }) => {
   const [memories, setMemories] = useState<Memory[]>([])
   const [loading, setLoading] = useState(false)
@@ -127,6 +134,7 @@ const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[]
   const [searchTerm, setSearchTerm] = useState('')
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [extracting, setExtracting] = useState(false)
+  const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([])
   const [lastLog, setLastLog] = useState<{
     messages_scanned: number
     memories_extracted: number
@@ -135,6 +143,66 @@ const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[]
     timeline_inserted: number
     created_at: string
   } | null>(null)
+
+  const refreshPending = useCallback(async () => {
+    if (!supabase) return
+    const { data } = await supabase
+      .from('memory_entries')
+      .select('id,content,source,created_at')
+      .eq('status', 'pending')
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    setPendingEntries(data ?? [])
+  }, [])
+
+  const handleConfirmEntry = async (entry: PendingEntry) => {
+    if (!supabase) return
+    try {
+      await createMemory({ content: entry.content, category: '自动提取', tags: ['auto'] })
+      await supabase
+        .from('memory_entries')
+        .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+        .eq('id', entry.id)
+      await refreshPending()
+      await refresh()
+    } catch (e) {
+      console.warn('确认记忆失败', e)
+      setError('确认失败')
+    }
+  }
+
+  const handleDismissEntry = async (id: number) => {
+    if (!supabase) return
+    try {
+      await supabase
+        .from('memory_entries')
+        .update({ is_deleted: true, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      await refreshPending()
+    } catch (e) {
+      console.warn('忽略记忆失败', e)
+    }
+  }
+
+  const handleConfirmAll = async () => {
+    if (!supabase || pendingEntries.length === 0) return
+    try {
+      for (const entry of pendingEntries) {
+        await createMemory({ content: entry.content, category: '自动提取', tags: ['auto'] })
+      }
+      const ids = pendingEntries.map((e) => e.id)
+      await supabase
+        .from('memory_entries')
+        .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+        .in('id', ids)
+      await refreshPending()
+      await refresh()
+    } catch (e) {
+      console.warn('批量确认失败', e)
+      setError('批量确认失败')
+    }
+  }
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -151,7 +219,8 @@ const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[]
 
   useEffect(() => {
     void refresh()
-  }, [refresh])
+    void refreshPending()
+  }, [refresh, refreshPending])
 
   useEffect(() => {
     if (!supabase) return
@@ -198,6 +267,7 @@ const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[]
         }
       }
       await refresh()
+      await refreshPending()
       const { data: newLog } = await supabase
         .from('memory_extract_log')
         .select('messages_scanned,memories_extracted,memories_inserted,memories_skipped,timeline_inserted,created_at')
@@ -307,6 +377,44 @@ const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[]
           <div className="auto-extract-log"><span>暂无提取记录</span></div>
         )}
       </div>
+
+      {pendingEntries.length > 0 ? (
+        <section className="pending-entries-card">
+          <div className="pending-entries-header">
+            <span className="pending-entries-title">待确认（{pendingEntries.length}）</span>
+            <button
+              type="button"
+              className="btn-confirm-all"
+              onClick={() => void handleConfirmAll()}
+            >
+              全部确认
+            </button>
+          </div>
+          <ul className="pending-entries-list">
+            {pendingEntries.map((entry) => (
+              <li key={entry.id} className="pending-entry-item">
+                <p className="pending-entry-content">{entry.content}</p>
+                <div className="pending-entry-actions">
+                  <button
+                    type="button"
+                    className="btn-confirm"
+                    onClick={() => void handleConfirmEntry(entry)}
+                  >
+                    确认
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-dismiss"
+                    onClick={() => void handleDismissEntry(entry.id)}
+                  >
+                    忽略
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {error ? <p className="memory-vault-error">{error}</p> : null}
 
