@@ -71,7 +71,7 @@ createRoot(document.getElementById('root')!).render(
 if (Capacitor.getPlatform() !== 'web') {
   window.setTimeout(() => {
     void SplashScreen.hide()
-  }, 600)
+  }, 300)
 }
 
 if ('serviceWorker' in navigator && Capacitor.getPlatform() === 'web') {

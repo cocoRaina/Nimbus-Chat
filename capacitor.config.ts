@@ -16,19 +16,16 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      // Stay visible until JS calls SplashScreen.hide() (which we do
-      // after React renders). Avoids the "boot → black flash → app"
-      // jarring transition.
-      launchShowDuration: 3000,
+      launchShowDuration: 1200,
       launchAutoHide: false,
-      backgroundColor: '#EFF6FF',
+      backgroundColor: '#FFFFFF',
       androidSplashResourceName: 'splash',
       showSpinner: false,
-      splashFullScreen: false,
-      splashImmersive: false,
-      androidScaleType: 'CENTER_CROP',
+      splashFullScreen: true,
+      splashImmersive: true,
+      androidScaleType: 'CENTER_INSIDE',
       useDialog: false,
-      fadeOutDuration: 400,
+      fadeOutDuration: 250,
     },
   },
 }
