@@ -393,3 +393,88 @@
   font-weight: 600;
   cursor: pointer;
 }
+
+/* ── Auto-extract status card ── */
+
+.auto-extract-card {
+  background: #F0F7FF;
+  border: 1px solid #BFDBFE;
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 0.88rem;
+}
+
+.auto-extract-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.auto-extract-title {
+  font-weight: 700;
+  color: #1E3A8A;
+  font-size: 0.92rem;
+}
+
+.btn-trigger {
+  background: linear-gradient(180deg, #60A5FA, #2563EB);
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-trigger:disabled {
+  background: #93C5FD;
+  cursor: not-allowed;
+}
+
+.auto-extract-log {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  color: #4B5563;
+  line-height: 1.6;
+}
+
+/* ── Source filter chips ── */
+
+.source-filter {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.source-filter button {
+  border: 1px solid #BFDBFE;
+  background: rgba(255, 255, 255, 0.8);
+  color: #1E40AF;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.source-filter button.active {
+  background: linear-gradient(180deg, #60A5FA, #2563EB);
+  color: #fff;
+  border-color: #2563EB;
+}
+
+/* ── Auto source marker ── */
+
+.auto-mark {
+  font-size: 0.82rem;
+  opacity: 0.7;
+  cursor: help;
+}

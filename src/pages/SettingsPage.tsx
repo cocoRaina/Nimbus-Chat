@@ -124,6 +124,11 @@ const SettingsPage = ({
   const [showUnsavedPromptDialog, setShowUnsavedPromptDialog] = useState(false)
   const [snackSectionExpanded, setSnackSectionExpanded] = useState(false)
   const [syzygySectionExpanded, setSyzygySectionExpanded] = useState(false)
+  const [memoryExtractSectionExpanded, setMemoryExtractSectionExpanded] = useState(false)
+  const [draftAutoExtractEnabled, setDraftAutoExtractEnabled] = useState(true)
+  const [draftExtractModel, setDraftExtractModel] = useState('anthropic/claude-haiku-4-5')
+  const [draftExtractInterval, setDraftExtractInterval] = useState(6)
+  const [extractStatus, setExtractStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [errors, setErrors] = useState<{ temperature?: string; topP?: string; maxTokens?: string; compressionRatio?: string; compressionKeepRecent?: string }>(
     {},
   )
@@ -157,6 +162,9 @@ const SettingsPage = ({
       setDraftSummarizerProvider(settings.summarizerProvider)
       setDraftChatReasoning(settings.chatReasoningEnabled)
       setDraftChatHighReasoning(settings.chatHighReasoningEnabled)
+      setDraftAutoExtractEnabled(settings.autoMemoryExtractEnabled)
+      setDraftExtractModel(settings.memoryExtractModel)
+      setDraftExtractInterval(settings.memoryExtractIntervalHours)
     }, 0)
     return () => {
       window.clearTimeout(timer)
@@ -590,6 +598,30 @@ const SettingsPage = ({
       console.warn('保存生成参数失败', error)
       setGenerationStatus('error')
       setGenerationError('保存失败，请稍后重试。')
+    }
+  }
+
+  const hasUnsavedExtract = settings
+    ? settings.autoMemoryExtractEnabled !== draftAutoExtractEnabled ||
+      settings.memoryExtractModel !== draftExtractModel ||
+      settings.memoryExtractIntervalHours !== draftExtractInterval
+    : false
+
+  const handleSaveExtractSettings = async () => {
+    if (!settings || !hasUnsavedExtract) return
+    const nextSettings = buildNextSettings({
+      autoMemoryExtractEnabled: draftAutoExtractEnabled,
+      memoryExtractModel: draftExtractModel,
+      memoryExtractIntervalHours: draftExtractInterval,
+    })
+    if (!nextSettings) return
+    setExtractStatus('saving')
+    try {
+      await onSaveSettings(nextSettings)
+      setExtractStatus('saved')
+    } catch (error) {
+      console.warn('保存自动提取设置失败', error)
+      setExtractStatus('error')
     }
   }
 
@@ -1400,6 +1432,91 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
               {hasUnsavedGeneration ? <span className="system-prompt-status">有未保存修改</span> : null}
               {generationStatus === 'saved' ? <span className="system-prompt-status">已保存</span> : null}
               {generationStatus === 'error' ? <span className="field-error">{generationError}</span> : null}
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="settings-section" role="listitem">
+        <button
+          type="button"
+          className="collapse-header"
+          onClick={() => setMemoryExtractSectionExpanded((current) => !current)}
+          aria-expanded={memoryExtractSectionExpanded}
+        >
+          <span className="section-title">
+            <span className="section-icon" aria-hidden="true">✨</span>
+            <h2 className="ui-title">自动记忆提取</h2>
+            <p>聊天时自动提取长期记忆，写入记忆库。</p>
+          </span>
+          <span className="collapse-indicator" aria-hidden="true">›</span>
+        </button>
+        {memoryExtractSectionExpanded ? (
+          <div className="accordion-content">
+            <div className="field-group">
+              <label htmlFor="autoExtractEnabled">自动提取</label>
+              <label className="toggle-control">
+                <input
+                  id="autoExtractEnabled"
+                  type="checkbox"
+                  checked={draftAutoExtractEnabled}
+                  onChange={(event) => {
+                    setDraftAutoExtractEnabled(event.target.checked)
+                    setExtractStatus('idle')
+                  }}
+                />
+                <span>{draftAutoExtractEnabled ? '已开启' : '已关闭'}</span>
+              </label>
+            </div>
+            {draftAutoExtractEnabled ? (
+              <>
+                <div className="field-group">
+                  <label htmlFor="extractModel">提取模型</label>
+                  <select
+                    id="extractModel"
+                    value={draftExtractModel}
+                    onChange={(event) => {
+                      setDraftExtractModel(event.target.value)
+                      setExtractStatus('idle')
+                    }}
+                  >
+                    <option value="anthropic/claude-haiku-4-5">Claude Haiku 4.5（推荐）</option>
+                    <option value="anthropic/claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                    <option value="openai/gpt-4o-mini">GPT-4o-mini</option>
+                    <option value="openai/gpt-5.1">GPT-5.1</option>
+                  </select>
+                  <span className="settings-hint">用于从聊天记录中提取记忆的模型，推荐用便宜的小模型。</span>
+                </div>
+                <div className="field-group">
+                  <label htmlFor="extractInterval">提取间隔</label>
+                  <select
+                    id="extractInterval"
+                    value={draftExtractInterval}
+                    onChange={(event) => {
+                      setDraftExtractInterval(Number(event.target.value))
+                      setExtractStatus('idle')
+                    }}
+                  >
+                    <option value={3}>每 3 小时</option>
+                    <option value={6}>每 6 小时（推荐）</option>
+                    <option value={12}>每 12 小时</option>
+                    <option value={24}>每天</option>
+                  </select>
+                </div>
+              </>
+            ) : null}
+            <div className="system-prompt-actions">
+              <button
+                type="button"
+                className="primary"
+                onClick={() => void handleSaveExtractSettings()}
+                disabled={!hasUnsavedExtract || extractStatus === 'saving'}
+              >
+                {extractStatus === 'saving' ? '保存中…' : '保存'}
+              </button>
+              {hasUnsavedExtract ? <span className="system-prompt-status">有未保存修改</span> : null}
+              {extractStatus === 'saved' ? <span className="system-prompt-status">已保存</span> : null}
+              {extractStatus === 'error' ? <span className="field-error">保存失败</span> : null}
             </div>
           </div>
         ) : null}

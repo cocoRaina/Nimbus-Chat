@@ -71,6 +71,10 @@ export type UserSettings = {
   syzygyReplySystemPrompt: string
   chatReasoningEnabled: boolean
   chatHighReasoningEnabled: boolean
+  autoMemoryExtractEnabled: boolean
+  memoryExtractModel: string
+  memoryExtractIntervalHours: number
+  lastMemoryExtractAt: string | null
   updatedAt: string
 }
 
@@ -125,6 +129,7 @@ export type Memory = {
   category: string
   content: string
   tags: string[]
+  source: string
   createdAt: string
   updatedAt: string
 }
@@ -155,6 +160,7 @@ export type TimelineEvent = {
   description: string | null
   category: string
   importance: number
+  source: string
   createdAt: string
 }
 

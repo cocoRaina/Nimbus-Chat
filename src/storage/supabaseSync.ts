@@ -85,6 +85,7 @@ type MemoryRow = {
   category: string | null
   content: string
   tags: string[] | null
+  source: string | null
   created_at: string
   updated_at: string
 }
@@ -143,11 +144,12 @@ const mapMemoryRow = (row: MemoryRow): Memory => ({
   category: row.category ?? '日常',
   content: row.content,
   tags: row.tags ?? [],
+  source: row.source ?? 'manual',
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 })
 
-const MEMORY_SELECT_FIELDS = 'id,category,content,tags,created_at,updated_at'
+const MEMORY_SELECT_FIELDS = 'id,category,content,tags,source,created_at,updated_at'
 
 const mapCheckinRow = (row: CheckinRow): CheckinEntry => ({
   id: row.id,
@@ -1155,10 +1157,11 @@ type TimelineRow = {
   description: string | null
   category: string | null
   importance: number | null
+  source: string | null
   created_at: string
 }
 
-const TIMELINE_SELECT_FIELDS = 'id,event_date,title,description,category,importance,created_at'
+const TIMELINE_SELECT_FIELDS = 'id,event_date,title,description,category,importance,source,created_at'
 
 const mapTimelineRow = (row: TimelineRow): TimelineEvent => ({
   id: row.id,
@@ -1167,6 +1170,7 @@ const mapTimelineRow = (row: TimelineRow): TimelineEvent => ({
   description: row.description,
   category: row.category ?? '日常',
   importance: row.importance ?? 3,
+  source: row.source ?? 'manual',
   createdAt: row.created_at,
 })
 

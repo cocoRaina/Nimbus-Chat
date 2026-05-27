@@ -19,6 +19,7 @@ import {
   updateMemory,
   updateTimelineEvent,
 } from '../storage/supabaseSync'
+import { supabase } from '../supabase/client'
 import './MemoryVaultPage.css'
 
 type Tab = 'memories' | 'diaries' | 'letters' | 'timeline'
@@ -113,6 +114,8 @@ const emptyMemoryDraft = (): MemoryDraft => ({
   tagsInput: '',
 })
 
+type SourceFilter = 'all' | 'manual' | 'auto'
+
 const MemoriesTab = () => {
   const [memories, setMemories] = useState<Memory[]>([])
   const [loading, setLoading] = useState(false)
@@ -122,6 +125,16 @@ const MemoriesTab = () => {
   const [saving, setSaving] = useState(false)
   const [filterCategory, setFilterCategory] = useState<string>(ALL_CATEGORY)
   const [searchTerm, setSearchTerm] = useState('')
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
+  const [extracting, setExtracting] = useState(false)
+  const [lastLog, setLastLog] = useState<{
+    messages_scanned: number
+    memories_extracted: number
+    memories_inserted: number
+    memories_skipped: number
+    timeline_inserted: number
+    created_at: string
+  } | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -139,6 +152,52 @@ const MemoriesTab = () => {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    if (!supabase) return
+    void supabase
+      .from('memory_extract_log')
+      .select('messages_scanned,memories_extracted,memories_inserted,memories_skipped,timeline_inserted,created_at')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => { if (data) setLastLog(data) })
+  }, [])
+
+  const sourceCounts = useMemo(() => {
+    let manual = 0
+    let auto = 0
+    for (const m of memories) {
+      if (m.source === 'auto') auto++
+      else manual++
+    }
+    return { all: memories.length, manual, auto }
+  }, [memories])
+
+  const handleManualExtract = async () => {
+    if (!supabase) return
+    setExtracting(true)
+    try {
+      const { data, error: err } = await supabase.functions.invoke('memory-extract', {
+        body: { recentMessages: [] },
+      })
+      if (err) {
+        console.warn('[ManualExtract] error:', err)
+      } else {
+        console.log('[ManualExtract] result:', data)
+      }
+      await refresh()
+      const { data: newLog } = await supabase
+        .from('memory_extract_log')
+        .select('messages_scanned,memories_extracted,memories_inserted,memories_skipped,timeline_inserted,created_at')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (newLog) setLastLog(newLog)
+    } finally {
+      setExtracting(false)
+    }
+  }
 
   const categories = useMemo(() => {
     const set = new Set<string>()
@@ -163,13 +222,15 @@ const MemoriesTab = () => {
     const term = searchTerm.trim().toLowerCase()
     return memories.filter((m) => {
       if (filterCategory !== ALL_CATEGORY && m.category !== filterCategory) return false
+      if (sourceFilter === 'manual' && m.source === 'auto') return false
+      if (sourceFilter === 'auto' && m.source !== 'auto') return false
       if (!term) return true
       return (
         m.content.toLowerCase().includes(term) ||
         m.tags.some((tag) => tag.toLowerCase().includes(term))
       )
     })
-  }, [memories, filterCategory, searchTerm])
+  }, [memories, filterCategory, searchTerm, sourceFilter])
 
   const startEdit = (memory: Memory) => {
     setEditingId(memory.id)
@@ -222,6 +283,29 @@ const MemoriesTab = () => {
   return (
     <>
       <p className="memory-vault-hint">这里写下的记忆会自动生成向量 embedding，AI 聊天时可以语义检索。</p>
+
+      <div className="auto-extract-card">
+        <div className="auto-extract-header">
+          <span className="auto-extract-title">✨ 自动提取</span>
+          <button
+            type="button"
+            onClick={() => void handleManualExtract()}
+            disabled={extracting}
+            className="btn-trigger"
+          >
+            {extracting ? '提取中…' : '立即提取'}
+          </button>
+        </div>
+        {lastLog ? (
+          <div className="auto-extract-log">
+            <span>扫描 {lastLog.messages_scanned} 条消息</span>
+            <span>提取 {lastLog.memories_extracted} / 插入 {lastLog.memories_inserted} / 跳过 {lastLog.memories_skipped}</span>
+          </div>
+        ) : (
+          <div className="auto-extract-log"><span>暂无提取记录</span></div>
+        )}
+      </div>
+
       {error ? <p className="memory-vault-error">{error}</p> : null}
 
       <section className="memory-vault-editor">
@@ -295,6 +379,29 @@ const MemoriesTab = () => {
               </option>
             ))}
           </select>
+          <div className="source-filter">
+            <button
+              type="button"
+              className={sourceFilter === 'all' ? 'active' : ''}
+              onClick={() => setSourceFilter('all')}
+            >
+              全部({sourceCounts.all})
+            </button>
+            <button
+              type="button"
+              className={sourceFilter === 'manual' ? 'active' : ''}
+              onClick={() => setSourceFilter('manual')}
+            >
+              手动({sourceCounts.manual})
+            </button>
+            <button
+              type="button"
+              className={sourceFilter === 'auto' ? 'active' : ''}
+              onClick={() => setSourceFilter('auto')}
+            >
+              ✨自动({sourceCounts.auto})
+            </button>
+          </div>
         </div>
 
         {filtered.length === 0 ? (
@@ -310,6 +417,9 @@ const MemoriesTab = () => {
               >
                 <div className="memory-vault-item-meta">
                   <span className="memory-vault-item-category">{memory.category}</span>
+                  {memory.source === 'auto' ? (
+                    <span className="auto-mark" title="自动提取">✨</span>
+                  ) : null}
                   {memory.tags.length > 0 ? (
                     <span className="memory-vault-item-tags">
                       {memory.tags.map((tag) => (
@@ -1071,6 +1181,9 @@ const TimelineTab = () => {
                   <span className="memory-vault-item-category">{t.eventDate}</span>
                   <span className="tag">{t.category}</span>
                   <span className="memory-vault-item-stars">{importanceLabel(t.importance)}</span>
+                  {t.source === 'auto' ? (
+                    <span className="auto-mark" title="自动提取">✨</span>
+                  ) : null}
                 </div>
                 <h3 className="memory-vault-item-title">{t.title}</h3>
                 {t.description ? (

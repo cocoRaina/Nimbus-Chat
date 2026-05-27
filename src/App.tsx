@@ -74,6 +74,7 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { PushNotifications } from '@capacitor/push-notifications'
 import { compressIfNeeded } from './storage/conversationCompression'
+import { useAutoMemoryExtract } from './hooks/useAutoMemoryExtract'
 // import { isGpt5Auto } from './utils/openrouterReasoning'
 
 const sortSessions = (sessions: ChatSession[]) =>
@@ -2515,6 +2516,10 @@ TOOL_SEARCH_HANDOFF,
     setUserSettings(nextSettings)
   }, [user])
 
+  const handleUpdateLastExtractAt = useCallback((iso: string) => {
+    setUserSettings((prev) => prev ? { ...prev, lastMemoryExtractAt: iso } : prev)
+  }, [])
+
   const handleSaveSnackSystemPrompt = useCallback(async (nextSnackSystemPrompt: string) => {
     if (!user) {
       return
@@ -2666,6 +2671,8 @@ TOOL_SEARCH_HANDOFF,
                 onActiveSessionChange={setActiveChatSessionId}
                 onManualCompress={handleManualCompress}
                 user={user}
+                userSettings={userSettings}
+                onUpdateLastExtractAt={handleUpdateLastExtractAt}
               />
             </RequireAuth>
           }
@@ -2841,6 +2848,8 @@ const ChatRoute = ({
   onActiveSessionChange,
   onManualCompress,
   user,
+  userSettings,
+  onUpdateLastExtractAt,
 }: {
   sessions: ChatSession[]
   messages: ChatMessage[]
@@ -2872,6 +2881,8 @@ const ChatRoute = ({
   onActiveSessionChange: (sessionId: string) => void
   onManualCompress: (sessionId: string) => Promise<{ ok: boolean; message: string }>
   user: User | null
+  userSettings: UserSettings | null
+  onUpdateLastExtractAt: (iso: string) => void
 }) => {
   const { sessionId } = useParams()
   const navigate = useNavigate()
@@ -2893,6 +2904,8 @@ const ChatRoute = ({
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       )
   }, [messages, sessionId])
+
+  useAutoMemoryExtract(user?.id ?? null, userSettings, activeMessages, onUpdateLastExtractAt)
 
   const handleCreateSession = useCallback(async () => {
     const newSession = await onCreateSession()
