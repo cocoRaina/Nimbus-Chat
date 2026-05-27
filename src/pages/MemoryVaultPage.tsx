@@ -38,7 +38,9 @@ const parseTagsInput = (raw: string): string[] =>
     .map((token) => token.trim())
     .filter((token) => token.length > 0)
 
-const MemoryVaultPage = () => {
+type ExtractMessageInput = { role: string; content: string }
+
+const MemoryVaultPage = ({ recentMessages }: { recentMessages: ExtractMessageInput[] }) => {
   const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('memories')
 
@@ -91,7 +93,7 @@ const MemoryVaultPage = () => {
         </button>
       </div>
 
-      {tab === 'memories' ? <MemoriesTab /> : null}
+      {tab === 'memories' ? <MemoriesTab recentMessages={recentMessages} /> : null}
       {tab === 'diaries' ? <DiariesTab /> : null}
       {tab === 'letters' ? <LettersTab /> : null}
       {tab === 'timeline' ? <TimelineTab /> : null}
@@ -115,7 +117,7 @@ const emptyMemoryDraft = (): MemoryDraft => ({
 
 type SourceFilter = 'all' | 'manual' | 'auto'
 
-const MemoriesTab = () => {
+const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[] }) => {
   const [memories, setMemories] = useState<Memory[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -174,21 +176,12 @@ const MemoriesTab = () => {
 
   const handleManualExtract = async () => {
     if (!supabase) return
+    if (recentMessages.length === 0) {
+      setError('没有可提取的聊天记录，请先在对话中聊几句')
+      return
+    }
     setExtracting(true)
     try {
-      const { data: rows } = await supabase
-        .from('messages')
-        .select('role,content')
-        .order('created_at', { ascending: false })
-        .limit(30)
-      const recentMessages = (rows ?? []).reverse().map((r: { role: string; content: string }) => ({
-        role: r.role,
-        content: r.content,
-      }))
-      if (recentMessages.length === 0) {
-        setError('没有可提取的聊天记录')
-        return
-      }
       const { data, error: err } = await supabase.functions.invoke('memory-extract', {
         body: { recentMessages },
       })

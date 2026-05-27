@@ -77,6 +77,26 @@ import { compressIfNeeded } from './storage/conversationCompression'
 import { useAutoMemoryExtract } from './hooks/useAutoMemoryExtract'
 // import { isGpt5Auto } from './utils/openrouterReasoning'
 
+const MEMORY_EXTRACT_RECENT_MESSAGES = 24
+
+type ExtractMessageInput = { role: string; content: string }
+
+const buildRecentExtractionMessages = (
+  sessionId: string,
+  messages: ChatMessage[],
+  limit: number,
+): ExtractMessageInput[] => {
+  const scoped = messages
+    .filter((message) => message.sessionId === sessionId && message.content.trim().length > 0)
+    .sort(
+      (a, b) =>
+        new Date(a.clientCreatedAt ?? a.createdAt).getTime() -
+          new Date(b.clientCreatedAt ?? b.createdAt).getTime() ||
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    )
+  return scoped.slice(-limit).map((message) => ({ role: message.role, content: message.content }))
+}
+
 const sortSessions = (sessions: ChatSession[]) =>
   [...sessions].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -474,7 +494,7 @@ const App = () => {
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null)
   const [settingsReady, setSettingsReady] = useState(false)
   const [sessionsReady, setSessionsReady] = useState(false)
-  const [, setActiveChatSessionId] = useState<string | null>(null)
+  const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null)
   const [supabaseConfigured, setSupabaseConfigured] = useState(() => hasSupabaseConfig())
   const sessionsRef = useRef(sessions)
   const messagesRef = useRef(messages)
@@ -2730,7 +2750,13 @@ TOOL_SEARCH_HANDOFF,
           path="/memory-vault"
           element={
             <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
-              <MemoryVaultPage />
+              <MemoryVaultPage
+                recentMessages={buildRecentExtractionMessages(
+                  activeChatSessionId ?? latestSession?.id ?? '',
+                  messages,
+                  MEMORY_EXTRACT_RECENT_MESSAGES,
+                )}
+              />
             </RequireAuth>
           }
         />
