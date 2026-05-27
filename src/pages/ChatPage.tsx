@@ -656,6 +656,18 @@ const ChatPage = ({
             // Same-sender messages within 1 min hug each other tight.
             const groupWithPrevious =
               !!prev && prev.role === message.role && !showSeparator && gapMs < 60 * 1000
+            // Skip the empty streaming placeholder — the typing
+            // indicator below handles this state visually.
+            if (
+              isStreaming &&
+              index === displayedMessages.length - 1 &&
+              message.role === 'assistant' &&
+              !message.content?.trim()
+            ) {
+              return showSeparator ? (
+                <TimeSeparator key={message.id} timestamp={message.createdAt} />
+              ) : null
+            }
             return (
               <Fragment key={message.id}>
                 {showSeparator ? <TimeSeparator timestamp={message.createdAt} /> : null}
