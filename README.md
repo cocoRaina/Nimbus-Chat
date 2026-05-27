@@ -36,6 +36,35 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 
 实现：Supabase Edge Function `search_memory` 嵌入查询（BGE-M3 via SiliconFlow）→ `search_memories` RPC 跨表 UNION 向量搜（支持 `filter_table` 参数限定来源）→ 加上结构化数据一起返回。
 
+### ✨ 自动记忆提取（参考 Hamster-Nest）
+从聊天对话中自动提取长期记忆，无需手动录入。
+
+**自动提取**（轮次触发，参考串串老师 Hamster-Nest 实现）：
+- 每 **12 轮用户发言**自动触发一次（按对话分开计数）
+- **10 分钟冷却**，不会频繁触发
+- 待确认记忆 **≥ 50 条**时暂停，等用户处理后恢复
+- 取当前对话最近 **24 条消息**送给 LLM 分析
+
+**手动提取**（记忆库 → 立即提取）：
+- 优先用当前打开的对话消息
+- 没打开过聊天页时，fallback 从 DB 拉最近 24 条（串串老师没有此 fallback）
+
+**确认流程**：
+```
+提取 → memory_entries 表（status=pending）
+     → 记忆库「待确认」黄色卡片
+     → 逐条「确认」/ 「忽略」/ 「全部确认」
+     → 确认后写入 memories 表（category=自动提取）→ 生成 embedding → AI 可检索
+```
+
+**设置**（设置页 → ✨ 自动记忆提取）：
+- 总开关（默认开启）
+- 提取模型（从已启用模型中选，推荐便宜的小模型如 Haiku）
+
+**来源标记**：
+- 记忆/时间轴列表项右侧显示 ✨ 标记区分自动提取 vs 手动录入
+- 来源筛选 chips：全部 / 手动 / ✨自动
+
 ### 🛠️ Claude 工具（共 11 个）
 
 **读取（Claude 主动调）**：
@@ -186,7 +215,7 @@ Claude 有一个工具 `schedule_proactive_message`，可以在聊天中**自主
 | 首页 Dashboard | `/` | 时钟 + 在一起天数 + 可自定义小组件 + 8 个 app 图标入口 |
 | 聊天 | `/chat/:id` | 主聊天界面，工具循环 + 流式 + 懒加载 |
 | 设置 | `/settings` | 10 个折叠区（详见上方） |
-| 记忆库 | `/memory-vault` | 4 个 tab：记忆 / 日记 / 交接信 / 时间轴，CRUD + 搜索 + 分类筛选 |
+| 记忆库 | `/memory-vault` | 4 个 tab：记忆 / 日记 / 交接信 / 时间轴，CRUD + 搜索 + 来源筛选 + 自动提取 + 待确认流程 |
 | 我的主页 | `/snacks` | 朋友圈帖子 + AI 回复 + 软删除回收站 |
 | TA 的主页 | `/syzygy` | Claude 的朋友圈（对镜版） |
 | 用量统计 | `/usage` | 按 provider / 按会话排行 + 缓存命中率 |
@@ -212,6 +241,7 @@ Claude 有一个工具 `schedule_proactive_message`，可以在聊天中**自主
             ├─→ tables: messages, sessions, checkins, user_settings,
             │           compression_cache, user_posts, user_replies,
             │           assistant_posts, assistant_replies, memories,
+            │           memory_entries, memory_extract_log,
             │           diaries, handoff_letters, timeline,
             │           period_tracking, health_data, essays, usage_logs,
             │           proactive_queue, fcm_tokens
@@ -258,6 +288,10 @@ DB 函数:
 - push 到 main → GitHub Actions 自动 build + deploy
 - `BUILD_TARGET=pages` 让 vite base 设为 `/Nimbus-Chat/`
 - Secrets：`VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`
+
+### Edge Functions（自动部署）
+- push 到 main 且 `supabase/functions/**` 有改动 → GitHub Actions 自动部署
+- Secrets：`SUPABASE_ACCESS_TOKEN`、`SUPABASE_PROJECT_REF`
 
 ### Android APK (Capacitor)
 - push 到 main 或打 `v*` tag 触发 build
