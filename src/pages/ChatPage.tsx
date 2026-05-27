@@ -7,6 +7,8 @@ import type { ChatMessage, ChatSession } from '../types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import ReasoningPanel from '../components/ReasoningPanel'
+import ToolCallCard from '../components/ToolCallCard'
+import type { ToolCallRecord } from '../components/ToolCallCard'
 import './ChatPage.css'
 
 export type ChatPageProps = {
@@ -88,6 +90,13 @@ const MessageRow = memo(function MessageRow({
             onContextMenu={(event) => onContextMenuOpen(event, message.id)}
           >
             {isFirst && reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
+            {isFirst && Array.isArray(message.meta?.tool_calls) && (message.meta.tool_calls as ToolCallRecord[]).length > 0 ? (
+              <div className="tool-calls-section">
+                {(message.meta.tool_calls as ToolCallRecord[]).map((tc, tci) => (
+                  <ToolCallCard key={tci} name={tc.name} args={tc.args} result={tc.result} duration_ms={tc.duration_ms} />
+                ))}
+              </div>
+            ) : null}
             {isFirst && message.meta?.attachments && message.meta.attachments.length > 0 ? (
               <div className="message-attachments">
                 {message.meta.attachments

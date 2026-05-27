@@ -1,0 +1,82 @@
+.tool-call-card {
+  margin: 6px 0;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.35));
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-subtle, #6b7280);
+  font-size: 13px;
+}
+
+.tool-call-header:active {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.tool-icon { font-size: 13px; flex-shrink: 0; }
+.tool-label { font-weight: 600; color: var(--text-main, #111827); }
+
+.tool-preview {
+  color: var(--text-subtle, #6b7280);
+  font-style: italic;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.tool-duration {
+  font-size: 11px;
+  color: var(--text-subtle, #94a3b8);
+  font-family: ui-monospace, monospace;
+  flex-shrink: 0;
+}
+
+.tool-chevron {
+  color: var(--text-subtle, #94a3b8);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.tool-call-body {
+  padding: 6px 12px 12px;
+  border-top: 1px solid var(--glass-border, rgba(0, 0, 0, 0.06));
+}
+
+.tool-section + .tool-section { margin-top: 10px; }
+
+.tool-section-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle, #94a3b8);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.tool-call-body pre {
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 11px;
+  background: var(--code-bg, rgba(15, 23, 42, 0.06));
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  max-height: 200px;
+  overflow-y: auto;
+}

@@ -40,6 +40,13 @@ export type ChatMessage = {
       condition: string
       feelsLikeC?: number
     }
+    tool_calls?: Array<{
+      name: string
+      args: unknown
+      result: unknown
+      duration_ms?: number
+      timestamp?: string
+    }>
   }
   pending?: boolean
 }

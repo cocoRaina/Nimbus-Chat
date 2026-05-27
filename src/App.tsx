@@ -1165,6 +1165,9 @@ const App = () => {
         }
 
         let assistantContent = ''
+        const toolCallRecords: Array<{
+          name: string; args: unknown; result: unknown; duration_ms: number; timestamp: string
+        }> = []
         let reasoningContent = ''
         let reasoningType: 'reasoning' | 'thinking' | null = null
         let actualModel = effectiveModel
@@ -1318,6 +1321,9 @@ const App = () => {
           }
           if (reasoningType) {
             meta.reasoning_type = reasoningType
+          }
+          if (!streaming && toolCallRecords.length > 0) {
+            meta.tool_calls = toolCallRecords
           }
           return meta
         }
@@ -1777,6 +1783,7 @@ TOOL_SEARCH_HANDOFF,
               })
               for (const tc of toolCallsArr) {
                 let resultText: string
+                const toolStart = Date.now()
                 try {
                   if (tc.function.name === 'search_memory' && supabase) {
                     let args: { query?: string; count?: number; category?: string; table?: string } = {}
@@ -1996,6 +2003,18 @@ TOOL_SEARCH_HANDOFF,
                 } catch (toolError) {
                   resultText = JSON.stringify({ error: String(toolError) })
                 }
+                // Record for UI card display in the saved message meta.
+                let parsedArgs: unknown = {}
+                let parsedResult: unknown = resultText
+                try { parsedArgs = JSON.parse(tc.function.arguments || '{}') } catch { /* keep {} */ }
+                try { parsedResult = JSON.parse(resultText) } catch { /* keep string */ }
+                toolCallRecords.push({
+                  name: tc.function.name,
+                  args: parsedArgs,
+                  result: parsedResult,
+                  duration_ms: Date.now() - toolStart,
+                  timestamp: new Date().toISOString(),
+                })
                 baseMessages.push({
                   role: 'tool',
                   tool_call_id: tc.id,
