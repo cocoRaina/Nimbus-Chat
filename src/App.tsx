@@ -74,10 +74,12 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { PushNotifications } from '@capacitor/push-notifications'
 import { compressIfNeeded } from './storage/conversationCompression'
-import { useAutoMemoryExtract } from './hooks/useAutoMemoryExtract'
 // import { isGpt5Auto } from './utils/openrouterReasoning'
 
 const MEMORY_EXTRACT_RECENT_MESSAGES = 24
+const AUTO_EXTRACT_USER_TURN_INTERVAL = 12
+const AUTO_EXTRACT_COOLDOWN_MS = 10 * 60 * 1000
+const AUTO_EXTRACT_PENDING_LIMIT = 50
 
 type ExtractMessageInput = { role: string; content: string }
 
@@ -566,6 +568,49 @@ const App = () => {
   useEffect(() => {
     settingsRef.current = userSettings
   }, [userSettings])
+
+  const autoExtractStateRef = useRef<
+    Record<string, { lastUserCount: number; lastExtractedAt: number }>
+  >({})
+
+  useEffect(() => {
+    if (!user || !supabase || isStreaming || !activeSettings.autoMemoryExtractEnabled) return
+    const sb = supabase
+    const latestBySession = new Map<string, number>()
+    messages.forEach((message) => {
+      if (message.role !== 'user' || !message.content.trim()) return
+      latestBySession.set(message.sessionId, (latestBySession.get(message.sessionId) ?? 0) + 1)
+    })
+    latestBySession.forEach((userCount, sessionId) => {
+      if (userCount < AUTO_EXTRACT_USER_TURN_INTERVAL) return
+      if (userCount % AUTO_EXTRACT_USER_TURN_INTERVAL !== 0) return
+      const currentState = autoExtractStateRef.current[sessionId] ?? { lastUserCount: 0, lastExtractedAt: 0 }
+      const now = Date.now()
+      if (userCount <= currentState.lastUserCount) return
+      if (now - currentState.lastExtractedAt < AUTO_EXTRACT_COOLDOWN_MS) return
+      autoExtractStateRef.current[sessionId] = {
+        lastUserCount: userCount,
+        lastExtractedAt: currentState.lastExtractedAt,
+      }
+      const recentMsgs = buildRecentExtractionMessages(sessionId, messagesRef.current, MEMORY_EXTRACT_RECENT_MESSAGES)
+      if (recentMsgs.length === 0) return
+      void (async () => {
+        try {
+          const { count } = await sb
+            .from('memory_entries')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('status', 'pending')
+            .eq('is_deleted', false)
+          if ((count ?? 0) >= AUTO_EXTRACT_PENDING_LIMIT) return
+          autoExtractStateRef.current[sessionId] = { lastUserCount: userCount, lastExtractedAt: Date.now() }
+          await sb.functions.invoke('memory-extract', { body: { recentMessages: recentMsgs } })
+        } catch (error) {
+          console.warn('自动抽取记忆建议失败', error)
+        }
+      })()
+    })
+  }, [activeSettings.autoMemoryExtractEnabled, isStreaming, messages, user])
 
   const applySnapshot = useCallback((nextSessions: ChatSession[], nextMessages: ChatMessage[]) => {
     const orderedSessions = sortSessions(nextSessions)
@@ -2536,10 +2581,6 @@ TOOL_SEARCH_HANDOFF,
     setUserSettings(nextSettings)
   }, [user])
 
-  const handleUpdateLastExtractAt = useCallback((iso: string) => {
-    setUserSettings((prev) => prev ? { ...prev, lastMemoryExtractAt: iso } : prev)
-  }, [])
-
   const handleSaveSnackSystemPrompt = useCallback(async (nextSnackSystemPrompt: string) => {
     if (!user) {
       return
@@ -2691,8 +2732,6 @@ TOOL_SEARCH_HANDOFF,
                 onActiveSessionChange={setActiveChatSessionId}
                 onManualCompress={handleManualCompress}
                 user={user}
-                userSettings={userSettings}
-                onUpdateLastExtractAt={handleUpdateLastExtractAt}
               />
             </RequireAuth>
           }
@@ -2874,8 +2913,6 @@ const ChatRoute = ({
   onActiveSessionChange,
   onManualCompress,
   user,
-  userSettings,
-  onUpdateLastExtractAt,
 }: {
   sessions: ChatSession[]
   messages: ChatMessage[]
@@ -2907,8 +2944,6 @@ const ChatRoute = ({
   onActiveSessionChange: (sessionId: string) => void
   onManualCompress: (sessionId: string) => Promise<{ ok: boolean; message: string }>
   user: User | null
-  userSettings: UserSettings | null
-  onUpdateLastExtractAt: (iso: string) => void
 }) => {
   const { sessionId } = useParams()
   const navigate = useNavigate()
@@ -2930,8 +2965,6 @@ const ChatRoute = ({
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       )
   }, [messages, sessionId])
-
-  useAutoMemoryExtract(user?.id ?? null, userSettings, activeMessages, onUpdateLastExtractAt)
 
   const handleCreateSession = useCallback(async () => {
     const newSession = await onCreateSession()

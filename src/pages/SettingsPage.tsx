@@ -127,7 +127,6 @@ const SettingsPage = ({
   const [memoryExtractSectionExpanded, setMemoryExtractSectionExpanded] = useState(false)
   const [draftAutoExtractEnabled, setDraftAutoExtractEnabled] = useState(true)
   const [draftExtractModel, setDraftExtractModel] = useState('anthropic/claude-haiku-4-5')
-  const [draftExtractInterval, setDraftExtractInterval] = useState(6)
   const [extractStatus, setExtractStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [errors, setErrors] = useState<{ temperature?: string; topP?: string; maxTokens?: string; compressionRatio?: string; compressionKeepRecent?: string }>(
     {},
@@ -164,7 +163,6 @@ const SettingsPage = ({
       setDraftChatHighReasoning(settings.chatHighReasoningEnabled)
       setDraftAutoExtractEnabled(settings.autoMemoryExtractEnabled)
       setDraftExtractModel(settings.memoryExtractModel)
-      setDraftExtractInterval(settings.memoryExtractIntervalHours)
     }, 0)
     return () => {
       window.clearTimeout(timer)
@@ -603,8 +601,7 @@ const SettingsPage = ({
 
   const hasUnsavedExtract = settings
     ? settings.autoMemoryExtractEnabled !== draftAutoExtractEnabled ||
-      settings.memoryExtractModel !== draftExtractModel ||
-      settings.memoryExtractIntervalHours !== draftExtractInterval
+      settings.memoryExtractModel !== draftExtractModel
     : false
 
   const handleSaveExtractSettings = async () => {
@@ -612,7 +609,6 @@ const SettingsPage = ({
     const nextSettings = buildNextSettings({
       autoMemoryExtractEnabled: draftAutoExtractEnabled,
       memoryExtractModel: draftExtractModel,
-      memoryExtractIntervalHours: draftExtractInterval,
     })
     if (!nextSettings) return
     setExtractStatus('saving')
@@ -1488,22 +1484,7 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
                   </select>
                   <span className="settings-hint">用于从聊天记录中提取记忆的模型，推荐用便宜的小模型。</span>
                 </div>
-                <div className="field-group">
-                  <label htmlFor="extractInterval">提取间隔</label>
-                  <select
-                    id="extractInterval"
-                    value={draftExtractInterval}
-                    onChange={(event) => {
-                      setDraftExtractInterval(Number(event.target.value))
-                      setExtractStatus('idle')
-                    }}
-                  >
-                    <option value={3}>每 3 小时</option>
-                    <option value={6}>每 6 小时（推荐）</option>
-                    <option value={12}>每 12 小时</option>
-                    <option value={24}>每天</option>
-                  </select>
-                </div>
+                <p className="field-help">每 12 轮用户发言自动触发一次提取，冷却 10 分钟。待确认记忆 ≥ 50 条时暂停。</p>
               </>
             ) : null}
             <div className="system-prompt-actions">
