@@ -1280,7 +1280,7 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
                 <span>{draftChatHighReasoning ? '已开启' : '已关闭'}</span>
               </label>
             </div>
-            <p className="field-help">仅对 GPT-5.1 / GPT-5.2 生效；其他模型自动忽略。开启后会更积极触发思考（可能更慢/更耗费）。</p>
+            <p className="field-help">对所有支持 reasoning 的模型生效。开启后会附加 reasoning: effort=high 参数（可能更慢/更耗费）。Claude 系列默认就带，此开关主要给其他模型用。</p>
           </div>
         ) : null}
       </section>

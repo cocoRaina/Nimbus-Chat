@@ -74,7 +74,7 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { PushNotifications } from '@capacitor/push-notifications'
 import { compressIfNeeded } from './storage/conversationCompression'
-import { isGpt5Auto } from './utils/openrouterReasoning'
+// import { isGpt5Auto } from './utils/openrouterReasoning'
 
 const sortSessions = (sessions: ChatSession[]) =>
   [...sessions].sort(
@@ -1560,11 +1560,7 @@ TOOL_SEARCH_HANDOFF,
             if (reasoningEnabled && isClaudeModel(effectiveModel)) {
               requestBody.reasoning = { effort: 'high' }
             }
-            if (
-              reasoningEnabled &&
-              activeSettings.chatHighReasoningEnabled &&
-              isGpt5Auto(effectiveModel)
-            ) {
+            if (reasoningEnabled && activeSettings.chatHighReasoningEnabled) {
               requestBody.reasoning = { effort: 'high' }
             }
 
