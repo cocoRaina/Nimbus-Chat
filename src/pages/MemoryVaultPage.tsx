@@ -176,13 +176,33 @@ const MemoriesTab = () => {
     if (!supabase) return
     setExtracting(true)
     try {
+      const { data: rows } = await supabase
+        .from('messages')
+        .select('role,content')
+        .order('created_at', { ascending: false })
+        .limit(30)
+      const recentMessages = (rows ?? []).reverse().map((r: { role: string; content: string }) => ({
+        role: r.role,
+        content: r.content,
+      }))
+      if (recentMessages.length === 0) {
+        setError('没有可提取的聊天记录')
+        return
+      }
       const { data, error: err } = await supabase.functions.invoke('memory-extract', {
-        body: { recentMessages: [] },
+        body: { recentMessages },
       })
       if (err) {
         console.warn('[ManualExtract] error:', err)
+        setError('提取失败：' + (typeof err === 'string' ? err : JSON.stringify(err)))
       } else {
         console.log('[ManualExtract] result:', data)
+        const inserted = data?.inserted ?? 0
+        if (inserted > 0) {
+          setError(null)
+        } else {
+          setError('没有发现新的可提取记忆')
+        }
       }
       await refresh()
       const { data: newLog } = await supabase
@@ -192,6 +212,9 @@ const MemoriesTab = () => {
         .limit(1)
         .maybeSingle()
       if (newLog) setLastLog(newLog)
+    } catch (e) {
+      console.warn('[ManualExtract] exception:', e)
+      setError('提取异常')
     } finally {
       setExtracting(false)
     }
@@ -941,7 +964,6 @@ const TimelineTab = () => {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draft, setDraft] = useState<TimelineDraft>(emptyTimelineDraft())
   const [saving, setSaving] = useState(false)
-  const [search, setSearch] = useState('')
   const [minImportance, setMinImportance] = useState(1)
   const [tlSourceFilter, setTlSourceFilter] = useState<SourceFilter>('all')
 
@@ -979,19 +1001,13 @@ const TimelineTab = () => {
   }, [items])
 
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase()
     return items.filter((t) => {
       if (t.importance < minImportance) return false
       if (tlSourceFilter === 'manual' && t.source === 'auto') return false
       if (tlSourceFilter === 'auto' && t.source !== 'auto') return false
-      if (!term) return true
-      return (
-        t.title.toLowerCase().includes(term) ||
-        (t.description ?? '').toLowerCase().includes(term) ||
-        t.category.toLowerCase().includes(term)
-      )
+      return true
     })
-  }, [items, search, minImportance, tlSourceFilter])
+  }, [items, minImportance, tlSourceFilter])
 
   const startEdit = (t: TimelineEvent) => {
     setEditingId(t.id)
@@ -1133,13 +1149,6 @@ const TimelineTab = () => {
 
       <section className="memory-vault-list">
         <div className="memory-vault-toolbar">
-          <input
-            className="memory-vault-search"
-            type="search"
-            placeholder="搜索标题 / 描述 / 分类"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
           <select
             className="memory-vault-filter"
             value={minImportance}

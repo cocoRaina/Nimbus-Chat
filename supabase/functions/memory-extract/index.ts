@@ -25,11 +25,23 @@ const PENDING_CAP = 50
 const CLUSTER_SIMILARITY_THRESHOLD = 0.78
 const EXISTING_DEDUPE_THRESHOLD = 0.85
 const EXISTING_RECENT_LIMIT = 200
-const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://chuan-101.github.io',
-  'Access-Control-Allow-Headers': 'authorization, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  Vary: 'Origin',
+const ALLOWED_ORIGINS = [
+  'https://chuan-101.github.io',
+  'https://cocoraina.github.io',
+  'https://localhost',
+  'capacitor://localhost',
+  'http://localhost',
+]
+
+const buildCorsHeaders = (req?: Request) => {
+  const origin = req?.headers.get('origin') ?? ''
+  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+  return {
+    'Access-Control-Allow-Origin': allowed,
+    'Access-Control-Allow-Headers': 'authorization, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    Vary: 'Origin',
+  }
 }
 
 const EXTRACTION_PROMPT = `You extract long-term memory suggestions from a chat.
@@ -53,11 +65,11 @@ Rules:
 - Prefer specific wording when merging similar items.
 - No commentary, no markdown, no extra keys.`
 
-const jsonResponse = (payload: Record<string, unknown>, status = 200) =>
+const jsonResponse = (payload: Record<string, unknown>, status = 200, cors?: Record<string, string>) =>
   new Response(JSON.stringify(payload), {
     status,
     headers: {
-      ...corsHeaders,
+      ...(cors ?? buildCorsHeaders()),
       'Content-Type': 'application/json',
     },
   })
@@ -268,21 +280,22 @@ const enforcePendingCap = async (supabase: ReturnType<typeof createClient>, user
 }
 
 serve(async (req) => {
+  const cors = buildCorsHeaders(req)
   try {
     if (req.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders })
+      return new Response(null, { status: 204, headers: cors })
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
     if (!supabaseUrl || !anonKey) {
-      return jsonResponse({ error: 'Supabase 环境变量未配置' }, 500)
+      return jsonResponse({ error: 'Supabase 环境变量未配置' }, 500, cors)
     }
 
     const authHeader = req.headers.get('authorization')
     const apikey = req.headers.get('apikey')
     if (!authHeader || !apikey) {
-      return jsonResponse({ error: '缺少身份令牌' }, 401)
+      return jsonResponse({ error: '缺少身份令牌' }, 401, cors)
     }
 
     const supabase = createClient(supabaseUrl, anonKey, {
@@ -299,14 +312,14 @@ serve(async (req) => {
       error: userError,
     } = await supabase.auth.getUser()
     if (userError || !user) {
-      return jsonResponse({ error: '身份令牌无效' }, 401)
+      return jsonResponse({ error: '身份令牌无效' }, 401, cors)
     }
 
     let payload: RequestPayload
     try {
       payload = await req.json()
     } catch {
-      return jsonResponse({ error: '请求体格式错误' }, 400)
+      return jsonResponse({ error: '请求体格式错误' }, 400, cors)
     }
 
     const recentMessages = (payload.recentMessages ?? [])
@@ -318,7 +331,7 @@ serve(async (req) => {
       .filter((message) => message.content.length > 0)
 
     if (recentMessages.length === 0) {
-      return jsonResponse({ inserted: 0, skipped: 0, items: [] })
+      return jsonResponse({ inserted: 0, skipped: 0, items: [] }, 200, cors)
     }
 
     const { data: settings, error: settingsError } = await supabase
@@ -328,7 +341,7 @@ serve(async (req) => {
       .maybeSingle<UserSettingsRow>()
 
     if (settingsError) {
-      return jsonResponse({ error: '读取用户设置失败' }, 500)
+      return jsonResponse({ error: '读取用户设置失败' }, 500, cors)
     }
 
     const mergeEnabled =
@@ -338,12 +351,12 @@ serve(async (req) => {
 
     const modelId = settings?.memory_extract_model?.trim() || settings?.default_model?.trim() || ''
     if (!modelId) {
-      return jsonResponse({ error: '请先在设置中配置默认模型或抽取模型' }, 400)
+      return jsonResponse({ error: '请先在设置中配置默认模型或抽取模型' }, 400, cors)
     }
 
     const openRouterApiKey = Deno.env.get('OPENROUTER_API_KEY')
     if (!openRouterApiKey) {
-      return jsonResponse({ error: '服务未配置 OPENROUTER_API_KEY' }, 500)
+      return jsonResponse({ error: '服务未配置 OPENROUTER_API_KEY' }, 500, cors)
     }
 
     const conversation = recentMessages
@@ -359,7 +372,7 @@ serve(async (req) => {
     })
 
     if (extractionResult.error) {
-      return jsonResponse({ error: extractionResult.error || '抽取模型调用失败' }, extractionResult.status)
+      return jsonResponse({ error: extractionResult.error || '抽取模型调用失败' }, extractionResult.status, cors)
     }
 
     const extracted = extractionResult.items
@@ -374,7 +387,7 @@ serve(async (req) => {
       .limit(EXISTING_RECENT_LIMIT)
 
     if (existingError) {
-      return jsonResponse({ error: '读取已有记忆失败' }, 500)
+      return jsonResponse({ error: '读取已有记忆失败' }, 500, cors)
     }
 
     const pendingContext = (existingRows ?? [])
@@ -407,7 +420,7 @@ ${JSON.stringify(mergeInput)}`,
       : { error: null, status: 200, items: extracted }
 
     if (mergedItems.error) {
-      return jsonResponse({ error: mergedItems.error }, mergedItems.status)
+      return jsonResponse({ error: mergedItems.error }, mergedItems.status, cors)
     }
 
     const clusteredItems = clusterItems(mergedItems.items)
@@ -469,21 +482,21 @@ ${JSON.stringify(mergeInput)}`,
       )
 
       if (insertError) {
-        return jsonResponse({ error: '写入记忆失败' }, 500)
+        return jsonResponse({ error: '写入记忆失败' }, 500, cors)
       }
     }
 
     const pendingCapResult = await enforcePendingCap(supabase, user.id)
     if (pendingCapResult.error) {
-      return jsonResponse({ error: '清理待确认记忆失败' }, 500)
+      return jsonResponse({ error: '清理待确认记忆失败' }, 500, cors)
     }
 
     return jsonResponse({
       inserted: acceptedItems.length,
       skipped,
       items: acceptedItems,
-    })
+    }, 200, cors)
   } catch {
-    return jsonResponse({ error: '服务内部错误' }, 500)
+    return jsonResponse({ error: '服务内部错误' }, 500, cors)
   }
 })
