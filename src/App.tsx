@@ -56,7 +56,7 @@ import {
 } from './constants/aiOverlays'
 import { resolveModelId } from './utils/modelResolver'
 import { fetchOpenRouter } from './api/openrouter'
-import { getActiveProvider } from './storage/apiProvider'
+import { getActiveProvider, getProviderConfig } from './storage/apiProvider'
 import { recordUsage } from './storage/usageStats'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
 import { runSandboxCode } from './storage/sandbox'
@@ -604,7 +604,10 @@ const App = () => {
             .eq('is_deleted', false)
           if ((count ?? 0) >= AUTO_EXTRACT_PENDING_LIMIT) return
           autoExtractStateRef.current[sessionId] = { lastUserCount: userCount, lastExtractedAt: Date.now() }
-          await sb.functions.invoke('memory-extract', { body: { recentMessages: recentMsgs } })
+          const provider = getProviderConfig()
+          await sb.functions.invoke('memory-extract', {
+            body: { recentMessages: recentMsgs, apiBase: provider.baseUrl, apiKey: provider.apiKey },
+          })
         } catch (error) {
           console.warn('自动抽取记忆建议失败', error)
         }

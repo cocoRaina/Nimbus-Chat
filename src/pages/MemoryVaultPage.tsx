@@ -20,6 +20,7 @@ import {
   updateTimelineEvent,
 } from '../storage/supabaseSync'
 import { supabase } from '../supabase/client'
+import { getProviderConfig } from '../storage/apiProvider'
 import './MemoryVaultPage.css'
 
 type Tab = 'memories' | 'diaries' | 'letters' | 'timeline'
@@ -265,8 +266,13 @@ const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[]
         setExtracting(false)
         return
       }
+      const provider = getProviderConfig()
       const { data, error: err } = await supabase.functions.invoke('memory-extract', {
-        body: { recentMessages: msgs },
+        body: {
+          recentMessages: msgs,
+          apiBase: provider.baseUrl,
+          apiKey: provider.apiKey,
+        },
       })
       if (err) {
         console.warn('[ManualExtract] error:', err)

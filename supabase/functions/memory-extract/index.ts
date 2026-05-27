@@ -9,6 +9,9 @@ type MessageInput = {
 type RequestPayload = {
   recentMessages?: MessageInput[]
   mergeEnabled?: boolean
+  apiBase?: string
+  apiKey?: string
+  model?: string
 }
 
 type UserSettingsRow = {
@@ -209,17 +212,20 @@ const parseItems = (output: string): string[] => {
 const callExtractionModel = async ({
   modelId,
   apiKey,
+  apiBase,
   systemPrompt,
   userPrompt,
   maxTokens,
 }: {
   modelId: string
   apiKey: string
+  apiBase: string
   systemPrompt: string
   userPrompt: string
   maxTokens: number
 }) => {
-  const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const endpoint = apiBase.replace(/\/+$/, '') + '/chat/completions'
+  const upstream = await fetch(endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -349,15 +355,19 @@ serve(async (req) => {
         ? payload.mergeEnabled
         : settings?.memory_merge_enabled ?? true
 
-    const modelId = settings?.memory_extract_model?.trim() || settings?.default_model?.trim() || ''
+    const modelId = payload.model?.trim()
+      || settings?.memory_extract_model?.trim()
+      || settings?.default_model?.trim()
+      || ''
     if (!modelId) {
       return jsonResponse({ error: '请先在设置中配置默认模型或抽取模型' }, 400, cors)
     }
 
-    const openRouterApiKey = Deno.env.get('OPENROUTER_API_KEY')
-    if (!openRouterApiKey) {
-      return jsonResponse({ error: '服务未配置 OPENROUTER_API_KEY' }, 500, cors)
+    const resolvedApiKey = payload.apiKey?.trim() || Deno.env.get('OPENROUTER_API_KEY') || ''
+    if (!resolvedApiKey) {
+      return jsonResponse({ error: '未提供 API Key（请求体或环境变量均为空）' }, 500, cors)
     }
+    const resolvedApiBase = payload.apiBase?.trim() || 'https://openrouter.ai/api/v1'
 
     const conversation = recentMessages
       .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
@@ -365,7 +375,8 @@ serve(async (req) => {
 
     const extractionResult = await callExtractionModel({
       modelId,
-      apiKey: openRouterApiKey,
+      apiKey: resolvedApiKey,
+      apiBase: resolvedApiBase,
       systemPrompt: EXTRACTION_PROMPT,
       userPrompt: `Conversation:\n${conversation}`,
       maxTokens: 700,
@@ -404,7 +415,8 @@ serve(async (req) => {
 
           const mergeResult = await callExtractionModel({
             modelId,
-            apiKey: openRouterApiKey,
+            apiKey: resolvedApiKey,
+            apiBase: resolvedApiBase,
             systemPrompt: MERGE_PROMPT,
             userPrompt: `Merge these memory candidates and existing pending memories:
 ${JSON.stringify(mergeInput)}`,
