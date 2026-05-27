@@ -245,18 +245,35 @@ const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[]
 
   const handleManualExtract = async () => {
     if (!supabase) return
-    if (recentMessages.length === 0) {
-      setError('没有可提取的聊天记录，请先在对话中聊几句')
-      return
-    }
     setExtracting(true)
+    setError(null)
     try {
+      let msgs = recentMessages
+      if (msgs.length === 0) {
+        const { data: rows } = await supabase
+          .from('messages')
+          .select('role,content')
+          .order('created_at', { ascending: false })
+          .limit(24)
+        msgs = (rows ?? []).reverse().map((r: { role: string; content: string }) => ({
+          role: r.role,
+          content: r.content,
+        }))
+      }
+      if (msgs.length === 0) {
+        setError('没有可提取的聊天记录 — 请先在对话中聊几句')
+        setExtracting(false)
+        return
+      }
       const { data, error: err } = await supabase.functions.invoke('memory-extract', {
-        body: { recentMessages },
+        body: { recentMessages: msgs },
       })
       if (err) {
         console.warn('[ManualExtract] error:', err)
-        setError('提取失败：' + (typeof err === 'string' ? err : JSON.stringify(err)))
+        const msg = typeof err === 'object' && err !== null && 'message' in err
+          ? (err as { message: string }).message
+          : JSON.stringify(err)
+        setError('提取失败：' + msg)
       } else {
         console.log('[ManualExtract] result:', data)
         const inserted = data?.inserted ?? 0
