@@ -1480,10 +1480,11 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
                       setExtractStatus('idle')
                     }}
                   >
-                    <option value="anthropic/claude-haiku-4-5">Claude Haiku 4.5（推荐）</option>
-                    <option value="anthropic/claude-sonnet-4-6">Claude Sonnet 4.6</option>
-                    <option value="openai/gpt-4o-mini">GPT-4o-mini</option>
-                    <option value="openai/gpt-5.1">GPT-5.1</option>
+                    {draftEnabledModels.map((modelId) => (
+                      <option key={modelId} value={modelId}>
+                        {catalogMap.get(modelId) ?? modelId}
+                      </option>
+                    ))}
                   </select>
                   <span className="settings-hint">用于从聊天记录中提取记忆的模型，推荐用便宜的小模型。</span>
                 </div>

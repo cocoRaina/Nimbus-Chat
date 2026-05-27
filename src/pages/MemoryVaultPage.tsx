@@ -25,7 +25,6 @@ import './MemoryVaultPage.css'
 type Tab = 'memories' | 'diaries' | 'letters' | 'timeline'
 
 const DEFAULT_CATEGORY = '日常'
-const ALL_CATEGORY = '__all__'
 
 const todayDate = () => {
   const now = new Date()
@@ -123,7 +122,6 @@ const MemoriesTab = () => {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draft, setDraft] = useState<MemoryDraft>(emptyMemoryDraft())
   const [saving, setSaving] = useState(false)
-  const [filterCategory, setFilterCategory] = useState<string>(ALL_CATEGORY)
   const [searchTerm, setSearchTerm] = useState('')
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [extracting, setExtracting] = useState(false)
@@ -207,21 +205,9 @@ const MemoriesTab = () => {
     return Array.from(set).sort()
   }, [memories])
 
-  // Pre-compute category counts once so the <option> map below doesn't run
-  // memories.filter() per category on every render (O(N·M) → O(N)).
-  const categoryCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const m of memories) {
-      if (!m.category) continue
-      counts.set(m.category, (counts.get(m.category) ?? 0) + 1)
-    }
-    return counts
-  }, [memories])
-
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
     return memories.filter((m) => {
-      if (filterCategory !== ALL_CATEGORY && m.category !== filterCategory) return false
       if (sourceFilter === 'manual' && m.source === 'auto') return false
       if (sourceFilter === 'auto' && m.source !== 'auto') return false
       if (!term) return true
@@ -230,7 +216,7 @@ const MemoriesTab = () => {
         m.tags.some((tag) => tag.toLowerCase().includes(term))
       )
     })
-  }, [memories, filterCategory, searchTerm, sourceFilter])
+  }, [memories, searchTerm, sourceFilter])
 
   const startEdit = (memory: Memory) => {
     setEditingId(memory.id)
@@ -367,18 +353,6 @@ const MemoriesTab = () => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
-          <select
-            className="memory-vault-filter"
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-          >
-            <option value={ALL_CATEGORY}>全部（{memories.length}）</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}（{categoryCounts.get(c) ?? 0}）
-              </option>
-            ))}
-          </select>
           <div className="source-filter">
             <button
               type="button"
@@ -969,6 +943,7 @@ const TimelineTab = () => {
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
   const [minImportance, setMinImportance] = useState(1)
+  const [tlSourceFilter, setTlSourceFilter] = useState<SourceFilter>('all')
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -993,10 +968,22 @@ const TimelineTab = () => {
     return Array.from(set).sort()
   }, [items])
 
+  const tlSourceCounts = useMemo(() => {
+    let manual = 0
+    let auto = 0
+    for (const t of items) {
+      if (t.source === 'auto') auto++
+      else manual++
+    }
+    return { all: items.length, manual, auto }
+  }, [items])
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     return items.filter((t) => {
       if (t.importance < minImportance) return false
+      if (tlSourceFilter === 'manual' && t.source === 'auto') return false
+      if (tlSourceFilter === 'auto' && t.source !== 'auto') return false
       if (!term) return true
       return (
         t.title.toLowerCase().includes(term) ||
@@ -1004,7 +991,7 @@ const TimelineTab = () => {
         t.category.toLowerCase().includes(term)
       )
     })
-  }, [items, search, minImportance])
+  }, [items, search, minImportance, tlSourceFilter])
 
   const startEdit = (t: TimelineEvent) => {
     setEditingId(t.id)
@@ -1158,12 +1145,35 @@ const TimelineTab = () => {
             value={minImportance}
             onChange={(e) => setMinImportance(Number(e.target.value))}
           >
-            <option value={1}>全部（{items.length}）</option>
+            <option value={1}>≥ 1 星</option>
             <option value={2}>≥ 2 星</option>
             <option value={3}>≥ 3 星</option>
             <option value={4}>≥ 4 星</option>
             <option value={5}>仅 5 星</option>
           </select>
+          <div className="source-filter">
+            <button
+              type="button"
+              className={tlSourceFilter === 'all' ? 'active' : ''}
+              onClick={() => setTlSourceFilter('all')}
+            >
+              全部({tlSourceCounts.all})
+            </button>
+            <button
+              type="button"
+              className={tlSourceFilter === 'manual' ? 'active' : ''}
+              onClick={() => setTlSourceFilter('manual')}
+            >
+              手动({tlSourceCounts.manual})
+            </button>
+            <button
+              type="button"
+              className={tlSourceFilter === 'auto' ? 'active' : ''}
+              onClick={() => setTlSourceFilter('auto')}
+            >
+              ✨自动({tlSourceCounts.auto})
+            </button>
+          </div>
         </div>
 
         {filtered.length === 0 ? (
