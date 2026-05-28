@@ -1,5 +1,6 @@
 import { getProviderConfig, PROVIDER_MISSING_KEY_MESSAGE, type ProviderId } from '../storage/apiProvider'
 import { OPENROUTER_MISSING_KEY_MESSAGE } from '../storage/openrouterKey'
+import { fetchAnthropicAsOpenAi } from './anthropic'
 
 type FetchOptions = {
   body?: Record<string, unknown>
@@ -17,11 +18,18 @@ export const fetchOpenRouter = async (
   path: string,
   { body, signal, provider }: FetchOptions = {},
 ): Promise<Response> => {
-  const { baseUrl, apiKey, label, id } = getProviderConfig(provider)
+  const { baseUrl, apiKey, label, id, format } = getProviderConfig(provider)
   if (!apiKey) {
     throw new Error(
       id === 'openrouter' ? OPENROUTER_MISSING_KEY_MESSAGE : PROVIDER_MISSING_KEY_MESSAGE(label),
     )
+  }
+
+  // Anthropic-format provider: only chat completions get translated to
+  // /v1/messages. /models still uses OpenAI-compatible path since both
+  // OR and 中转 expose model lists in OpenAI shape regardless of format.
+  if (format === 'anthropic' && path === '/chat/completions' && body) {
+    return fetchAnthropicAsOpenAi(baseUrl, apiKey, body as Parameters<typeof fetchAnthropicAsOpenAi>[2], signal)
   }
 
   return fetch(`${baseUrl}${path}`, {
