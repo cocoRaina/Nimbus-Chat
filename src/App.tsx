@@ -613,6 +613,22 @@ const App = () => {
       const recentMsgs = buildRecentExtractionMessages(sessionId, messagesRef.current, MEMORY_EXTRACT_RECENT_MESSAGES)
       if (recentMsgs.length === 0) return
       void (async () => {
+        const startMs = Date.now()
+        let logEntry: {
+          messages_scanned: number
+          memories_extracted: number
+          memories_inserted: number
+          memories_skipped: number
+          duration_ms: number
+          error: string | null
+        } = {
+          messages_scanned: recentMsgs.length,
+          memories_extracted: 0,
+          memories_inserted: 0,
+          memories_skipped: 0,
+          duration_ms: 0,
+          error: null,
+        }
         try {
           const { count } = await sb
             .from('memory_entries')
@@ -620,14 +636,38 @@ const App = () => {
             .eq('user_id', user.id)
             .eq('status', 'pending')
             .eq('is_deleted', false)
-          if ((count ?? 0) >= AUTO_EXTRACT_PENDING_LIMIT) return
+          if ((count ?? 0) >= AUTO_EXTRACT_PENDING_LIMIT) {
+            logEntry.error = `待确认 ≥ ${AUTO_EXTRACT_PENDING_LIMIT}，跳过`
+            logEntry.duration_ms = Date.now() - startMs
+            await sb.from('memory_extract_log').insert({ user_id: user.id, ...logEntry })
+            return
+          }
           autoExtractStateRef.current[sessionId] = { lastUserCount: userCount, lastExtractedAt: Date.now() }
           const provider = getProviderConfig()
-          await sb.functions.invoke('memory-extract', {
+          const { data, error } = await sb.functions.invoke('memory-extract', {
             body: { recentMessages: recentMsgs, apiBase: provider.baseUrl, apiKey: provider.apiKey },
           })
+          logEntry.duration_ms = Date.now() - startMs
+          if (error) {
+            logEntry.error = typeof error === 'object' && error !== null && 'message' in error
+              ? String((error as { message: unknown }).message)
+              : JSON.stringify(error)
+          } else if (data && typeof data === 'object') {
+            const d = data as { items?: unknown[]; inserted?: number; skipped?: number }
+            logEntry.memories_extracted = Array.isArray(d.items) ? d.items.length : 0
+            logEntry.memories_inserted = typeof d.inserted === 'number' ? d.inserted : 0
+            logEntry.memories_skipped = typeof d.skipped === 'number' ? d.skipped : 0
+          }
+          await sb.from('memory_extract_log').insert({ user_id: user.id, ...logEntry })
         } catch (error) {
+          logEntry.duration_ms = Date.now() - startMs
+          logEntry.error = error instanceof Error ? error.message : String(error)
           console.warn('自动抽取记忆建议失败', error)
+          try {
+            await sb.from('memory_extract_log').insert({ user_id: user.id, ...logEntry })
+          } catch {
+            // ignore log write failure
+          }
         }
       })()
     })

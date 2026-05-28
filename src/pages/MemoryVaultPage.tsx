@@ -267,6 +267,7 @@ const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[]
         return
       }
       const provider = getProviderConfig()
+      const startMs = Date.now()
       const { data, error: err } = await supabase.functions.invoke('memory-extract', {
         body: {
           recentMessages: msgs,
@@ -274,6 +275,25 @@ const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[]
           apiKey: provider.apiKey,
         },
       })
+      const durationMs = Date.now() - startMs
+      const { data: userData } = await supabase.auth.getUser()
+      const userId = userData.user?.id
+      if (userId) {
+        const logRow = {
+          user_id: userId,
+          messages_scanned: msgs.length,
+          memories_extracted: Array.isArray(data?.items) ? data.items.length : 0,
+          memories_inserted: typeof data?.inserted === 'number' ? data.inserted : 0,
+          memories_skipped: typeof data?.skipped === 'number' ? data.skipped : 0,
+          duration_ms: durationMs,
+          error: err
+            ? typeof err === 'object' && err !== null && 'message' in err
+              ? String((err as { message: unknown }).message)
+              : JSON.stringify(err)
+            : null,
+        }
+        await supabase.from('memory_extract_log').insert(logRow)
+      }
       if (err) {
         console.warn('[ManualExtract] error:', err)
         const msg = typeof err === 'object' && err !== null && 'message' in err
