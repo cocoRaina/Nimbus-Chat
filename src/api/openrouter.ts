@@ -36,16 +36,57 @@ export const fetchOpenRouter = async (
 }
 
 export const fetchOpenRouterModels = async () => {
-  const response = await fetchOpenRouter('/models')
-  if (!response.ok) {
-    throw new Error(await response.text())
+  const { id: providerId } = getProviderConfig()
+  const cacheKey = `nimbus_models_cache_v1:${providerId}`
+  const cacheTtlMs = 24 * 60 * 60 * 1000
+
+  const readCache = (): Array<{ id: string; name?: string; context_length: number | null }> | null => {
+    if (typeof window === 'undefined') return null
+    try {
+      const raw = window.localStorage.getItem(cacheKey)
+      if (!raw) return null
+      const parsed = JSON.parse(raw) as { savedAt: number; models: Array<{ id: string; name?: string; context_length: number | null }> }
+      if (Date.now() - parsed.savedAt > cacheTtlMs) {
+        return parsed.models
+      }
+      return parsed.models
+    } catch {
+      return null
+    }
   }
-  const payload = (await response.json()) as { data?: Array<{ id: string; name?: string; context_length?: number | null }> }
-  return Array.isArray(payload.data)
-    ? payload.data.map((model) => ({
-        id: model.id,
-        name: model.name,
-        context_length: model.context_length ?? null,
-      }))
-    : []
+
+  const writeCache = (models: Array<{ id: string; name?: string; context_length: number | null }>) => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), models }))
+    } catch {
+      // ignore quota errors
+    }
+  }
+
+  try {
+    const response = await fetchOpenRouter('/models')
+    if (!response.ok) {
+      const cached = readCache()
+      if (cached && cached.length > 0) return cached
+      throw new Error(await response.text())
+    }
+    const payload = (await response.json()) as { data?: Array<{ id: string; name?: string; context_length?: number | null }> }
+    const models = Array.isArray(payload.data)
+      ? payload.data.map((model) => ({
+          id: model.id,
+          name: model.name,
+          context_length: model.context_length ?? null,
+        }))
+      : []
+    if (models.length > 0) writeCache(models)
+    return models
+  } catch (error) {
+    const cached = readCache()
+    if (cached && cached.length > 0) {
+      console.warn('[模型库] 网络获取失败，使用本地缓存', error)
+      return cached
+    }
+    throw error
+  }
 }
