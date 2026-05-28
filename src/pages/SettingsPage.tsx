@@ -134,6 +134,7 @@ const SettingsPage = ({
   const [memoryExtractSectionExpanded, setMemoryExtractSectionExpanded] = useState(false)
   const [draftAutoExtractEnabled, setDraftAutoExtractEnabled] = useState(true)
   const [draftExtractModel, setDraftExtractModel] = useState('anthropic/claude-haiku-4-5')
+  const [draftExtractProvider, setDraftExtractProvider] = useState<ProviderId>('openrouter')
   const [extractStatus, setExtractStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [errors, setErrors] = useState<{ temperature?: string; topP?: string; maxTokens?: string; compressionRatio?: string; compressionKeepRecent?: string }>(
     {},
@@ -170,6 +171,7 @@ const SettingsPage = ({
       setDraftChatHighReasoning(settings.chatHighReasoningEnabled)
       setDraftAutoExtractEnabled(settings.autoMemoryExtractEnabled)
       setDraftExtractModel(settings.memoryExtractModel)
+      setDraftExtractProvider(settings.memoryExtractProvider)
     }, 0)
     return () => {
       window.clearTimeout(timer)
@@ -608,7 +610,8 @@ const SettingsPage = ({
 
   const hasUnsavedExtract = settings
     ? settings.autoMemoryExtractEnabled !== draftAutoExtractEnabled ||
-      settings.memoryExtractModel !== draftExtractModel
+      settings.memoryExtractModel !== draftExtractModel ||
+      settings.memoryExtractProvider !== draftExtractProvider
     : false
 
   const handleSaveExtractSettings = async () => {
@@ -616,6 +619,7 @@ const SettingsPage = ({
     const nextSettings = buildNextSettings({
       autoMemoryExtractEnabled: draftAutoExtractEnabled,
       memoryExtractModel: draftExtractModel,
+      memoryExtractProvider: draftExtractProvider,
     })
     if (!nextSettings) return
     setExtractStatus('saving')
@@ -1540,22 +1544,50 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
             {draftAutoExtractEnabled ? (
               <>
                 <div className="field-group">
+                  <label>提取提供商</label>
+                  <div className="system-prompt-actions" role="radiogroup" aria-label="提取使用的 API">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={draftExtractProvider === 'openrouter'}
+                      className={draftExtractProvider === 'openrouter' ? 'primary' : 'ghost'}
+                      onClick={() => {
+                        setDraftExtractProvider('openrouter')
+                        setExtractStatus('idle')
+                      }}
+                    >
+                      OpenRouter
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={draftExtractProvider === 'msuicode'}
+                      className={draftExtractProvider === 'msuicode' ? 'primary' : 'ghost'}
+                      onClick={() => {
+                        setDraftExtractProvider('msuicode')
+                        setExtractStatus('idle')
+                      }}
+                    >
+                      {customProviderName}
+                    </button>
+                  </div>
+                  <span className="settings-hint">和聊天分开走 —— 比如聊天走中转站，提取走 OpenRouter。</span>
+                </div>
+                <div className="field-group">
                   <label htmlFor="extractModel">提取模型</label>
-                  <select
+                  <input
                     id="extractModel"
+                    type="text"
                     value={draftExtractModel}
                     onChange={(event) => {
                       setDraftExtractModel(event.target.value)
                       setExtractStatus('idle')
                     }}
-                  >
-                    {draftEnabledModels.map((modelId) => (
-                      <option key={modelId} value={modelId}>
-                        {catalogMap.get(modelId) ?? modelId}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="settings-hint">用于从聊天记录中提取记忆的模型，推荐用便宜的小模型。</span>
+                    placeholder={draftExtractProvider === 'openrouter' ? 'anthropic/claude-haiku-4-5' : '中转站支持的模型名'}
+                  />
+                  <span className="settings-hint">
+                    填上方提供商认识的模型 ID。推荐便宜的小模型。
+                  </span>
                 </div>
                 <p className="field-help">每 12 轮用户发言自动触发一次提取，冷却 10 分钟。待确认记忆 ≥ 50 条时暂停。</p>
               </>

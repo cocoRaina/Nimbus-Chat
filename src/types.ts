@@ -73,6 +73,10 @@ export type UserSettings = {
   chatHighReasoningEnabled: boolean
   autoMemoryExtractEnabled: boolean
   memoryExtractModel: string
+  /** Which API provider runs memory extraction. Stored locally only,
+   *  mirroring summarizerProvider, so users can let chat go through one
+   *  provider and extraction through another. */
+  memoryExtractProvider: 'openrouter' | 'msuicode'
   memoryExtractIntervalHours: number
   lastMemoryExtractAt: string | null
   updatedAt: string

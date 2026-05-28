@@ -643,7 +643,7 @@ const App = () => {
             return
           }
           autoExtractStateRef.current[sessionId] = { lastUserCount: userCount, lastExtractedAt: Date.now() }
-          const provider = getProviderConfig()
+          const provider = getProviderConfig(activeSettings.memoryExtractProvider)
           const { data, error } = await sb.functions.invoke('memory-extract', {
             body: { recentMessages: recentMsgs, apiBase: provider.baseUrl, apiKey: provider.apiKey },
           })
@@ -2869,6 +2869,7 @@ TOOL_SEARCH_HANDOFF,
                   messages,
                   MEMORY_EXTRACT_RECENT_MESSAGES,
                 )}
+                memoryExtractProvider={activeSettings.memoryExtractProvider}
               />
             </RequireAuth>
           }

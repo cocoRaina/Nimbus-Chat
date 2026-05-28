@@ -20,7 +20,7 @@ import {
   updateTimelineEvent,
 } from '../storage/supabaseSync'
 import { supabase } from '../supabase/client'
-import { getProviderConfig } from '../storage/apiProvider'
+import { getProviderConfig, type ProviderId } from '../storage/apiProvider'
 import './MemoryVaultPage.css'
 
 type Tab = 'memories' | 'diaries' | 'letters' | 'timeline'
@@ -41,7 +41,12 @@ const parseTagsInput = (raw: string): string[] =>
 
 type ExtractMessageInput = { role: string; content: string }
 
-const MemoryVaultPage = ({ recentMessages }: { recentMessages: ExtractMessageInput[] }) => {
+type MemoryVaultProps = {
+  recentMessages: ExtractMessageInput[]
+  memoryExtractProvider: ProviderId
+}
+
+const MemoryVaultPage = ({ recentMessages, memoryExtractProvider }: MemoryVaultProps) => {
   const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('memories')
 
@@ -94,7 +99,9 @@ const MemoryVaultPage = ({ recentMessages }: { recentMessages: ExtractMessageInp
         </button>
       </div>
 
-      {tab === 'memories' ? <MemoriesTab recentMessages={recentMessages} /> : null}
+      {tab === 'memories' ? (
+        <MemoriesTab recentMessages={recentMessages} memoryExtractProvider={memoryExtractProvider} />
+      ) : null}
       {tab === 'diaries' ? <DiariesTab /> : null}
       {tab === 'letters' ? <LettersTab /> : null}
       {tab === 'timeline' ? <TimelineTab /> : null}
@@ -125,7 +132,13 @@ type PendingEntry = {
   created_at: string
 }
 
-const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[] }) => {
+const MemoriesTab = ({
+  recentMessages,
+  memoryExtractProvider,
+}: {
+  recentMessages: ExtractMessageInput[]
+  memoryExtractProvider: ProviderId
+}) => {
   const [memories, setMemories] = useState<Memory[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -266,7 +279,7 @@ const MemoriesTab = ({ recentMessages }: { recentMessages: ExtractMessageInput[]
         setExtracting(false)
         return
       }
-      const provider = getProviderConfig()
+      const provider = getProviderConfig(memoryExtractProvider)
       const startMs = Date.now()
       const { data, error: err } = await supabase.functions.invoke('memory-extract', {
         body: {

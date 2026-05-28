@@ -36,6 +36,7 @@ type UserSettingsRow = {
 type LocalPrefs = {
   chatHighReasoningEnabled: boolean
   summarizerProvider: 'openrouter' | 'msuicode'
+  memoryExtractProvider: 'openrouter' | 'msuicode'
 }
 
 const HIGH_REASONING_STORAGE_KEY = 'nibble_high_reasoning_prefs_v1'
@@ -70,6 +71,7 @@ const resolveLocalPrefs = (userId: string): LocalPrefs => {
   return {
     chatHighReasoningEnabled: stored?.chatHighReasoningEnabled ?? false,
     summarizerProvider: stored?.summarizerProvider === 'msuicode' ? 'msuicode' : 'openrouter',
+    memoryExtractProvider: stored?.memoryExtractProvider === 'msuicode' ? 'msuicode' : 'openrouter',
   }
 }
 
@@ -79,6 +81,7 @@ const applyLocalPrefs = (settings: UserSettings): UserSettings => {
     ...settings,
     chatHighReasoningEnabled: prefs.chatHighReasoningEnabled,
     summarizerProvider: prefs.summarizerProvider,
+    memoryExtractProvider: prefs.memoryExtractProvider,
   }
 }
 
@@ -104,6 +107,7 @@ export const createDefaultSettings = (userId: string): UserSettings => ({
   summarizerProvider: 'openrouter',
   autoMemoryExtractEnabled: true,
   memoryExtractModel: 'anthropic/claude-haiku-4-5',
+  memoryExtractProvider: 'openrouter',
   memoryExtractIntervalHours: 6,
   lastMemoryExtractAt: null,
   updatedAt: new Date().toISOString(),
@@ -131,6 +135,7 @@ const mapSettingsRow = (row: UserSettingsRow): UserSettings => {
     summarizerProvider: highReasoningPrefs.summarizerProvider,
     autoMemoryExtractEnabled: row.auto_memory_extract_enabled ?? true,
     memoryExtractModel: row.memory_extract_model?.trim() || 'anthropic/claude-haiku-4-5',
+    memoryExtractProvider: highReasoningPrefs.memoryExtractProvider,
     memoryExtractIntervalHours: row.memory_extract_interval_hours ?? 6,
     lastMemoryExtractAt: row.last_memory_extract_at ?? null,
     updatedAt: row.updated_at,
@@ -226,6 +231,7 @@ export const updateUserSettings = async (settings: UserSettings): Promise<void> 
   saveLocalPrefs(settings.userId, {
     chatHighReasoningEnabled: settings.chatHighReasoningEnabled,
     summarizerProvider: settings.summarizerProvider,
+    memoryExtractProvider: settings.memoryExtractProvider,
   })
 }
 
