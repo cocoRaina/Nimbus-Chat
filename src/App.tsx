@@ -215,6 +215,7 @@ const TOOL_SEARCH_MEMORY = {
       '当用户提到「记得 / 之前 / 我喜欢 / 我们 / 那次」之类需要回忆具体细节，或你需要确认某件已被告知/记录过的事时调用。' +
       '每条结果带 source 字段标明来源。\n\n' +
       '可以通过 table 参数限定只搜某一个来源（如只搜日记传 "diary"，只搜记忆传 "memory"）。不传则搜全部。\n\n' +
+      '支持三种检索方式叠加：语义（query）、标签（tags）、时间（days / after / before）。找特定类别记忆用 tags，找近期内容用 days。\n\n' +
       '另外：响应里还会附 period_data（最近 10 条经期记录）和 health_data（最近 7 天的睡眠/心率/步数）。' +
       '涉及到生理期 / 月经 / 身体状态 / 累不累 / 睡得好不好 的话题直接看这两块，不用专门查。',
     parameters: {
@@ -236,6 +237,23 @@ const TOOL_SEARCH_MEMORY = {
           type: 'string',
           enum: ['memory', 'diary', 'letter', 'timeline', 'snack_post', 'snack_reply'],
           description: '可选，限定只搜某个来源。不填则搜全部 6 个来源',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '按标签精确筛选记忆（可选）。常用标签：克劳德自我、偏好、感情、性爱、性癖、恐惧、身材、技术、规则。传了标签会只返回带这些标签的记忆。',
+        },
+        days: {
+          type: 'number',
+          description: '只搜最近 N 天的内容（可选）。例如用户问"最近聊了什么"用 days:7',
+        },
+        after: {
+          type: 'string',
+          description: '只搜此日期之后（可选，ISO 格式如 2026-05-01）',
+        },
+        before: {
+          type: 'string',
+          description: '只搜此日期之前（可选，ISO 格式）',
         },
       },
       required: ['query'],
@@ -1851,7 +1869,16 @@ TOOL_SEARCH_HANDOFF,
                 const toolStart = Date.now()
                 try {
                   if (tc.function.name === 'search_memory' && supabase) {
-                    let args: { query?: string; count?: number; category?: string; table?: string } = {}
+                    let args: {
+                      query?: string
+                      count?: number
+                      category?: string
+                      table?: string
+                      tags?: string[]
+                      days?: number
+                      after?: string
+                      before?: string
+                    } = {}
                     try {
                       args = JSON.parse(tc.function.arguments || '{}') as typeof args
                     } catch (jsonError) {
@@ -1870,6 +1897,10 @@ TOOL_SEARCH_HANDOFF,
                         count: args.count,
                         category: args.category,
                         table: args.table,
+                        tags: args.tags,
+                        days: args.days,
+                        after: args.after,
+                        before: args.before,
                       },
                     })
                     resultText = error
