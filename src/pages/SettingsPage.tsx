@@ -17,9 +17,14 @@ import {
   getActiveProvider,
   getMsuicodeApiKey,
   getMsuicodeBaseUrl,
+  getMsuicodeFormat,
+  getOpenRouterFormat,
   saveMsuicodeApiKey,
   saveMsuicodeBaseUrl,
   setActiveProvider,
+  setMsuicodeFormat,
+  setOpenRouterFormat,
+  type ApiFormat,
   type ProviderId,
 } from '../storage/apiProvider'
 import {
@@ -90,11 +95,13 @@ const SettingsPage = ({
   const [openRouterApiKeyInput, setOpenRouterApiKeyInput] = useState(() => getOpenRouterApiKey())
   const [openRouterApiKeyVisible, setOpenRouterApiKeyVisible] = useState(false)
   const [openRouterApiKeyStatus, setOpenRouterApiKeyStatus] = useState<'idle' | 'saved'>('idle')
+  const [openRouterFormat, setOpenRouterFormatState] = useState<ApiFormat>(() => getOpenRouterFormat())
   const [activeProvider, setActiveProviderState] = useState<ProviderId>(() => getActiveProvider())
   const [msuicodeSectionExpanded, setMsuicodeSectionExpanded] = useState(false)
   const [msuicodeApiKeyInput, setMsuicodeApiKeyInput] = useState(() => getMsuicodeApiKey())
   const [msuicodeApiKeyVisible, setMsuicodeApiKeyVisible] = useState(false)
   const [msuicodeApiKeyStatus, setMsuicodeApiKeyStatus] = useState<'idle' | 'saved'>('idle')
+  const [msuicodeFormat, setMsuicodeFormatState] = useState<ApiFormat>(() => getMsuicodeFormat())
   const [msuicodeBaseUrlInput, setMsuicodeBaseUrlInput] = useState(() => getMsuicodeBaseUrl())
   const [sandboxSectionExpanded, setSandboxSectionExpanded] = useState(false)
   const [sandboxEndpointInput, setSandboxEndpointInput] = useState(() => getSandboxEndpoint())
@@ -868,6 +875,39 @@ const SettingsPage = ({
         </button>
         {openRouterKeySectionExpanded ? (
           <div className="accordion-content">
+            <label>API 格式</label>
+            <div className="system-prompt-actions" role="radiogroup" aria-label="API 格式">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={openRouterFormat === 'openai'}
+                className={openRouterFormat === 'openai' ? 'primary' : 'ghost'}
+                onClick={() => {
+                  setOpenRouterFormatState('openai')
+                  setOpenRouterFormat('openai')
+                }}
+              >
+                OpenAI 兼容
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={openRouterFormat === 'anthropic'}
+                className={openRouterFormat === 'anthropic' ? 'primary' : 'ghost'}
+                onClick={() => {
+                  setOpenRouterFormatState('anthropic')
+                  setOpenRouterFormat('anthropic')
+                }}
+              >
+                Anthropic 兼容
+              </button>
+            </div>
+            <span className="settings-hint">
+              {openRouterFormat === 'anthropic'
+                ? '走 /v1/messages 路径，原生思考链 + 缓存。仅 Claude 模型可用。'
+                : '走 /v1/chat/completions 路径，所有模型通用。'}
+            </span>
+
             <label htmlFor="openrouter-api-key">API Key</label>
             <div className="model-select-row">
               <input
@@ -926,6 +966,39 @@ const SettingsPage = ({
         </button>
         {msuicodeSectionExpanded ? (
           <div className="accordion-content">
+            <label>API 格式</label>
+            <div className="system-prompt-actions" role="radiogroup" aria-label="API 格式">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={msuicodeFormat === 'openai'}
+                className={msuicodeFormat === 'openai' ? 'primary' : 'ghost'}
+                onClick={() => {
+                  setMsuicodeFormatState('openai')
+                  setMsuicodeFormat('openai')
+                }}
+              >
+                OpenAI 兼容
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={msuicodeFormat === 'anthropic'}
+                className={msuicodeFormat === 'anthropic' ? 'primary' : 'ghost'}
+                onClick={() => {
+                  setMsuicodeFormatState('anthropic')
+                  setMsuicodeFormat('anthropic')
+                }}
+              >
+                Anthropic 兼容
+              </button>
+            </div>
+            <span className="settings-hint">
+              {msuicodeFormat === 'anthropic'
+                ? '走 /v1/messages 路径，中转需透传 Anthropic 原生格式才能用，可拿到思考链。'
+                : '走 /v1/chat/completions 路径，OpenAI 格式，通用但中转模型一般无思考链。'}
+            </span>
+
             <label htmlFor="msuicode-base-url">Base URL</label>
             <input
               id="msuicode-base-url"

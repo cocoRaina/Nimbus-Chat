@@ -1,10 +1,13 @@
 import { getOpenRouterApiKey } from './openrouterKey'
 
 export type ProviderId = 'openrouter' | 'msuicode'
+export type ApiFormat = 'openai' | 'anthropic'
 
 const STORAGE_ACTIVE = 'nimbus_active_api_provider'
 const STORAGE_MSUI_KEY = 'nimbus_msuicode_api_key'
 const STORAGE_MSUI_BASE = 'nimbus_msuicode_base_url'
+const STORAGE_OR_FORMAT = 'nimbus_or_format'
+const STORAGE_MSUI_FORMAT = 'nimbus_msui_format'
 
 export const DEFAULT_MSUICODE_BASE = 'https://www.msuicode.com'
 
@@ -62,11 +65,28 @@ export const saveMsuicodeBaseUrl = (url: string) => {
   window.localStorage.setItem(STORAGE_MSUI_BASE, url.trim())
 }
 
+const readFormat = (key: string): ApiFormat => {
+  if (typeof window === 'undefined') return 'openai'
+  const v = window.localStorage.getItem(key)
+  return v === 'anthropic' ? 'anthropic' : 'openai'
+}
+
+const writeFormat = (key: string, format: ApiFormat) => {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(key, format)
+}
+
+export const getOpenRouterFormat = (): ApiFormat => readFormat(STORAGE_OR_FORMAT)
+export const setOpenRouterFormat = (format: ApiFormat) => writeFormat(STORAGE_OR_FORMAT, format)
+export const getMsuicodeFormat = (): ApiFormat => readFormat(STORAGE_MSUI_FORMAT)
+export const setMsuicodeFormat = (format: ApiFormat) => writeFormat(STORAGE_MSUI_FORMAT, format)
+
 export type ProviderConfig = {
   id: ProviderId
   baseUrl: string
   apiKey: string
   label: string
+  format: ApiFormat
 }
 
 export const getProviderConfig = (id?: ProviderId): ProviderConfig => {
@@ -77,6 +97,7 @@ export const getProviderConfig = (id?: ProviderId): ProviderConfig => {
       baseUrl: `${trimSlash(getMsuicodeBaseUrl())}/v1`,
       apiKey: getMsuicodeApiKey(),
       label: 'msuicode',
+      format: getMsuicodeFormat(),
     }
   }
   return {
@@ -84,6 +105,7 @@ export const getProviderConfig = (id?: ProviderId): ProviderConfig => {
     baseUrl: 'https://openrouter.ai/api/v1',
     apiKey: getOpenRouterApiKey(),
     label: 'OpenRouter',
+    format: getOpenRouterFormat(),
   }
 }
 
