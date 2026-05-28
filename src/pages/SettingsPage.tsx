@@ -1575,19 +1575,21 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
                 </div>
                 <div className="field-group">
                   <label htmlFor="extractModel">提取模型</label>
-                  <input
+                  <select
                     id="extractModel"
-                    type="text"
                     value={draftExtractModel}
                     onChange={(event) => {
                       setDraftExtractModel(event.target.value)
                       setExtractStatus('idle')
                     }}
-                    placeholder={draftExtractProvider === 'openrouter' ? 'anthropic/claude-haiku-4-5' : '中转站支持的模型名'}
-                  />
-                  <span className="settings-hint">
-                    填上方提供商认识的模型 ID。推荐便宜的小模型。
-                  </span>
+                  >
+                    {draftEnabledModels.map((modelId) => (
+                      <option key={modelId} value={modelId}>
+                        {catalogMap.get(modelId) ?? modelId}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="settings-hint">从「启用的模型」里选一个上方提供商认得的模型，推荐用便宜的小模型。</span>
                 </div>
                 <p className="field-help">每 12 轮用户发言自动触发一次提取，冷却 10 分钟。待确认记忆 ≥ 50 条时暂停。</p>
               </>
