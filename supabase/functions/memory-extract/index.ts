@@ -370,7 +370,12 @@ serve(async (req) => {
     const resolvedApiBase = payload.apiBase?.trim() || 'https://openrouter.ai/api/v1'
 
     const conversation = recentMessages
-      .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
+      // Label speakers with the names DeepSeek (or whichever extractor)
+      // will surface in the extracted memories. Without this it sees
+      // generic "USER:" / "ASSISTANT:" and writes things like "用户喜欢
+      // …" — turning those into the real names "Claude" / "咪咪" makes
+      // the suggestions read naturally.
+      .map((message) => `${message.role === 'user' ? '咪咪' : 'Claude'}: ${message.content}`)
       .join('\n')
 
     const extractionResult = await callExtractionModel({
