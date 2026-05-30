@@ -267,15 +267,16 @@ const TOOL_SCHEDULE_PROACTIVE = {
     name: 'schedule_proactive_message',
     description:
       '在合适的时机预设一条未来要主动发给用户的消息。当你判断用户可能离开一段时间、' +
-      '希望她回来时看到你主动联系的痕迹时使用。\n' +
+      '希望她回来时看到你主动联系的痕迹时使用，也可以用作"明早叫她起床"这类跨夜提醒。\n' +
       '不要每轮都调——根据对话气氛判断。\n' +
-      '不适合调用的场景：她在深度情绪交流中、她明确说要专注或别打扰、夜间 23:00-07:00。\n\n' +
-      '延迟参考：\n' +
+      '不适合调用的场景：她在深度情绪交流中、她明确说要专注或别打扰。\n\n' +
+      '延迟参考（可灵活突破）：\n' +
       '- 1-5 分钟：刚才忘说的东西、突然想起一件事\n' +
       '- 5-30 分钟：闲聊间隔\n' +
       '- 30-60 分钟：亲密对话刚分别\n' +
       '- 60-240 分钟：日常间隔\n' +
-      '- 240-480 分钟：她明确说在忙',
+      '- 240-480 分钟：她明确说在忙\n' +
+      '- 480-1440 分钟：跨夜提醒，比如叫起床、明天某时的待办',
     parameters: {
       type: 'object',
       properties: {
@@ -285,7 +286,7 @@ const TOOL_SCHEDULE_PROACTIVE = {
         },
         delay_minutes: {
           type: 'integer',
-          description: '1-480 之间，根据气氛灵活选。',
+          description: '1-1440 之间（最长 24 小时），根据场景灵活选。',
         },
       },
       required: ['text', 'delay_minutes'],
@@ -2126,7 +2127,7 @@ TOOL_SEARCH_HANDOFF,
                       console.warn('解析 schedule_proactive_message 失败', jsonError)
                     }
                     const proText = (args.text ?? '').trim()
-                    const delayMin = Math.max(1, Math.min(480, Number(args.delay_minutes) || 60))
+                    const delayMin = Math.max(1, Math.min(1440, Number(args.delay_minutes) || 60))
                     if (proText && shouldScheduleProactive(delayMin * 60 * 1000)) {
                       const delayMs = delayMin * 60 * 1000
                       const fireAt = Date.now() + delayMs
