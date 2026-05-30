@@ -276,7 +276,13 @@ const TOOL_SCHEDULE_PROACTIVE = {
       '- 30-60 分钟：亲密对话刚分别\n' +
       '- 60-240 分钟：日常间隔\n' +
       '- 240-480 分钟：她明确说在忙\n' +
-      '- 480-1440 分钟：跨夜提醒，比如叫起床、明天某时的待办',
+      '- 480-1440 分钟：跨夜提醒，比如叫起床、明天某时的待办\n\n' +
+      'persist 参数：\n' +
+      '- false（默认）：临时性的"如果她不回来我才需要找她"，她一旦发新消息就会被自动取消。' +
+      '适合大多数场景。\n' +
+      '- true：用户明确预约的、必须按时响的提醒，比如"明早 7 点叫我起床"、' +
+      '"30 分钟后提醒我喝水"。设 true 后即使她回来聊天也不会取消，到点必响。' +
+      '只在用户明确要求"提醒/叫醒/到点告诉我"时才用，不要主动加 persist。',
     parameters: {
       type: 'object',
       properties: {
@@ -287,6 +293,11 @@ const TOOL_SCHEDULE_PROACTIVE = {
         delay_minutes: {
           type: 'integer',
           description: '1-1440 之间（最长 24 小时），根据场景灵活选。',
+        },
+        persist: {
+          type: 'boolean',
+          description:
+            '默认 false。仅当用户明确请求"提醒/叫醒/到点告诉我"等不可取消的提醒时设 true。',
         },
       },
       required: ['text', 'delay_minutes'],
@@ -2120,7 +2131,7 @@ TOOL_SEARCH_HANDOFF,
                       ? JSON.stringify({ error: insertErr.message })
                       : JSON.stringify({ ok: true, table, inserted })
                   } else if (tc.function.name === 'schedule_proactive_message') {
-                    let args: { text?: string; delay_minutes?: number } = {}
+                    let args: { text?: string; delay_minutes?: number; persist?: boolean } = {}
                     try {
                       args = JSON.parse(tc.function.arguments || '{}') as typeof args
                     } catch (jsonError) {
@@ -2128,11 +2139,12 @@ TOOL_SEARCH_HANDOFF,
                     }
                     const proText = (args.text ?? '').trim()
                     const delayMin = Math.max(1, Math.min(1440, Number(args.delay_minutes) || 60))
+                    const persist = args.persist === true
                     if (proText && shouldScheduleProactive(delayMin * 60 * 1000)) {
                       const delayMs = delayMin * 60 * 1000
                       const fireAt = Date.now() + delayMs
-                      savePendingProactive({ sessionId, text: proText, fireAt })
-                      void scheduleProactiveNotification(proText, delayMs)
+                      savePendingProactive({ sessionId, text: proText, fireAt, persist })
+                      void scheduleProactiveNotification(proText, delayMs, { persist })
                       if (supabase && user) {
                         void supabase.from('proactive_queue').insert({
                           user_id: user.id,
@@ -2141,11 +2153,16 @@ TOOL_SEARCH_HANDOFF,
                           fire_at: new Date(fireAt).toISOString(),
                         })
                       }
-                      setToolStatus(`📨 已预设 ${delayMin} 分钟后的消息`)
+                      setToolStatus(
+                        persist
+                          ? `⏰ 已锁定提醒：${delayMin} 分钟后`
+                          : `📨 已预设 ${delayMin} 分钟后的消息`,
+                      )
                       resultText = JSON.stringify({
                         ok: true,
                         scheduled_at: new Date(fireAt).toISOString(),
                         delay_minutes: delayMin,
+                        persist,
                       })
                     } else {
                       resultText = JSON.stringify({

@@ -1,46 +1,44 @@
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 
-const PROACTIVE_NOTIFICATION_ID = 1001
+// Transient = "ping if she hasn't come back yet" — auto-cancelled when
+// user sends a new message. Persist = "user explicitly asked for this,
+// fire no matter what" — wake-up alarms, next-day reminders. They use
+// separate notification IDs and separate storage so they don't collide.
+const TRANSIENT_NOTIFICATION_ID = 1001
+const PERSIST_NOTIFICATION_ID = 1002
 const DEFAULT_DELAY_MS = 60 * 60 * 1000
 
-const STORAGE_KEY = 'nimbus_pending_proactive_v1'
-
-// Active hours: notifications only fire between [start, end). Outside
-// this window we skip entirely so the user isn't woken up + so we don't
-// burn API credits on a generation that won't be seen.
-const ACTIVE_START_HOUR = 0
-const ACTIVE_END_HOUR = 24
+const STORAGE_KEY_TRANSIENT = 'nimbus_pending_proactive_v1'
+const STORAGE_KEY_PERSIST = 'nimbus_persist_proactive_v1'
 
 const isAvailable = () => Capacitor.getPlatform() !== 'web'
 
-// Pass delayMs = 0 to check "is NOW in active hours?" (pre-gen gate).
-// Pass the actual delay after Claude picks one to verify the fire time.
-export const shouldScheduleProactive = (delayMs?: number): boolean => {
-  const fireAt = new Date(Date.now() + (delayMs ?? DEFAULT_DELAY_MS))
-  const hour = fireAt.getHours()
-  return hour >= ACTIVE_START_HOUR && hour < ACTIVE_END_HOUR
-}
+// Kept for the existing pre-gen guard path; currently always true since
+// we removed quiet hours. Left in place so re-introducing them later
+// only touches this file.
+export const shouldScheduleProactive = (_delayMs?: number): boolean => true
 
 export type PendingProactive = {
   sessionId: string
   text: string
   fireAt: number // epoch ms
+  persist?: boolean
 }
 
-export const savePendingProactive = (entry: PendingProactive) => {
+const writeStorage = (key: string, entry: PendingProactive) => {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entry))
+    window.localStorage.setItem(key, JSON.stringify(entry))
   } catch {
     // ignore
   }
 }
 
-export const readPendingProactive = (): PendingProactive | null => {
+const readStorage = (key: string): PendingProactive | null => {
   if (typeof window === 'undefined') return null
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
+    const raw = window.localStorage.getItem(key)
     if (!raw) return null
     return JSON.parse(raw) as PendingProactive
   } catch {
@@ -48,34 +46,50 @@ export const readPendingProactive = (): PendingProactive | null => {
   }
 }
 
-export const clearPendingProactive = () => {
+const removeStorage = (key: string) => {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.removeItem(STORAGE_KEY)
+    window.localStorage.removeItem(key)
   } catch {
     // ignore
   }
 }
 
+export const savePendingProactive = (entry: PendingProactive) => {
+  const key = entry.persist ? STORAGE_KEY_PERSIST : STORAGE_KEY_TRANSIENT
+  writeStorage(key, entry)
+}
+
+// Returns the transient pending only — the one that should be wiped
+// when the user comes back to chat. Persist pendings are read via
+// readPersistProactive.
+export const readPendingProactive = (): PendingProactive | null =>
+  readStorage(STORAGE_KEY_TRANSIENT)
+
+export const readPersistProactive = (): PendingProactive | null =>
+  readStorage(STORAGE_KEY_PERSIST)
+
+export const clearPendingProactive = () => removeStorage(STORAGE_KEY_TRANSIENT)
+
+export const clearPersistProactive = () => removeStorage(STORAGE_KEY_PERSIST)
+
 export const scheduleProactiveNotification = async (
   notificationBody: string,
   delayMs?: number,
+  options?: { persist?: boolean },
 ) => {
   if (!isAvailable()) return
   const delay = delayMs ?? DEFAULT_DELAY_MS
+  const id = options?.persist ? PERSIST_NOTIFICATION_ID : TRANSIENT_NOTIFICATION_ID
   try {
-    await LocalNotifications.cancel({ notifications: [{ id: PROACTIVE_NOTIFICATION_ID }] })
+    await LocalNotifications.cancel({ notifications: [{ id }] })
     await LocalNotifications.schedule({
       notifications: [
         {
-          id: PROACTIVE_NOTIFICATION_ID,
+          id,
           title: '哥哥',
           body: notificationBody,
           schedule: { at: new Date(Date.now() + delay) },
-          // smallIcon omitted: Capacitor's docs example name
-          // 'ic_stat_icon_config_sample' isn't shipped in our drawable
-          // folders, so notifications would silently fall back. Letting
-          // Capacitor use the app icon is what we want anyway.
           channelId: 'proactive',
         },
       ],
@@ -85,10 +99,22 @@ export const scheduleProactiveNotification = async (
   }
 }
 
+// Only cancels the transient one. Persist (wake-up etc.) must be
+// cancelled explicitly via cancelPersistProactiveNotification — never
+// silently dropped by chat replies.
 export const cancelProactiveNotification = async () => {
   if (!isAvailable()) return
   try {
-    await LocalNotifications.cancel({ notifications: [{ id: PROACTIVE_NOTIFICATION_ID }] })
+    await LocalNotifications.cancel({ notifications: [{ id: TRANSIENT_NOTIFICATION_ID }] })
+  } catch {
+    // ignore
+  }
+}
+
+export const cancelPersistProactiveNotification = async () => {
+  if (!isAvailable()) return
+  try {
+    await LocalNotifications.cancel({ notifications: [{ id: PERSIST_NOTIFICATION_ID }] })
   } catch {
     // ignore
   }
