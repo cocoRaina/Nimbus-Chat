@@ -856,6 +856,7 @@ export const createMemory = async (input: {
   content: string
   category?: string
   tags?: string[]
+  source?: string
 }): Promise<Memory> => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
@@ -866,6 +867,10 @@ export const createMemory = async (input: {
       content: input.content,
       category: input.category?.trim() || '日常',
       tags: input.tags ?? [],
+      // Only pass source when the caller actually wants to override
+      // the column default ('manual'). Without this, AI-promoted
+      // memories would silently fall into the manual bucket.
+      ...(input.source ? { source: input.source } : {}),
     })
     .select(MEMORY_SELECT_FIELDS)
     .single()

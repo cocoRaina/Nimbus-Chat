@@ -173,7 +173,7 @@ const MemoriesTab = ({
   const handleConfirmEntry = async (entry: PendingEntry) => {
     if (!supabase) return
     try {
-      await createMemory({ content: entry.content, category: '自动提取', tags: ['auto'] })
+      await createMemory({ content: entry.content, category: '自动提取', tags: ['auto'], source: 'auto' })
       await supabase
         .from('memory_entries')
         .update({ status: 'confirmed', updated_at: new Date().toISOString() })
@@ -203,7 +203,7 @@ const MemoriesTab = ({
     if (!supabase || pendingEntries.length === 0) return
     try {
       for (const entry of pendingEntries) {
-        await createMemory({ content: entry.content, category: '自动提取', tags: ['auto'] })
+        await createMemory({ content: entry.content, category: '自动提取', tags: ['auto'], source: 'auto' })
       }
       const ids = pendingEntries.map((e) => e.id)
       await supabase
