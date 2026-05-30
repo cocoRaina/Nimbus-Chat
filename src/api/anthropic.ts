@@ -59,7 +59,30 @@ type AnthropicRequest = {
   thinking?: { type: 'enabled'; budget_tokens: number }
 }
 
-const flattenContent = (content: OpenAiMessage['content']): string | AnthropicContentBlock[] => {
+const fetchImageAsBase64 = async (
+  url: string,
+): Promise<{ mediaType: string; data: string } | null> => {
+  try {
+    const resp = await fetch(url)
+    if (!resp.ok) return null
+    const mediaType = (resp.headers.get('content-type') ?? 'image/jpeg').split(';')[0].trim()
+    const buf = await resp.arrayBuffer()
+    const bytes = new Uint8Array(buf)
+    // Chunked btoa to avoid stack overflow on large images.
+    let binary = ''
+    const CHUNK = 0x8000
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+    }
+    return { mediaType, data: btoa(binary) }
+  } catch {
+    return null
+  }
+}
+
+const flattenContent = async (
+  content: OpenAiMessage['content'],
+): Promise<string | AnthropicContentBlock[]> => {
   if (typeof content === 'string') return content
   const blocks: AnthropicContentBlock[] = []
   for (const part of content) {
@@ -77,13 +100,29 @@ const flattenContent = (content: OpenAiMessage['content']): string | AnthropicCo
           continue
         }
       }
-      blocks.push({ type: 'image', source: { type: 'url', url } })
+      // For http(s) URLs: fetch + base64 instead of source.type='url'.
+      // The 'url' source variant is a newer Anthropic feature that many
+      // relay gateways don't accept yet — base64 is the universally
+      // supported encoding.
+      const fetched = await fetchImageAsBase64(url)
+      if (fetched) {
+        blocks.push({
+          type: 'image',
+          source: { type: 'base64', media_type: fetched.mediaType, data: fetched.data },
+        })
+      } else {
+        // Fall back to url source if fetch failed — at least surfaces an
+        // upstream error instead of silently dropping the image.
+        blocks.push({ type: 'image', source: { type: 'url', url } })
+      }
     }
   }
   return blocks
 }
 
-export const convertOpenAiRequestToAnthropic = (body: OpenAiRequest): AnthropicRequest => {
+export const convertOpenAiRequestToAnthropic = async (
+  body: OpenAiRequest,
+): Promise<AnthropicRequest> => {
   // Pull system messages out; concat into top-level system string.
   const systemParts: string[] = []
   const rest: OpenAiMessage[] = []
@@ -138,7 +177,7 @@ export const convertOpenAiRequestToAnthropic = (body: OpenAiRequest): AnthropicR
     }
     messages.push({
       role: msg.role === 'assistant' ? 'assistant' : 'user',
-      content: flattenContent(msg.content),
+      content: await flattenContent(msg.content),
     })
   }
 
@@ -314,7 +353,7 @@ export const fetchAnthropicAsOpenAi = async (
   body: OpenAiRequest,
   signal?: AbortSignal,
 ): Promise<Response> => {
-  const anthropicBody = convertOpenAiRequestToAnthropic({ ...body, stream: true })
+  const anthropicBody = await convertOpenAiRequestToAnthropic({ ...body, stream: true })
   const endpoint = baseUrl.replace(/\/+$/, '') + '/messages'
   const upstream = await fetch(endpoint, {
     method: 'POST',
