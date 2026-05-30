@@ -1584,6 +1584,20 @@ const App = () => {
           if (proactiveNudge) {
             baseMessages.push({ role: 'system', content: proactiveNudge })
           }
+          // Tell the model when a previously-armed proactive ping was just
+          // cancelled by this user message, so it can decide whether to
+          // re-arm one in its reply. Skip during proactive-nudge mode since
+          // that's already a system-driven turn.
+          if (cancelledProactive && !proactiveNudge) {
+            const originalFire = new Date(cancelledProactive.fireAt).toLocaleString('zh-CN', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+            baseMessages.push({
+              role: 'system',
+              content: `[内部系统提示] 你之前用 schedule_proactive_message 预约的「${cancelledProactive.text}」（原定 ${originalFire} 发送）因用户刚刚发新消息已自动取消。如果你判断后续仍需要这条提醒/关心，请在本次回复里重新调用 schedule_proactive_message；如果对话已经转向不再需要，就不用调。`,
+            })
+          }
           const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
           // Tools enabled on every provider. User explicitly accepts the
           // privacy trade-off — they switch between OR / relay manually
@@ -1597,6 +1611,9 @@ const App = () => {
           // Cancel any pending keepalive — the real send is about to refresh
           // the cache anyway, no need to ping in parallel.
           cancelKeepalive()
+          // Snapshot the about-to-be-cancelled proactive so we can hint the
+          // model to consider re-arming it. One-shot: cleared on read.
+          const cancelledProactive = skipUser ? null : readPendingProactive()
           void cancelProactiveNotification()
           clearPendingProactive()
           // Cancel any unsent server-side proactive pushes too.
