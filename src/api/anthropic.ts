@@ -234,6 +234,14 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
   const toolUseOrder = new Map<number, number>()  // anthropic block index → OpenAI tool_call index
   let toolUseCounter = 0
   let buffer = ''
+  // Usage accumulators — Anthropic splits input_tokens / cache_read /
+  // cache_creation across message_start, then final output_tokens in
+  // message_delta. Sum them on message_stop and emit one OpenAI-shaped
+  // usage chunk so the chat UI's recordUsage path sees the data.
+  let inputTokens = 0
+  let cacheReadTokens = 0
+  let cacheCreationTokens = 0
+  let outputTokens = 0
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -263,6 +271,20 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
             }
 
             const eventType = parsed.type as string
+
+            if (eventType === 'message_start') {
+              const msg = parsed.message as
+                | { usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }
+                | undefined
+              const u = msg?.usage
+              if (u) {
+                inputTokens = Number(u.input_tokens ?? 0)
+                cacheReadTokens = Number(u.cache_read_input_tokens ?? 0)
+                cacheCreationTokens = Number(u.cache_creation_input_tokens ?? 0)
+                outputTokens = Number(u.output_tokens ?? 0)
+              }
+              continue
+            }
 
             if (eventType === 'content_block_start') {
               const idx = parsed.index as number
@@ -315,6 +337,10 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
               }
             } else if (eventType === 'message_delta') {
               const delta = parsed.delta as { stop_reason?: string }
+              const u = parsed.usage as { output_tokens?: number } | undefined
+              if (u?.output_tokens != null) {
+                outputTokens = Number(u.output_tokens)
+              }
               if (delta.stop_reason) {
                 const finishReason =
                   delta.stop_reason === 'tool_use' ? 'tool_calls'
@@ -328,6 +354,24 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
                 )
               }
             } else if (eventType === 'message_stop') {
+              // Emit a final usage chunk before [DONE] so the OpenAI-shaped
+              // parser (see App.tsx flushUsageRecord) picks it up. Total
+              // prompt = fresh input + cache write + cache hit.
+              const promptTotal = inputTokens + cacheReadTokens + cacheCreationTokens
+              const usagePayload = {
+                choices: [] as unknown[],
+                usage: {
+                  prompt_tokens: promptTotal,
+                  completion_tokens: outputTokens,
+                  total_tokens: promptTotal + outputTokens,
+                  prompt_tokens_details: { cached_tokens: cacheReadTokens },
+                  cache_creation_input_tokens: cacheCreationTokens,
+                  cache_read_input_tokens: cacheReadTokens,
+                },
+              }
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify(usagePayload)}\n\n`),
+              )
               controller.enqueue(encoder.encode('data: [DONE]\n\n'))
             }
           }
