@@ -1535,6 +1535,11 @@ const App = () => {
             },
           )
           const baseMessages: ChatRequestMessage[] = []
+          // Snapshot any pending proactive that's about to be cancelled below
+          // (by clearPendingProactive / cancelProactiveNotification), so we
+          // can surface a system note further down and let the model decide
+          // whether to re-arm.
+          const cancelledProactive = skipUser ? null : readPendingProactive()
           if (compressionOutcome.systemPromptText.trim()) {
             baseMessages.push({ role: 'system', content: compressionOutcome.systemPromptText })
           }
@@ -1611,9 +1616,6 @@ const App = () => {
           // Cancel any pending keepalive — the real send is about to refresh
           // the cache anyway, no need to ping in parallel.
           cancelKeepalive()
-          // Snapshot the about-to-be-cancelled proactive so we can hint the
-          // model to consider re-arming it. One-shot: cleared on read.
-          const cancelledProactive = skipUser ? null : readPendingProactive()
           void cancelProactiveNotification()
           clearPendingProactive()
           // Cancel any unsent server-side proactive pushes too.
