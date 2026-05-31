@@ -52,12 +52,12 @@ const MemoryVaultPage = ({ recentMessages, memoryExtractProvider }: MemoryVaultP
 
   return (
     <main className="memory-vault-page app-shell">
-      <header className="memory-vault-header">
-        <button type="button" className="ghost back" onClick={() => navigate(-1)}>
-          ← 返回
+      <header className="page-header-bar">
+        <button type="button" className="ghost" onClick={() => navigate('/')}>
+          返回聊天
         </button>
         <h1 className="ui-title">记忆库</h1>
-        <div className="memory-vault-header-spacer" />
+        <span className="page-header-spacer" aria-hidden="true" />
       </header>
 
       <div className="memory-vault-tabs" role="tablist">

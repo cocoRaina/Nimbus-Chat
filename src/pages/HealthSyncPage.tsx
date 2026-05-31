@@ -206,12 +206,12 @@ const HealthSyncPage = ({ user: _user }: Props) => {
 
   return (
     <div className="app-shell">
-      <header className="app-shell__header">
-        <button type="button" className="ghost" onClick={() => navigate(-1)}>
-          ← 返回
+      <header className="page-header-bar">
+        <button type="button" className="ghost" onClick={() => navigate('/')}>
+          返回聊天
         </button>
         <h1 className="ui-title">健康同步</h1>
-        <span className="app-shell__spacer" />
+        <span className="page-header-spacer" aria-hidden="true" />
       </header>
       <main className="app-shell__content health-sync">
         <section className="glass-card health-sync__sync-card">

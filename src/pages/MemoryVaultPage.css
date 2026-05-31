@@ -12,22 +12,29 @@
   gap: 14px;
 }
 
-.memory-vault-header {
+/* Shared mimi-style header lives on .page-header-bar (defined in
+   HealthSyncPage.css). The selectors below are kept only for old
+   .memory-vault-header-spacer / .memory-vault-header consumers that
+   may still be referenced elsewhere in the file. */
+.page-header-bar {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 8px 4px 12px;
 }
 
-.memory-vault-header h1 {
+.page-header-bar h1 {
   flex: 1;
   margin: 0;
-  font-size: clamp(1.3rem, 2.8vw, 1.65rem);
-  color: #1E40AF;
   text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1E3A8A;
 }
 
-.memory-vault-header-spacer {
-  width: 64px;
+.page-header-spacer {
+  width: 80px;
+  flex-shrink: 0;
 }
 
 .memory-vault-header .ghost {

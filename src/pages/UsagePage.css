@@ -12,29 +12,29 @@
   gap: 16px;
 }
 
-.usage-header {
+/* Shared mimi-style header. Old .usage-header / .usage-back /
+   .usage-refresh kept around as no-op selectors only if other code
+   still references them — actual header styles now live on
+   .page-header-bar (defined in HealthSyncPage.css). */
+.page-header-bar {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 8px 4px 12px;
 }
 
-.usage-header h1 {
+.page-header-bar h1 {
   flex: 1;
   margin: 0;
-  font-size: clamp(1.3rem, 2.8vw, 1.65rem);
-  color: #1E40AF;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1E3A8A;
 }
 
-.usage-back,
-.usage-refresh {
-  border: 1px solid #93C5FD;
-  background: #EFF6FF;
-  color: #1E40AF;
-  border-radius: 12px;
-  padding: 6px 12px;
-  font-size: 0.88rem;
-  font-weight: 600;
-  cursor: pointer;
+.page-header-spacer {
+  width: 80px;
+  flex-shrink: 0;
 }
 
 .usage-refresh:disabled {

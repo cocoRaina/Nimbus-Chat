@@ -5,6 +5,29 @@
   padding-bottom: 2rem;
 }
 
+/* Shared with usage / memory-vault — mirror the mimi (my-home) header
+   look so the four feature pages feel like one family. */
+.page-header-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px 12px;
+}
+
+.page-header-bar h1 {
+  flex: 1;
+  margin: 0;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1E3A8A;
+}
+
+.page-header-spacer {
+  width: 80px;
+  flex-shrink: 0;
+}
+
 .health-sync__intro p {
   margin: 0 0 0.35rem;
   font-size: 0.92rem;

@@ -158,12 +158,12 @@ const UsagePage = ({ user }: UsagePageProps) => {
 
   return (
     <main className="usage-page app-shell">
-      <header className="usage-header">
-        <button type="button" className="usage-back" onClick={() => navigate(-1)}>
-          ← 返回
+      <header className="page-header-bar">
+        <button type="button" className="ghost" onClick={() => navigate('/')}>
+          返回聊天
         </button>
         <h1 className="ui-title">用量统计</h1>
-        <button type="button" className="usage-refresh" onClick={() => void loadData()} disabled={loading}>
+        <button type="button" className="ghost" onClick={() => void loadData()} disabled={loading}>
           {loading ? '刷新中…' : '刷新'}
         </button>
       </header>
