@@ -45,6 +45,7 @@ const MyHomePage = lazy(() => import('./pages/MyHomePage'))
 const AssistantHomePage = lazy(() => import('./pages/AssistantHomePage'))
 const MemoryVaultPage = lazy(() => import('./pages/MemoryVaultPage'))
 const CheckinPage = lazy(() => import('./pages/CheckinPage'))
+const HealthSyncPage = lazy(() => import('./pages/HealthSyncPage'))
 const ExportPage = lazy(() => import('./pages/ExportPage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
 const HomeLayoutSettingsPage = lazy(() => import('./pages/HomeLayoutSettingsPage'))
@@ -2876,6 +2877,14 @@ TOOL_SEARCH_HANDOFF,
           element={
             <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
               <CheckinPage user={user} />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/health-sync"
+          element={
+            <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
+              <HealthSyncPage user={user} />
             </RequireAuth>
           }
         />

@@ -45,4 +45,24 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Android 13+ requires explicit notification permission. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Health Connect read-only access (Android 14+ native, older
+         versions via the Health Connect app). We never write back. -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_DISTANCE" />
+    <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
+
+    <!-- Lets us discover whether the Health Connect app is installed on
+         Android <14 and lets Health Connect deep-link our privacy
+         rationale screen. -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+        <intent>
+            <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+        </intent>
+    </queries>
 </manifest>
