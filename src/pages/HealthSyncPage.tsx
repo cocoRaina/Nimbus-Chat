@@ -16,7 +16,7 @@ const REQUESTED_TYPES: HealthDataType[] = [
   'restingHeartRate',
   'distance',
   'totalCalories',
-  'weight',
+  'oxygenSaturation',
 ]
 
 const TYPE_LABELS: Record<HealthDataType, string> = {
@@ -160,8 +160,8 @@ const HealthSyncPage = ({ user: _user }: Props) => {
             <button type="button" className="ghost" disabled={busy} onClick={() => void readType('heartRate', 24)}>
               读最近 24h 心率
             </button>
-            <button type="button" className="ghost" disabled={busy} onClick={() => void readType('weight', 24 * 30)}>
-              读近 30 天体重
+            <button type="button" className="ghost" disabled={busy} onClick={() => void readType('oxygenSaturation', 24)}>
+              读最近 24h 血氧
             </button>
           </div>
         </section>
