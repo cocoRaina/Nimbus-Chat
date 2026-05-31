@@ -390,14 +390,18 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
 }
 
 // Wraps an Anthropic /v1/messages call so it returns a Response that
-// streams OpenAI-shaped SSE chunks. Caller can keep its existing parser.
+// either streams OpenAI-shaped SSE chunks (when the caller asked for
+// stream: true) or returns a single OpenAI-shaped JSON body (caller
+// uses response.json()). Both shapes are needed because chat reads
+// SSE while side features like the friend-feed generator read JSON.
 export const fetchAnthropicAsOpenAi = async (
   baseUrl: string,
   apiKey: string,
   body: OpenAiRequest,
   signal?: AbortSignal,
 ): Promise<Response> => {
-  const anthropicBody = await convertOpenAiRequestToAnthropic({ ...body, stream: true })
+  const wantsStream = body.stream === true
+  const anthropicBody = await convertOpenAiRequestToAnthropic({ ...body, stream: wantsStream })
   const endpoint = baseUrl.replace(/\/+$/, '') + '/messages'
   const upstream = await fetch(endpoint, {
     method: 'POST',
@@ -414,5 +418,85 @@ export const fetchAnthropicAsOpenAi = async (
     // Pass non-streaming error responses through as-is so caller sees the text.
     return upstream
   }
-  return translateAnthropicStream(upstream)
+  if (wantsStream) {
+    return translateAnthropicStream(upstream)
+  }
+  return translateAnthropicJson(upstream)
+}
+
+// Anthropic /v1/messages non-streaming response → OpenAI-shaped JSON.
+// Used by callers that do `await response.json()` instead of reading
+// an SSE stream (e.g. the syzygy / snack post + reply generators).
+const translateAnthropicJson = async (anthropicResponse: Response): Promise<Response> => {
+  type AnthropicJsonResponse = {
+    id?: string
+    model?: string
+    content?: Array<{ type: string; text?: string; thinking?: string; name?: string; input?: Record<string, unknown>; id?: string }>
+    stop_reason?: string
+    usage?: {
+      input_tokens?: number
+      output_tokens?: number
+      cache_read_input_tokens?: number
+      cache_creation_input_tokens?: number
+    }
+  }
+  const payload = (await anthropicResponse.json()) as AnthropicJsonResponse
+  let text = ''
+  let reasoning = ''
+  const toolCalls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> = []
+  for (const block of payload.content ?? []) {
+    if (block.type === 'text' && typeof block.text === 'string') {
+      text += block.text
+    } else if (block.type === 'thinking' && typeof block.thinking === 'string') {
+      reasoning += block.thinking
+    } else if (block.type === 'tool_use') {
+      toolCalls.push({
+        id: block.id ?? '',
+        type: 'function',
+        function: {
+          name: block.name ?? '',
+          arguments: JSON.stringify(block.input ?? {}),
+        },
+      })
+    }
+  }
+  const finishReason =
+    payload.stop_reason === 'tool_use' ? 'tool_calls'
+    : payload.stop_reason === 'end_turn' ? 'stop'
+    : payload.stop_reason === 'max_tokens' ? 'length'
+    : 'stop'
+  const u = payload.usage
+  const inputTokens = Number(u?.input_tokens ?? 0)
+  const cacheRead = Number(u?.cache_read_input_tokens ?? 0)
+  const cacheCreate = Number(u?.cache_creation_input_tokens ?? 0)
+  const outputTokens = Number(u?.output_tokens ?? 0)
+  const promptTotal = inputTokens + cacheRead + cacheCreate
+  const openAiPayload = {
+    id: payload.id ?? '',
+    model: payload.model ?? '',
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: text,
+          ...(reasoning ? { reasoning } : {}),
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+        },
+        finish_reason: finishReason,
+      },
+    ],
+    usage: {
+      prompt_tokens: promptTotal,
+      completion_tokens: outputTokens,
+      total_tokens: promptTotal + outputTokens,
+      prompt_tokens_details: { cached_tokens: cacheRead },
+      cache_creation_input_tokens: cacheCreate,
+      cache_read_input_tokens: cacheRead,
+    },
+  }
+  return new Response(JSON.stringify(openAiPayload), {
+    status: anthropicResponse.status,
+    headers: { 'Content-Type': 'application/json' },
+  })
 }
