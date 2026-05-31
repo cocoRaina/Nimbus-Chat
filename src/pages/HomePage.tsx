@@ -17,7 +17,31 @@ import {
   type AppIconConfig,
   type DecorativeWidget,
 } from "../storage/homeLayout";
+import { createTodayCheckin, fetchRecentCheckins } from "../storage/supabaseSync";
 import "./HomePage.css";
+
+// Chinese week: Monday → Sunday. Each label maps onto a column in the
+// checkin widget's 7-day row.
+const WEEK_DAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"] as const;
+
+// Returns YYYY-MM-DD for the Monday of the week containing `date`,
+// then iterates forward 7 days. Used for the per-row dots.
+const buildCurrentWeekDates = (today: Date): string[] => {
+  const ref = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  // getDay(): Sunday=0, Monday=1, … Saturday=6. Map to Mon-start.
+  const dayOfWeek = (ref.getDay() + 6) % 7;
+  ref.setDate(ref.getDate() - dayOfWeek);
+  const dates: string[] = [];
+  for (let i = 0; i < 7; i += 1) {
+    const cell = new Date(ref);
+    cell.setDate(ref.getDate() + i);
+    const yyyy = cell.getFullYear();
+    const mm = String(cell.getMonth() + 1).padStart(2, "0");
+    const dd = String(cell.getDate()).padStart(2, "0");
+    dates.push(`${yyyy}-${mm}-${dd}`);
+  }
+  return dates;
+};
 
 type HomePageProps = {
   user: User | null;
@@ -96,7 +120,7 @@ const readFileAsDataUrl = (file: Blob): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-const HomePage = ({ onOpenChat, mode = "default" }: HomePageProps) => {
+const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   const isSettingsPage = mode === "settings";
   const navigate = useNavigate();
   const [now, setNow] = useState(() => new Date());
@@ -129,6 +153,11 @@ const HomePage = ({ onOpenChat, mode = "default" }: HomePageProps) => {
   const [appIconConfigs, setAppIconConfigs] = useState<AppIconState>({});
   const [editingIconId, setEditingIconId] = useState(DEFAULT_ICON_ORDER[0]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Set of YYYY-MM-DD strings the user has checked in within the
+  // current week. Used to render the 7-dot row + decide whether the
+  // quick-checkin button should look "done" or "ready".
+  const [checkedDates, setCheckedDates] = useState<Set<string>>(new Set());
+  const [checkinBusy, setCheckinBusy] = useState(false);
 
   const holdTimerRef = useRef<number | null>(null);
 
@@ -216,6 +245,56 @@ const HomePage = ({ onOpenChat, mode = "default" }: HomePageProps) => {
     }
     setTogetherSince(parsed.toISOString());
   }, []);
+
+  // Current local week (Mon→Sun) anchored on `now` so it auto-rolls
+  // at midnight. Derived rather than stored to stay correct after a
+  // tab sits open across a day boundary.
+  const weekDates = useMemo(() => buildCurrentWeekDates(now), [now]);
+  const todayDate = useMemo(() => {
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }, [now]);
+  const todayChecked = checkedDates.has(todayDate);
+
+  // Pull the last 14 days of check-ins on mount so the widget can
+  // reflect today + the rest of the current week, plus a buffer for
+  // weeks that span month boundaries.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const recent = await fetchRecentCheckins(14);
+        if (cancelled) return;
+        setCheckedDates(new Set(recent.map((row) => row.checkinDate)));
+      } catch (err) {
+        console.warn("加载本周打卡失败", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  const handleQuickCheckin = useCallback(async () => {
+    if (!user || checkinBusy || todayChecked) return;
+    setCheckinBusy(true);
+    try {
+      await createTodayCheckin(todayDate);
+      setCheckedDates((prev) => {
+        const next = new Set(prev);
+        next.add(todayDate);
+        return next;
+      });
+    } catch (err) {
+      console.warn("一键打卡失败", err);
+      setNotice("打卡失败，请稍后重试。");
+    } finally {
+      setCheckinBusy(false);
+    }
+  }, [checkinBusy, todayChecked, todayDate, user]);
   const timeLabel = useMemo(
     () =>
       now.toLocaleTimeString("en-GB", {
@@ -691,37 +770,53 @@ const HomePage = ({ onOpenChat, mode = "default" }: HomePageProps) => {
 
             {showSettingsPanel ? (
               <section className="glass-card widget-toolbar">
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={handleAddTextWidget}
-                >
-                  + 文本组件
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={handleAddImageWidget}
-                >
-                  + 图片组件
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={handleAddSpacerWidget}
-                >
-                  + 占位组件
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => setShowEmptySlots((value) => !value)}
-                >
-                  {showEmptySlots ? "隐藏空位" : "显示空位"}
-                </button>
-                <span>
-                  {decoratedWidgetCount}/{MAX_WIDGETS} 组件
-                </span>
+                <header className="widget-toolbar-header">
+                  <span className="widget-toolbar-label">组件</span>
+                  <span className="widget-toolbar-count">
+                    {decoratedWidgetCount}/{MAX_WIDGETS}
+                  </span>
+                  <div
+                    className="widget-toolbar-progress"
+                    role="presentation"
+                  >
+                    <span
+                      className="widget-toolbar-progress-fill"
+                      style={{
+                        width: `${Math.min(100, (decoratedWidgetCount / MAX_WIDGETS) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                </header>
+                <div className="widget-toolbar-grid">
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={handleAddTextWidget}
+                  >
+                    ＋ 文本
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={handleAddImageWidget}
+                  >
+                    ＋ 图片
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={handleAddSpacerWidget}
+                  >
+                    ＋ 占位
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setShowEmptySlots((value) => !value)}
+                  >
+                    {showEmptySlots ? "隐藏空位" : "显示空位"}
+                  </button>
+                </div>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -869,36 +964,74 @@ const HomePage = ({ onOpenChat, mode = "default" }: HomePageProps) => {
                           <article
                             className={`together-inner ${item.size === "2x1" ? "together-wide" : ""}`}
                           >
-                            <div className="together-date">{dateLabel}</div>
+                            <div className="together-header">
+                              <span className="together-date">{dateLabel}</span>
+                              {togetherElapsed ? (
+                                <span className="together-days-pill">
+                                  ❤️ {togetherElapsed.days} 天
+                                </span>
+                              ) : null}
+                            </div>
                             {togetherElapsed ? (
-                              item.size === "2x1" ? (
-                                <div className="together-counter together-counter-wide">
-                                  <div className="together-counter-main">
-                                    <strong>{togetherElapsed.days}</strong>
-                                    <span>天</span>
-                                  </div>
+                              <div className="together-counter-stack">
+                                <div className="together-counter-headline">
+                                  <strong>{togetherElapsed.days}</strong>
+                                  <span>Days Together</span>
+                                </div>
+                                {item.size === "2x1" ? (
                                   <div className="together-counter-sub">
                                     {String(togetherElapsed.hours).padStart(2, "0")}:
                                     {String(togetherElapsed.minutes).padStart(2, "0")}:
                                     {String(togetherElapsed.seconds).padStart(2, "0")}
                                   </div>
-                                </div>
-                              ) : (
-                                <div className="together-counter">
-                                  <strong>{togetherElapsed.days}</strong>
-                                  <span className="together-counter-unit">天</span>
-                                  <span className="together-counter-time">
-                                    {String(togetherElapsed.hours).padStart(2, "0")}:
-                                    {String(togetherElapsed.minutes).padStart(2, "0")}:
-                                    {String(togetherElapsed.seconds).padStart(2, "0")}
-                                  </span>
-                                </div>
-                              )
+                                ) : null}
+                              </div>
                             ) : (
                               <div className="together-empty">
                                 {editMode ? "下方填写起始时间" : "进入编辑模式设置起始时间"}
                               </div>
                             )}
+                            <div className="together-week" role="list" aria-label="本周打卡">
+                              {weekDates.map((iso, index) => {
+                                const checked = checkedDates.has(iso);
+                                const isToday = iso === todayDate;
+                                return (
+                                  <div
+                                    key={iso}
+                                    role="listitem"
+                                    className={`together-week-cell${checked ? " is-checked" : ""}${isToday ? " is-today" : ""}`}
+                                  >
+                                    <span className="together-week-dot" aria-hidden="true">
+                                      {checked ? "✓" : ""}
+                                    </span>
+                                    <span className="together-week-label">
+                                      {WEEK_DAY_LABELS[index]}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {!editMode ? (
+                              <button
+                                type="button"
+                                className={`together-checkin-btn${todayChecked ? " is-done" : ""}`}
+                                onClick={(event) => {
+                                  // Stop the pointer-hold edit-mode trigger
+                                  // from swallowing this tap, otherwise long
+                                  // taps still work but the actual click is
+                                  // sometimes treated as the hold release.
+                                  event.stopPropagation();
+                                  void handleQuickCheckin();
+                                }}
+                                disabled={todayChecked || checkinBusy || !user}
+                              >
+                                {todayChecked
+                                  ? "今日已陪伴 💖"
+                                  : checkinBusy
+                                    ? "打卡中…"
+                                    : "今日打卡 💗"}
+                              </button>
+                            ) : null}
                             {editMode ? (
                               <label className="together-input">
                                 <span>起始时间</span>

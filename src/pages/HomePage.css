@@ -154,12 +154,55 @@
   letter-spacing: 0.02em;
 }
 .widget-toolbar {
-  padding: 0.6rem;
+  padding: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.widget-toolbar-header {
   display: flex;
   align-items: center;
+  gap: 0.6rem;
+}
+
+.widget-toolbar-label {
+  font-weight: 700;
+  color: #1E3A8A;
+  font-size: 0.95rem;
+}
+
+.widget-toolbar-count {
+  font-weight: 700;
+  color: #1E40AF;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+}
+
+.widget-toolbar-progress {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.16);
+  overflow: hidden;
+}
+
+.widget-toolbar-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #60A5FA, #2563EB);
+  transition: width 0.2s ease;
+}
+
+.widget-toolbar-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
-  justify-content: space-between;
-  flex-wrap: wrap;
+}
+
+.widget-toolbar-grid .ghost {
+  width: 100%;
 }
 
 .appearance-toolbar,
@@ -403,6 +446,167 @@
   color: #0f172a;
   font-size: 0.85rem;
   font-family: inherit;
+}
+
+.together-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.together-days-pill {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1E40AF;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.together-counter-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.1rem;
+}
+
+.together-counter-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.together-counter-headline strong {
+  font-size: clamp(2rem, 7vw, 3rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  background: linear-gradient(180deg, #3B82F6, #1D4ED8);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.together-counter-headline span {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1E40AF;
+  letter-spacing: 0.03em;
+}
+
+.together-counter-sub {
+  font-size: 0.85rem;
+  color: #64748B;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.together-week {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 4px;
+  margin-top: 0.2rem;
+}
+
+.together-week-cell {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.together-week-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(59, 130, 246, 0.35);
+  background: rgba(255, 255, 255, 0.6);
+  color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.together-week-cell.is-checked .together-week-dot {
+  background: linear-gradient(180deg, #60A5FA, #2563EB);
+  border-color: #1D4ED8;
+  color: white;
+}
+
+.together-week-cell.is-today .together-week-dot {
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.35);
+}
+
+.together-week-label {
+  font-size: 0.6rem;
+  color: #64748B;
+  letter-spacing: 0.02em;
+}
+
+.together-week-cell.is-today .together-week-label {
+  color: #1E40AF;
+  font-weight: 700;
+}
+
+.together-checkin-btn {
+  margin-top: 0.35rem;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #60A5FA, #3B82F6);
+  color: white;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  font-family: inherit;
+  transition: transform 0.12s ease, opacity 0.18s ease;
+}
+
+.together-checkin-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.together-checkin-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.together-checkin-btn:disabled {
+  cursor: default;
+}
+
+.together-checkin-btn.is-done {
+  background: rgba(59, 130, 246, 0.18);
+  color: #1E40AF;
+}
+
+/* Wide cards have more vertical room — let everything breathe. */
+.together-wide .together-counter-headline strong {
+  font-size: clamp(2.4rem, 8vw, 3.6rem);
+}
+
+.together-wide .together-week-dot {
+  width: 28px;
+  height: 28px;
+  font-size: 0.85rem;
+}
+
+.together-wide .together-week-label {
+  font-size: 0.7rem;
+}
+
+.together-wide .together-checkin-btn {
+  padding: 10px 16px;
+  font-size: 0.95rem;
 }
 
 .checkin-inner {
