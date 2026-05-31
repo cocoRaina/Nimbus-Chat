@@ -78,3 +78,107 @@
   color: #94A3B8;
   font-style: italic;
 }
+
+.health-sync__sync-card {
+  padding: 0.95rem;
+}
+
+.health-sync__sync-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.health-sync__sync-header h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1E3A8A;
+}
+
+.health-sync__sync-meta {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #64748B;
+}
+
+.health-sync__sync-btn {
+  white-space: nowrap;
+}
+
+.health-sync__warn {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: #B45309;
+}
+
+.health-sync__sync-result {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: #1E40AF;
+}
+
+.health-sync__sync-result.warn {
+  color: #B45309;
+}
+
+.health-sync__today h2 {
+  margin: 0 0 0.55rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1E3A8A;
+}
+
+.health-sync__today-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem 0.75rem;
+}
+
+.health-sync__today-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.45rem 0.55rem;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.07);
+}
+
+.health-sync__today-grid .label {
+  font-size: 0.74rem;
+  color: #64748B;
+  letter-spacing: 0.02em;
+}
+
+.health-sync__today-grid .value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1E40AF;
+  font-variant-numeric: tabular-nums;
+}
+
+.health-sync__diag summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #1E3A8A;
+  font-size: 0.92rem;
+  padding: 0.2rem 0;
+}
+
+.health-sync__diag[open] summary {
+  margin-bottom: 0.55rem;
+}
+
+.health-sync__diag-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.health-sync__samples h3 {
+  margin: 0.8rem 0 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1E3A8A;
+}

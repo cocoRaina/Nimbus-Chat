@@ -59,6 +59,7 @@ import { resolveModelId } from './utils/modelResolver'
 import { fetchOpenRouter } from './api/openrouter'
 import { getActiveProvider, getProviderConfig } from './storage/apiProvider'
 import { recordUsage } from './storage/usageStats'
+import { maybeAutoSyncHealth } from './storage/healthSync'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
 import { runSandboxCode } from './storage/sandbox'
 import { syncStatusBarToPage } from './storage/statusBar'
@@ -884,11 +885,18 @@ const App = () => {
     if (!user) {
       return
     }
+    // Kick a health sync on mount as well as on each foreground event.
+    // The internal 30min throttle keeps this from firing more than once
+    // per half-hour if the user is in and out of the app a lot.
+    void maybeAutoSyncHealth()
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()
         // Cancel notification while user is in the app (no in-app popup).
         void cancelProactiveNotification()
+        // Pull whatever's new in Health Connect → health_data.
+        // Throttled to 30min inside; no-op on web.
+        void maybeAutoSyncHealth()
         // Detect "dead stream"
         if (streamingControllerRef.current && lastChunkAtRef.current > 0) {
           const ageMs = Date.now() - lastChunkAtRef.current
