@@ -64,7 +64,9 @@ import { syncStatusBarToPage } from './storage/statusBar'
 import {
   cancelProactiveNotification,
   clearPendingProactive,
+  clearPersistProactive,
   readPendingProactive,
+  readPersistProactive,
   savePendingProactive,
   scheduleProactiveNotification,
   shouldScheduleProactive,
@@ -543,7 +545,7 @@ const App = () => {
   // Inserts a pre-generated proactive message into the session as an
   // assistant turn. Set later, called via ref for same declaration reason.
   const insertPendingProactiveRef = useRef<
-    (entry: { sessionId: string; text: string; fireAt: number }) => Promise<void>
+    (entry: { sessionId: string; text: string; fireAt: number; persist?: boolean }) => Promise<void>
   >(async () => undefined)
   // Keepalive: stash a snapshot of the last successful request body so we
   // can ping it ~55 min later (just before 1h cache TTL expires) with
@@ -894,12 +896,19 @@ const App = () => {
             streamingControllerRef.current = null
           }
         }
-        // If fire time passed → insert proactive message now.
-        const pending = readPendingProactive()
-        if (pending && Date.now() >= pending.fireAt) {
-          void insertPendingProactiveRef.current(pending)
+        // If fire time passed → insert proactive message now. Check both
+        // transient and persist buckets — the persist alarm (wake-up
+        // etc.) lives in its own storage and would be invisible if we
+        // only read the transient one.
+        const transientPending = readPendingProactive()
+        if (transientPending && Date.now() >= transientPending.fireAt) {
+          void insertPendingProactiveRef.current(transientPending)
         }
-        if (!pending) {
+        const persistPending = readPersistProactive()
+        if (persistPending && Date.now() >= persistPending.fireAt) {
+          void insertPendingProactiveRef.current(persistPending)
+        }
+        if (!transientPending && !persistPending) {
           const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
           if (hashMatch) {
             void maybeSendProactiveRef.current(hashMatch[1])
@@ -916,10 +925,23 @@ const App = () => {
         handleVisibilityChange()
       } else {
         // Going to background — re-arm the local notification with
-        // remaining time so it fires while the user is away.
-        const pending = readPendingProactive()
-        if (pending && Date.now() < pending.fireAt) {
-          void scheduleProactiveNotification(pending.text, pending.fireAt - Date.now())
+        // remaining time so it fires while the user is away. Persist
+        // alarms (wake-up etc.) are kept on their own notification ID
+        // and storage, so handle them in parallel.
+        const transientPending = readPendingProactive()
+        if (transientPending && Date.now() < transientPending.fireAt) {
+          void scheduleProactiveNotification(
+            transientPending.text,
+            transientPending.fireAt - Date.now(),
+          )
+        }
+        const persistPending = readPersistProactive()
+        if (persistPending && Date.now() < persistPending.fireAt) {
+          void scheduleProactiveNotification(
+            persistPending.text,
+            persistPending.fireAt - Date.now(),
+            { persist: true },
+          )
         }
       }
     })
@@ -2471,7 +2493,8 @@ TOOL_SEARCH_HANDOFF,
   useEffect(() => {
     insertPendingProactiveRef.current = async (entry) => {
       if (!user || !supabase) {
-        clearPendingProactive()
+        if (entry.persist) clearPersistProactive()
+        else clearPendingProactive()
         return
       }
       // Prefer the chat the user is currently looking at; fall back to the
@@ -2498,7 +2521,8 @@ TOOL_SEARCH_HANDOFF,
       } catch (err) {
         console.warn('insert pending proactive failed', err)
       } finally {
-        clearPendingProactive()
+        if (entry.persist) clearPersistProactive()
+        else clearPendingProactive()
       }
     }
   }, [applySnapshot, user])
