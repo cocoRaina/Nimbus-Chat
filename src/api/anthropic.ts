@@ -389,11 +389,14 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
   return new Response(stream, { status: anthropicResponse.status, headers })
 }
 
-// Wraps an Anthropic /v1/messages call so it returns a Response that
-// either streams OpenAI-shaped SSE chunks (when the caller asked for
-// stream: true) or returns a single OpenAI-shaped JSON body (caller
-// uses response.json()). Both shapes are needed because chat reads
-// SSE while side features like the friend-feed generator read JSON.
+// Wraps an Anthropic /v1/messages call. Upstream is *always* invoked
+// with stream:true (some relay gateways 502 on non-streaming, see
+// 98982fe). What we return back depends on what the caller asked for:
+//
+// - body.stream === true  → an OpenAI-shaped SSE Response (chat)
+// - body.stream === false → an OpenAI-shaped JSON Response built by
+//   consuming the upstream stream end-to-end internally (friend-feed
+//   generator and other one-shot generators that do response.json()).
 export const fetchAnthropicAsOpenAi = async (
   baseUrl: string,
   apiKey: string,
@@ -401,7 +404,7 @@ export const fetchAnthropicAsOpenAi = async (
   signal?: AbortSignal,
 ): Promise<Response> => {
   const wantsStream = body.stream === true
-  const anthropicBody = await convertOpenAiRequestToAnthropic({ ...body, stream: wantsStream })
+  const anthropicBody = await convertOpenAiRequestToAnthropic({ ...body, stream: true })
   const endpoint = baseUrl.replace(/\/+$/, '') + '/messages'
   const upstream = await fetch(endpoint, {
     method: 'POST',
@@ -415,65 +418,110 @@ export const fetchAnthropicAsOpenAi = async (
     signal,
   })
   if (!upstream.ok) {
-    // Pass non-streaming error responses through as-is so caller sees the text.
     return upstream
   }
   if (wantsStream) {
     return translateAnthropicStream(upstream)
   }
-  return translateAnthropicJson(upstream)
+  return collectAnthropicStreamAsJson(upstream)
 }
 
-// Anthropic /v1/messages non-streaming response → OpenAI-shaped JSON.
-// Used by callers that do `await response.json()` instead of reading
-// an SSE stream (e.g. the syzygy / snack post + reply generators).
-const translateAnthropicJson = async (anthropicResponse: Response): Promise<Response> => {
-  type AnthropicJsonResponse = {
-    id?: string
-    model?: string
-    content?: Array<{ type: string; text?: string; thinking?: string; name?: string; input?: Record<string, unknown>; id?: string }>
-    stop_reason?: string
-    usage?: {
-      input_tokens?: number
-      output_tokens?: number
-      cache_read_input_tokens?: number
-      cache_creation_input_tokens?: number
-    }
+// Drains an Anthropic raw SSE stream end-to-end and returns a single
+// OpenAI-shaped JSON Response. Mirrors the same event handling as
+// translateAnthropicStream but accumulates instead of emitting.
+const collectAnthropicStreamAsJson = async (anthropicResponse: Response): Promise<Response> => {
+  if (!anthropicResponse.body) {
+    return new Response(JSON.stringify({ choices: [{ index: 0, message: { role: 'assistant', content: '' }, finish_reason: 'stop' }] }), {
+      status: anthropicResponse.status,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
-  const payload = (await anthropicResponse.json()) as AnthropicJsonResponse
+  const reader = anthropicResponse.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+
+  let id = ''
+  let model = ''
   let text = ''
   let reasoning = ''
-  const toolCalls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> = []
-  for (const block of payload.content ?? []) {
-    if (block.type === 'text' && typeof block.text === 'string') {
-      text += block.text
-    } else if (block.type === 'thinking' && typeof block.thinking === 'string') {
-      reasoning += block.thinking
-    } else if (block.type === 'tool_use') {
-      toolCalls.push({
-        id: block.id ?? '',
-        type: 'function',
-        function: {
-          name: block.name ?? '',
-          arguments: JSON.stringify(block.input ?? {}),
-        },
-      })
+  type Acc = { id: string; name: string; argsJson: string }
+  const toolUseByIdx = new Map<number, Acc>()
+  let inputTokens = 0
+  let cacheReadTokens = 0
+  let cacheCreationTokens = 0
+  let outputTokens = 0
+  let stopReason = ''
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const events = buffer.split('\n\n')
+    buffer = events.pop() ?? ''
+    for (const rawEvent of events) {
+      let dataLine = ''
+      for (const line of rawEvent.split('\n')) {
+        if (line.startsWith('data:')) dataLine += line.slice(5).trim()
+      }
+      if (!dataLine) continue
+      let parsed: Record<string, unknown>
+      try {
+        parsed = JSON.parse(dataLine)
+      } catch {
+        continue
+      }
+      const eventType = parsed.type as string
+      if (eventType === 'message_start') {
+        const msg = parsed.message as { id?: string; model?: string; usage?: { input_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number; output_tokens?: number } } | undefined
+        if (msg?.id) id = msg.id
+        if (msg?.model) model = msg.model
+        const u = msg?.usage
+        if (u) {
+          inputTokens = Number(u.input_tokens ?? 0)
+          cacheReadTokens = Number(u.cache_read_input_tokens ?? 0)
+          cacheCreationTokens = Number(u.cache_creation_input_tokens ?? 0)
+          outputTokens = Number(u.output_tokens ?? 0)
+        }
+      } else if (eventType === 'content_block_start') {
+        const idx = parsed.index as number
+        const block = parsed.content_block as { type: string; id?: string; name?: string }
+        if (block.type === 'tool_use') {
+          toolUseByIdx.set(idx, { id: block.id ?? '', name: block.name ?? '', argsJson: '' })
+        }
+      } else if (eventType === 'content_block_delta') {
+        const idx = parsed.index as number
+        const delta = parsed.delta as { type: string; text?: string; thinking?: string; partial_json?: string }
+        if (delta.type === 'text_delta' && delta.text) {
+          text += delta.text
+        } else if (delta.type === 'thinking_delta' && delta.thinking) {
+          reasoning += delta.thinking
+        } else if (delta.type === 'input_json_delta' && delta.partial_json !== undefined) {
+          const acc = toolUseByIdx.get(idx)
+          if (acc) acc.argsJson += delta.partial_json
+        }
+      } else if (eventType === 'message_delta') {
+        const delta = parsed.delta as { stop_reason?: string }
+        if (delta.stop_reason) stopReason = delta.stop_reason
+        const u = parsed.usage as { output_tokens?: number } | undefined
+        if (u?.output_tokens != null) outputTokens = Number(u.output_tokens)
+      }
     }
   }
+
+  const toolCalls = [...toolUseByIdx.values()].map((acc) => ({
+    id: acc.id,
+    type: 'function' as const,
+    function: { name: acc.name, arguments: acc.argsJson || '{}' },
+  }))
   const finishReason =
-    payload.stop_reason === 'tool_use' ? 'tool_calls'
-    : payload.stop_reason === 'end_turn' ? 'stop'
-    : payload.stop_reason === 'max_tokens' ? 'length'
+    stopReason === 'tool_use' ? 'tool_calls'
+    : stopReason === 'end_turn' ? 'stop'
+    : stopReason === 'max_tokens' ? 'length'
     : 'stop'
-  const u = payload.usage
-  const inputTokens = Number(u?.input_tokens ?? 0)
-  const cacheRead = Number(u?.cache_read_input_tokens ?? 0)
-  const cacheCreate = Number(u?.cache_creation_input_tokens ?? 0)
-  const outputTokens = Number(u?.output_tokens ?? 0)
-  const promptTotal = inputTokens + cacheRead + cacheCreate
+  const promptTotal = inputTokens + cacheReadTokens + cacheCreationTokens
   const openAiPayload = {
-    id: payload.id ?? '',
-    model: payload.model ?? '',
+    id,
+    model,
     choices: [
       {
         index: 0,
@@ -490,9 +538,9 @@ const translateAnthropicJson = async (anthropicResponse: Response): Promise<Resp
       prompt_tokens: promptTotal,
       completion_tokens: outputTokens,
       total_tokens: promptTotal + outputTokens,
-      prompt_tokens_details: { cached_tokens: cacheRead },
-      cache_creation_input_tokens: cacheCreate,
-      cache_read_input_tokens: cacheRead,
+      prompt_tokens_details: { cached_tokens: cacheReadTokens },
+      cache_creation_input_tokens: cacheCreationTokens,
+      cache_read_input_tokens: cacheReadTokens,
     },
   }
   return new Response(JSON.stringify(openAiPayload), {
