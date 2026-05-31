@@ -32,7 +32,7 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 
 附带结构化数据自动一起返回：
 - `period_tracking` — 经期记录（最近 10 条）
-- `health_data` — 健康指标（最近 7 天）
+- `health_data` — 健康指标（步数 / 睡眠小时 / 平均心率 / 静息心率 / 血氧均值，按日期 upsert，最近 7 天给 Claude）
 
 实现：Supabase Edge Function `search_memory` 嵌入查询（BGE-M3 via SiliconFlow）→ `search_memories` RPC 跨表 UNION 向量搜（支持 `filter_table` 参数限定来源）→ 加上结构化数据一起返回。
 
@@ -89,7 +89,7 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 | 工具 | 说明 |
 |------|------|
 | `run_code` | 通过用户配的代码沙盒跑 Python/JS（需配 endpoint） |
-| `schedule_proactive_message` | 预设一条未来主动消息（1-480 分钟延迟，Claude 自己判断时机和内容）。仅 APK，web 不可用 |
+| `schedule_proactive_message` | 预设一条未来主动消息（1-1440 分钟 / 最长 24h；带可选 `persist` 区分"普通 ping"和"叫起床这种不可取消提醒"）。仅 APK，web 不可用 |
 
 每次工具调用会被记录在消息的 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**（类似 claude.ai）：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回结果。
 
@@ -134,6 +134,44 @@ Claude 有一个工具 `schedule_proactive_message`，可以在聊天中**自主
   1. 取消 `src/main.tsx` 中 PushNotifications 注册的注释
   2. 添加 `GOOGLE_SERVICES_JSON` GitHub Secret
   3. `SELECT cron.alter_job(1, active := true);` 重启 cron
+
+### 🫀 健康同步（Health Connect → health_data）
+让 Claude 知道你今天走了多少步、睡了多久、心率多少 —— 不靠手动告诉它，自动从手机健康数据里拉。
+
+**数据链路（华为示例）**：
+```
+华为手环 → 华为运动健康 → Health Sync（第三方桥接）→ Health Connect → Nimbus
+```
+Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect app）。任何能写入 Health Connect 的数据源（小米运动 / 苹果以外的可穿戴 / Samsung 健康）都行，华为通过 Health Sync 走这条桥。
+
+**前端用 `@capgo/capacitor-health` v8 plugin**（仅 APK），声明的权限：steps / sleep / heartRate / restingHeartRate / distance / totalCalories / oxygenSaturation，全部 read-only，不会写回。
+
+**同步规则**（`src/storage/healthSync.ts`）：
+- 拉最近 3 天的样本（覆盖跨夜 / 同步延迟）
+- 按本地日期聚合：
+  - 步数 = 累加 (按 startDate)
+  - 睡眠 = 累加段时长 → 小时 (按 endDate, 跳过 awake/inBed)
+  - 心率 = 算术均值
+  - 静息心率 = 当天最后一条
+  - 血氧 = 算术均值，自动归一化（0.95 / 95 都视作 95%）
+- 跳过空数据天 —— 避免覆盖之前已写入的值
+- 单 type 失败不影响其他 type
+- upsert 到 `health_data` 表，`ON CONFLICT (date)`
+
+**触发**：
+- App.tsx 在 user mount + 每次进前台时调 `maybeAutoSyncHealth()`
+- 内部 30 分钟节流，所以频繁切前后台不会拉爆
+- 健康同步页有「立即同步」按钮强制 bypass 节流
+- 没办法自动触发 Health Sync 本身（它是独立 app），用户每天得手动开一下 Health Sync
+
+**健康同步页（`/health-sync`）**：
+- 顶卡：「立即同步」+ 上次同步时间 + 本次写入结果
+- 中卡：「今天」预览（步数 / 睡眠 / 心率 / 静息 / 血氧）
+- 折叠「🔧 诊断工具」：可用性检查、单独请求授权、按 type 读样本 + 列原始数据，用来调权限问题
+
+**Android Manifest 权限**：`READ_STEPS / READ_SLEEP / READ_HEART_RATE / READ_RESTING_HEART_RATE / READ_DISTANCE / READ_TOTAL_CALORIES_BURNED / READ_OXYGEN_SATURATION`，加 `<queries>` 块让 Health Connect 能 deep-link 我们的隐私政策。
+
+**minSdkVersion 26 (Android 8.0)**：Health Connect plugin 依赖 `androidx.health.connect:connect-client` 强制要求。
 
 ### 💬 聊天界面交互
 - **气泡分组**：同人 1 分钟内连发紧贴（3px），换人或间隔大拉开（12px）
@@ -222,13 +260,14 @@ Claude 有一个工具 `schedule_proactive_message`，可以在聊天中**自主
 
 | 页面 | 路由 | 说明 |
 |------|------|------|
-| 首页 Dashboard | `/` | 时钟 + 在一起天数 + 可自定义小组件 + 8 个 app 图标入口 |
+| 首页 Dashboard | `/` | 时钟 + 在一起天数 + 当日打卡卡片（一周圈圈 + 一键打卡按钮）+ 可自定义小组件 + 9 个 app 图标入口 |
 | 聊天 | `/chat/:id` | 主聊天界面，工具循环 + 流式 + 懒加载 |
 | 设置 | `/settings` | 10 个折叠区（详见上方） |
 | 记忆库 | `/memory-vault` | 4 个 tab：记忆 / 日记 / 交接信 / 时间轴，CRUD + 搜索 + 来源筛选 + 自动提取 + 待确认流程 |
 | 我的主页 | `/snacks` | 朋友圈帖子 + AI 回复 + 软删除回收站 |
 | TA 的主页 | `/syzygy` | Claude 的朋友圈（对镜版） |
 | 用量统计 | `/usage` | 按 provider / 按会话排行 + 缓存命中率 |
+| 健康同步 | `/health-sync` | Health Connect → `health_data`，自动同步 + 手动触发 + 诊断工具（APK 限定） |
 | 每日打卡 | `/checkin` | 连续打卡 streak + 月历 |
 | 数据导出 | `/export` | Markdown/JSON/TXT 格式导出聊天 + 记忆 + 打卡 |
 | 首页布局 | `/home-layout` | 编辑首页小组件排列 |
