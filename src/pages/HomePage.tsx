@@ -1133,7 +1133,11 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
               </section>
             ) : null}
 
-            {showSettingsPanel && isSettingsPage ? (
+            {/* Editable icon emoji is now also reachable from the
+                main home page's edit mode — keeps the LINE-style
+                "dropdown app + emoji text input" affordance the user
+                liked, instead of a window.prompt popup. */}
+            {showSettingsPanel ? (
               <section className="glass-card icon-editor-toolbar">
                 <h2 className="ui-title">编辑图标</h2>
                 <label>
@@ -1247,33 +1251,12 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                                       </select>
                                     </label>
                                   ) : null}
-                                  {widget?.type === "app_shortcut" ? (
-                                    <button
-                                      type="button"
-                                      className="widget-emoji-edit"
-                                      onClick={() => {
-                                        const icon = iconMap.get(widget.appId)
-                                        if (!icon) return
-                                        const configured = appIconConfigs[icon.id]
-                                        const current = configured?.emoji ?? icon.defaultEmoji
-                                        const next = window.prompt(
-                                          `修改「${icon.label}」的图标 emoji`,
-                                          current,
-                                        )
-                                        if (next == null) return
-                                        const trimmed = next.trim()
-                                        setAppIconConfigs((prev) => ({
-                                          ...prev,
-                                          [icon.id]: {
-                                            type: "emoji",
-                                            emoji: trimmed || icon.defaultEmoji,
-                                          },
-                                        }))
-                                      }}
-                                    >
-                                      ✏️
-                                    </button>
-                                  ) : null}
+                                  {/* Emoji editing happens in the
+                                      .icon-editor-toolbar section that
+                                      now renders inline below the
+                                      widget grid in edit mode — same
+                                      dropdown + text-input UI the
+                                      /home-layout page uses. */}
                                   {!isCheckin && widget ? (
                                     <button
                                       type="button"
