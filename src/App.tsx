@@ -60,7 +60,7 @@ import { fetchOpenRouter } from './api/openrouter'
 import { getActiveProvider, getProviderConfig } from './storage/apiProvider'
 import { recordUsage } from './storage/usageStats'
 import { maybeAutoSyncHealth } from './storage/healthSync'
-import { fetchCurrentWeather } from './storage/weather'
+import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
 import { runSandboxCode } from './storage/sandbox'
 import { syncStatusBarToPage } from './storage/statusBar'
 import {
@@ -510,30 +510,6 @@ const TOOL_RUN_CODE = {
         },
       },
       required: ['language', 'code'],
-    },
-  },
-}
-
-// On-demand weather lookup. Replaces the morning auto-injection so
-// the model can pull a *current* reading whenever it's actually
-// relevant (user asks, or it needs to decide what to suggest).
-const TOOL_GET_WEATHER = {
-  type: 'function' as const,
-  function: {
-    name: 'get_weather',
-    description:
-      '获取用户当前位置的实时天气，返回温度、体感、状况、风速。' +
-      '何时调用：用户问到天气；或你要根据天气给穿什么、带伞、中暑等建议。' +
-      '不要每次聊到外出就主动查。数据来自浏览器定位 + Open-Meteo。',
-    parameters: {
-      type: 'object',
-      properties: {
-        reason: {
-          type: 'string',
-          description: '可选。简单说一下为什么需要查天气（用户的提问 / 你要给的建议）。',
-        },
-      },
-      required: [],
     },
   },
 }
@@ -1239,13 +1215,33 @@ const App = () => {
       )
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
-      // Weather is no longer auto-injected on the day's first message
-      // — the get_weather tool lets the model fetch a *current* reading
-      // when it actually matters (user asks, deciding what to suggest)
-      // instead of a stale morning snapshot that misleads in the
-      // afternoon when the weather changes.
+      // Snapshot current weather (if cached) only on the day's first
+      // user message — Claude doesn't need to see it on every turn,
+      // and it keeps the prompt cleaner. Per-day tracker in localStorage.
+      // If the weather changes later in the day, Claude can fall back to
+      // the web_search tool to grab a fresh reading instead of relying
+      // on this morning snapshot.
+      const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
+      const WEATHER_DATE_KEY = 'nimbus_weather_injected_date'
+      const lastWeatherDate = typeof window !== 'undefined'
+        ? window.localStorage.getItem(WEATHER_DATE_KEY)
+        : null
+      const shouldInjectWeather = lastWeatherDate !== todayCN
+      const weatherSnap = shouldInjectWeather ? peekCachedWeather() : null
+      if (weatherSnap && typeof window !== 'undefined') {
+        window.localStorage.setItem(WEATHER_DATE_KEY, todayCN)
+      }
       const userMeta: ChatMessage['meta'] = {
         ...(userAttachments.length > 0 ? { attachments: userAttachments } : {}),
+        ...(weatherSnap
+          ? {
+              weather: {
+                temperatureC: weatherSnap.temperatureC,
+                feelsLikeC: weatherSnap.feelsLikeC,
+                condition: weatherSnap.condition,
+              },
+            }
+          : {}),
       }
       const optimisticMessage: ChatMessage = {
         id: clientId,
@@ -1749,7 +1745,6 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
-                TOOL_GET_WEATHER,
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_SCHEDULE_PROACTIVE] : []),
               ]
               requestBody.tool_choice = 'auto'
@@ -2059,27 +2054,6 @@ TOOL_SEARCH_HANDOFF,
                     resultText = error
                       ? JSON.stringify({ error: error.message ?? String(error) })
                       : JSON.stringify(data ?? {})
-                  } else if (tc.function.name === 'get_weather') {
-                    setToolStatus('🌤️ 查天气…')
-                    try {
-                      const snap = await fetchCurrentWeather()
-                      if (snap) {
-                        resultText = JSON.stringify({
-                          temperature_c: snap.temperatureC,
-                          feels_like_c: snap.feelsLikeC,
-                          condition: snap.condition,
-                          wind_speed_kmh: Math.round(snap.windKmh),
-                          city: snap.city,
-                          fetched_at: new Date(snap.fetchedAt).toISOString(),
-                        })
-                      } else {
-                        resultText = JSON.stringify({ error: '位置或天气服务不可用，可能权限被拒或网络异常' })
-                      }
-                    } catch (weatherError) {
-                      resultText = JSON.stringify({
-                        error: weatherError instanceof Error ? weatherError.message : String(weatherError),
-                      })
-                    }
                   } else if (tc.function.name === 'run_code') {
                     let args: { language?: 'python' | 'javascript'; code?: string; timeout_seconds?: number } = {}
                     try {
