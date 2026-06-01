@@ -98,12 +98,17 @@ const dedupeSamples = (samples: HealthSample[]): HealthSample[] => {
   const seen = new Set<string>()
   const out: HealthSample[] = []
   for (const s of samples) {
-    // platformId is the Health Connect record's metadata id and is
-    // the gold-standard unique key when present. Fall back to a
-    // composite if the plugin happens not to return it.
+    // Series-style record types (heart rate especially) emit many
+    // samples that share the same platformId (the parent record's
+    // metadata.id). Keying on platformId alone collapses an entire
+    // heart-rate series to a single sample — that's why "62-62"
+    // showed up earlier. Always include startDate + value so
+    // distinct samples inside the same series stay distinct, while
+    // genuine duplicates (same time, same value, same record) still
+    // collapse.
     const key =
       s.platformId && s.platformId.length > 0
-        ? `${s.dataType}|${s.platformId}`
+        ? `${s.dataType}|${s.platformId}|${s.startDate}|${s.value}`
         : `${s.dataType}|${s.startDate}|${s.endDate}|${s.value}|${s.sourceName ?? ''}`
     if (seen.has(key)) continue
     seen.add(key)
