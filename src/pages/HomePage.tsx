@@ -1226,21 +1226,54 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                             >
                               {editMode ? (
                                 <div className="widget-controls">
-                                  <label>
-                                    尺寸
-                                    <select
-                                      value={item.size}
-                                      onChange={(event) =>
-                                        handleWidgetSizeChange(
-                                          item.id,
-                                          event.target.value as WidgetSize,
+                                  {/* Size selector hidden for shortcut tiles
+                                      — app icons should stay 1x1; only text
+                                      / image / spacer / content widgets can
+                                      flip between small and wide. */}
+                                  {widget?.type !== "app_shortcut" ? (
+                                    <label>
+                                      尺寸
+                                      <select
+                                        value={item.size}
+                                        onChange={(event) =>
+                                          handleWidgetSizeChange(
+                                            item.id,
+                                            event.target.value as WidgetSize,
+                                          )
+                                        }
+                                      >
+                                        <option value="1x1">小</option>
+                                        <option value="2x1">大</option>
+                                      </select>
+                                    </label>
+                                  ) : null}
+                                  {widget?.type === "app_shortcut" ? (
+                                    <button
+                                      type="button"
+                                      className="widget-emoji-edit"
+                                      onClick={() => {
+                                        const icon = iconMap.get(widget.appId)
+                                        if (!icon) return
+                                        const configured = appIconConfigs[icon.id]
+                                        const current = configured?.emoji ?? icon.defaultEmoji
+                                        const next = window.prompt(
+                                          `修改「${icon.label}」的图标 emoji`,
+                                          current,
                                         )
-                                      }
+                                        if (next == null) return
+                                        const trimmed = next.trim()
+                                        setAppIconConfigs((prev) => ({
+                                          ...prev,
+                                          [icon.id]: {
+                                            type: "emoji",
+                                            emoji: trimmed || icon.defaultEmoji,
+                                          },
+                                        }))
+                                      }}
                                     >
-                                      <option value="1x1">小</option>
-                                      <option value="2x1">大</option>
-                                    </select>
-                                  </label>
+                                      ✏️
+                                    </button>
+                                  ) : null}
                                   {!isCheckin && widget ? (
                                     <button
                                       type="button"

@@ -279,25 +279,31 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
     // Migration: dock has been removed; every app lives on page 0 as
     // a shortcut tile. Consolidate any existing shortcut widgets
     // (from earlier migrations that put them on page 1) onto page 0,
-    // dedupe by appId, then fill in any missing apps.
+    // dedupe by appId, then fill in any missing apps. The final
+    // order is forced to match ALL_APP_IDS so the user's preferred
+    // layout (聊天 / 打卡 / mimi / Claude / 记忆库 / 健康 / 用量 /
+    // 设置 / 导出) is restored on every load.
     const ALL_APP_IDS = [
       'chat',
       'checkin',
-      'memory',
       'snacks',
       'syzygy',
-      'usage',
+      'memory',
       'health',
+      'usage',
       'settings',
       'export',
     ]
     type AppShortcut = Extract<DecorativeWidget, { type: 'app_shortcut' }>
-    const collectedShortcuts: AppShortcut[] = []
+    const collectedShortcuts: Map<string, AppShortcut> = new Map()
     const cleanedPages = normalizedPages.map((page) => {
       const others: DecorativeWidget[] = []
       for (const widget of page.widgets) {
         if (widget.type === 'app_shortcut') {
-          collectedShortcuts.push(widget)
+          // First occurrence wins so an existing widget id is preserved.
+          if (!collectedShortcuts.has(widget.appId)) {
+            collectedShortcuts.set(widget.appId, widget)
+          }
         } else {
           others.push(widget)
         }
@@ -309,29 +315,23 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
       }
     })
 
-    // Dedupe by appId, keep first occurrence.
-    const seenAppIds = new Set<string>()
-    const finalShortcuts = collectedShortcuts.filter((s) => {
-      if (seenAppIds.has(s.appId)) return false
-      seenAppIds.add(s.appId)
-      return true
-    })
+    // Build the canonical shortcut list ordered by ALL_APP_IDS.
+    const orderedShortcuts: AppShortcut[] = []
     for (const appId of ALL_APP_IDS) {
-      if (!seenAppIds.has(appId)) {
+      const existing = collectedShortcuts.get(appId)
+      if (existing) {
+        orderedShortcuts.push(existing)
+      } else {
         const id = `shortcut-${appId}-${Math.random().toString(36).slice(2, 8)}`
-        finalShortcuts.push({ id, type: 'app_shortcut', appId, size: '1x1' })
-        seenAppIds.add(appId)
+        orderedShortcuts.push({ id, type: 'app_shortcut', appId, size: '1x1' })
       }
     }
 
-    // Glue everything onto page 0; downstream HomePage logic keeps
-    // the checkin core widget anchored at the top by virtue of being
-    // in CORE_WIDGET_ID.
     if (cleanedPages.length === 0) {
       cleanedPages.push({ widgetOrder: [], widgets: [] })
     }
-    cleanedPages[0].widgets.push(...finalShortcuts)
-    cleanedPages[0].widgetOrder.push(...finalShortcuts.map((s) => s.id))
+    cleanedPages[0].widgets.push(...orderedShortcuts)
+    cleanedPages[0].widgetOrder.push(...orderedShortcuts.map((s) => s.id))
 
     normalizedPages = cleanedPages.filter(
       (p, idx) => idx === 0 || p.widgets.length > 0 || p.widgetOrder.length > 0,
