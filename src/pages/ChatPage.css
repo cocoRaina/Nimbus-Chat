@@ -59,16 +59,17 @@
   border-radius: 0;
 }
 
-/* Light-grey pill input so the typing area is still discoverable
-   against the now-flat background. */
+/* Pure-white pill input matching the LINE reference. The flat
+   page background plus a clean white pill is enough contrast to
+   mark where you type — no extra grey wash. */
 .composer-line-input {
-  background: rgba(15, 23, 42, 0.05);
+  background: #ffffff;
   border-color: transparent;
 }
 
 .composer-line-input:focus {
-  background: rgba(15, 23, 42, 0.08);
-  border-color: transparent;
+  background: #ffffff;
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
 .chat-header {
