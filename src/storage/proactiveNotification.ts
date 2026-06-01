@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
+import { getAssistantName } from './assistantPersona'
 
 // Transient = "ping if she hasn't come back yet" — auto-cancelled when
 // user sends a new message. Persist = "user explicitly asked for this,
@@ -87,7 +88,7 @@ export const scheduleProactiveNotification = async (
       notifications: [
         {
           id,
-          title: '哥哥',
+          title: getAssistantName(),
           body: notificationBody,
           schedule: { at: new Date(Date.now() + delay) },
           channelId: 'proactive',

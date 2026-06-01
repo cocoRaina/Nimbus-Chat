@@ -125,6 +125,19 @@
   line-height: 1;
 }
 
+/* Circular Claude/syzygy avatar between the back button and the
+   "哥哥" (or renamed) title — same spot LINE puts the contact's
+   profile picture. */
+.chat-header-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.6);
+}
+
 .header-actions {
   display: flex;
   align-items: center;

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
+import { getAssistantName, setAssistantName } from '../storage/assistantPersona'
 import type { ChatMessage, ChatSession } from '../types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MarkdownRenderer from '../components/MarkdownRenderer'
@@ -174,6 +175,20 @@ const ChatPage = ({
   const [actionsMenuPosition, setActionsMenuPosition] = useState<{ top: number; left: number } | null>(null)
   const [openHeaderMenu, setOpenHeaderMenu] = useState(false)
   const [headerMenuPosition, setHeaderMenuPosition] = useState({ top: 0, right: 0 })
+  // Read once on mount; the chat header reflects this for the title +
+  // the proactive notification title. Renaming via the settings menu
+  // updates both state and localStorage in one step.
+  const [assistantName, setAssistantNameState] = useState<string>(
+    () => getAssistantName(),
+  )
+  // Assistant avatar — pulled from the Claude / syzygy homepage where
+  // the user can upload one. localStorage is read once; if it
+  // changes mid-session (uploaded in another tab) the user can re-
+  // enter chat to refresh.
+  const assistantAvatar = useMemo(() => {
+    if (typeof window === 'undefined') return null
+    return window.localStorage.getItem('syzygy-homepage-avatar')
+  }, [])
   const [pendingDelete, setPendingDelete] = useState<ChatMessage | null>(null)
   const [quoted, setQuoted] = useState<{ role: ChatMessage['role']; content: string } | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
@@ -528,8 +543,15 @@ const ChatPage = ({
         >
           ←
         </button>
+        {assistantAvatar ? (
+          <img
+            className="chat-header-avatar"
+            src={assistantAvatar}
+            alt={assistantName}
+          />
+        ) : null}
         <div className="header-title">
-          <h1 className="ui-title">哥哥</h1>
+          <h1 className="ui-title">{assistantName}</h1>
           {isStreaming ? (
             <span className="chat-typing-subtitle" aria-live="polite">
               正在输入<span className="chat-typing-dots" aria-hidden="true">
@@ -567,7 +589,6 @@ const ChatPage = ({
                   className="header-menu"
                   style={{ top: `${headerMenuPosition.top}px`, right: `${headerMenuPosition.right}px` }}
                 >
-                  <div className="header-menu-section-label">本对话</div>
                   <label className="header-menu-toggle">
                     <input
                       type="checkbox"
@@ -583,70 +604,19 @@ const ChatPage = ({
                   >
                     {compressing ? '⏳ 压缩中…' : '📦 手动压缩对话'}
                   </button>
-                  <div className="header-menu-divider" />
                   <button
                     type="button"
                     onClick={() => {
+                      const next = window.prompt('修改名称', assistantName)
+                      if (next == null) return
+                      const trimmed = next.trim()
+                      const final = trimmed.length > 0 ? trimmed : assistantName
+                      setAssistantName(final)
+                      setAssistantNameState(final)
                       setOpenHeaderMenu(false)
-                      navigate('/snacks')
                     }}
                   >
-                    我的主页
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenHeaderMenu(false)
-                      navigate('/syzygy')
-                    }}
-                  >
-                    TA的主页
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenHeaderMenu(false)
-                      navigate('/memory-vault')
-                    }}
-                  >
-                    记忆库
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenHeaderMenu(false)
-                      navigate('/checkin')
-                    }}
-                  >
-                    打卡
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenHeaderMenu(false)
-                      navigate('/usage')
-                    }}
-                  >
-                    用量统计
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenHeaderMenu(false)
-                      navigate('/settings')
-                    }}
-                  >
-                    设置
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenHeaderMenu(false)
-                      navigate('/export')
-                    }}
-                  >
-                    数据导出
+                    ✏️ 修改名称
                   </button>
                 </div>,
                 document.body,
