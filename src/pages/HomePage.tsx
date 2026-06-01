@@ -70,16 +70,24 @@ type RenderedWidgetItem = {
 };
 
 const DEFAULT_ICON_ORDER = [
-  // Lean dock — only the three the user opens daily. The rest are
-  // moved onto the home pages as dock-styled icon tiles (rendered
-  // via the app_shortcut widget but stripped of the widget-card
-  // chrome so they look like plain icons).
+  // Retained for emoji-customisation purposes only (appIconConfigs
+  // keys off these ids). The bottom dock has been removed entirely
+  // — every app is now a shortcut widget on page 0 of the grid.
   "chat",
+  "checkin",
   "memory",
+  "snacks",
+  "syzygy",
+  "usage",
+  "health",
   "settings",
+  "export",
 ];
 const CORE_WIDGET_ID = "widget-checkin";
-const MAX_WIDGETS = 6;
+// Raised from 6 → 14 so page 0 can hold the checkin tile + all 9 app
+// shortcuts + a couple of content widgets without immediately
+// bumping the cap.
+const MAX_WIDGETS = 14;
 const DEFAULT_ICON_TILE_BG_COLOR = "#ffffff";
 const DEFAULT_ICON_TILE_BG_OPACITY = 0.65;
 
@@ -131,6 +139,11 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   const widgetData = useHomeWidgetData(user?.id);
 
   const [editMode, setEditMode] = useState(false);
+  // While editMode is on, the toolbar takes a lot of vertical room.
+  // Flipping into "preview" temporarily hides the toolbar so the user
+  // can see the live grid without leaving edit mode. Toggled by the
+  // 👁 button inside the widget toolbar header.
+  const [editPreviewing, setEditPreviewing] = useState(false);
   const [mobileTab, setMobileTab] = useState<"settings" | "preview">(
     "settings",
   );
@@ -671,18 +684,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     return next;
   };
 
-  const handleIconDrop = (
-    event: React.DragEvent<HTMLDivElement>,
-    targetIndex: number,
-  ) => {
-    event.preventDefault();
-    const sourceId = event.dataTransfer.getData("text/icon-id");
-    if (!sourceId) {
-      return;
-    }
-    setIconOrder((current) => moveInList(current, sourceId, targetIndex));
-  };
-
   const triggerEditModeByHold = () => {
     // Long-pressing any widget should drop into edit mode on both the
     // default home page and the dedicated /home-layout view. The
@@ -989,6 +990,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                       // settings menu for deep customisation.
                       if (editMode) {
                         setEditMode(false)
+                        setEditPreviewing(false)
                       } else {
                         setEditMode(true)
                       }
@@ -996,6 +998,16 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   >
                     {editMode ? "完成" : "编辑"}
                   </button>
+                  {editMode ? (
+                    <button
+                      type="button"
+                      className="edit-button edit-button-back"
+                      onClick={() => setEditPreviewing((v) => !v)}
+                      aria-label={editPreviewing ? "回到编辑" : "预览效果"}
+                    >
+                      {editPreviewing ? "编辑" : "预览"}
+                    </button>
+                  ) : null}
                   <h1 className="ui-title ui-numeric home-clock-title">{timeLabel}</h1>
                   <p>{dateLabel}</p>
                 </>
@@ -1004,7 +1016,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
 
             {notice ? <p className="home-notice">{notice}</p> : null}
 
-            {showSettingsPanel ? (
+            {showSettingsPanel && !editPreviewing ? (
               <section className="glass-card widget-toolbar">
                 <header className="widget-toolbar-header">
                   <span className="widget-toolbar-label">组件</span>
@@ -1619,63 +1631,10 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   ) : null}
                 </div>
 
-                <section className="home-dock" aria-label="Apps">
-                  {iconOrder.map((iconId, index) => {
-                    const icon = iconMap.get(iconId);
-                    if (!icon) {
-                      return null;
-                    }
-
-                    const configured = appIconConfigs[iconId] ?? {
-                      type: "emoji",
-                      emoji: icon.defaultEmoji,
-                    };
-                    const emojiValue = configured.emoji || icon.defaultEmoji;
-
-                    return (
-                      <div
-                        key={icon.id}
-                        className="app-icon-slot"
-                        onDragOver={(event) =>
-                          editMode && event.preventDefault()
-                        }
-                        onDrop={(event) =>
-                          editMode && handleIconDrop(event, index)
-                        }
-                      >
-                        <button
-                          type="button"
-                          className="app-icon-button"
-                          draggable={editMode}
-                          onDragStart={(event) =>
-                            event.dataTransfer.setData("text/icon-id", icon.id)
-                          }
-                          onPointerDown={triggerEditModeByHold}
-                          onPointerUp={cancelHold}
-                          onPointerLeave={cancelHold}
-                          onClick={() => {
-                            if (editMode) {
-                              setEditingIconId(icon.id);
-                              return;
-                            }
-                            if (icon.action) {
-                              icon.action();
-                              return;
-                            }
-                            if (icon.route) {
-                              navigate(icon.route);
-                            }
-                          }}
-                        >
-                          <span className="icon-emoji">
-                            <span>{emojiValue}</span>
-                          </span>
-                          <span className="icon-label">{icon.label}</span>
-                        </button>
-                      </div>
-                    );
-                  })}
-                </section>
+                {/* Bottom dock removed — every app is now a shortcut
+                    tile on page 0. iconOrder still survives for the
+                    /home-layout emoji editor; appIconConfigs flows
+                    through to the shortcut widgets. */}
               </div>
             </div>
           ) : null}
