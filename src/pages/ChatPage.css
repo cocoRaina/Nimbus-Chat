@@ -75,7 +75,10 @@
 .chat-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* No space-between any more — the title sits to the right, hugging
+     the action buttons (per the LINE-style mock the user pointed
+     at). margin-left:auto on .header-title pushes it past any blank
+     space after the back button. */
   padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
   gap: 8px;
   position: sticky;
@@ -172,7 +175,9 @@
 .header-title {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-end;
+  /* push to the right; .header-actions follows right after. */
+  margin-left: auto;
   gap: 2px;
 }
 
@@ -937,8 +942,8 @@
   max-height: 140px;
   padding: 8px 14px;
   border-radius: 19px;
-  border: 1px solid rgba(59, 130, 246, 0.22);
-  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid transparent;
+  background: #ffffff;
   font-family: inherit;
   font-size: 15px;
   line-height: 1.4;
