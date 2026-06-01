@@ -66,6 +66,14 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- Lets PackageManager.getApplicationLabel() resolve the display
+         name (e.g. "微信" / "B站") for every other package on device.
+         Without this Android 11+ hides packages from us and the
+         usage-stats list falls back to bare com.* package names. -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
     <!-- Lets us discover whether the Health Connect app is installed on
          Android <14 and lets Health Connect deep-link our privacy
          rationale screen. -->
