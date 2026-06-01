@@ -255,6 +255,59 @@
   overflow: visible;
 }
 
+.widget-pages {
+  width: 100%;
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.widget-pages::-webkit-scrollbar {
+  display: none;
+}
+
+.widget-page {
+  flex: 0 0 100%;
+  scroll-snap-align: center;
+  min-width: 0;
+}
+
+.widget-page-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.widget-page-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.25);
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+
+.widget-page-dots span.is-active {
+  background: #2563EB;
+  transform: scale(1.2);
+}
+
+.widget-page-add {
+  border: 1px dashed rgba(59, 130, 246, 0.45);
+  background: transparent;
+  color: #2563EB;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .home-widget-stage {
   width: 100%;
   height: fit-content;

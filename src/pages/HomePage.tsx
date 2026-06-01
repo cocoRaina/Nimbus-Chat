@@ -16,6 +16,7 @@ import {
   saveImageDataUrl,
   type AppIconConfig,
   type DecorativeWidget,
+  type HomePageData,
 } from "../storage/homeLayout";
 import { createTodayCheckin, fetchRecentCheckins } from "../storage/supabaseSync";
 import "./HomePage.css";
@@ -132,8 +133,64 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   const [prefsReady, setPrefsReady] = useState(false);
 
   const [iconOrder, setIconOrder] = useState<string[]>(DEFAULT_ICON_ORDER);
-  const [widgetOrder, setWidgetOrder] = useState<string[]>([CORE_WIDGET_ID]);
-  const [widgets, setWidgets] = useState<DecorativeWidget[]>([]);
+  const [pages, setPages] = useState<HomePageData[]>([
+    { widgetOrder: [CORE_WIDGET_ID], widgets: [] },
+  ]);
+  const [activePageIdx, setActivePageIdx] = useState(0);
+  // Derived view into the active page. Reads through every render
+  // instead of being memoed — it's a trivial index/?? lookup, and the
+  // downstream consumers (decoratedWidgetCount, removeWidget) already
+  // depend on the underlying pages array.
+  //
+  // Note: the analogous `widgetOrder` derived value was removed once
+  // rendering moved to per-page `buildPageItems(page)` — nothing else
+  // referenced the active page's order anymore. The setWidgetOrder
+  // wrapper below still exists because reorder-drag and add-widget
+  // helpers write through it.
+  const widgets: DecorativeWidget[] = pages[activePageIdx]?.widgets ?? [];
+  // Wrapper setters preserve the existing call sites — every place that
+  // used to call setWidgets/setWidgetOrder still works because the
+  // wrapper rewrites the matching slot inside pages[activePageIdx].
+  // Supports both functional and direct-value updates.
+  type Updater<T> = T | ((prev: T) => T);
+  const setWidgets = useCallback(
+    (updater: Updater<DecorativeWidget[]>) => {
+      setPages((current) => {
+        if (current.length === 0) return current;
+        const idx = Math.min(activePageIdx, current.length - 1);
+        const page = current[idx];
+        const nextWidgets =
+          typeof updater === "function"
+            ? (updater as (prev: DecorativeWidget[]) => DecorativeWidget[])(
+                page.widgets,
+              )
+            : updater;
+        if (nextWidgets === page.widgets) return current;
+        const next = current.slice();
+        next[idx] = { ...page, widgets: nextWidgets };
+        return next;
+      });
+    },
+    [activePageIdx],
+  );
+  const setWidgetOrder = useCallback(
+    (updater: Updater<string[]>) => {
+      setPages((current) => {
+        if (current.length === 0) return current;
+        const idx = Math.min(activePageIdx, current.length - 1);
+        const page = current[idx];
+        const nextOrder =
+          typeof updater === "function"
+            ? (updater as (prev: string[]) => string[])(page.widgetOrder)
+            : updater;
+        if (nextOrder === page.widgetOrder) return current;
+        const next = current.slice();
+        next[idx] = { ...page, widgetOrder: nextOrder };
+        return next;
+      });
+    },
+    [activePageIdx],
+  );
   const [checkinSize, setCheckinSize] = useState<WidgetSize>("1x1");
   const [togetherSince, setTogetherSince] = useState<string | null>(null);
   const [showEmptySlots, setShowEmptySlots] = useState(false);
@@ -159,6 +216,59 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   const [checkinBusy, setCheckinBusy] = useState(false);
 
   const holdTimerRef = useRef<number | null>(null);
+  // Ref to the horizontal pages scroller. Used both to compute which
+  // page is currently snapped (scroll listener) and to programmatically
+  // scroll when the user taps a dot.
+  const pagesScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const addPage = useCallback(() => {
+    setPages((current) => {
+      const next = [...current, { widgetOrder: [], widgets: [] }];
+      // Step active page to the new one in the same render so the
+      // dots/scroll position match what just got created.
+      setActivePageIdx(next.length - 1);
+      return next;
+    });
+  }, []);
+
+  // Trim a trailing empty page when the user navigates away from it.
+  // Page 0 is sacred (it owns the core check-in widget) so we never
+  // remove it even when empty.
+  const removeActivePageIfEmpty = useCallback(() => {
+    setPages((current) => {
+      if (activePageIdx <= 0 || activePageIdx >= current.length) {
+        return current;
+      }
+      const page = current[activePageIdx];
+      if (page.widgets.length > 0 || page.widgetOrder.length > 0) {
+        return current;
+      }
+      const next = current.slice();
+      next.splice(activePageIdx, 1);
+      setActivePageIdx((idx) => Math.max(0, idx - 1));
+      return next;
+    });
+  }, [activePageIdx]);
+
+  const scrollToPage = useCallback(
+    (pageIdx: number) => {
+      // If the user is leaving the active page and it's empty, drop it
+      // first so we don't leave an orphan ghost behind. The helper is
+      // a no-op when the active page has any content (or is page 0).
+      removeActivePageIfEmpty();
+      const el = pagesScrollRef.current;
+      if (!el) return;
+      el.scrollTo({ left: pageIdx * el.clientWidth, behavior: "smooth" });
+    },
+    [removeActivePageIfEmpty],
+  );
+
+  const handlePagesScroll = useCallback(() => {
+    const el = pagesScrollRef.current;
+    if (!el || el.clientWidth === 0) return;
+    const idx = Math.round(el.scrollLeft / el.clientWidth);
+    setActivePageIdx((current) => (current === idx ? current : idx));
+  }, []);
 
   const appIcons = useMemo<AppIcon[]>(
     () => [
@@ -305,9 +415,11 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     [now],
   );
 
+  // MAX_WIDGETS is enforced per page. Page 0 includes the core check-in
+  // widget in its count; later pages only count decorative widgets.
   const decoratedWidgetCount = useMemo(
-    () => widgets.length + 1,
-    [widgets.length],
+    () => widgets.length + (activePageIdx === 0 ? 1 : 0),
+    [widgets.length, activePageIdx],
   );
 
   useEffect(() => {
@@ -362,18 +474,37 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     );
     setIconOrder([...safeIconOrder, ...missing]);
 
-    const safeWidgets = cached.widgets.filter(
-      (widget) =>
-        widget.type === "image" ||
-        widget.type === "text" ||
-        widget.type === "spacer",
-    );
-    const widgetIds = safeWidgets.map((widget) => widget.id);
-    const restoredOrder = cached.widgetOrder.filter(
-      (id) => id === CORE_WIDGET_ID || widgetIds.includes(id),
-    );
-    setWidgets(safeWidgets);
-    setWidgetOrder(Array.from(new Set([CORE_WIDGET_ID, ...restoredOrder])));
+    // Load multi-page layout. The core checkin widget must live on
+    // page 1, so even if the persisted layout somehow lost it (corrupt
+    // state, legacy migration edge case) we splice it back onto the
+    // first page's widgetOrder.
+    const sourcePages: HomePageData[] =
+      Array.isArray(cached.pages) && cached.pages.length > 0
+        ? cached.pages
+        : [{ widgetOrder: [CORE_WIDGET_ID], widgets: [] }];
+
+    const restoredPages: HomePageData[] = sourcePages.map((page, pageIdx) => {
+      const safeWidgets = page.widgets.filter(
+        (widget) =>
+          widget.type === "image" ||
+          widget.type === "text" ||
+          widget.type === "spacer",
+      );
+      const widgetIds = new Set(safeWidgets.map((widget) => widget.id));
+      const filteredOrder = page.widgetOrder.filter(
+        (id) =>
+          (pageIdx === 0 && id === CORE_WIDGET_ID) || widgetIds.has(id),
+      );
+      // Page 1 always starts with the core checkin widget.
+      const nextOrder =
+        pageIdx === 0
+          ? Array.from(new Set([CORE_WIDGET_ID, ...filteredOrder]))
+          : filteredOrder;
+      return { widgetOrder: nextOrder, widgets: safeWidgets };
+    });
+
+    setPages(restoredPages);
+    setActivePageIdx(0);
     setCheckinSize(cached.checkinSize ?? "1x1");
     setTogetherSince(cached.togetherSince ?? null);
     setShowEmptySlots(cached.showEmptySlots ?? false);
@@ -402,8 +533,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
 
     saveHomeSettings({
       iconOrder,
-      widgetOrder,
-      widgets,
+      pages,
       checkinSize,
       togetherSince,
       showEmptySlots,
@@ -419,13 +549,23 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     iconTileBgColor,
     iconTileBgOpacity,
     showEmptySlots,
-    widgetOrder,
-    widgets,
+    pages,
     prefsReady,
   ]);
 
+  // Flatten widgets across every page so image loading covers all
+  // pages, not just the active one — otherwise swiping to an unloaded
+  // page would briefly flash empty image widgets, and the trailing
+  // setImageUrls reset would clobber the urls we already had.
+  const allWidgets = useMemo(
+    () => pages.flatMap((page) => page.widgets),
+    [pages],
+  );
+
   useEffect(() => {
-    const imageWidgets = widgets.filter((widget) => widget.type === "image");
+    const imageWidgets = allWidgets.filter(
+      (widget) => widget.type === "image",
+    );
 
     const cachedEntries = imageWidgets
       .map((widget) => {
@@ -494,7 +634,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
         return sameKeys ? current : next;
       });
     });
-  }, [widgets]);
+  }, [allWidgets]);
 
 
 
@@ -647,21 +787,36 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     return `rgba(${r}, ${g}, ${b}, ${iconTileBgOpacity})`;
   }, [iconTileBgColor, iconTileBgOpacity]);
 
-  const orderedWidgetItems = useMemo<RenderedWidgetItem[]>(() => {
-    const widgetMap = new Map(widgets.map((widget) => [widget.id, widget]));
-    return widgetOrder
-      .map((id) => {
-        if (id === CORE_WIDGET_ID) {
-          return { id, kind: "checkin", size: checkinSize };
-        }
-        const widget = widgetMap.get(id);
-        if (!widget) {
-          return null;
-        }
-        return { id, kind: "decorative", widget, size: widget.size ?? "1x1" };
-      })
-      .filter((item): item is RenderedWidgetItem => Boolean(item));
-  }, [checkinSize, widgetOrder, widgets]);
+  // Builds the renderable list for any page. Each page has its own
+  // widgetOrder/widgets, so the renderer just calls this once per page
+  // during the map. The checkin widget only ever appears on page 0,
+  // but if a future bug ever resurrected its id on another page we
+  // still render it consistently here.
+  const buildPageItems = useCallback(
+    (page: HomePageData): RenderedWidgetItem[] => {
+      const widgetMap = new Map(
+        page.widgets.map((widget) => [widget.id, widget]),
+      );
+      return page.widgetOrder
+        .map((id) => {
+          if (id === CORE_WIDGET_ID) {
+            return { id, kind: "checkin", size: checkinSize };
+          }
+          const widget = widgetMap.get(id);
+          if (!widget) {
+            return null;
+          }
+          return {
+            id,
+            kind: "decorative",
+            widget,
+            size: widget.size ?? "1x1",
+          };
+        })
+        .filter((item): item is RenderedWidgetItem => Boolean(item));
+    },
+    [checkinSize],
+  );
 
   const handleWidgetSizeChange = (id: string, size: WidgetSize) => {
     if (id === CORE_WIDGET_ID) {
@@ -905,180 +1060,241 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
           {showPreviewPanel ? (
             <div className="home-page__content app-shell__content">
               <div className="home-layout">
-                <section
-                  className="widget-grid home-widget-stage"
-                  aria-label="Widgets"
+                <div
+                  className="widget-pages"
+                  ref={pagesScrollRef}
+                  onScroll={handlePagesScroll}
                 >
-                  {orderedWidgetItems.map((item) => {
-                    const isCheckin = item.kind === "checkin";
-                    const widget = item.widget;
-                    const isSpacer = widget?.type === "spacer";
-
+                  {pages.map((page, pageIdx) => {
+                    const pageItems = buildPageItems(page);
                     return (
-                      <article
-                        key={item.id}
-                        className={`glass-card widget-card ${item.size === "2x1" ? "widget-card-wide" : ""} ${isSpacer ? "spacer-card" : ""}`}
-                        draggable={editMode}
-                        onDragStart={(event) =>
-                          event.dataTransfer.setData("text/widget-id", item.id)
-                        }
-                        onDragOver={(event) =>
-                          editMode && event.preventDefault()
-                        }
-                        onDrop={(event) =>
-                          editMode && handleWidgetDropOnItem(event, item.id)
-                        }
-                        onPointerDown={triggerEditModeByHold}
-                        onPointerUp={cancelHold}
-                        onPointerLeave={cancelHold}
+                      <section
+                        key={pageIdx}
+                        className="widget-page widget-grid home-widget-stage"
+                        aria-label={`Widgets page ${pageIdx + 1}`}
                       >
-                        {editMode ? (
-                          <div className="widget-controls">
-                            <label>
-                              尺寸
-                              <select
-                                value={item.size}
-                                onChange={(event) =>
-                                  handleWidgetSizeChange(
-                                    item.id,
-                                    event.target.value as WidgetSize,
-                                  )
-                                }
-                              >
-                                <option value="1x1">小</option>
-                                <option value="2x1">大</option>
-                              </select>
-                            </label>
-                            {!isCheckin && widget ? (
-                              <button
-                                type="button"
-                                className="widget-delete"
-                                onClick={() => void removeWidget(widget.id)}
-                              >
-                                ×
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        {isCheckin ? (
-                          <article
-                            className={`together-inner ${item.size === "2x1" ? "together-wide" : ""}`}
-                          >
-                            <div className="together-header">
-                              <span className="together-date">{dateLabel}</span>
-                              {togetherElapsed ? (
-                                <span className="together-days-pill">
-                                  ❤️ {togetherElapsed.days} 天
-                                </span>
-                              ) : null}
-                            </div>
-                            {togetherElapsed ? (
-                              <div className="together-counter-stack">
-                                <div className="together-counter-headline">
-                                  <strong>{togetherElapsed.days}</strong>
-                                  <span>Days Together</span>
+                        {pageItems.map((item) => {
+                          const isCheckin = item.kind === "checkin";
+                          const widget = item.widget;
+                          const isSpacer = widget?.type === "spacer";
+
+                          return (
+                            <article
+                              key={item.id}
+                              className={`glass-card widget-card ${item.size === "2x1" ? "widget-card-wide" : ""} ${isSpacer ? "spacer-card" : ""}`}
+                              draggable={editMode}
+                              onDragStart={(event) =>
+                                event.dataTransfer.setData(
+                                  "text/widget-id",
+                                  item.id,
+                                )
+                              }
+                              onDragOver={(event) =>
+                                editMode && event.preventDefault()
+                              }
+                              onDrop={(event) =>
+                                editMode &&
+                                handleWidgetDropOnItem(event, item.id)
+                              }
+                              onPointerDown={triggerEditModeByHold}
+                              onPointerUp={cancelHold}
+                              onPointerLeave={cancelHold}
+                            >
+                              {editMode ? (
+                                <div className="widget-controls">
+                                  <label>
+                                    尺寸
+                                    <select
+                                      value={item.size}
+                                      onChange={(event) =>
+                                        handleWidgetSizeChange(
+                                          item.id,
+                                          event.target.value as WidgetSize,
+                                        )
+                                      }
+                                    >
+                                      <option value="1x1">小</option>
+                                      <option value="2x1">大</option>
+                                    </select>
+                                  </label>
+                                  {!isCheckin && widget ? (
+                                    <button
+                                      type="button"
+                                      className="widget-delete"
+                                      onClick={() =>
+                                        void removeWidget(widget.id)
+                                      }
+                                    >
+                                      ×
+                                    </button>
+                                  ) : null}
                                 </div>
-                                {item.size === "2x1" ? (
-                                  <div className="together-counter-sub">
-                                    {String(togetherElapsed.hours).padStart(2, "0")}:
-                                    {String(togetherElapsed.minutes).padStart(2, "0")}:
-                                    {String(togetherElapsed.seconds).padStart(2, "0")}
+                              ) : null}
+                              {isCheckin ? (
+                                <article
+                                  className={`together-inner ${item.size === "2x1" ? "together-wide" : ""}`}
+                                >
+                                  <div className="together-header">
+                                    <span className="together-date">
+                                      {dateLabel}
+                                    </span>
+                                    {togetherElapsed ? (
+                                      <span className="together-days-pill">
+                                        ❤️ {togetherElapsed.days} 天
+                                      </span>
+                                    ) : null}
                                   </div>
-                                ) : null}
-                              </div>
-                            ) : (
-                              <div className="together-empty">
-                                {editMode ? "下方填写起始时间" : "进入编辑模式设置起始时间"}
-                              </div>
-                            )}
-                            <div className="together-week" role="list" aria-label="本周打卡">
-                              {weekDates.map((iso, index) => {
-                                const checked = checkedDates.has(iso);
-                                const isToday = iso === todayDate;
-                                return (
+                                  {togetherElapsed ? (
+                                    <div className="together-counter-stack">
+                                      <div className="together-counter-headline">
+                                        <strong>{togetherElapsed.days}</strong>
+                                        <span>Days Together</span>
+                                      </div>
+                                      {item.size === "2x1" ? (
+                                        <div className="together-counter-sub">
+                                          {String(
+                                            togetherElapsed.hours,
+                                          ).padStart(2, "0")}
+                                          :
+                                          {String(
+                                            togetherElapsed.minutes,
+                                          ).padStart(2, "0")}
+                                          :
+                                          {String(
+                                            togetherElapsed.seconds,
+                                          ).padStart(2, "0")}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : (
+                                    <div className="together-empty">
+                                      {editMode
+                                        ? "下方填写起始时间"
+                                        : "进入编辑模式设置起始时间"}
+                                    </div>
+                                  )}
                                   <div
-                                    key={iso}
-                                    role="listitem"
-                                    className={`together-week-cell${checked ? " is-checked" : ""}${isToday ? " is-today" : ""}`}
+                                    className="together-week"
+                                    role="list"
+                                    aria-label="本周打卡"
                                   >
-                                    <span className="together-week-dot" aria-hidden="true">
-                                      {checked ? "✓" : ""}
-                                    </span>
-                                    <span className="together-week-label">
-                                      {WEEK_DAY_LABELS[index]}
-                                    </span>
+                                    {weekDates.map((iso, index) => {
+                                      const checked = checkedDates.has(iso);
+                                      const isToday = iso === todayDate;
+                                      return (
+                                        <div
+                                          key={iso}
+                                          role="listitem"
+                                          className={`together-week-cell${checked ? " is-checked" : ""}${isToday ? " is-today" : ""}`}
+                                        >
+                                          <span
+                                            className="together-week-dot"
+                                            aria-hidden="true"
+                                          >
+                                            {checked ? "✓" : ""}
+                                          </span>
+                                          <span className="together-week-label">
+                                            {WEEK_DAY_LABELS[index]}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
-                                );
-                              })}
-                            </div>
-                            {!editMode ? (
-                              <button
-                                type="button"
-                                className={`together-checkin-btn${todayChecked ? " is-done" : ""}`}
-                                onClick={(event) => {
-                                  // Stop the pointer-hold edit-mode trigger
-                                  // from swallowing this tap, otherwise long
-                                  // taps still work but the actual click is
-                                  // sometimes treated as the hold release.
-                                  event.stopPropagation();
-                                  void handleQuickCheckin();
-                                }}
-                                disabled={todayChecked || checkinBusy || !user}
-                              >
-                                {todayChecked
-                                  ? "今日已陪伴 💖"
-                                  : checkinBusy
-                                    ? "打卡中…"
-                                    : "今日打卡 💗"}
-                              </button>
-                            ) : null}
-                            {editMode ? (
-                              <label className="together-input">
-                                <span>起始时间</span>
-                                <input
-                                  type="datetime-local"
-                                  value={togetherInputValue}
-                                  onChange={(event) =>
-                                    handleTogetherSinceChange(event.target.value)
-                                  }
-                                />
-                              </label>
-                            ) : null}
-                          </article>
-                        ) : widget ? (
-                          widget.type === "text" ? (
-                            <p className="text-widget">{widget.text}</p>
-                          ) : widget.type === "spacer" ? (
-                            editMode ? (
-                              <div className="spacer-editor">占位</div>
-                            ) : null
-                          ) : (
-                            <img
-                              className="image-widget"
-                              src={imageUrls[widget.id]}
-                              style={{ objectFit: widget.fit ?? "cover" }}
-                              alt="本地图片组件"
-                            />
-                          )
-                        ) : null}
-                      </article>
+                                  {!editMode ? (
+                                    <button
+                                      type="button"
+                                      className={`together-checkin-btn${todayChecked ? " is-done" : ""}`}
+                                      onClick={(event) => {
+                                        // Stop the pointer-hold edit-mode trigger
+                                        // from swallowing this tap, otherwise long
+                                        // taps still work but the actual click is
+                                        // sometimes treated as the hold release.
+                                        event.stopPropagation();
+                                        void handleQuickCheckin();
+                                      }}
+                                      disabled={
+                                        todayChecked || checkinBusy || !user
+                                      }
+                                    >
+                                      {todayChecked
+                                        ? "今日已陪伴 💖"
+                                        : checkinBusy
+                                          ? "打卡中…"
+                                          : "今日打卡 💗"}
+                                    </button>
+                                  ) : null}
+                                  {editMode ? (
+                                    <label className="together-input">
+                                      <span>起始时间</span>
+                                      <input
+                                        type="datetime-local"
+                                        value={togetherInputValue}
+                                        onChange={(event) =>
+                                          handleTogetherSinceChange(
+                                            event.target.value,
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                  ) : null}
+                                </article>
+                              ) : widget ? (
+                                widget.type === "text" ? (
+                                  <p className="text-widget">{widget.text}</p>
+                                ) : widget.type === "spacer" ? (
+                                  editMode ? (
+                                    <div className="spacer-editor">占位</div>
+                                  ) : null
+                                ) : (
+                                  <img
+                                    className="image-widget"
+                                    src={imageUrls[widget.id]}
+                                    style={{
+                                      objectFit: widget.fit ?? "cover",
+                                    }}
+                                    alt="本地图片组件"
+                                  />
+                                )
+                              ) : null}
+                            </article>
+                          );
+                        })}
+                        {editMode && showEmptySlots
+                          ? Array.from({
+                              length: Math.max(
+                                MAX_WIDGETS - pageItems.length,
+                                0,
+                              ),
+                            }).map((_, index) => (
+                              <div
+                                key={`empty-${pageIdx}-${index}`}
+                                className="widget-placeholder"
+                                aria-hidden="true"
+                              />
+                            ))
+                          : null}
+                      </section>
                     );
                   })}
-                  {editMode && showEmptySlots
-                    ? Array.from({
-                        length: Math.max(
-                          MAX_WIDGETS - orderedWidgetItems.length,
-                          0,
-                        ),
-                      }).map((_, index) => (
-                        <div
-                          key={`empty-${index}`}
-                          className="widget-placeholder"
-                          aria-hidden="true"
-                        />
-                      ))
-                    : null}
-                </section>
+                </div>
+                <div className="widget-page-dots">
+                  {pages.map((_, i) => (
+                    <span
+                      key={i}
+                      className={i === activePageIdx ? "is-active" : ""}
+                      onClick={() => scrollToPage(i)}
+                    />
+                  ))}
+                  {editMode ? (
+                    <button
+                      type="button"
+                      className="widget-page-add"
+                      onClick={addPage}
+                    >
+                      ＋
+                    </button>
+                  ) : null}
+                </div>
 
                 <section className="home-dock" aria-label="Apps">
                   {iconOrder.map((iconId, index) => {

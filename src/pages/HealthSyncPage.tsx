@@ -5,6 +5,12 @@ import { Capacitor } from '@capacitor/core'
 import { Health, type HealthDataType, type HealthSample } from '@capgo/capacitor-health'
 import { supabase } from '../supabase/client'
 import {
+  hasUsageStatsPermission,
+  openUsageStatsSettings,
+  readDailyUsage,
+  type DailyUsageResult,
+} from '../storage/usageStatsNative'
+import {
   readLastSyncedAt,
   syncHealthDataToSupabase,
   type SyncSummary,
@@ -92,6 +98,23 @@ const HealthSyncPage = ({ user: _user }: Props) => {
   const [todayRow, setTodayRow] = useState<TodayPreview | null>(null)
   const [diagOpen, setDiagOpen] = useState(false)
 
+  // Screen-time section state — populated from the custom UsageStats
+  // Capacitor plugin (Android-only, requires the PACKAGE_USAGE_STATS
+  // AppOp to be granted in system Settings → 使用情况).
+  const [usageGranted, setUsageGranted] = useState<boolean | null>(null)
+  const [usageData, setUsageData] = useState<DailyUsageResult | null>(null)
+
+  // Period tracking section state — pulled directly from
+  // period_tracking. We surface the most-recent row and compute
+  // "today is day N" + "next due in M days" client-side.
+  type PeriodRow = {
+    start_date: string
+    end_date: string | null
+    cycle_length: number | null
+    notes: string | null
+  }
+  const [periodRow, setPeriodRow] = useState<PeriodRow | null>(null)
+
   const pushLog = useCallback(
     (line: string) =>
       setLog((prev) => [`${new Date().toLocaleTimeString()}  ${line}`, ...prev].slice(0, 50)),
@@ -115,6 +138,73 @@ const HealthSyncPage = ({ user: _user }: Props) => {
   useEffect(() => {
     void refreshTodayRow()
   }, [refreshTodayRow])
+
+  // Load screen-time + period rows on mount and whenever we refresh
+  // the today block (e.g. after a sync). Both are best-effort —
+  // missing data degrades to "还没记录" placeholders.
+  const refreshUsage = useCallback(async () => {
+    if (!isNative) {
+      setUsageGranted(false)
+      setUsageData(null)
+      return
+    }
+    const granted = await hasUsageStatsPermission()
+    setUsageGranted(granted)
+    if (!granted) {
+      setUsageData(null)
+      return
+    }
+    const result = await readDailyUsage()
+    setUsageData(result)
+  }, [isNative])
+
+  const refreshPeriod = useCallback(async () => {
+    if (!supabase) return
+    const { data, error } = await supabase
+      .from('period_tracking')
+      .select('start_date,end_date,cycle_length,notes')
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!error) {
+      setPeriodRow((data as PeriodRow | null) ?? null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshUsage()
+    void refreshPeriod()
+  }, [refreshUsage, refreshPeriod])
+
+  // Derived period metrics for the section render. Hard-codes a 28-day
+  // fallback cycle when the user hasn't supplied one (typical adult
+  // baseline; the user can still override per row via cycle_length).
+  const periodMetrics = (() => {
+    if (!periodRow) return null
+    const start = new Date(periodRow.start_date)
+    if (Number.isNaN(start.getTime())) return null
+    const today = new Date()
+    const oneDay = 24 * 60 * 60 * 1000
+    const daysSinceStart = Math.floor(
+      (Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) -
+        Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) /
+        oneDay,
+    )
+    const cycleLength = periodRow.cycle_length ?? 28
+    const daysToNext = cycleLength - daysSinceStart
+    let phase: string
+    if (periodRow.end_date == null) {
+      phase = '经期中'
+    } else if (daysSinceStart < 12) {
+      phase = '滤泡期'
+    } else if (daysSinceStart >= 12 && daysSinceStart <= 16) {
+      phase = '排卵期'
+    } else {
+      phase = '黄体期'
+    }
+    const nextDate = new Date(start.getTime() + cycleLength * oneDay)
+    return { daysSinceStart, daysToNext, phase, cycleLength, nextDate }
+  })()
 
   const handleSyncNow = async () => {
     if (!isNative) {
@@ -281,6 +371,91 @@ const HealthSyncPage = ({ user: _user }: Props) => {
             <p className="health-sync__empty">
               今天还没数据。早上记得开一下 Health Sync 把华为运动健康的数据搬到 Health Connect，再点上面"立即同步"。
             </p>
+          )}
+        </section>
+
+        <section className="glass-card health-sync__usage">
+          <h2>📱 屏幕使用时间</h2>
+          {!isNative ? (
+            <p className="health-sync__empty">Web 端无法读取屏幕时间，请用 APK。</p>
+          ) : usageGranted === false ? (
+            <div className="health-sync__usage-prompt">
+              <p className="health-sync__empty">
+                还没授权读取「使用情况访问权限」。授权后才能看到今天每个 app 的使用时长。
+              </p>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  void openUsageStatsSettings()
+                }}
+              >
+                打开系统设置授权
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => void refreshUsage()}
+              >
+                我已授权，重新检查
+              </button>
+            </div>
+          ) : !usageData || usageData.total_minutes === 0 ? (
+            <p className="health-sync__empty">今天还没记录到使用时间。</p>
+          ) : (
+            <div className="health-sync__usage-body">
+              <div className="health-sync__usage-total">
+                <span className="value">{Math.floor(usageData.total_minutes / 60)}h {usageData.total_minutes % 60}m</span>
+                <span className="label">今日总时长</span>
+              </div>
+              <ol className="health-sync__usage-apps">
+                {usageData.top_apps.map((app) => {
+                  const hours = Math.floor(app.minutes / 60)
+                  const mins = app.minutes % 60
+                  return (
+                    <li key={app.name}>
+                      <span className="name">{app.name}</span>
+                      <span className="dur">{hours > 0 ? `${hours}h ${mins}m` : `${mins}m`}</span>
+                    </li>
+                  )
+                })}
+              </ol>
+            </div>
+          )}
+        </section>
+
+        <section className="glass-card health-sync__period">
+          <h2>🌸 经期跟踪</h2>
+          {!periodMetrics ? (
+            <p className="health-sync__empty">
+              还没记录过经期。让 Claude 帮你记，或者去 Supabase 表里手动加 period_tracking 一行。
+            </p>
+          ) : (
+            <div className="health-sync__period-body">
+              <div className="health-sync__period-headline">
+                <strong>第 {periodMetrics.daysSinceStart + 1} 天</strong>
+                <span className="phase">{periodMetrics.phase}</span>
+              </div>
+              <div className="health-sync__period-meta">
+                <div>
+                  <span className="label">下次预计</span>
+                  <span className="value">
+                    {periodMetrics.daysToNext > 0
+                      ? `${periodMetrics.daysToNext} 天后（${periodMetrics.nextDate.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}）`
+                      : periodMetrics.daysToNext === 0
+                        ? '今天'
+                        : `已超出 ${-periodMetrics.daysToNext} 天`}
+                  </span>
+                </div>
+                <div>
+                  <span className="label">平均周期</span>
+                  <span className="value">{periodMetrics.cycleLength} 天</span>
+                </div>
+              </div>
+              {periodRow?.notes ? (
+                <p className="health-sync__period-notes">{periodRow.notes}</p>
+              ) : null}
+            </div>
           )}
         </section>
 

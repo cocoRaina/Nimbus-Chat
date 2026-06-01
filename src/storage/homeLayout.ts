@@ -25,10 +25,20 @@ export type AppIconConfig =
       emoji: string
     }
 
-export type HomeSettingsState = {
-  iconOrder: string[]
+// One screenful of widgets. The home screen is now a horizontally
+// paginated stack — `pages[0]` is the primary page (must contain the
+// core checkin widget), and additional pages can hold whatever the
+// user wants.
+export type HomePageData = {
   widgetOrder: string[]
   widgets: DecorativeWidget[]
+}
+
+export type HomeSettingsState = {
+  iconOrder: string[]
+  // Multi-page widget layout. Always at least 1 page. Migrated from
+  // the old single widgetOrder/widgets pair on first load.
+  pages: HomePageData[]
   checkinSize?: '1x1' | '2x1'
   togetherSince?: string | null
   showEmptySlots?: boolean
@@ -181,39 +191,49 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
     return null
   }
   try {
-    const parsed = JSON.parse(raw) as HomeSettingsState
-    const normalizedWidgets = Array.isArray(parsed.widgets)
-      ? parsed.widgets.reduce<DecorativeWidget[]>((accumulator, widget) => {
-          if (!widget || typeof widget !== 'object' || typeof widget.id !== 'string') {
-            return accumulator
-          }
+    // `as unknown` because we're parsing across the schema change
+    // (old layouts had widgetOrder/widgets at the top level; new
+    // layouts have a pages[] array). The fields land in slightly
+    // different places depending on which version wrote the row.
+    const parsed = JSON.parse(raw) as Record<string, unknown> & Partial<HomeSettingsState>
 
-          if (widget.type === 'text') {
-            accumulator.push({
-              ...widget,
-              size: widget.size ?? '1x1',
-            })
-            return accumulator
-          }
-
-          if (widget.type === 'image') {
-            accumulator.push({
-              ...widget,
-              size: widget.size ?? '1x1',
-            })
-            return accumulator
-          }
-
-          if (widget.type === 'spacer') {
-            accumulator.push({
-              ...widget,
-              size: widget.size ?? '1x1',
-            })
-          }
-
+    const normalizeWidgetList = (raw: unknown): DecorativeWidget[] => {
+      if (!Array.isArray(raw)) return []
+      return raw.reduce<DecorativeWidget[]>((accumulator, widget) => {
+        if (!widget || typeof widget !== 'object' || typeof (widget as { id?: unknown }).id !== 'string') {
           return accumulator
-        }, [])
-      : []
+        }
+        const w = widget as DecorativeWidget
+        if (w.type === 'text' || w.type === 'image' || w.type === 'spacer') {
+          accumulator.push({ ...w, size: w.size ?? '1x1' })
+        }
+        return accumulator
+      }, [])
+    }
+
+    // Pages come either as the new pages[] array (preferred) or as
+    // legacy top-level widgetOrder/widgets which we collapse into a
+    // single first page. Either way we end up with at least one
+    // page so the renderer never sees an empty pages array.
+    let normalizedPages: HomePageData[]
+    if (Array.isArray(parsed.pages) && parsed.pages.length > 0) {
+      normalizedPages = parsed.pages.map((p) => {
+        const pd = p as Partial<HomePageData> | undefined
+        return {
+          widgetOrder: Array.isArray(pd?.widgetOrder) ? (pd!.widgetOrder as string[]) : [],
+          widgets: normalizeWidgetList(pd?.widgets),
+        }
+      })
+    } else {
+      const legacyOrder = Array.isArray((parsed as { widgetOrder?: unknown }).widgetOrder)
+        ? ((parsed as { widgetOrder: string[] }).widgetOrder)
+        : []
+      const legacyWidgets = normalizeWidgetList((parsed as { widgets?: unknown }).widgets)
+      normalizedPages = [{
+        widgetOrder: legacyOrder,
+        widgets: legacyWidgets,
+      }]
+    }
 
     const normalizedIconConfigs =
       parsed.appIconConfigs && typeof parsed.appIconConfigs === 'object'
@@ -237,14 +257,16 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
         : undefined
 
     return {
-      ...parsed,
-      widgetOrder: Array.isArray(parsed.widgetOrder) ? parsed.widgetOrder : [],
-      widgets: normalizedWidgets,
+      iconOrder: Array.isArray(parsed.iconOrder) ? (parsed.iconOrder as string[]) : [],
+      pages: normalizedPages,
       checkinSize: parsed.checkinSize ?? '1x1',
       togetherSince:
         typeof parsed.togetherSince === 'string' && parsed.togetherSince.length > 0
           ? parsed.togetherSince
           : null,
+      showEmptySlots: parsed.showEmptySlots,
+      iconTileBgColor: parsed.iconTileBgColor,
+      iconTileBgOpacity: parsed.iconTileBgOpacity,
       appIconConfigs: normalizedIconConfigs,
     }
   } catch (error) {
@@ -277,9 +299,12 @@ export const loadHomeSettings = (): HomeSettingsState | null => {
 export const saveHomeSettings = (state: HomeSettingsState) => {
   const nextState: HomeSettingsState = {
     ...state,
-    widgets: state.widgets.map((widget) => ({
-      ...widget,
-      size: widget.size ?? '1x1',
+    pages: (state.pages.length > 0 ? state.pages : [{ widgetOrder: [], widgets: [] }]).map((page) => ({
+      widgetOrder: page.widgetOrder,
+      widgets: page.widgets.map((widget) => ({
+        ...widget,
+        size: widget.size ?? '1x1',
+      })),
     })),
     checkinSize: state.checkinSize ?? '1x1',
     togetherSince: state.togetherSince ?? null,

@@ -205,3 +205,131 @@
   font-weight: 700;
   color: #1E3A8A;
 }
+
+/* === 屏幕使用时间 === */
+.health-sync__usage h2,
+.health-sync__period h2 {
+  margin: 0 0 0.55rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1E3A8A;
+}
+
+.health-sync__usage-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.health-sync__usage-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.health-sync__usage-total {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.health-sync__usage-total .value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #1E40AF;
+  font-variant-numeric: tabular-nums;
+}
+
+.health-sync__usage-total .label {
+  font-size: 0.78rem;
+  color: #64748B;
+}
+
+.health-sync__usage-apps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.health-sync__usage-apps li {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: #1f2937;
+  padding: 0.3rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.health-sync__usage-apps li .dur {
+  color: #1E40AF;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* === 经期跟踪 === */
+.health-sync__period-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.health-sync__period-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.health-sync__period-headline strong {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #1E40AF;
+}
+
+.health-sync__period-headline .phase {
+  font-size: 0.82rem;
+  background: rgba(244, 114, 182, 0.18);
+  color: #BE185D;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.health-sync__period-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.health-sync__period-meta > div {
+  display: flex;
+  flex-direction: column;
+  padding: 0.45rem 0.55rem;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.07);
+}
+
+.health-sync__period-meta .label {
+  font-size: 0.74rem;
+  color: #64748B;
+}
+
+.health-sync__period-meta .value {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #1E40AF;
+  font-variant-numeric: tabular-nums;
+}
+
+.health-sync__period-notes {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.85rem;
+  color: #475569;
+  background: rgba(15, 23, 42, 0.04);
+  border-radius: 10px;
+  line-height: 1.5;
+}
