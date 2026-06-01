@@ -87,6 +87,10 @@ const flattenContent = async (
   const blocks: AnthropicContentBlock[] = []
   for (const part of content) {
     if (part.type === 'text' && typeof part.text === 'string') {
+      // Skip empty text blocks — Anthropic 400s on
+      // `{type: 'text', text: ''}` ("text content blocks must
+      // contain non-empty text"). Whitespace-only is also rejected.
+      if (part.text.trim().length === 0) continue
       blocks.push({ type: 'text', text: part.text })
     } else if (part.type === 'image_url' && part.image_url?.url) {
       const url = part.image_url.url
@@ -184,10 +188,34 @@ export const convertOpenAiRequestToAnthropic = async (
       messages.push({ role: 'assistant', content: blocks })
       continue
     }
+    const flattened = await flattenContent(msg.content)
+    // Anthropic rejects empty content (string '' OR empty array). This
+    // happens with historical assistant messages from tool-only
+    // iterations (no emitted text) and the rare empty user echo.
+    // For assistants, drop the message — it's a no-op turn. For
+    // users, swap in a single-character placeholder so the history
+    // shape (alternating user/assistant) isn't broken by the drop.
+    const isEmpty =
+      (typeof flattened === 'string' && flattened.trim().length === 0) ||
+      (Array.isArray(flattened) && flattened.length === 0)
+    if (isEmpty) {
+      if (msg.role === 'assistant') continue
+      messages.push({ role: 'user', content: '(empty)' })
+      continue
+    }
     messages.push({
       role: msg.role === 'assistant' ? 'assistant' : 'user',
-      content: await flattenContent(msg.content),
+      content: flattened,
     })
+  }
+
+  // Anthropic requires the conversation to end on a user-role message
+  // (or the message_start probe will 400). If the last reconstructed
+  // message is assistant — usually because the most recent iteration
+  // was assistant-only with no follow-up — drop it so the request body
+  // is structurally valid.
+  while (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+    messages.pop()
   }
 
   const tools = body.tools?.map((t) => ({
