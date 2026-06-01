@@ -51,8 +51,22 @@ const computePeriodMetrics = (row: PeriodRow | null): PeriodMetrics | null => {
   )
   const cycleLength = row.cycle_length ?? 28
   const daysToNext = cycleLength - daysSinceStart
+
+  // Decide "still bleeding" by the end_date when present, otherwise
+  // assume typical menstruation tops out at 7 days. Without this
+  // fallback, a row written without an end_date stays "经期中" forever
+  // (the bug the user just hit — entry from May still showing as
+  // current period in June).
+  let isInPeriod: boolean
+  if (row.end_date) {
+    const end = new Date(row.end_date)
+    isInPeriod = !Number.isNaN(end.getTime()) && today <= end
+  } else {
+    isInPeriod = daysSinceStart >= 0 && daysSinceStart < 7
+  }
+
   let phase: PeriodMetrics['phase']
-  if (row.end_date == null) {
+  if (isInPeriod) {
     phase = '经期中'
   } else if (daysSinceStart < 12) {
     phase = '滤泡期'
@@ -103,6 +117,7 @@ export const useHomeWidgetData = (userId: string | null | undefined): HomeWidget
         .from('period_tracking')
         .select('start_date,end_date,cycle_length,notes')
         .order('start_date', { ascending: false })
+        .order('created_at', { ascending: false, nullsFirst: false })
         .limit(1)
         .maybeSingle(),
       readDailyUsage().catch(() => null),

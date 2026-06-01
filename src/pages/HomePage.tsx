@@ -255,6 +255,22 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     });
   }, [activePageIdx]);
 
+  // Hard remove of the active page (even when it has widgets). Page 0
+  // is locked because it owns the core checkin widget. Used by the
+  // "× 删除本页" button rendered next to the page-dot indicators in
+  // edit mode.
+  const removeActivePage = useCallback(() => {
+    setPages((current) => {
+      if (activePageIdx <= 0 || current.length <= 1) {
+        return current;
+      }
+      const next = current.slice();
+      next.splice(activePageIdx, 1);
+      setActivePageIdx((idx) => Math.max(0, idx - 1));
+      return next;
+    });
+  }, [activePageIdx]);
+
   const scrollToPage = useCallback(
     (pageIdx: number) => {
       // If the user is leaving the active page and it's empty, drop it
@@ -668,7 +684,12 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   };
 
   const triggerEditModeByHold = () => {
-    if (!isSettingsPage || editMode) {
+    // Long-pressing any widget should drop into edit mode on both the
+    // default home page and the dedicated /home-layout view. The
+    // `isSettingsPage` gate that used to block this meant users had
+    // no way to add or arrange widgets without first navigating to
+    // /home-layout — non-obvious and the source of "没办法添加组件".
+    if (editMode) {
       return;
     }
     holdTimerRef.current = window.setTimeout(() => {
@@ -961,9 +982,19 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   <button
                     type="button"
                     className="edit-button"
-                    onClick={() => navigate("/home-layout")}
+                    onClick={() => {
+                      // Toggle inline edit mode on the default home
+                      // page instead of bouncing to /home-layout.
+                      // /home-layout is still reachable via the
+                      // settings menu for deep customisation.
+                      if (editMode) {
+                        setEditMode(false)
+                      } else {
+                        setEditMode(true)
+                      }
+                    }}
                   >
-                    编辑
+                    {editMode ? "完成" : "编辑"}
                   </button>
                   <h1 className="ui-title ui-numeric home-clock-title">{timeLabel}</h1>
                   <p>{dateLabel}</p>
@@ -1557,13 +1588,30 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                     />
                   ))}
                   {editMode ? (
-                    <button
-                      type="button"
-                      className="widget-page-add"
-                      onClick={addPage}
-                    >
-                      ＋
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="widget-page-add"
+                        onClick={addPage}
+                        aria-label="添加新页"
+                      >
+                        ＋
+                      </button>
+                      {activePageIdx > 0 && pages.length > 1 ? (
+                        <button
+                          type="button"
+                          className="widget-page-remove"
+                          aria-label="删除当前页"
+                          onClick={() => {
+                            if (window.confirm("确定删除这一页？组件会一起删掉。")) {
+                              removeActivePage()
+                            }
+                          }}
+                        >
+                          ×
+                        </button>
+                      ) : null}
+                    </>
                   ) : null}
                 </div>
 

@@ -164,6 +164,7 @@ const HealthSyncPage = ({ user: _user }: Props) => {
       .from('period_tracking')
       .select('start_date,end_date,cycle_length,notes')
       .order('start_date', { ascending: false })
+      .order('created_at', { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle()
     if (!error) {
@@ -192,8 +193,18 @@ const HealthSyncPage = ({ user: _user }: Props) => {
     )
     const cycleLength = periodRow.cycle_length ?? 28
     const daysToNext = cycleLength - daysSinceStart
+    // Match the widget data hook — typical menstruation lasts < 7
+    // days, so a row without end_date that's far in the past
+    // shouldn't still report 经期中.
+    let isInPeriod: boolean
+    if (periodRow.end_date) {
+      const endTime = new Date(periodRow.end_date).getTime()
+      isInPeriod = Number.isFinite(endTime) && today.getTime() <= endTime
+    } else {
+      isInPeriod = daysSinceStart >= 0 && daysSinceStart < 7
+    }
     let phase: string
-    if (periodRow.end_date == null) {
+    if (isInPeriod) {
       phase = '经期中'
     } else if (daysSinceStart < 12) {
       phase = '滤泡期'
@@ -452,9 +463,6 @@ const HealthSyncPage = ({ user: _user }: Props) => {
                   <span className="value">{periodMetrics.cycleLength} 天</span>
                 </div>
               </div>
-              {periodRow?.notes ? (
-                <p className="health-sync__period-notes">{periodRow.notes}</p>
-              ) : null}
             </div>
           )}
         </section>

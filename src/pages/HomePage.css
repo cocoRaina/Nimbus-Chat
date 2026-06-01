@@ -19,17 +19,29 @@
 .home-page__content {
   min-height: 0;
   overflow: auto;
+  /* Let the layout fill the viewport so dock can hug the bottom. */
+  display: flex;
+  flex-direction: column;
 }
 
 .home-layout {
   width: 100%;
+  flex: 1;  /* take all available height inside .home-page__content */
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 1rem;
   padding-left: 0.5rem;
   padding-right: 0.5rem;
-  padding-bottom: 0.25rem;
+  padding-bottom: calc(0.25rem + env(safe-area-inset-bottom));
+  min-height: 100%;
+}
+
+/* Push the dock to the bottom of the available space — last sibling
+   in .home-layout gets margin-top:auto, mimicking iOS where the dock
+   stays anchored regardless of widget area height. */
+.home-layout > .home-dock {
+  margin-top: auto;
 }
 
 .phone-shell {
@@ -348,12 +360,15 @@
 }
 
 .widget-card {
-  min-height: 105px;
-  padding: 1rem;
+  /* Smaller tile size — closer to a phone-home-screen icon than a
+     dashboard card. Content widgets that need more vertical room
+     can grow via min-content. */
+  min-height: 82px;
+  padding: 0.55rem 0.6rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 0.55rem;
+  gap: 0.35rem;
   position: relative;
 }
 
@@ -395,6 +410,9 @@
    a sticky-and-swipe-able mini home screen feels consistent. Sized
    compactly to match the 小红书 reference shot where each tile is
    noticeably smaller than the chunky dock icons. */
+/* App-shortcut tile rendered as a dock-style icon (rounded tile +
+   label) rather than a widget card. Visually identical to dock icons
+   so the user reads it as "an app" rather than another widget. */
 .shortcut-widget {
   width: 100%;
   height: 100%;
@@ -402,19 +420,14 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 0.4rem;
   padding: 4px;
   border: none;
   background: transparent;
   cursor: pointer;
-  border-radius: inherit;
   color: #0f172a;
   text-align: center;
   font-family: inherit;
-}
-
-.shortcut-widget:hover:not(:disabled) {
-  background: rgba(219, 234, 254, 0.35);
 }
 
 .shortcut-widget:active:not(:disabled) {
@@ -422,15 +435,25 @@
 }
 
 .shortcut-emoji {
-  font-size: 1.35rem;
+  display: inline-grid;
+  place-items: center;
+  width: clamp(46px, 13vw, 60px);
+  aspect-ratio: 1 / 1;
+  border-radius: 18px;
+  background: var(--icon-tile-bg);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  font-size: clamp(1.3rem, 4.5vw, 1.7rem);
+  overflow: hidden;
   line-height: 1;
 }
 
 .shortcut-label {
-  font-size: 0.7rem;
+  font-size: clamp(0.7rem, 2vw, 0.78rem);
   font-weight: 600;
-  color: #1E3A8A;
+  color: #0f172a;
   letter-spacing: 0.02em;
+  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -440,6 +463,17 @@
 .shortcut-widget--missing {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Strip the widget-card chrome when the cell is an app shortcut so
+   the visible chrome is only the rounded icon tile + label. */
+.home-page .glass-card.widget-card:has(.shortcut-widget) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding: 0.25rem;
+  min-height: 0;
 }
 
 /* === Content widgets (health / screen-time / period) ===
