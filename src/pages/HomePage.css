@@ -292,8 +292,11 @@
 
 .widget-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.6rem;
+  /* 4 columns so app shortcut icons line up four to a row.
+     Wide widgets (2x1 — checkin / content widgets) span the full
+     row via .widget-card-wide. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem 0.45rem;
   align-content: start;
   overflow: visible;
 }
@@ -373,7 +376,8 @@
 }
 
 .widget-card-wide {
-  grid-column: span 2;
+  /* Span the full row in the 4-col grid. */
+  grid-column: span 4;
 }
 
 .home-page .glass-card.spacer-card {
