@@ -88,6 +88,30 @@ const PER_TYPE_OPTS: Record<HealthDataType, { limit: number; windowHours: number
   oxygenSaturation: { limit: 500, windowHours: 48 },
 } as Record<HealthDataType, { limit: number; windowHours: number }>
 
+// Deduplicate samples before aggregating. Capgo's plugin + Health
+// Sync occasionally surface the same physical record twice (same
+// platformId, same start/end, same value, same source), which the
+// probe screen makes painfully visible on a Huawei → Health Sync →
+// Health Connect chain: every steps sample appears as a perfect pair.
+// Without de-dup the daily totals double.
+const dedupeSamples = (samples: HealthSample[]): HealthSample[] => {
+  const seen = new Set<string>()
+  const out: HealthSample[] = []
+  for (const s of samples) {
+    // platformId is the Health Connect record's metadata id and is
+    // the gold-standard unique key when present. Fall back to a
+    // composite if the plugin happens not to return it.
+    const key =
+      s.platformId && s.platformId.length > 0
+        ? `${s.dataType}|${s.platformId}`
+        : `${s.dataType}|${s.startDate}|${s.endDate}|${s.value}|${s.sourceName ?? ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(s)
+  }
+  return out
+}
+
 // Aggregates a list of samples into the per-day rows we store. The
 // aggregation rule per type:
 //  - steps:             sum of values bucketed by sample startDate
@@ -277,7 +301,8 @@ export const syncHealthDataToSupabase = async (
     }
   }
 
-  const byDay = aggregateSamples(allSamples)
+  const dedupedSamples = dedupeSamples(allSamples)
+  const byDay = aggregateSamples(dedupedSamples)
   summary.scannedDays = Object.keys(byDay).sort()
 
   if (!supabase) {
