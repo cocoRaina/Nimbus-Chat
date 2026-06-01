@@ -520,23 +520,46 @@ const ChatPage = ({
   return (
     <div className="chat-page chat-polka-dots">
       <header className="chat-header top-nav app-shell__header">
-        <button type="button" className="ghost" onClick={onOpenDrawer}>
-          会话
+        <button
+          type="button"
+          className="ghost chat-header-icon"
+          aria-label="返回首页"
+          onClick={() => navigate('/')}
+        >
+          ←
         </button>
         <div className="header-title">
           <h1 className="ui-title">哥哥</h1>
+          {isStreaming ? (
+            <span className="chat-typing-subtitle" aria-live="polite">
+              正在输入<span className="chat-typing-dots" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+            </span>
+          ) : null}
         </div>
         <div className="header-actions" ref={headerMenuRef}>
           <button
             ref={headerMenuButtonRef}
             type="button"
-            className="ghost"
+            className="ghost chat-header-icon"
+            aria-label="设置 / 菜单"
             onClick={(event) => {
               event.stopPropagation()
               setOpenHeaderMenu((current) => !current)
             }}
           >
-            聊天操作
+            ⚙️
+          </button>
+          <button
+            type="button"
+            className="ghost chat-header-icon"
+            aria-label="会话列表"
+            onClick={onOpenDrawer}
+          >
+            ≡
           </button>
           {openHeaderMenu
             ? createPortal(
@@ -682,16 +705,10 @@ const ChatPage = ({
             )
           })
         )}
-        {isStreaming &&
-          displayedMessages.length > 0 &&
-          displayedMessages[displayedMessages.length - 1]?.role === 'assistant' &&
-          !displayedMessages[displayedMessages.length - 1]?.content?.trim() ? (
-            <div className="message in">
-              <div className="bubble typing-indicator">
-                <span /><span /><span />
-              </div>
-            </div>
-          ) : null}
+        {/* Typing indicator moved to header subtitle (.chat-typing-subtitle)
+            so the message stream stays clean. The same isStreaming + empty
+            assistant skip above already prevents an empty bubble from
+            appearing while we wait for the first token. */}
         <div ref={bottomRef} />
       </main>
       <form className="chat-composer glass-card" onSubmit={handleSubmit}>
@@ -753,23 +770,13 @@ const ChatPage = ({
           style={{ display: 'none' }}
           onChange={(event) => void handleFilePick(event.target.files)}
         />
-        {isStreaming ? (
-          <div className="streaming-status">
-            <span>生成中…</span>
-            <button type="button" className="ghost stop-button" onClick={onStopStreaming}>
-              停止生成
-            </button>
-          </div>
-        ) : null}
-        <div className="composer-toolbar">
-          <label className="model-selector">
-            <span className="chip-label">模型</span>
-            <span className="chip-value" title={selectedModel}>
-              {selectedModel}
-            </span>
-            <span className="chip-chevron" aria-hidden="true">
-              ˅
-            </span>
+        <div className="composer-row composer-line-row">
+          <label className="composer-icon-btn" aria-label="切换模型" title="切换模型">
+            <span aria-hidden="true">＋</span>
+            {/* Native select stretches over the icon — taps open the
+                system picker (same as before, but the chip is now an
+                icon button). On Android this is the cleanest model
+                picker UX without rolling a custom sheet. */}
             <select
               aria-label="选择模型"
               value={selectedModel}
@@ -787,19 +794,17 @@ const ChatPage = ({
           </label>
           <button
             type="button"
-            className="attach-button toolbar-attach"
+            className="composer-icon-btn"
             aria-label="发送图片"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
           >
-            📎 图片
+            <span aria-hidden="true">📷</span>
           </button>
-        </div>
-        <div className="composer-row">
           <textarea
-            className="textarea-glass"
+            className="composer-line-input"
             placeholder="输入你的消息"
-            rows={2}
+            rows={1}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -812,9 +817,25 @@ const ChatPage = ({
               }
             }}
           />
-          <button type="submit" className="btn-primary" disabled={uploading}>
-            发送
-          </button>
+          {isStreaming ? (
+            <button
+              type="button"
+              className="composer-send-btn composer-send-btn--stop"
+              aria-label="停止生成"
+              onClick={onStopStreaming}
+            >
+              <span aria-hidden="true">■</span>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="composer-send-btn"
+              aria-label="发送"
+              disabled={uploading || draft.trim().length === 0}
+            >
+              <span aria-hidden="true">➤</span>
+            </button>
+          )}
         </div>
       </form>
       {openActionsId && actionsMenuPosition
