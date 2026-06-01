@@ -73,6 +73,8 @@ type TodayPreview = {
   steps: number | null
   sleep_hours: number | null
   heart_rate_avg: number | null
+  heart_rate_max: number | null
+  heart_rate_min: number | null
   heart_rate_rest: number | null
   oxygen_saturation_avg: number | null
 }
@@ -102,7 +104,7 @@ const HealthSyncPage = ({ user: _user }: Props) => {
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
     const { data, error } = await supabase
       .from('health_data')
-      .select('date,steps,sleep_hours,heart_rate_avg,heart_rate_rest,oxygen_saturation_avg')
+      .select('date,steps,sleep_hours,heart_rate_avg,heart_rate_max,heart_rate_min,heart_rate_rest,oxygen_saturation_avg')
       .eq('date', today)
       .maybeSingle()
     if (!error) {
@@ -257,6 +259,14 @@ const HealthSyncPage = ({ user: _user }: Props) => {
               <div>
                 <span className="label">平均心率</span>
                 <span className="value">{todayRow.heart_rate_avg ?? '—'}</span>
+              </div>
+              <div>
+                <span className="label">心率范围</span>
+                <span className="value">
+                  {todayRow.heart_rate_min != null && todayRow.heart_rate_max != null
+                    ? `${todayRow.heart_rate_min}–${todayRow.heart_rate_max}`
+                    : '—'}
+                </span>
               </div>
               <div>
                 <span className="label">静息心率</span>

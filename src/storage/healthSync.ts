@@ -8,6 +8,8 @@ export type HealthDayAggregate = {
   steps?: number | null
   sleepHours?: number | null
   heartRateAvg?: number | null
+  heartRateMax?: number | null
+  heartRateMin?: number | null
   heartRateRest?: number | null
   oxygenSaturationAvg?: number | null
 }
@@ -106,6 +108,8 @@ const aggregateSamples = (
       sleepMinutes: number
       hrSum: number
       hrCount: number
+      hrMax: number | null
+      hrMin: number | null
       restingHr: number | null
       spo2Sum: number
       spo2Count: number
@@ -119,6 +123,8 @@ const aggregateSamples = (
         sleepMinutes: 0,
         hrSum: 0,
         hrCount: 0,
+        hrMax: null,
+        hrMin: null,
         restingHr: null,
         spo2Sum: 0,
         spo2Count: 0,
@@ -155,6 +161,8 @@ const aggregateSamples = (
         const b = bucket(startDate)
         b.hrSum += s.value
         b.hrCount += 1
+        if (b.hrMax == null || s.value > b.hrMax) b.hrMax = s.value
+        if (b.hrMin == null || s.value < b.hrMin) b.hrMin = s.value
         break
       }
       case 'restingHeartRate': {
@@ -183,6 +191,8 @@ const aggregateSamples = (
       steps: b.steps > 0 ? Math.round(b.steps) : null,
       sleepHours: b.sleepMinutes > 0 ? Math.round((b.sleepMinutes / 60) * 10) / 10 : null,
       heartRateAvg: b.hrCount > 0 ? Math.round(b.hrSum / b.hrCount) : null,
+      heartRateMax: b.hrMax != null ? Math.round(b.hrMax) : null,
+      heartRateMin: b.hrMin != null ? Math.round(b.hrMin) : null,
       heartRateRest: b.restingHr != null ? Math.round(b.restingHr) : null,
       oxygenSaturationAvg: b.spo2Count > 0 ? Math.round((b.spo2Sum / b.spo2Count) * 10) / 10 : null,
     }
@@ -281,6 +291,8 @@ export const syncHealthDataToSupabase = async (
         row.steps != null ||
         row.sleepHours != null ||
         row.heartRateAvg != null ||
+        row.heartRateMax != null ||
+        row.heartRateMin != null ||
         row.heartRateRest != null ||
         row.oxygenSaturationAvg != null,
     )
@@ -289,6 +301,8 @@ export const syncHealthDataToSupabase = async (
       steps: row.steps,
       sleep_hours: row.sleepHours,
       heart_rate_avg: row.heartRateAvg,
+      heart_rate_max: row.heartRateMax,
+      heart_rate_min: row.heartRateMin,
       heart_rate_rest: row.heartRateRest,
       oxygen_saturation_avg: row.oxygenSaturationAvg,
     }))
