@@ -283,6 +283,69 @@
   color: #334155;
 }
 
+.widget-list-panel {
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.widget-list-panel h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.widget-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.widget-list-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.045);
+}
+
+.widget-list-label {
+  flex: 1;
+  font-size: 0.88rem;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.widget-list-item select {
+  font-size: 0.85rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #ffffff;
+}
+
+.widget-list-delete {
+  border: none;
+  background: rgba(239, 68, 68, 0.1);
+  color: #b91c1c;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.widget-list-delete:hover {
+  background: rgba(239, 68, 68, 0.18);
+}
+
 .widget-grid {
   display: grid;
   /* 4 columns so app shortcut icons line up four to a row.

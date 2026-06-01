@@ -998,18 +998,30 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   >
                     {editMode ? "完成" : "编辑"}
                   </button>
-                  {editMode ? (
-                    <button
-                      type="button"
-                      className="edit-button edit-button-back"
-                      onClick={() => setEditPreviewing((v) => !v)}
-                      aria-label={editPreviewing ? "回到编辑" : "预览效果"}
-                    >
-                      {editPreviewing ? "编辑" : "预览"}
-                    </button>
-                  ) : null}
                   <h1 className="ui-title ui-numeric home-clock-title">{timeLabel}</h1>
                   <p>{dateLabel}</p>
+                  {editMode ? (
+                    <div
+                      className="home-mode-toggle"
+                      role="tablist"
+                      aria-label="编辑预览切换"
+                    >
+                      <button
+                        type="button"
+                        className={!editPreviewing ? "active" : ""}
+                        onClick={() => setEditPreviewing(false)}
+                      >
+                        设置
+                      </button>
+                      <button
+                        type="button"
+                        className={editPreviewing ? "active" : ""}
+                        onClick={() => setEditPreviewing(true)}
+                      >
+                        预览
+                      </button>
+                    </div>
+                  ) : null}
                 </>
               )}
             </header>
@@ -1136,8 +1148,10 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
             {/* Editable icon emoji is now also reachable from the
                 main home page's edit mode — keeps the LINE-style
                 "dropdown app + emoji text input" affordance the user
-                liked, instead of a window.prompt popup. */}
-            {showSettingsPanel ? (
+                liked, instead of a window.prompt popup.
+                Hidden in preview view so the preview matches the
+                real home page (no editor panels overlaid). */}
+            {showSettingsPanel && !editPreviewing ? (
               <section className="glass-card icon-editor-toolbar">
                 <h2 className="ui-title">编辑图标</h2>
                 <label>
@@ -1183,9 +1197,73 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                 </div>
               </section>
             ) : null}
+
+            {/* 当前组件 list — inline edit on / hides the live widget
+                grid in 设置 view, so this list provides the delete /
+                resize affordances the inline controls used to give.
+                Only renders on the / inline edit settings view; on
+                /home-layout the inline controls in the preview tab
+                still handle this. */}
+            {showSettingsPanel && !editPreviewing && !isSettingsPage && widgets.length > 0 ? (
+              <section className="glass-card widget-list-panel">
+                <h2 className="ui-title">当前组件</h2>
+                <ul className="widget-list">
+                  {widgets.map((widget) => {
+                    const icon =
+                      widget.type === "app_shortcut"
+                        ? iconMap.get(widget.appId)
+                        : null;
+                    const label =
+                      widget.type === "app_shortcut"
+                        ? `${icon?.defaultEmoji ?? "❔"} ${icon?.label ?? widget.appId}`
+                        : widget.type === "text"
+                          ? `📝 文本`
+                          : widget.type === "image"
+                            ? `🖼 图片`
+                            : widget.type === "spacer"
+                              ? `▫️ 占位`
+                              : widget.type === "health_panel"
+                                ? `🫀 健康面板`
+                                : widget.type === "screen_time"
+                                  ? `📱 屏幕时间`
+                                  : widget.type === "period"
+                                    ? `🌸 经期`
+                                    : "组件";
+                    return (
+                      <li key={widget.id} className="widget-list-item">
+                        <span className="widget-list-label">{label}</span>
+                        {widget.type !== "app_shortcut" ? (
+                          <select
+                            value={widget.size ?? "1x1"}
+                            onChange={(event) =>
+                              handleWidgetSizeChange(
+                                widget.id,
+                                event.target.value as WidgetSize,
+                              )
+                            }
+                            aria-label="组件尺寸"
+                          >
+                            <option value="1x1">小</option>
+                            <option value="2x1">大</option>
+                          </select>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="widget-list-delete"
+                          onClick={() => void removeWidget(widget.id)}
+                          aria-label="删除组件"
+                        >
+                          ×
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ) : null}
           </div>
 
-          {showPreviewPanel ? (
+          {showPreviewPanel && (isSettingsPage || !editMode || editPreviewing) ? (
             <div className="home-page__content app-shell__content">
               <div className="home-layout">
                 <div
@@ -1228,7 +1306,12 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                               onPointerUp={cancelHold}
                               onPointerLeave={cancelHold}
                             >
-                              {editMode ? (
+                              {/* Inline 尺寸/× controls only render when
+                                  the user is actively editing (not in
+                                  inline preview view on /). On /home-layout
+                                  these always show in the preview tab so
+                                  delete/resize still works there. */}
+                              {editMode && (isSettingsPage || !editPreviewing) ? (
                                 <div className="widget-controls">
                                   {/* Size selector hidden for shortcut tiles
                                       — app icons should stay 1x1; only text
