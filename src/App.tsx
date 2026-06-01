@@ -1964,9 +1964,16 @@ TOOL_SEARCH_HANDOFF,
               toolCallsArr.length > 0 &&
               (finishReason === 'tool_calls' || finishReason === null)
             ) {
+              // Some relay gateways / Anthropic-on-the-other-side reject
+              // assistant messages whose content is an empty string when
+              // tool_calls is set. Per OpenAI spec content can be null —
+              // emit null when the model produced only tool calls this
+              // turn so we don't trip "text content blocks must be non-
+              // empty" 400s downstream.
+              const iterationText = assistantContent.slice(iterationContentStart).trim()
               baseMessages.push({
                 role: 'assistant',
-                content: assistantContent.slice(iterationContentStart) || '',
+                content: iterationText.length > 0 ? iterationText : null,
                 tool_calls: toolCallsArr,
               })
               for (const tc of toolCallsArr) {
