@@ -199,11 +199,13 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
 数据流：内容 widget 通过 `src/hooks/useHomeWidgetData.ts` 一次性拉今天的 health_data 行 + period_tracking 最新行 + 当日 UsageStats，多 widget 共用一份数据。
 
 **编辑模式**（长按任意 widget 或点「编辑」按钮）：
-- widget 抖动 + 显示尺寸 select（app shortcut 不能改大小）+ 删除 ×
-- 顶部「+ 应用 / 组件」picker：可加内容 widget 或 app shortcut
-- 「编辑图标」面板：下拉选 app + 文本框输入 emoji
+- 头部胶囊 toggle `设置 / 预览`（抄小红书系桌面布局编辑器，干净分离两种状态）
+- **设置 tab**：只显示编辑面板
+  - `组件` 面板：进度条 + `+ 文本 / + 图片 / + 占位 / 显示空位` + `+ 应用 / 组件` 下拉 picker
+  - `编辑图标` 面板：下拉选 app + 文本框输 emoji + 恢复默认
+  - `当前组件` 列表：当前页所有 widget 列成一行行，每行 label + 尺寸下拉 + × 删除（app_shortcut 不显示尺寸）— 没有了 widget 网格之后用这个面板顶替原本的 inline 控件
+- **预览 tab**：只显示 widget 网格（干净，没有 ✕/尺寸 浮层），看起来就跟真的桌面一样
 - 页码圆点旁有「＋ 加新页」/「× 删除当前页」按钮（page 0 受保护不能删）
-- 「预览」toggle 临时隐藏 toolbar 看效果，「完成」退出
 - 自动保存到 localStorage（`nibble_ui_prefs_v1`）
 
 **存储 schema**（`HomeSettingsState`）：
@@ -488,3 +490,53 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 - 暗黑模式 — 试过，每个页面的硬编码颜色太多，做一半撤了
 - 端到端加密的消息存储
 - Anthropic Code Execution 工具（要 BYOK 直连）
+
+---
+
+## 🩹 Debug 日志（踩过的坑 + 修法）
+
+> 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
+
+### Anthropic /v1/messages 400 全家桶
+
+`src/api/anthropic.ts`。OpenRouter 和直连 relay（msuicode 等）都会把上游 Anthropic 400 包成 `{"error":{"type":"bad_response_status_code", ...}}`，看不到真正的错误体，必须按下面 checklist 一条条排：
+
+| 症状 | 触发条件 | 修法 |
+|---|---|---|
+| 400 — `messages` 校验失败 | 历史里有 assistant 仅工具调用、无文字，恢复后 `content: ''` | `convertOpenAiRequestToAnthropic` 里空 assistant 直接 `continue` 跳过；空 user 用 `(empty)` 占位 |
+| 400 — empty text block | 用户消息加 timestamp 前缀后 trim 完为空，或图片消息没附文字 | `flattenContent` 里 `text.trim().length === 0` 的块跳过 |
+| 400 — 最后一条不能是 assistant | 历史尾巴恰好是 assistant 仅工具调用（被上一条规则丢掉后还露出来） | 转换完 `while messages[-1].role === 'assistant': pop` |
+| 400 — `max_tokens` 小于 `budget_tokens` | 用户默认 `maxTokens = 1024`，effort=high 时 `budget_tokens = 8000` | thinking 开启时 `max_tokens = max(user, budget + 1024)` |
+| 400 — temperature/top_p 与 thinking 不兼容 | thinking 要 `temperature === 1`、`top_p` 不传 | thinking 开启时 temperature / top_p 一律 drop |
+| 400 — 模型不支持 thinking | Claude 3.5 / 3 收到 `thinking` 字段直接 400 | 用 `/claude-(opus-4\|sonnet-4\|haiku-4\|3-7\|3\.7)/i` 正则 gate |
+| 400 — `anthropic/` 前缀 model ID | 直连 relay（msuicode）不吃 OpenRouter 命名空间 | 转换时 `body.model.replace(/^anthropic\//, '')` |
+| 400 — tool_result 没有 tool_use_id | 上游 delta 丢了 id 或 history 重建丢了链接 | tool role 转换时 `if (!msg.tool_call_id) continue` |
+| 400 — tool_result 挂到 assistant 消息上 | 连续 tool role coalesce 时没看上一条 role | 只在 `last.role === 'user' && Array.isArray(last.content)` 时 push 进去 |
+
+### 健康同步相关
+
+| 症状 | 触发条件 | 修法 |
+|---|---|---|
+| 心率显示 `62-62（单次）`，实际有上百条样本 | `dedupeSamples` 只按 `platformId` 去重，Health Connect 心率系列里几百个样本共享 parent record 的 metadata.id | dedupe key 加上 `startDate + value`（`storage/healthSync.ts`）|
+| 经期组件总是显示「经期中」 | `period_tracking` 排序只按 `start_date DESC`，相同日期排序不稳定，老 row 还在；且 `end_date is null` 时 phase 默认是「经期中」 | 排序加 `created_at DESC` tiebreaker；phase 改 7 天 fallback（`isInPeriod = end_date ? today <= end : daysSinceStart < 7`）|
+| 屏幕时间显示 `com.tencent.mm` 而不是「微信」 | Android 11+ package visibility 限制，`PackageManager.getApplicationLabel` 拿不到他 app 信息 | `AndroidManifest.xml` 加 `QUERY_ALL_PACKAGES` + `tools:ignore` |
+
+### 主页 widget 相关
+
+| 症状 | 触发条件 | 修法 |
+|---|---|---|
+| 编辑 → 预览时上面的「编辑图标」面板还露着 | `.icon-editor-toolbar` 只 gate 了 `showSettingsPanel`，没 gate `!editPreviewing` | 加 `!editPreviewing` 到条件里 |
+| 编辑模式下 widget 网格还在底下，画面拥挤 | 网格只 gate 了 `showPreviewPanel`（默认 true） | 改成 `showPreviewPanel && (isSettingsPage \|\| !editMode \|\| editPreviewing)` |
+| inline 删除/尺寸控件在预览 tab 还显示 | 控件 gate `editMode` 没考虑 editPreviewing | 改成 `editMode && (isSettingsPage \|\| !editPreviewing)` |
+| 设置 tab 没了网格 → 删不掉单个 widget | 网格隐藏后没替代入口 | 新增 `.widget-list-panel`「当前组件」列表，emoji + label + 尺寸 + × |
+| TS 报 `Property 'type' does not exist on type 'never'` | widget 类型穷举完后 `widget.type` 被收窄为 never | 兜底返回字符串字面量 `"组件"` 而不是 `widget.type` |
+| iOS 风格 dock 删干净后 home 还残留旧 CSS | `.home-dock` / `.app-icon-slot` / `tile-pop-in` keyframes 死代码 | `HomePage.css` 一次性清掉，shortcut 用 `.shortcut-widget / .shortcut-emoji / .shortcut-label` 区分 |
+
+### 聊天 / 主动消息相关
+
+| 症状 | 触发条件 | 修法 |
+|---|---|---|
+| 主动消息发出后又被新对话误删 | clear pending 时把主动消息的 ChatMessage 一起删了 | 区分 `nimbus_pending_proactive`（待发提醒）和已经写进 Supabase 的 ChatMessage（不删）|
+| 改名只在聊天界面生效，通知 title 还是「哥哥」 | 通知模块硬编码 `'哥哥'` | 抽 `storage/assistantPersona.ts`（`getAssistantName / setAssistantName`），聊天 + 通知共用 |
+| 流式期间消息列表末尾留个空气泡 | 临时把 streaming 消息放进 messages | 改成只在 chat header 名称下显示 `.chat-typing-subtitle` + 三跳动点，messages 不动 |
+| 输入框和聊天区域之间有缝，看起来分开了 | `.chat-composer` 没去掉自带 padding/border | 把 `.chat-messages` 设透明 + `.chat-composer.glass-card` 显式 `background: #ffffff !important; border-top: 1px solid rgba(15,23,42,0.06) !important` |
