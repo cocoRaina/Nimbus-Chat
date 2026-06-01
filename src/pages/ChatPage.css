@@ -33,6 +33,44 @@
   z-index: 1;
 }
 
+/* LINE-style unified surface: the chat page is a single flat plane
+   (header + message list + composer) instead of stacked cards. The
+   only visually-distinct element in the composer area is the input
+   pill, which gets a light-grey background to mark where you type. */
+.chat-page.chat-messages,
+.chat-messages.glass-panel,
+.chat-composer.glass-card {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.chat-messages.glass-panel {
+  margin: 0;
+  padding: 4px 16px calc(16px + env(safe-area-inset-bottom));
+  border-radius: 0;
+}
+
+.chat-composer.glass-card {
+  margin: 0;
+  padding: 6px 12px calc(8px + env(safe-area-inset-bottom));
+  border-radius: 0;
+}
+
+/* Light-grey pill input so the typing area is still discoverable
+   against the now-flat background. */
+.composer-line-input {
+  background: rgba(15, 23, 42, 0.05);
+  border-color: transparent;
+}
+
+.composer-line-input:focus {
+  background: rgba(15, 23, 42, 0.08);
+  border-color: transparent;
+}
+
 .chat-header {
   display: flex;
   align-items: center;

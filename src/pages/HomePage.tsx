@@ -68,15 +68,13 @@ type RenderedWidgetItem = {
 };
 
 const DEFAULT_ICON_ORDER = [
+  // Dock keeps only the three apps the user opens daily. The rest
+  // (打卡 / mimi / Claude / 用量 / 健康 / 导出 / 主页布局) are still
+  // reachable through the chat page's ⚙️ menu, the home widget grid,
+  // or direct URL — they just don't take up dock real estate.
   "chat",
-  "checkin",
   "memory",
-  "snacks",
-  "syzygy",
-  "usage",
-  "health",
   "settings",
-  "export",
 ];
 const CORE_WIDGET_ID = "widget-checkin";
 const MAX_WIDGETS = 6;
