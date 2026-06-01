@@ -276,29 +276,20 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
       }]
     }
 
-    // Migration: when the dock was trimmed to 3 entries (聊天 / 记忆库
-    // / 设置) the other six apps disappeared with it. Backfill them
-    // as a fresh page of app_shortcut widgets the first time we see
-    // a layout that doesn't yet carry any shortcut tiles. Once the
-    // user touches the widgets the shortcuts get persisted and we
-    // never re-run this branch.
-    const hasAnyShortcut = normalizedPages.some((page) =>
-      page.widgets.some((widget) => widget.type === 'app_shortcut'),
-    )
-    if (!hasAnyShortcut) {
-      const shortcutPage: HomePageData = { widgetOrder: [], widgets: [] }
-      const defaultShortcutAppIds = ['checkin', 'snacks', 'syzygy', 'usage', 'health', 'export']
-      for (const appId of defaultShortcutAppIds) {
-        const id = `shortcut-${appId}-${Math.random().toString(36).slice(2, 8)}`
-        shortcutPage.widgets.push({
-          id,
-          type: 'app_shortcut',
-          appId,
-          size: '1x1',
-        })
-        shortcutPage.widgetOrder.push(id)
-      }
-      normalizedPages.push(shortcutPage)
+    // Cleanup: the brief "app_shortcut" widget experiment is rolled
+    // back. Strip any shortcut tiles + their order entries from
+    // loaded pages so users who got the migrated shortcut page
+    // don't keep seeing it.
+    normalizedPages = normalizedPages
+      .map((page) => {
+        const widgets = page.widgets.filter((widget) => widget.type !== 'app_shortcut')
+        const keptIds = new Set(widgets.map((widget) => widget.id))
+        const widgetOrder = page.widgetOrder.filter((id) => keptIds.has(id) || id.startsWith('widget-checkin'))
+        return { widgetOrder, widgets }
+      })
+      .filter((page, idx) => idx === 0 || page.widgets.length > 0 || page.widgetOrder.length > 0)
+    if (normalizedPages.length === 0) {
+      normalizedPages = [{ widgetOrder: [], widgets: [] }]
     }
 
     const normalizedIconConfigs =

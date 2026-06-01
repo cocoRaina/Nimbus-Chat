@@ -70,13 +70,19 @@ type RenderedWidgetItem = {
 };
 
 const DEFAULT_ICON_ORDER = [
-  // Dock keeps only the three apps the user opens daily. The rest
-  // (打卡 / mimi / Claude / 用量 / 健康 / 导出 / 主页布局) are still
-  // reachable through the chat page's ⚙️ menu, the home widget grid,
-  // or direct URL — they just don't take up dock real estate.
+  // Full dock. User explicitly asked to bring all the apps back so
+  // emoji editing + drag-reorder still work for every one of them;
+  // the brief "lean dock + shortcut widgets" detour confused things
+  // more than it helped.
   "chat",
+  "checkin",
   "memory",
+  "snacks",
+  "syzygy",
+  "usage",
+  "health",
   "settings",
+  "export",
 ];
 const CORE_WIDGET_ID = "widget-checkin";
 const MAX_WIDGETS = 6;
@@ -1054,9 +1060,9 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   </button>
                 </div>
                 <label className="ghost widget-shortcut-picker">
-                  ＋ 应用 / 组件
+                  ＋ 内容组件
                   <select
-                    aria-label="选择要添加的应用或内容组件"
+                    aria-label="选择要添加的内容组件"
                     defaultValue=""
                     onChange={(event) => {
                       handlePickerSelect(event.target.value)
@@ -1066,18 +1072,9 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                     <option value="" disabled>
                       选择…
                     </option>
-                    <optgroup label="内容组件">
-                      <option value="content:health_panel">🫀 健康面板</option>
-                      <option value="content:screen_time">📱 屏幕时间</option>
-                      <option value="content:period">🌸 经期</option>
-                    </optgroup>
-                    <optgroup label="应用快捷方式">
-                      {appIcons.map((icon) => (
-                        <option key={icon.id} value={`app:${icon.id}`}>
-                          {icon.defaultEmoji} {icon.label}
-                        </option>
-                      ))}
-                    </optgroup>
+                    <option value="content:health_panel">🫀 健康面板</option>
+                    <option value="content:screen_time">📱 屏幕时间</option>
+                    <option value="content:period">🌸 经期</option>
                   </select>
                 </label>
                 <input
