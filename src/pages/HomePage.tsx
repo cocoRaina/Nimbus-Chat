@@ -70,19 +70,13 @@ type RenderedWidgetItem = {
 };
 
 const DEFAULT_ICON_ORDER = [
-  // Full dock. User explicitly asked to bring all the apps back so
-  // emoji editing + drag-reorder still work for every one of them;
-  // the brief "lean dock + shortcut widgets" detour confused things
-  // more than it helped.
+  // Lean dock — only the three the user opens daily. The rest are
+  // moved onto the home pages as dock-styled icon tiles (rendered
+  // via the app_shortcut widget but stripped of the widget-card
+  // chrome so they look like plain icons).
   "chat",
-  "checkin",
   "memory",
-  "snacks",
-  "syzygy",
-  "usage",
-  "health",
   "settings",
-  "export",
 ];
 const CORE_WIDGET_ID = "widget-checkin";
 const MAX_WIDGETS = 6;
@@ -1060,9 +1054,9 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   </button>
                 </div>
                 <label className="ghost widget-shortcut-picker">
-                  ＋ 内容组件
+                  ＋ 应用 / 组件
                   <select
-                    aria-label="选择要添加的内容组件"
+                    aria-label="选择要添加的应用或内容组件"
                     defaultValue=""
                     onChange={(event) => {
                       handlePickerSelect(event.target.value)
@@ -1072,9 +1066,18 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                     <option value="" disabled>
                       选择…
                     </option>
-                    <option value="content:health_panel">🫀 健康面板</option>
-                    <option value="content:screen_time">📱 屏幕时间</option>
-                    <option value="content:period">🌸 经期</option>
+                    <optgroup label="内容组件">
+                      <option value="content:health_panel">🫀 健康面板</option>
+                      <option value="content:screen_time">📱 屏幕时间</option>
+                      <option value="content:period">🌸 经期</option>
+                    </optgroup>
+                    <optgroup label="应用快捷方式">
+                      {appIcons.map((icon) => (
+                        <option key={icon.id} value={`app:${icon.id}`}>
+                          {icon.defaultEmoji} {icon.label}
+                        </option>
+                      ))}
+                    </optgroup>
                   </select>
                 </label>
                 <input
@@ -1087,7 +1090,11 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
               </section>
             ) : null}
 
-            {showSettingsPanel ? (
+            {/* Appearance + icon emoji editor are deep-customisation
+                panels — only show them on /home-layout. In-place edit
+                on the main home page only needs the widget toolbar
+                above so the user can still see the live grid. */}
+            {showSettingsPanel && isSettingsPage ? (
               <section className="glass-card appearance-toolbar">
                 <h2 className="ui-title">外观</h2>
                 <label>
@@ -1114,7 +1121,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
               </section>
             ) : null}
 
-            {showSettingsPanel ? (
+            {showSettingsPanel && isSettingsPage ? (
               <section className="glass-card icon-editor-toolbar">
                 <h2 className="ui-title">编辑图标</h2>
                 <label>
