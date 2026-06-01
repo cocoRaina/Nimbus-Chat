@@ -19,6 +19,7 @@ import {
   type HomePageData,
 } from "../storage/homeLayout";
 import { createTodayCheckin, fetchRecentCheckins } from "../storage/supabaseSync";
+import { useHomeWidgetData } from "../hooks/useHomeWidgetData";
 import "./HomePage.css";
 
 // Chinese week: Monday → Sunday. Each label maps onto a column in the
@@ -124,6 +125,10 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   const isSettingsPage = mode === "settings";
   const navigate = useNavigate();
   const [now, setNow] = useState(() => new Date());
+  // Shared fetcher for the three on-home content widgets. Pulls today's
+  // health row, latest period cycle, and today's screen-time stats once
+  // per mount so widget render is cheap.
+  const widgetData = useHomeWidgetData(user?.id);
 
   const [editMode, setEditMode] = useState(false);
   const [mobileTab, setMobileTab] = useState<"settings" | "preview">(
@@ -738,6 +743,36 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     setWidgetOrder((current) => [...current, id]);
   };
 
+  const handleAddContentWidget = (
+    contentType: "health_panel" | "screen_time" | "period",
+  ) => {
+    if (!canAddWidget) {
+      setNotice(`最多只能放 ${MAX_WIDGETS} 个组件`);
+      return;
+    }
+    const id = `widget-${contentType}-${Date.now()}`;
+    setWidgets((current) => [
+      ...current,
+      { id, type: contentType, size: "1x1" },
+    ]);
+    setWidgetOrder((current) => [...current, id]);
+  };
+
+  // Unified picker handler for the "＋ 应用 / 组件" select. The value
+  // is prefixed with "app:" or "content:" so we can dispatch to the
+  // right add-handler without a second select.
+  const handlePickerSelect = (rawValue: string) => {
+    if (!rawValue) return
+    const [kind, key] = rawValue.split(":")
+    if (kind === "app") {
+      handleAddShortcutWidget(key)
+    } else if (kind === "content") {
+      if (key === "health_panel" || key === "screen_time" || key === "period") {
+        handleAddContentWidget(key)
+      }
+    }
+  };
+
   const handleImageSelected = async (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
@@ -988,23 +1023,30 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   </button>
                 </div>
                 <label className="ghost widget-shortcut-picker">
-                  ＋ 应用快捷方式
+                  ＋ 应用 / 组件
                   <select
-                    aria-label="选择要添加的应用"
+                    aria-label="选择要添加的应用或内容组件"
                     defaultValue=""
                     onChange={(event) => {
-                      handleAddShortcutWidget(event.target.value)
+                      handlePickerSelect(event.target.value)
                       event.target.value = ""
                     }}
                   >
                     <option value="" disabled>
-                      选择应用…
+                      选择…
                     </option>
-                    {appIcons.map((icon) => (
-                      <option key={icon.id} value={icon.id}>
-                        {icon.defaultEmoji} {icon.label}
-                      </option>
-                    ))}
+                    <optgroup label="内容组件">
+                      <option value="content:health_panel">🫀 健康面板</option>
+                      <option value="content:screen_time">📱 屏幕时间</option>
+                      <option value="content:period">🌸 经期</option>
+                    </optgroup>
+                    <optgroup label="应用快捷方式">
+                      {appIcons.map((icon) => (
+                        <option key={icon.id} value={`app:${icon.id}`}>
+                          {icon.defaultEmoji} {icon.label}
+                        </option>
+                      ))}
+                    </optgroup>
                   </select>
                 </label>
                 <input
@@ -1316,6 +1358,164 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                                       </button>
                                     )
                                   })()
+                                ) : widget.type === "health_panel" ? (
+                                  <button
+                                    type="button"
+                                    className={`content-widget content-widget--health ${item.size === "2x1" ? "content-widget--wide" : ""}`}
+                                    onClick={(event) => {
+                                      if (editMode) return
+                                      event.stopPropagation()
+                                      navigate("/health-sync")
+                                    }}
+                                  >
+                                    <header className="content-widget__title">
+                                      <span aria-hidden="true">🫀</span>
+                                      <span>今日健康</span>
+                                    </header>
+                                    {widgetData.healthRow ? (
+                                      item.size === "2x1" ? (
+                                        <div className="content-widget__grid">
+                                          <div>
+                                            <span className="label">步数</span>
+                                            <span className="value">{widgetData.healthRow.steps ?? "—"}</span>
+                                          </div>
+                                          <div>
+                                            <span className="label">睡眠</span>
+                                            <span className="value">
+                                              {widgetData.healthRow.sleep_hours != null ? `${widgetData.healthRow.sleep_hours}h` : "—"}
+                                            </span>
+                                          </div>
+                                          <div>
+                                            <span className="label">心率</span>
+                                            <span className="value">{widgetData.healthRow.heart_rate_avg ?? "—"}</span>
+                                          </div>
+                                          <div>
+                                            <span className="label">血氧</span>
+                                            <span className="value">
+                                              {widgetData.healthRow.oxygen_saturation_avg != null
+                                                ? `${widgetData.healthRow.oxygen_saturation_avg}%`
+                                                : "—"}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="content-widget__stack">
+                                          <div className="content-widget__hero">
+                                            <strong>{widgetData.healthRow.steps ?? "—"}</strong>
+                                            <span>步</span>
+                                          </div>
+                                          <div className="content-widget__sub">
+                                            {widgetData.healthRow.sleep_hours != null
+                                              ? `睡 ${widgetData.healthRow.sleep_hours}h`
+                                              : "暂无睡眠"}
+                                          </div>
+                                        </div>
+                                      )
+                                    ) : (
+                                      <div className="content-widget__empty">还没记录</div>
+                                    )}
+                                  </button>
+                                ) : widget.type === "screen_time" ? (
+                                  <button
+                                    type="button"
+                                    className={`content-widget content-widget--screen ${item.size === "2x1" ? "content-widget--wide" : ""}`}
+                                    onClick={(event) => {
+                                      if (editMode) return
+                                      event.stopPropagation()
+                                      navigate("/health-sync")
+                                    }}
+                                  >
+                                    <header className="content-widget__title">
+                                      <span aria-hidden="true">📱</span>
+                                      <span>屏幕时间</span>
+                                    </header>
+                                    {widgetData.screenTime && widgetData.screenTime.total_minutes > 0 ? (
+                                      item.size === "2x1" ? (
+                                        <div className="content-widget__screen-body">
+                                          <div className="content-widget__hero">
+                                            <strong>
+                                              {Math.floor(widgetData.screenTime.total_minutes / 60)}h{" "}
+                                              {widgetData.screenTime.total_minutes % 60}m
+                                            </strong>
+                                          </div>
+                                          <ul className="content-widget__top-list">
+                                            {widgetData.screenTime.top_apps.slice(0, 3).map((app) => (
+                                              <li key={app.name}>
+                                                <span>{app.name}</span>
+                                                <span>
+                                                  {Math.floor(app.minutes / 60) > 0
+                                                    ? `${Math.floor(app.minutes / 60)}h${app.minutes % 60}m`
+                                                    : `${app.minutes}m`}
+                                                </span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      ) : (
+                                        <div className="content-widget__stack">
+                                          <div className="content-widget__hero">
+                                            <strong>
+                                              {Math.floor(widgetData.screenTime.total_minutes / 60)}h{" "}
+                                              {widgetData.screenTime.total_minutes % 60}m
+                                            </strong>
+                                          </div>
+                                          <div className="content-widget__sub">今日总时长</div>
+                                        </div>
+                                      )
+                                    ) : (
+                                      <div className="content-widget__empty">还没记录</div>
+                                    )}
+                                  </button>
+                                ) : widget.type === "period" ? (
+                                  <button
+                                    type="button"
+                                    className={`content-widget content-widget--period ${item.size === "2x1" ? "content-widget--wide" : ""}`}
+                                    onClick={(event) => {
+                                      if (editMode) return
+                                      event.stopPropagation()
+                                      navigate("/health-sync")
+                                    }}
+                                  >
+                                    <header className="content-widget__title">
+                                      <span aria-hidden="true">🌸</span>
+                                      <span>经期</span>
+                                    </header>
+                                    {widgetData.periodMetrics ? (
+                                      item.size === "2x1" ? (
+                                        <div className="content-widget__period-body">
+                                          <div className="content-widget__hero">
+                                            <strong>第 {widgetData.periodMetrics.cycleDay} 天</strong>
+                                            <span>{widgetData.periodMetrics.phase}</span>
+                                          </div>
+                                          <div className="content-widget__sub">
+                                            {widgetData.periodMetrics.daysToNext > 0
+                                              ? `下次 ${widgetData.periodMetrics.daysToNext} 天后`
+                                              : widgetData.periodMetrics.daysToNext === 0
+                                                ? "今天"
+                                                : `已超出 ${-widgetData.periodMetrics.daysToNext} 天`}
+                                            {" · 周期 "}
+                                            {widgetData.periodMetrics.cycleLength}d
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="content-widget__stack">
+                                          <div className="content-widget__hero">
+                                            <strong>D{widgetData.periodMetrics.cycleDay}</strong>
+                                          </div>
+                                          <div className="content-widget__sub">
+                                            {widgetData.periodMetrics.phase}
+                                          </div>
+                                          <div className="content-widget__sub">
+                                            {widgetData.periodMetrics.daysToNext > 0
+                                              ? `下次 ${widgetData.periodMetrics.daysToNext}d`
+                                              : "已迟"}
+                                          </div>
+                                        </div>
+                                      )
+                                    ) : (
+                                      <div className="content-widget__empty">还没记录</div>
+                                    )}
+                                  </button>
                                 ) : (
                                   <img
                                     className="image-widget"

@@ -442,6 +442,170 @@
   cursor: default;
 }
 
+/* === Content widgets (health / screen-time / period) ===
+   Inline read-outs of today's data, sized to either a 1x1 tile or
+   a 2x1 wide tile. Tap → /health-sync. Edit mode swallows the tap
+   so dragging / resizing still works. */
+.content-widget {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: inherit;
+  color: #0f172a;
+  text-align: left;
+  font-family: inherit;
+}
+
+.content-widget:hover:not(:disabled) {
+  background: rgba(219, 234, 254, 0.35);
+}
+
+.content-widget:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.content-widget__title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #1E40AF;
+  letter-spacing: 0.02em;
+}
+
+.content-widget__empty {
+  font-size: 0.78rem;
+  color: #94A3B8;
+  font-style: italic;
+  align-self: center;
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.content-widget__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.content-widget__hero {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.content-widget__hero strong {
+  font-size: 1.4rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, #3B82F6, #1D4ED8);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1;
+}
+
+.content-widget__hero span {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1E40AF;
+}
+
+.content-widget__sub {
+  font-size: 0.72rem;
+  color: #64748B;
+  font-weight: 500;
+}
+
+.content-widget__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px 10px;
+  margin-top: 2px;
+}
+
+.content-widget__grid > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.content-widget__grid .label {
+  font-size: 0.62rem;
+  color: #64748B;
+  letter-spacing: 0.02em;
+}
+
+.content-widget__grid .value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1E40AF;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.content-widget__screen-body,
+.content-widget__period-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.content-widget__top-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.content-widget__top-list li {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: #475569;
+}
+
+.content-widget__top-list li :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 6px;
+}
+
+.content-widget__top-list li :last-child {
+  font-weight: 600;
+  color: #1E40AF;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* Soft accent border by widget kind to make each tile distinguishable
+   at a glance even before reading its title. */
+.content-widget--health {
+  box-shadow: inset 0 0 0 1px rgba(244, 114, 182, 0.18);
+  border-radius: var(--radius-card);
+}
+
+.content-widget--screen {
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.18);
+  border-radius: var(--radius-card);
+}
+
+.content-widget--period {
+  box-shadow: inset 0 0 0 1px rgba(236, 72, 153, 0.2);
+  border-radius: var(--radius-card);
+}
+
 .spacer-editor {
   min-height: 60px;
   border-radius: 14px;

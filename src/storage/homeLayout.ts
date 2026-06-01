@@ -29,6 +29,28 @@ export type DecorativeWidget =
       appId: string
       size?: '1x1' | '2x1'
     }
+  | {
+      // Live read-out of today's row in health_data — steps, sleep,
+      // heart rate, SpO2. Tap to jump to /health-sync.
+      id: string
+      type: 'health_panel'
+      size?: '1x1' | '2x1'
+    }
+  | {
+      // Today's foreground screen time from the UsageStats native
+      // plugin. Falls back to a "需要授权" prompt when the AppOp
+      // hasn't been granted. Tap to jump to /health-sync.
+      id: string
+      type: 'screen_time'
+      size?: '1x1' | '2x1'
+    }
+  | {
+      // Period tracking summary — current cycle day, phase, and days
+      // until the next predicted start. Pulled from period_tracking.
+      id: string
+      type: 'period'
+      size?: '1x1' | '2x1'
+    }
 
 export type AppIconConfig =
   | {
@@ -215,7 +237,15 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
           return accumulator
         }
         const w = widget as DecorativeWidget
-        if (w.type === 'text' || w.type === 'image' || w.type === 'spacer' || w.type === 'app_shortcut') {
+        if (
+          w.type === 'text' ||
+          w.type === 'image' ||
+          w.type === 'spacer' ||
+          w.type === 'app_shortcut' ||
+          w.type === 'health_panel' ||
+          w.type === 'screen_time' ||
+          w.type === 'period'
+        ) {
           accumulator.push({ ...w, size: w.size ?? '1x1' })
         }
         return accumulator
