@@ -64,6 +64,26 @@ const SYNC_TYPES: HealthDataType[] = [
   'oxygenSaturation',
 ]
 
+// Per-type read budget. Capgo's plugin defaults to 100 records per
+// page and keeps paginating until it has them all. For high-frequency
+// sources like heart rate (per-minute → ~2880 records over 48h) that
+// burns dozens of Health Connect requests in a single readSamples
+// call, and stacking five types in parallel reliably trips Health
+// Connect's "Rate limited request quota has been exceeded" gate.
+//
+// We don't need raw samples — only daily aggregates — so cap each
+// type at the plugin's MAX_PAGE_SIZE (500) and shrink the window
+// just enough to cover today + the boundary into yesterday. Sources
+// with naturally sparse rows (sleep sessions, resting HR) need much
+// smaller caps.
+const PER_TYPE_OPTS: Record<HealthDataType, { limit: number; windowHours: number }> = {
+  steps: { limit: 500, windowHours: 48 },
+  sleep: { limit: 50, windowHours: 48 },
+  heartRate: { limit: 500, windowHours: 24 },
+  restingHeartRate: { limit: 30, windowHours: 72 },
+  oxygenSaturation: { limit: 200, windowHours: 48 },
+} as Record<HealthDataType, { limit: number; windowHours: number }>
+
 // Aggregates a list of samples into the per-day rows we store. The
 // aggregation rule per type:
 //  - steps:             sum of values bucketed by sample startDate
@@ -212,23 +232,32 @@ export const syncHealthDataToSupabase = async (
     return summary
   }
 
-  const windowDays = opts.windowDays ?? 3
   const endDate = new Date()
-  const startDate = new Date(endDate.getTime() - windowDays * 24 * 3600 * 1000)
-
   const allSamples: HealthSample[] = []
   for (const dataType of SYNC_TYPES) {
+    const opt = PER_TYPE_OPTS[dataType]
+    const windowHours = opts.windowDays
+      ? opts.windowDays * 24
+      : opt?.windowHours ?? 48
+    const limit = opt?.limit ?? 500
+    const startDate = new Date(endDate.getTime() - windowHours * 3600 * 1000)
     try {
       const res = await Health.readSamples({
         dataType,
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
+        limit,
       })
       summary.perType[dataType] = res.samples.length
       allSamples.push(...res.samples)
+      // Small pause between types so Health Connect's burst-quota
+      // counter has time to relax — measurable difference on
+      // dense-source phones (e.g. 华为 with minute-level heart rate).
+      await new Promise((resolve) => setTimeout(resolve, 250))
     } catch (err) {
       // A single type failing (e.g. permission not granted for that
-      // type) shouldn't kill the whole sync. Log and continue.
+      // type, or rate-limited) shouldn't kill the whole sync. Log
+      // and continue.
       summary.errors.push(
         `${dataType}: ${err instanceof Error ? err.message : String(err)}`,
       )
