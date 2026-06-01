@@ -1291,13 +1291,18 @@ const App = () => {
           // can surface a system note further down and let the model decide
           // whether to re-arm.
           const cancelledProactive = skipUser ? null : readPendingProactive()
-          if (compressionOutcome.systemPromptText.trim()) {
-            baseMessages.push({ role: 'system', content: compressionOutcome.systemPromptText })
+          // Trim before checking + sending so a whitespace-only system
+          // prompt doesn't end up as { role: 'system', content: '   ' }
+          // — relays sometimes reject that as an empty content block.
+          const trimmedSystem = compressionOutcome.systemPromptText.trim()
+          if (trimmedSystem.length > 0) {
+            baseMessages.push({ role: 'system', content: trimmedSystem })
           }
-          if (compressionOutcome.summaryText) {
+          const trimmedSummary = compressionOutcome.summaryText?.trim() ?? ''
+          if (trimmedSummary.length > 0) {
             baseMessages.push({
               role: 'system',
-              content: `## 前面对话的摘要（用作上下文，不要直接复述）\n${compressionOutcome.summaryText}`,
+              content: `## 前面对话的摘要（用作上下文，不要直接复述）\n${trimmedSummary}`,
             })
           }
           // Use each message's own createdAt to build a stable time prefix.
@@ -1942,6 +1947,21 @@ TOOL_SEARCH_HANDOFF,
                       setToolStatus('')
                     }
                   }, 3000)
+                }
+                // Cap tool results so a runaway search / dump doesn't
+                // blow the model's context window or balloon DB writes.
+                // 32KB is plenty for the kinds of results we produce
+                // (memory rows, web snippets, sandbox stdout).
+                const MAX_TOOL_RESULT_BYTES = 32 * 1024
+                if (resultText.length > MAX_TOOL_RESULT_BYTES) {
+                  const half = Math.floor(MAX_TOOL_RESULT_BYTES / 2)
+                  resultText = JSON.stringify({
+                    truncated: true,
+                    original_size_bytes: resultText.length,
+                    note: `Result exceeded ${MAX_TOOL_RESULT_BYTES} bytes — keeping head + tail.`,
+                    head: resultText.slice(0, half),
+                    tail: resultText.slice(-half),
+                  })
                 }
                 // Record for UI card display in the saved message meta.
                 let parsedArgs: unknown = {}

@@ -139,14 +139,23 @@ export const convertOpenAiRequestToAnthropic = async (
   const messages: AnthropicMessage[] = []
   for (const msg of rest) {
     if (msg.role === 'tool') {
+      // Skip tool results without a tool_call_id — Anthropic 400s on
+      // tool_result with empty tool_use_id ("tool_use_id is required").
+      // This happens when an upstream provider emits a tool delta
+      // without an id, or when history reconstruction loses the link.
+      if (!msg.tool_call_id || msg.tool_call_id.length === 0) {
+        continue
+      }
       const last = messages[messages.length - 1]
       const block: AnthropicContentBlock = {
         type: 'tool_result',
-        tool_use_id: msg.tool_call_id ?? '',
+        tool_use_id: msg.tool_call_id,
         content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
       }
       // Anthropic requires tool_result to be in a user message. Coalesce
-      // consecutive tool results into one user message.
+      // consecutive tool results into one user message — but only when
+      // the prior message is actually a user with array content; never
+      // bolt a tool_result onto an assistant message.
       if (last && last.role === 'user' && Array.isArray(last.content)) {
         last.content.push(block)
       } else {
