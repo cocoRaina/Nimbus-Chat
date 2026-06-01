@@ -205,6 +205,37 @@
   width: 100%;
 }
 
+/* "＋ 应用快捷方式" picker — invisible native <select> overlays the
+   label so a tap on the label opens the system app list, same UX
+   pattern as the chat composer's model picker. */
+.widget-shortcut-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #1E40AF;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  padding: 0.36rem 0.8rem;
+}
+
+.widget-shortcut-picker select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-size: 16px;
+}
+
 .appearance-toolbar,
 .icon-editor-toolbar {
   padding: 0.75rem;
@@ -358,6 +389,55 @@
   background: rgba(255, 255, 255, 0.8);
   padding: 0.1rem 0.45rem;
   font-size: 16px;
+}
+
+/* App-launcher tile widget — mirrors the dock icons stylistically so
+   a sticky-and-swipe-able mini home screen feels consistent. */
+.shortcut-widget {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: inherit;
+  color: #0f172a;
+  text-align: center;
+  font-family: inherit;
+}
+
+.shortcut-widget:hover:not(:disabled) {
+  background: rgba(219, 234, 254, 0.35);
+}
+
+.shortcut-widget:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.shortcut-emoji {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.shortcut-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1E3A8A;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.shortcut-widget--missing {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .spacer-editor {

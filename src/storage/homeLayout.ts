@@ -18,6 +18,17 @@ export type DecorativeWidget =
       type: 'spacer'
       size?: '1x1' | '2x1'
     }
+  | {
+      // Pinned app launcher tile — what used to live in the dock for
+      // less-frequent apps (打卡 / mimi / Claude / 用量 / 健康 / 导出 /
+      // 主页布局). Moved into the widget grid so the dock can stay
+      // lean (聊天 / 记忆库 / 设置) while these still surface on a
+      // swipe-away page.
+      id: string
+      type: 'app_shortcut'
+      appId: string
+      size?: '1x1' | '2x1'
+    }
 
 export type AppIconConfig =
   | {
@@ -204,7 +215,7 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
           return accumulator
         }
         const w = widget as DecorativeWidget
-        if (w.type === 'text' || w.type === 'image' || w.type === 'spacer') {
+        if (w.type === 'text' || w.type === 'image' || w.type === 'spacer' || w.type === 'app_shortcut') {
           accumulator.push({ ...w, size: w.size ?? '1x1' })
         }
         return accumulator
@@ -233,6 +244,31 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
         widgetOrder: legacyOrder,
         widgets: legacyWidgets,
       }]
+    }
+
+    // Migration: when the dock was trimmed to 3 entries (聊天 / 记忆库
+    // / 设置) the other six apps disappeared with it. Backfill them
+    // as a fresh page of app_shortcut widgets the first time we see
+    // a layout that doesn't yet carry any shortcut tiles. Once the
+    // user touches the widgets the shortcuts get persisted and we
+    // never re-run this branch.
+    const hasAnyShortcut = normalizedPages.some((page) =>
+      page.widgets.some((widget) => widget.type === 'app_shortcut'),
+    )
+    if (!hasAnyShortcut) {
+      const shortcutPage: HomePageData = { widgetOrder: [], widgets: [] }
+      const defaultShortcutAppIds = ['checkin', 'snacks', 'syzygy', 'usage', 'health', 'export']
+      for (const appId of defaultShortcutAppIds) {
+        const id = `shortcut-${appId}-${Math.random().toString(36).slice(2, 8)}`
+        shortcutPage.widgets.push({
+          id,
+          type: 'app_shortcut',
+          appId,
+          size: '1x1',
+        })
+        shortcutPage.widgetOrder.push(id)
+      }
+      normalizedPages.push(shortcutPage)
     }
 
     const normalizedIconConfigs =

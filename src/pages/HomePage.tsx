@@ -488,7 +488,8 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
         (widget) =>
           widget.type === "image" ||
           widget.type === "text" ||
-          widget.type === "spacer",
+          widget.type === "spacer" ||
+          widget.type === "app_shortcut",
       );
       const widgetIds = new Set(safeWidgets.map((widget) => widget.id));
       const filteredOrder = page.widgetOrder.filter(
@@ -720,6 +721,20 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     }
     const id = `widget-spacer-${Date.now()}`;
     setWidgets((current) => [...current, { id, type: "spacer", size: "1x1" }]);
+    setWidgetOrder((current) => [...current, id]);
+  };
+
+  const handleAddShortcutWidget = (appId: string) => {
+    if (!appId) return
+    if (!canAddWidget) {
+      setNotice(`最多只能放 ${MAX_WIDGETS} 个组件`);
+      return;
+    }
+    const id = `widget-shortcut-${appId}-${Date.now()}`;
+    setWidgets((current) => [
+      ...current,
+      { id, type: "app_shortcut", appId, size: "1x1" },
+    ]);
     setWidgetOrder((current) => [...current, id]);
   };
 
@@ -972,6 +987,26 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                     {showEmptySlots ? "隐藏空位" : "显示空位"}
                   </button>
                 </div>
+                <label className="ghost widget-shortcut-picker">
+                  ＋ 应用快捷方式
+                  <select
+                    aria-label="选择要添加的应用"
+                    defaultValue=""
+                    onChange={(event) => {
+                      handleAddShortcutWidget(event.target.value)
+                      event.target.value = ""
+                    }}
+                  >
+                    <option value="" disabled>
+                      选择应用…
+                    </option>
+                    {appIcons.map((icon) => (
+                      <option key={icon.id} value={icon.id}>
+                        {icon.defaultEmoji} {icon.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1245,6 +1280,42 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                                   editMode ? (
                                     <div className="spacer-editor">占位</div>
                                   ) : null
+                                ) : widget.type === "app_shortcut" ? (
+                                  (() => {
+                                    const targetIcon = iconMap.get(widget.appId)
+                                    if (!targetIcon) {
+                                      return (
+                                        <div className="shortcut-widget shortcut-widget--missing">
+                                          <span className="shortcut-emoji">❔</span>
+                                          <span className="shortcut-label">未知应用</span>
+                                        </div>
+                                      )
+                                    }
+                                    const configured = appIconConfigs[targetIcon.id]
+                                    const emoji = configured?.emoji ?? targetIcon.defaultEmoji
+                                    return (
+                                      <button
+                                        type="button"
+                                        className="shortcut-widget"
+                                        onClick={(event) => {
+                                          // Edit mode swallows the click so
+                                          // the long-press handler can do its
+                                          // job (drag / resize); only navigate
+                                          // when we're not editing.
+                                          if (editMode) return
+                                          event.stopPropagation()
+                                          if (targetIcon.action) {
+                                            targetIcon.action()
+                                          } else if (targetIcon.route) {
+                                            navigate(targetIcon.route)
+                                          }
+                                        }}
+                                      >
+                                        <span className="shortcut-emoji">{emoji}</span>
+                                        <span className="shortcut-label">{targetIcon.label}</span>
+                                      </button>
+                                    )
+                                  })()
                                 ) : (
                                   <img
                                     className="image-widget"
