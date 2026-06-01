@@ -365,7 +365,11 @@ const HealthSyncPage = ({ user: _user }: Props) => {
                 <span className="label">心率范围</span>
                 <span className="value">
                   {todayRow.heart_rate_min != null && todayRow.heart_rate_max != null
-                    ? `${todayRow.heart_rate_min}–${todayRow.heart_rate_max}`
+                    ? todayRow.heart_rate_min === todayRow.heart_rate_max
+                      // Only one sample synced today — "62–62" reads as
+                      // a bug. Show single value with hint instead.
+                      ? `${todayRow.heart_rate_min}（单次）`
+                      : `${todayRow.heart_rate_min}–${todayRow.heart_rate_max}`
                     : '—'}
                 </span>
               </div>
