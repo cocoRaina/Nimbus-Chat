@@ -225,22 +225,51 @@ export const convertOpenAiRequestToAnthropic = async (
   }))
 
   // Thinking: if OpenAI request has reasoning.effort, translate to Anthropic
-  // extended thinking with a token budget.
+  // extended thinking with a token budget. Only applies on models that
+  // actually support extended thinking (Claude 4 family + Claude 3.7) —
+  // older Claudes 400 when thinking is included in the body.
   let thinking: AnthropicRequest['thinking']
   const effort = (body.reasoning as { effort?: string } | undefined)?.effort
-  if (effort === 'high') {
-    thinking = { type: 'enabled', budget_tokens: 8000 }
-  } else if (effort === 'medium' || effort === 'low') {
-    thinking = { type: 'enabled', budget_tokens: 2000 }
+  const supportsThinking = /claude-(opus-4|sonnet-4|haiku-4|3-7|3\.7)/i.test(body.model)
+  if (supportsThinking) {
+    if (effort === 'high') {
+      thinking = { type: 'enabled', budget_tokens: 8000 }
+    } else if (effort === 'medium' || effort === 'low') {
+      thinking = { type: 'enabled', budget_tokens: 2000 }
+    }
   }
 
+  // Anthropic's extended thinking imposes three hard constraints — any of
+  // them trigger a 400. The user's default max_tokens is 1024 and most
+  // request configs set temperature/top_p, so reasoning=on requests would
+  // 400 every time without these fixes:
+  //   1. max_tokens must be strictly greater than budget_tokens (we keep
+  //      ≥1024 headroom for the actual reply on top of the budget).
+  //   2. temperature must be exactly 1 or unset.
+  //   3. top_p must be unset (or also exactly 1, easier to just drop).
+  const userMaxTokens =
+    typeof body.max_tokens === 'number' && body.max_tokens > 0 ? body.max_tokens : 4096
+  const finalMaxTokens = thinking
+    ? Math.max(userMaxTokens, thinking.budget_tokens + 1024)
+    : userMaxTokens
+  const finalTemperature = thinking
+    ? undefined
+    : typeof body.temperature === 'number'
+      ? body.temperature
+      : undefined
+  const finalTopP = thinking
+    ? undefined
+    : typeof body.top_p === 'number'
+      ? body.top_p
+      : undefined
+
   return {
-    model: body.model,
+    model: body.model.replace(/^anthropic\//, ''),
     messages,
     system: systemParts.length > 0 ? systemParts.join('\n\n') : undefined,
-    max_tokens: typeof body.max_tokens === 'number' && body.max_tokens > 0 ? body.max_tokens : 4096,
-    temperature: typeof body.temperature === 'number' ? body.temperature : undefined,
-    top_p: typeof body.top_p === 'number' ? body.top_p : undefined,
+    max_tokens: finalMaxTokens,
+    temperature: finalTemperature,
+    top_p: finalTopP,
     stream: body.stream ?? false,
     tools,
     thinking,
