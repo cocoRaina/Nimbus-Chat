@@ -33,15 +33,22 @@
   z-index: 1;
 }
 
-/* LINE-style unified surface: the chat page is a single flat plane
-   (header + message list + composer) instead of stacked cards. The
-   only visually-distinct element in the composer area is the input
-   pill, which gets a light-grey background to mark where you type. */
+/* LINE-style chat surface: header + message list are flat / transparent
+   so the page-tint shows through, but the bottom composer is its own
+   solid white panel so the input area reads as a distinct "footer". */
 .chat-page.chat-messages,
-.chat-messages.glass-panel,
-.chat-composer.glass-card {
+.chat-messages.glass-panel {
   background: transparent !important;
   border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.chat-composer.glass-card {
+  background: #ffffff !important;
+  border: none !important;
+  border-top: 1px solid rgba(15, 23, 42, 0.06) !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
@@ -59,17 +66,9 @@
   border-radius: 0;
 }
 
-/* Pure-white pill input matching the LINE reference. The flat
-   page background plus a clean white pill is enough contrast to
-   mark where you type — no extra grey wash. */
-.composer-line-input {
-  background: #ffffff;
-  border-color: transparent;
-}
-
 .composer-line-input:focus {
-  background: #ffffff;
-  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(15, 23, 42, 0.06);
+  border-color: transparent;
 }
 
 .chat-header {
@@ -965,7 +964,9 @@
   padding: 8px 14px;
   border-radius: 19px;
   border: 1px solid transparent;
-  background: #ffffff;
+  /* Composer footer is white; pill itself gets a subtle slate wash
+     so it reads as a distinct input area against the white panel. */
+  background: rgba(15, 23, 42, 0.045);
   font-family: inherit;
   font-size: 15px;
   line-height: 1.4;
