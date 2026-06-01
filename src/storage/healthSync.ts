@@ -68,22 +68,24 @@ const SYNC_TYPES: HealthDataType[] = [
 
 // Per-type read budget. Capgo's plugin defaults to 100 records per
 // page and keeps paginating until it has them all. For high-frequency
-// sources like heart rate (per-minute → ~2880 records over 48h) that
-// burns dozens of Health Connect requests in a single readSamples
-// call, and stacking five types in parallel reliably trips Health
-// Connect's "Rate limited request quota has been exceeded" gate.
+// sources like heart rate or steps (华为 Health Sync emits one record
+// per minute) a 48h window with no limit fans out to dozens of Health
+// Connect requests and trips the "rate limit" guard.
 //
-// We don't need raw samples — only daily aggregates — so cap each
-// type at the plugin's MAX_PAGE_SIZE (500) and shrink the window
-// just enough to cover today + the boundary into yesterday. Sources
-// with naturally sparse rows (sleep sessions, resting HR) need much
-// smaller caps.
+// We still need *enough* records to cover a full local day, since the
+// plugin returns rows newest-first — too small and the early-morning
+// hours fall off the bottom of the page. ~1500 covers 24h at one
+// sample per minute with a safety buffer. The plugin caps pageSize at
+// 500, so 1500 means three paginated requests; well below Health
+// Connect's burst budget (~2000 reads / 5min for foreground apps).
+//
+// Sparse sources (sleep sessions, resting HR) keep tiny caps.
 const PER_TYPE_OPTS: Record<HealthDataType, { limit: number; windowHours: number }> = {
-  steps: { limit: 500, windowHours: 48 },
+  steps: { limit: 1500, windowHours: 48 },
   sleep: { limit: 50, windowHours: 48 },
-  heartRate: { limit: 500, windowHours: 24 },
+  heartRate: { limit: 1500, windowHours: 24 },
   restingHeartRate: { limit: 30, windowHours: 72 },
-  oxygenSaturation: { limit: 200, windowHours: 48 },
+  oxygenSaturation: { limit: 500, windowHours: 48 },
 } as Record<HealthDataType, { limit: number; windowHours: number }>
 
 // Aggregates a list of samples into the per-day rows we store. The
