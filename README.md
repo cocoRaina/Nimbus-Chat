@@ -66,7 +66,7 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 - 记忆/时间轴列表项右侧显示 ✨ 标记区分自动提取 vs 手动录入
 - 来源筛选 chips：全部 / 手动 / ✨自动
 
-### 🛠️ Claude 工具（共 11 个）
+### 🛠️ Claude 工具（共 12 个）
 
 **读取（Claude 主动调）**：
 | 工具 | 说明 |
@@ -90,6 +90,7 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 |------|------|
 | `run_code` | 通过用户配的代码沙盒跑 Python/JS（需配 endpoint） |
 | `schedule_proactive_message` | 预设一条未来主动消息（1-1440 分钟 / 最长 24h；带可选 `persist` 区分"普通 ping"和"叫起床这种不可取消提醒"）。仅 APK，web 不可用 |
+| `get_device_state` | 查手机电量 / 是否充电 / 今日总屏幕时长 / Top 5 app 时长。`@capacitor/device` + 自定义 UsageStats plugin。APK 限定；屏幕时间需用户在系统设置开「使用情况访问权限」 |
 
 每次工具调用会被记录在消息的 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**（类似 claude.ai）：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回结果。
 
@@ -173,15 +174,55 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
 
 **minSdkVersion 26 (Android 8.0)**：Health Connect plugin 依赖 `androidx.health.connect:connect-client` 强制要求。
 
-### 💬 聊天界面交互
+### 🏠 主页 widget 系统
+
+桌面式排布，**无底部 dock**，所有 app 入口都是 widget grid 里的图标。
+
+**结构**：
+- 顶部时钟 + 日期 + 编辑按钮
+- 中部 widget 区：**横向多页**（scroll-snap，左右滑翻页 + 圆点指示器），每页 4 列网格
+- Page 0 默认：打卡卡片（2x1）+ 9 个 app shortcut 图标（聊天 / 打卡 / mimi / Claude / 记忆库 / 健康 / 用量 / 设置 / 导出）
+- Page 1+：用户自定义内容
+
+**widget 类型**：
+| type | 尺寸 | 说明 |
+|---|---|---|
+| `checkin`（核心，page 0 顶部）| 1x1 / 2x1 | 累计陪伴天数 + 一周圈圈 + 一键打卡 |
+| `app_shortcut` | 1x1 | dock 风格的 app 入口（圆角白底 + emoji + label）|
+| `health_panel` | 1x1 / 2x1 | 今日步数 / 睡眠 / 心率 / 血氧；点击跳 `/health-sync` |
+| `screen_time` | 1x1 / 2x1 | 今日总屏幕时间 + Top 3 app；点击跳 `/health-sync` |
+| `period` | 1x1 / 2x1 | 当前周期天数 + 阶段 + 下次预计；点击跳 `/health-sync` |
+| `text` | 1x1 / 2x1 | 纯文本备忘 |
+| `image` | 1x1 / 2x1 | 本地图片（IndexedDB 存储）|
+| `spacer` | 1x1 / 2x1 | 占位 |
+
+数据流：内容 widget 通过 `src/hooks/useHomeWidgetData.ts` 一次性拉今天的 health_data 行 + period_tracking 最新行 + 当日 UsageStats，多 widget 共用一份数据。
+
+**编辑模式**（长按任意 widget 或点「编辑」按钮）：
+- widget 抖动 + 显示尺寸 select（app shortcut 不能改大小）+ 删除 ×
+- 顶部「+ 应用 / 组件」picker：可加内容 widget 或 app shortcut
+- 「编辑图标」面板：下拉选 app + 文本框输入 emoji
+- 页码圆点旁有「＋ 加新页」/「× 删除当前页」按钮（page 0 受保护不能删）
+- 「预览」toggle 临时隐藏 toolbar 看效果，「完成」退出
+- 自动保存到 localStorage（`nibble_ui_prefs_v1`）
+
+**存储 schema**（`HomeSettingsState`）：
+- `iconOrder: string[]` — 保留用于 emoji 编辑器下拉
+- `pages: { widgetOrder, widgets }[]` — 多页 widget 布局
+- `appIconConfigs: Record<id, { type: 'emoji'; emoji }>` — 用户自定义 emoji
+- `togetherSince` / `checkinSize` / 等其他偏好
+
+旧数据自动迁移：早期版本的 `widgetOrder/widgets` 顶层字段 → `pages[0]`；早期 dock-only 布局 → 自动把 9 个 app 注入 page 0 作为 shortcut（顺序按 ALL_APP_IDS）。
+
+### 💬 聊天界面交互（LINE 风格）
+- **Header**：左 `←` 返回首页、Claude 的圆头像（同步 `/syzygy` 朋友圈头像）、可改名称（默认"哥哥"，✏️ 修改名称写到 localStorage `nimbus_assistant_name`，主动消息通知 title 也跟着用新名字）；右 `⚙️`（精简菜单：思考链 / 手动压缩 / ✏️ 修改名称）+ `≡`（会话抽屉）
+- **正在输入指示器**：流式期间在 header 名称下方副标题显示「正在输入…」+ 三跳动点，不再在消息流尾巴留空气泡
+- **输入栏**：单行 `[+ 模型] [📷 图片] [输入框 pill] [➤ 发送 / ■ 停止]`，底部是白色 footer 面板，输入框 pill 浅灰色，发送按钮蓝色渐变 / 流式时变红停止
 - **气泡分组**：同人 1 分钟内连发紧贴（3px），换人或间隔大拉开（12px）
 - **居中时间分隔**：间隔 >5 分钟才显示
 - **一条消息 = 一个气泡**：用 `[NEXT]` 显式拆成短句串
 - **懒加载**：进入只渲染最近 30 条，"加载更早" 按钮分页
-- **header**：固定标题"哥哥" + 副标题显示当前模型名
-- **聊天操作菜单**：思考链 toggle + 手动压缩对话 + 导航
 - **工具调用卡片**：每条助手消息上方显示本轮调了哪些工具，可折叠查看详情
-- **打字指示器**：Claude 思考时三个跳动的点（第一个 token 到达前）
 - **入场动画**：新消息从下方滑入 + 淡入（0.25s）
 - **自动标题**：第一轮对话后自动生成 4-8 字中文标题
 - **长按菜单**：复制 / 引用 / 重新生成 / 编辑 / 删除
@@ -260,14 +301,14 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
 
 | 页面 | 路由 | 说明 |
 |------|------|------|
-| 首页 Dashboard | `/` | 时钟 + 在一起天数 + 当日打卡卡片（一周圈圈 + 一键打卡按钮）+ 可自定义小组件 + 9 个 app 图标入口 |
-| 聊天 | `/chat/:id` | 主聊天界面，工具循环 + 流式 + 懒加载 |
+| 首页 Dashboard | `/` | 时钟 + 横向多页（scroll-snap 翻页 + 圆点指示器）+ 打卡卡片（一周圈圈 + 一键打卡）+ 健康/屏幕时间/经期内容 widget + 9 个 app shortcut 图标 + 文本/图片/占位 widget。**无底部 dock**，所有图标作为 widget 在 page 0；长按任意 widget 进编辑模式 → 加组件 / 拖动 / 改图标 emoji / 增删页 / 「预览」切换 |
+| 聊天 | `/chat/:id` | LINE 风格主聊天界面，工具循环 + 流式 + 懒加载 |
 | 设置 | `/settings` | 10 个折叠区（详见上方） |
 | 记忆库 | `/memory-vault` | 4 个 tab：记忆 / 日记 / 交接信 / 时间轴，CRUD + 搜索 + 来源筛选 + 自动提取 + 待确认流程 |
 | 我的主页 | `/snacks` | 朋友圈帖子 + AI 回复 + 软删除回收站 |
-| TA 的主页 | `/syzygy` | Claude 的朋友圈（对镜版） |
+| TA 的主页 | `/syzygy` | Claude 的朋友圈（对镜版）。头像在聊天 header 同步显示 |
 | 用量统计 | `/usage` | 按 provider / 按会话排行 + 缓存命中率 |
-| 健康同步 | `/health-sync` | Health Connect → `health_data`，自动同步 + 手动触发 + 诊断工具（APK 限定） |
+| 健康同步 | `/health-sync` | Health Connect → `health_data`（同步状态卡 + 今日体征 grid）、📱 屏幕时间 section（含权限引导按钮）、🌸 经期跟踪 section（自动算周期天数 / 阶段 / 下次预计）、🔧 诊断工具折叠。APK 限定 |
 | 每日打卡 | `/checkin` | 连续打卡 streak + 月历 |
 | 数据导出 | `/export` | Markdown/JSON/TXT 格式导出聊天 + 记忆 + 打卡 |
 | 首页布局 | `/home-layout` | 编辑首页小组件排列 |
@@ -353,6 +394,8 @@ DB 函数:
 - `GOOGLE_SERVICES_JSON`（可选，FCM 用）
 
 ### Android 权限
+**minSdkVersion 26**（Android 8.0）— 由 Health Connect plugin 决定。
+
 | 权限 | 用途 |
 |------|------|
 | `INTERNET` | API 调用 |
@@ -361,6 +404,9 @@ DB 函数:
 | `RECEIVE_BOOT_COMPLETED` | 重启后恢复已调度通知 |
 | `WAKE_LOCK` | 通知唤醒屏幕 |
 | `POST_NOTIFICATIONS` | Android 13+ 通知权限 |
+| `health.READ_STEPS / READ_SLEEP / READ_HEART_RATE / READ_RESTING_HEART_RATE / READ_DISTANCE / READ_TOTAL_CALORIES_BURNED / READ_OXYGEN_SATURATION` | Health Connect 读取（用户在 Health Connect app 中授权后才生效） |
+| `PACKAGE_USAGE_STATS` | 屏幕使用时间。**特殊 AppOp** — 用户必须去系统设置 → 应用 → 使用情况访问 → Nimbus → 开启，app 内调 `requestPermission()` 只跳设置页 |
+| `QUERY_ALL_PACKAGES` | 让屏幕时间 plugin 拿到其他 app 的「显示名」（微信 / B站 等），否则只显示 `com.tencent.mm` 这种包名 |
 
 ---
 
@@ -368,9 +414,14 @@ DB 函数:
 
 ```
 src/
-├── App.tsx                    # 主路由 + sendMessage + 11 个工具循环（~2800 行）
+├── App.tsx                    # 主路由 + sendMessage + 12 个工具循环
+├── tools/
+│   └── definitions.ts         # 所有 TOOL_* schema 定义（拆出来减肥 App.tsx）
+├── hooks/
+│   └── useHomeWidgetData.ts   # 共享 hook：拉今日 health_data / period / 屏幕时间
 ├── api/
-│   └── openrouter.ts          # 通用 LLM provider fetcher（OR/中转）
+│   ├── openrouter.ts          # 通用 LLM provider fetcher（OR/中转）
+│   └── anthropic.ts           # /v1/messages 适配器：OpenAI ⇄ Anthropic 双向（流式 + 非流式 + usage + 图片 base64 + tool_use_id 校验）
 ├── components/
 │   ├── MarkdownRenderer.tsx   # React.memo markdown（content equality）
 │   ├── ReasoningPanel.tsx     # 思考链折叠面板（memo）
@@ -385,8 +436,9 @@ src/
 │   ├── UsagePage.tsx          # 用量统计
 │   ├── MyHomePage.tsx         # 我的主页（朋友圈）
 │   ├── AssistantHomePage.tsx  # TA 的主页（对镜版）
-│   ├── HomePage.tsx           # 首页 dashboard + 小组件
-│   ├── HomeLayoutSettingsPage.tsx
+│   ├── HomePage.tsx           # 首页 dashboard：多页 widget grid（无 dock）+ 编辑模式
+│   ├── HomeLayoutSettingsPage.tsx  # /home-layout 深度编辑（含外观调整 + dock emoji 编辑器）
+│   ├── HealthSyncPage.tsx     # 健康综合页：同步 + 今日体征 + 屏幕时间 + 经期 + 诊断工具
 │   ├── ExportPage.tsx         # 数据导出
 │   ├── CheckinPage.tsx        # 每日打卡
 │   ├── AuthPage.tsx           # 邮箱 OTP 登录
@@ -398,17 +450,25 @@ src/
 │   ├── userSettings.ts        # 用户设置（Supabase + localStorage）
 │   ├── conversationCompression.ts  # 摘要 + cache（force flag 给手动按钮）
 │   ├── usageStats.ts          # usage_logs 读写
+│   ├── usageStatsNative.ts    # 自定义 Capacitor plugin bridge（PACKAGE_USAGE_STATS 屏幕时间）
+│   ├── deviceState.ts         # 电量 + 充电 + 屏幕时间汇总（get_device_state 工具用）
+│   ├── healthSync.ts          # Health Connect 拉取 + 按天聚合 + upsert health_data；30min 节流
 │   ├── weather.ts             # Open-Meteo 天气 + 1h 缓存
-│   ├── proactiveNotification.ts  # 本地通知调度 + cancel/re-arm
+│   ├── proactiveNotification.ts  # 本地通知调度 + cancel/re-arm（title 走 assistantPersona）
+│   ├── assistantPersona.ts    # 助手显示名（默认"哥哥"，可在聊天 ⚙️ 菜单改）
 │   ├── supabaseSync.ts        # 远程 CRUD（sessions/messages/checkins/overrides）
 │   ├── supabaseConfig.ts      # 本地 Supabase URL/key 配置
 │   ├── sandbox.ts             # 代码沙盒（带 https/http 协议校验）
 │   ├── statusBar.ts           # Android StatusBar 跟随页面 bg
-│   ├── homeLayout.ts          # 首页布局（IndexedDB 存大数据）
+│   ├── homeLayout.ts          # 首页布局（pages[] + 迁移逻辑 + IndexedDB 图片）
 │   ├── openrouterPricing.ts   # 模型定价（24h 缓存）
 │   └── imageUpload.ts         # 图片压缩 + Supabase Storage 上传
 └── supabase/
     └── client.ts              # supabase 单例 + 本地配置覆盖
+
+android/app/src/main/java/com/cocoraina/nimbuschat/
+├── MainActivity.java          # Capacitor BridgeActivity + 注册 UsageStatsPlugin
+└── UsageStatsPlugin.java      # 自定义 Capacitor plugin：UsageStatsManager 读今日 app 使用时长
 ```
 
 ---
