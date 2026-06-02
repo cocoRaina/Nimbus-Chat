@@ -83,6 +83,9 @@ type AnthropicRequest = {
   }>
   thinking?: { type: 'enabled'; budget_tokens: number }
   metadata?: { user_id?: string }
+  // OpenRouter-specific routing hint, passed through on requests to OR's
+  // /messages endpoint. Ignored by direct Anthropic and most relays.
+  provider?: { order?: string[]; allow_fallbacks?: boolean; [k: string]: unknown }
 }
 
 const fetchImageAsBase64 = async (
@@ -367,6 +370,17 @@ export const convertOpenAiRequestToAnthropic = async (
     ? { user_id: body.user }
     : undefined
 
+  // Pass through OpenRouter's provider routing hint when present (it's
+  // ignored by direct Anthropic and benign on relays that don't know
+  // about it). This is how we keep "use Anthropic upstream, no Bedrock
+  // / Vertex fallback" pinning when sending Claude requests through
+  // OR's /messages endpoint.
+  const providerHint = (body as { provider?: unknown }).provider
+  const provider =
+    providerHint && typeof providerHint === 'object'
+      ? (providerHint as AnthropicRequest['provider'])
+      : undefined
+
   return {
     model: body.model.replace(/^anthropic\//, ''),
     messages,
@@ -377,6 +391,7 @@ export const convertOpenAiRequestToAnthropic = async (
     stream: body.stream ?? false,
     tools,
     ...(metadata ? { metadata } : {}),
+    ...(provider ? { provider } : {}),
     thinking,
   }
 }
@@ -580,7 +595,13 @@ export const fetchAnthropicAsOpenAi = async (
   const upstream = await fetch(endpoint, {
     method: 'POST',
     headers: {
+      // Send both auth headers. Direct Anthropic + msuicode-style relays
+      // honor x-api-key (Anthropic standard). OpenRouter's /messages
+      // endpoint honors Authorization: Bearer (their standard). Sending
+      // both lets the same code path target either upstream without
+      // having to know who's on the other end.
       'x-api-key': apiKey,
+      Authorization: `Bearer ${apiKey}`,
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
       'Content-Type': 'application/json',

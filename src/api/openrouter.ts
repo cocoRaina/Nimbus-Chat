@@ -28,7 +28,28 @@ export const fetchOpenRouter = async (
   // Anthropic-format provider: only chat completions get translated to
   // /v1/messages. /models still uses OpenAI-compatible path since both
   // OR and 中转 expose model lists in OpenAI shape regardless of format.
-  if (format === 'anthropic' && path === '/chat/completions' && body) {
+  //
+  // Auto-route Claude requests on OpenRouter through Anthropic's native
+  // /messages endpoint regardless of stored format setting. Background:
+  // OR's OpenAI-compat layer for Claude (/chat/completions) silently
+  // strips/relocates cache_control during translation, which is exactly
+  // what breaks prompt caching on tool-iteration rounds — our hours of
+  // chasing cached_tokens=0 on round 2/3 all reduce to "OR's translation
+  // layer doesn't carry the markers correctly when there are tool blocks
+  // present". The native /messages endpoint on OR is a thin passthrough
+  // to Anthropic (per OR docs: "Anthropic Skin behaves exactly like the
+  // Anthropic API"), so cache_control, thinking, metadata.user_id all
+  // land as intended. Same trick the msuicode relay uses to achieve
+  // 100% cache hit rate including tool iterations.
+  const looksLikeClaude =
+    body != null &&
+    typeof body === 'object' &&
+    typeof (body as { model?: unknown }).model === 'string' &&
+    /claude|anthropic/i.test((body as { model: string }).model)
+  const useAnthropicNative =
+    format === 'anthropic' || (id === 'openrouter' && looksLikeClaude)
+
+  if (useAnthropicNative && path === '/chat/completions' && body) {
     return fetchAnthropicAsOpenAi(baseUrl, apiKey, body as Parameters<typeof fetchAnthropicAsOpenAi>[2], signal)
   }
 
