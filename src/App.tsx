@@ -1488,9 +1488,30 @@ TOOL_SEARCH_HANDOFF,
               requestBody.tool_choice = 'auto'
             }
             if (reasoningEnabled && isClaudeModel(effectiveModel)) {
-              requestBody.reasoning = { effort: 'high' }
-            }
-            if (reasoningEnabled && activeSettings.chatHighReasoningEnabled) {
+              // OpenRouter's `effort: 'high'` for Anthropic models translates
+              // to "thinking budget = 80% of top-level max_tokens". With the
+              // user's default max_tokens=1024 that's a ~820-token budget —
+              // below Anthropic's hard 1024 minimum — so OR silently drops
+              // thinking and Claude replies without reasoning. The smoking
+              // gun: most recent chats logged completion_tokens_details.
+              // reasoning_tokens=0 even though we sent reasoning:effort:high.
+              //
+              // Fix mirrors src/api/anthropic.ts:253-274 (which handles the
+              // same three Anthropic constraints for our direct adapter):
+              //   1. set reasoning.max_tokens explicitly so OR doesn't do
+              //      the broken percentage math on a small max_tokens
+              //   2. bump top-level max_tokens to budget + 1024 headroom
+              //      (Anthropic requires max_tokens > budget_tokens)
+              //   3. drop temperature / top_p (Anthropic 400s if either is
+              //      non-default when extended thinking is on)
+              const thinkingBudget = 8000
+              requestBody.reasoning = { max_tokens: thinkingBudget }
+              const currentMaxTokens =
+                typeof requestBody.max_tokens === 'number' ? requestBody.max_tokens : 0
+              requestBody.max_tokens = Math.max(currentMaxTokens, thinkingBudget + 1024)
+              delete requestBody.temperature
+              delete requestBody.top_p
+            } else if (reasoningEnabled && activeSettings.chatHighReasoningEnabled) {
               requestBody.reasoning = { effort: 'high' }
             }
 
