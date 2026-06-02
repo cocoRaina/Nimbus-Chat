@@ -2152,6 +2152,28 @@ TOOL_SEARCH_HANDOFF,
           ) {
             keepaliveBodyRef.current = lastSentBody
             scheduleKeepalive()
+            // Server-side mirror: the client timer above dies the moment the
+            // app is killed / backgrounded too long (mobile JS limitation),
+            // and the previous chat row showed exactly that — an APK update
+            // plus a 3h gap incurred a cold cache write. Mirror the same body
+            // + this user's OR key into cache_keepalive_state so the
+            // cache_keepalive Edge Function (pg_cron every 5min) can keep
+            // the cache warm from the server side, surviving APK reinstall /
+            // phone sleep / process kill. Best-effort: failure here is
+            // silent — local timer still runs.
+            if (supabase && user && getActiveProvider() === 'openrouter') {
+              const orKey = getProviderConfig('openrouter').apiKey
+              if (orKey) {
+                void supabase.from('cache_keepalive_state').upsert({
+                  user_id: user.id,
+                  body: lastSentBody,
+                  openrouter_key: orKey,
+                  last_chat_at: new Date().toISOString(),
+                }).then(({ error }) => {
+                  if (error) console.warn('cache_keepalive upsert failed', error)
+                })
+              }
+            }
           }
         } catch (error) {
           if (flushTimer !== null) {

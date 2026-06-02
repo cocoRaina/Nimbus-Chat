@@ -96,7 +96,9 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 
 ### 💰 成本优化
 - **Anthropic Prompt Caching**：1 小时 TTL（写贵 2x，读 0.1x），Claude on OR 自动启用
-- **Keepalive ping**：cache 快到期前（55min）发 `max_tokens:1` 的最小 ping 续命，**保留 tools / 去掉 reasoning 让 cache key 和原对话一致**（8:00-23:00 活跃时段）
+- **Keepalive ping**（双层）：
+  - **客户端**：每次成功 chat 后 55min 调度一个 `max_tokens:1` 的 ping，**保留 tools / 去掉 reasoning 让 cache key 跟原对话一致**。8:00-23:00 才跑。**只在 app 前台活着时有效** —— APK 重装、手机睡眠、后台被杀都会让 JS timer 死掉
+  - **服务端**：`cache_keepalive` Edge Function + pg_cron 每 5min 触发。每次成功 chat 时前端把 body + OR key upsert 进 `cache_keepalive_state`；cron 函数扫这张表，对 `last_chat_at` 在 4h 内、且距上次 ping >50min 的用户发同样的 minimal ping。**APK 重装/手机睡眠都不影响**。同样 8:00-23:00 时段
 - **对话压缩**：历史超阈值时自动用 summarizer 模型摘要，节省 token
 - 设置可单独选 summarizer 的 provider 和 model（推荐 OR 的免费模型）
 
