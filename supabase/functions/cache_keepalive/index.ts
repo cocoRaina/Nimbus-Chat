@@ -76,26 +76,42 @@ Deno.serve(async (req) => {
       continue
     }
 
-    // Build the minimal ping. Same three rules as the client-side fix
-    // (commit 7aebe2a):
-    //   1. max_tokens: 1   — Anthropic min; adapter fallback would
-    //      otherwise turn the ping into a full generation.
-    //   2. keep `tools`    — they're part of the cache key.
-    //   3. strip reasoning — otherwise thinking forces max_tokens up
-    //      to budget+1024 (~9024) and the ping becomes expensive.
+    // Build the minimal ping. The body in row.body is now Anthropic-
+    // native shape (App.tsx converts via convertOpenAiRequestToAnthropic
+    // before upserting) so we can POST it straight to OR's /messages
+    // endpoint. Five overrides keep the ping cheap + valid:
+    //   1. max_tokens: 1   — Anthropic min; without it we'd inherit the
+    //      9024-token cap the chat used.
+    //   2. stream: false   — we don't need SSE for a 1-token ping.
+    //   3. drop `thinking` — extended thinking requires max_tokens >
+    //      thinking.budget_tokens (~8000), which conflicts with our
+    //      max_tokens:1 and 400s. The cache key doesn't include
+    //      thinking config in a way that matters for prefix lookup
+    //      (per our earlier validation), so dropping it is safe.
+    //   4. keep `tools` + `system` + `messages` + `metadata` + `provider`
+    //      + `model` — they're all part of the cache prefix key.
+    //   5. drop OpenAI-specific leftovers (usage, tool_choice) just in
+    //      case App.tsx stored a body that still carried them.
     const pingBody: Record<string, unknown> = {
       ...row.body,
       max_tokens: 1,
       stream: false,
     }
+    delete pingBody.thinking
     delete pingBody.reasoning
     delete pingBody.tool_choice
     delete pingBody.usage
 
     try {
-      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      const resp = await fetch('https://openrouter.ai/api/v1/messages', {
         method: 'POST',
         headers: {
+          // OR's /messages endpoint takes the user's OR key via Bearer
+          // (not the Anthropic-style x-api-key) — same as the chat path.
+          // No anthropic-version / dangerous-direct-browser-access here:
+          // OR's gateway handles versioning internally and those headers
+          // aren't on the /messages CORS allowlist (would 400/trip
+          // preflight if we set them).
           'Authorization': `Bearer ${row.openrouter_key}`,
           'Content-Type': 'application/json',
         },

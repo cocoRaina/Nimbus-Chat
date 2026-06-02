@@ -57,6 +57,7 @@ import {
 } from './constants/aiOverlays'
 import { resolveModelId } from './utils/modelResolver'
 import { fetchOpenRouter } from './api/openrouter'
+import { convertOpenAiRequestToAnthropic } from './api/anthropic'
 import { getActiveProvider, getProviderConfig } from './storage/apiProvider'
 import { recordUsage } from './storage/usageStats'
 import { maybeAutoSyncHealth } from './storage/healthSync'
@@ -2287,17 +2288,39 @@ TOOL_SEARCH_HANDOFF,
             // the cache warm from the server side, surviving APK reinstall /
             // phone sleep / process kill. Best-effort: failure here is
             // silent — local timer still runs.
+            //
+            // Store the converted Anthropic-native body, not the original
+            // OpenAI-compat one. We switched OR-Claude chat to OR's
+            // /messages endpoint (which expects Anthropic-native shape)
+            // for the tool-iteration cache fix. The keepalive ping has to
+            // hit the same endpoint with the same body shape or the cache
+            // key won't match — pinging /chat/completions with OpenAI
+            // shape would refresh a different cache than what the chat
+            // is actually using. Convert here so the edge function can
+            // just POST it as-is to /api/v1/messages without any
+            // server-side conversion logic.
             if (supabase && user && getActiveProvider() === 'openrouter') {
               const orKey = getProviderConfig('openrouter').apiKey
               if (orKey) {
-                void supabase.from('cache_keepalive_state').upsert({
-                  user_id: user.id,
-                  body: lastSentBody,
-                  openrouter_key: orKey,
-                  last_chat_at: new Date().toISOString(),
-                }).then(({ error }) => {
-                  if (error) console.warn('cache_keepalive upsert failed', error)
-                })
+                void (async () => {
+                  try {
+                    const anthropicBody = await convertOpenAiRequestToAnthropic(
+                      lastSentBody as Parameters<typeof convertOpenAiRequestToAnthropic>[0],
+                      { keepModelSlug: true },
+                    )
+                    const { error } = await supabase
+                      .from('cache_keepalive_state')
+                      .upsert({
+                        user_id: user.id,
+                        body: anthropicBody as unknown as Record<string, unknown>,
+                        openrouter_key: orKey,
+                        last_chat_at: new Date().toISOString(),
+                      })
+                    if (error) console.warn('cache_keepalive upsert failed', error)
+                  } catch (err) {
+                    console.warn('cache_keepalive convert/upsert error', err)
+                  }
+                })()
               }
             }
           }
