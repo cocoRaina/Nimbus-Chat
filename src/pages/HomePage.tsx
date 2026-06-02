@@ -492,7 +492,19 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     }
   }, [isSettingsPage]);
 
+  // Guards the loading useEffect against re-running on every parent
+  // re-render. Without this, App's inline onOpenChat closure triggers
+  // a new defaultAppIconConfigs reference every time App rebuilds
+  // (which is frequent: sessions, messages, streaming, etc.), the load
+  // effect re-fires, reads localStorage *before* the save effect has
+  // flushed the latest setPages update, and overwrites freshly-added
+  // widgets with stale data. Result: user adds a widget → navigates
+  // anywhere → comes back → widget gone. Loading only ever needs to
+  // happen once per mount.
+  const hasLoadedPrefsRef = useRef(false);
   useEffect(() => {
+    if (hasLoadedPrefsRef.current) return;
+    hasLoadedPrefsRef.current = true;
     const cached = loadHomeSettings();
     if (!cached) {
       setAppIconConfigs(defaultAppIconConfigs);

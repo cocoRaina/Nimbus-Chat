@@ -15,6 +15,7 @@ import {
   syncHealthDataToSupabase,
   type SyncSummary,
 } from '../storage/healthSync'
+import { computeMedianCycleFromHistory } from '../hooks/useHomeWidgetData'
 import './HealthSyncPage.css'
 
 type Props = { user: User | null }
@@ -114,6 +115,9 @@ const HealthSyncPage = ({ user: _user }: Props) => {
     notes: string | null
   }
   const [periodRow, setPeriodRow] = useState<PeriodRow | null>(null)
+  // Last 6 starts for adaptive cycle-length derivation. Same shape as
+  // the home widget data hook so the UI here matches the home page.
+  const [periodHistory, setPeriodHistory] = useState<Array<{ start_date: string }>>([])
 
   const pushLog = useCallback(
     (line: string) =>
@@ -165,10 +169,11 @@ const HealthSyncPage = ({ user: _user }: Props) => {
       .select('start_date,end_date,cycle_length,notes')
       .order('start_date', { ascending: false })
       .order('created_at', { ascending: false, nullsFirst: false })
-      .limit(1)
-      .maybeSingle()
+      .limit(6)
     if (!error) {
-      setPeriodRow((data as PeriodRow | null) ?? null)
+      const rows = (data as PeriodRow[] | null) ?? []
+      setPeriodRow(rows[0] ?? null)
+      setPeriodHistory(rows)
     }
   }, [])
 
@@ -191,7 +196,25 @@ const HealthSyncPage = ({ user: _user }: Props) => {
         Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) /
         oneDay,
     )
-    const cycleLength = periodRow.cycle_length ?? 28
+    // Adaptive cycle length: median of historical gaps when we have
+    // ≥2 cycles to compare; otherwise fall back to whatever Claude
+    // logged on this row; finally 28d. Same priority order as the
+    // home widget hook so HealthSyncPage + widget stay in sync.
+    const adaptive = computeMedianCycleFromHistory(periodHistory)
+    let cycleLength: number
+    let cycleSource: 'history' | 'logged' | 'default'
+    let cycleSampleSize = 0
+    if (adaptive) {
+      cycleLength = adaptive.median
+      cycleSource = 'history'
+      cycleSampleSize = adaptive.sampleSize
+    } else if (periodRow.cycle_length && periodRow.cycle_length > 0) {
+      cycleLength = periodRow.cycle_length
+      cycleSource = 'logged'
+    } else {
+      cycleLength = 28
+      cycleSource = 'default'
+    }
     const daysToNext = cycleLength - daysSinceStart
     // Match the widget data hook — typical menstruation lasts < 7
     // days, so a row without end_date that's far in the past
@@ -214,7 +237,15 @@ const HealthSyncPage = ({ user: _user }: Props) => {
       phase = '黄体期'
     }
     const nextDate = new Date(start.getTime() + cycleLength * oneDay)
-    return { daysSinceStart, daysToNext, phase, cycleLength, nextDate }
+    return {
+      daysSinceStart,
+      daysToNext,
+      phase,
+      cycleLength,
+      cycleSource,
+      cycleSampleSize,
+      nextDate,
+    }
   })()
 
   const handleSyncNow = async () => {
@@ -464,7 +495,14 @@ const HealthSyncPage = ({ user: _user }: Props) => {
                 </div>
                 <div>
                   <span className="label">平均周期</span>
-                  <span className="value">{periodMetrics.cycleLength} 天</span>
+                  <span className="value">
+                    {periodMetrics.cycleLength} 天
+                    {periodMetrics.cycleSource === 'history'
+                      ? `（按你最近 ${periodMetrics.cycleSampleSize + 1} 个周期算的）`
+                      : periodMetrics.cycleSource === 'logged'
+                        ? '（手动记录）'
+                        : '（默认值，需 ≥2 个周期才能自适应）'}
+                  </span>
                 </div>
               </div>
             </div>

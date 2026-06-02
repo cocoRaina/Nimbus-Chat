@@ -33,12 +33,53 @@ export type PeriodMetrics = {
   // negative means we're past the predicted next start (cycle late).
   daysToNext: number
   cycleLength: number
+  // How the cycleLength was derived — surfaces "is this fixed 28d
+  // or my actual averaged history?" in the UI.
+  cycleSource: 'history' | 'logged' | 'default'
+  // How many historical gaps we used to derive the adaptive
+  // cycle (0 when source !== 'history'). Surfaces in the period
+  // section so the user knows the prediction is settling.
+  cycleSampleSize: number
   phase: '经期中' | '滤泡期' | '排卵期' | '黄体期'
   nextDate: Date
   notes: string | null
 }
 
-const computePeriodMetrics = (row: PeriodRow | null): PeriodMetrics | null => {
+// Computes the median gap (in days) between consecutive period
+// start_dates. Used to derive an adaptive cycle length from history
+// instead of hard-coding 28d. Median (not mean) so a single outlier
+// cycle (skipped period, miscount) doesn't drag the prediction.
+// Only considers gaps within a sane window (15-60d) — anything outside
+// is almost certainly bad data or a missed entry.
+export const computeMedianCycleFromHistory = (
+  rows: Array<{ start_date: string }>,
+): { median: number; sampleSize: number } | null => {
+  if (rows.length < 2) return null
+  // Sort by start_date DESC so the first row is most recent. We
+  // don't trust the caller to have ordered the input.
+  const sorted = [...rows].sort((a, b) =>
+    a.start_date < b.start_date ? 1 : -1,
+  )
+  const gaps: number[] = []
+  for (let i = 0; i < sorted.length - 1; i += 1) {
+    const a = new Date(sorted[i].start_date)
+    const b = new Date(sorted[i + 1].start_date)
+    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) continue
+    const gapDays = Math.round((a.getTime() - b.getTime()) / (24 * 60 * 60 * 1000))
+    if (gapDays >= 15 && gapDays <= 60) gaps.push(gapDays)
+  }
+  if (gaps.length === 0) return null
+  gaps.sort((a, b) => a - b)
+  const mid = Math.floor(gaps.length / 2)
+  const median =
+    gaps.length % 2 === 1 ? gaps[mid] : Math.round((gaps[mid - 1] + gaps[mid]) / 2)
+  return { median, sampleSize: gaps.length }
+}
+
+const computePeriodMetrics = (
+  row: PeriodRow | null,
+  historyRows: Array<{ start_date: string }>,
+): PeriodMetrics | null => {
   if (!row) return null
   const start = new Date(row.start_date)
   if (Number.isNaN(start.getTime())) return null
@@ -49,7 +90,25 @@ const computePeriodMetrics = (row: PeriodRow | null): PeriodMetrics | null => {
       Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) /
       oneDay,
   )
-  const cycleLength = row.cycle_length ?? 28
+  // Cycle length priority:
+  //   1. Median of historical gaps (most accurate — adapts to user)
+  //   2. cycle_length explicitly written by Claude via log_period
+  //   3. 28d fallback (textbook average)
+  const adaptive = computeMedianCycleFromHistory(historyRows)
+  let cycleLength: number
+  let cycleSource: PeriodMetrics['cycleSource']
+  let cycleSampleSize = 0
+  if (adaptive) {
+    cycleLength = adaptive.median
+    cycleSource = 'history'
+    cycleSampleSize = adaptive.sampleSize
+  } else if (row.cycle_length && row.cycle_length > 0) {
+    cycleLength = row.cycle_length
+    cycleSource = 'logged'
+  } else {
+    cycleLength = 28
+    cycleSource = 'default'
+  }
   const daysToNext = cycleLength - daysSinceStart
 
   // Decide "still bleeding" by the end_date when present, otherwise
@@ -79,6 +138,8 @@ const computePeriodMetrics = (row: PeriodRow | null): PeriodMetrics | null => {
     cycleDay: daysSinceStart + 1,
     daysToNext,
     cycleLength,
+    cycleSource,
+    cycleSampleSize,
     phase,
     nextDate: new Date(start.getTime() + cycleLength * oneDay),
     notes: row.notes,
@@ -113,13 +174,18 @@ export const useHomeWidgetData = (userId: string | null | undefined): HomeWidget
         .select('date,steps,sleep_hours,heart_rate_avg,heart_rate_max,heart_rate_min,heart_rate_rest,oxygen_saturation_avg')
         .eq('date', today)
         .maybeSingle(),
+      // Pull up to 6 of the most recent cycles so we can derive an
+      // adaptive cycle length (median gap between consecutive starts).
+      // 6 is enough to smooth out a noisy month or two without
+      // dragging in ancient history when the user's actual cycle has
+      // shifted. The newest row is also the "current" one used by the
+      // single-row UI.
       supabase
         .from('period_tracking')
         .select('start_date,end_date,cycle_length,notes')
         .order('start_date', { ascending: false })
         .order('created_at', { ascending: false, nullsFirst: false })
-        .limit(1)
-        .maybeSingle(),
+        .limit(6),
       readDailyUsage().catch(() => null),
     ])
 
@@ -127,7 +193,8 @@ export const useHomeWidgetData = (userId: string | null | undefined): HomeWidget
       setHealthRow((healthRes.data as HealthTodayRow | null) ?? null)
     }
     if (!periodRes.error) {
-      setPeriodMetrics(computePeriodMetrics((periodRes.data as PeriodRow | null) ?? null))
+      const rows = (periodRes.data as PeriodRow[] | null) ?? []
+      setPeriodMetrics(computePeriodMetrics(rows[0] ?? null, rows))
     }
     setScreenTime(usageRes)
   }, [])

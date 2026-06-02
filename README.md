@@ -520,6 +520,7 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 | 心率显示 `62-62（单次）`，实际有上百条样本 | `dedupeSamples` 只按 `platformId` 去重，Health Connect 心率系列里几百个样本共享 parent record 的 metadata.id | dedupe key 加上 `startDate + value`（`storage/healthSync.ts`）|
 | 经期组件总是显示「经期中」 | `period_tracking` 排序只按 `start_date DESC`，相同日期排序不稳定，老 row 还在；且 `end_date is null` 时 phase 默认是「经期中」 | 排序加 `created_at DESC` tiebreaker；phase 改 7 天 fallback（`isInPeriod = end_date ? today <= end : daysSinceStart < 7`）|
 | 屏幕时间显示 `com.tencent.mm` 而不是「微信」 | Android 11+ package visibility 限制，`PackageManager.getApplicationLabel` 拿不到他 app 信息 | `AndroidManifest.xml` 加 `QUERY_ALL_PACKAGES` + `tools:ignore` |
+| 经期下次预计永远是 +28d，不会按自己实际周期调整 | `useHomeWidgetData.ts` + `HealthSyncPage.tsx` 都 hard-code `row.cycle_length ?? 28`，从来没读历史 | 抽 `computeMedianCycleFromHistory()`，拉最近 6 行 `period_tracking`，算相邻 start_date 间隔的中位数（带 15-60d sanity window），优先级：history median > Claude 写的 cycle_length > 28d。`PeriodMetrics` 加 `cycleSource: 'history' \| 'logged' \| 'default'` + `cycleSampleSize`，HealthSyncPage 把来源 inline 在「平均周期」一行 |
 
 ### 主页 widget 相关
 
@@ -531,6 +532,7 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 | 设置 tab 没了网格 → 删不掉单个 widget | 网格隐藏后没替代入口 | 新增 `.widget-list-panel`「当前组件」列表，emoji + label + 尺寸 + × |
 | TS 报 `Property 'type' does not exist on type 'never'` | widget 类型穷举完后 `widget.type` 被收窄为 never | 兜底返回字符串字面量 `"组件"` 而不是 `widget.type` |
 | iOS 风格 dock 删干净后 home 还残留旧 CSS | `.home-dock` / `.app-icon-slot` / `tile-pop-in` keyframes 死代码 | `HomePage.css` 一次性清掉，shortcut 用 `.shortcut-widget / .shortcut-emoji / .shortcut-label` 区分 |
+| 加完 widget 点进去再退回来 widget 又消失 | `App.tsx` 里 `onOpenChat` 写成 inline arrow，每次 App re-render 引用都新 → HomePage 的 `defaultAppIconConfigs` memo 重算 → load useEffect 重跑 → 在 save useEffect flush 之前读 localStorage 拿到旧数据 → 覆盖刚 setPages 出来的新 widget | HomePage 加 `hasLoadedPrefsRef`，load useEffect 只跑第一次。一行 ref guard 解决 |
 
 ### 聊天 / 主动消息相关
 
