@@ -1508,10 +1508,25 @@ const App = () => {
             // above (two anchors on the last two user messages — survives tool
             // iterations). 1h TTL: writes cost 2x (vs 1.25x for default 5min)
             // but reads stay 0.1x.
+            //
+            // The `user` field is what makes cross-iteration cache hits
+            // actually land. OpenRouter routes Anthropic requests across
+            // multiple upstream Anthropic deployments, and Anthropic's
+            // prompt cache is per-deployment — so two requests made 11s
+            // apart can land on different deployments and miss each
+            // other's cache writes (we saw exactly this: tool-iteration
+            // round 2 cached_tokens=0 even though round 1 had just
+            // written a 89k-token cache at the same breakpoint position).
+            // Passing `user` makes OR consistently hash-route the user
+            // to the same upstream, so subsequent requests hit the same
+            // deployment's cache.
             if (isClaudeModel(effectiveModel) && getActiveProvider() === 'openrouter') {
               requestBody.provider = {
                 order: ['Anthropic'],
                 allow_fallbacks: false,
+              }
+              if (user?.id) {
+                requestBody.user = user.id
               }
             }
             if (toolsEnabled) {
