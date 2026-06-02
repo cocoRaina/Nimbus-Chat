@@ -227,16 +227,10 @@ type ChatRequestMessage =
 const applyClaudeCaching = (
   messages: ChatRequestMessage[],
   model: string,
+  options: { iteration?: number } = {},
 ): ChatRequestMessage[] => {
   if (!isClaudeModel(model)) return messages
-  // BP4 + HEAD: last two user messages (writes a fresh cache at the
-  // latest turn AND keeps an anchor at the previous turn for walk-up).
-  const userIndices: number[] = []
-  for (let i = messages.length - 1; i >= 0 && userIndices.length < 2; i -= 1) {
-    if (messages[i].role === 'user') {
-      userIndices.push(i)
-    }
-  }
+  const iteration = options.iteration ?? 1
   // BP1: the FIRST system message (the foundational character + tool
   // schema layer). Marking it gives Anthropic a stable last-resort
   // anchor that survives every higher-level miss — including the
@@ -248,6 +242,30 @@ const applyClaudeCaching = (
     if (messages[i].role === 'system') {
       firstSystemIdx = i
       break
+    }
+  }
+  // Tool-iteration shortcut: on follow-up rounds inside a tool loop,
+  // only mark BP1. The HEAD/BP4 markers would cause Anthropic to *write*
+  // a fresh cache for the full 77k+ token prefix that includes the tool
+  // result blocks — and that cache will never be read, because the next
+  // user turn moves HEAD to a brand-new position and the tool-iteration
+  // prefix isn't the start of any future request. Empirically on the
+  // user's 92k-token session this saved $1.15/iteration (was writing
+  // ~77k tokens at 2x cache-write pricing for no future benefit). We
+  // still read BP1 (~15k system+tools) on the iteration — that part is
+  // shared with every other request and the read is essentially free.
+  if (iteration > 1) {
+    if (firstSystemIdx === -1) return messages
+    return messages.map((msg, idx) =>
+      idx === firstSystemIdx ? markSystemMessageForCaching(msg) : msg,
+    )
+  }
+  // BP4 + HEAD: last two user messages (writes a fresh cache at the
+  // latest turn AND keeps an anchor at the previous turn for walk-up).
+  const userIndices: number[] = []
+  for (let i = messages.length - 1; i >= 0 && userIndices.length < 2; i -= 1) {
+    if (messages[i].role === 'user') {
+      userIndices.push(i)
     }
   }
   if (userIndices.length === 0 && firstSystemIdx === -1) return messages
@@ -1514,7 +1532,7 @@ const App = () => {
             // we slice from here — otherwise the previous iteration's text
             // gets duplicated into the next request's assistant message.
             const iterationContentStart = assistantContent.length
-            const cachedMessages = applyClaudeCaching(baseMessages, effectiveModel)
+            const cachedMessages = applyClaudeCaching(baseMessages, effectiveModel, { iteration })
             const debugBreakpoints = cachedMessages.map((msg, mIdx) => {
               const m = msg as { role: string; content: unknown; tool_calls?: unknown[] }
               const hasCacheControl =
