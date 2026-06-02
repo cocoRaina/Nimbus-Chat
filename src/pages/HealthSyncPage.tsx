@@ -265,7 +265,17 @@ const HealthSyncPage = ({ user: _user }: Props) => {
       if (summary.ok) {
         pushLog(`✅ 同步成功：${summary.upsertedDates.length} 天入库${counts ? ' · ' + counts : ''}`)
       } else {
-        pushLog(`⚠️ 同步未完成：${summary.skippedReason ?? '未知'}`)
+        // Translate internal reason codes to actionable Chinese where
+        // the user actually has something to do — "rate-limited" is
+        // the only case worth phrasing as a wait-and-retry hint, the
+        // rest just surface the code so we can debug from the log.
+        const reasonText =
+          summary.skippedReason === 'rate-limited'
+            ? 'Health Connect 限速,稍等 5-10 分钟再点同步'
+            : summary.skippedReason === 'throttled'
+              ? '距上次同步不足 30 分钟,自动跳过(手动按钮可强制)'
+              : (summary.skippedReason ?? '未知')
+        pushLog(`⚠️ 同步未完成：${reasonText}`)
       }
       for (const err of summary.errors) {
         pushLog(`  · ${err}`)
@@ -372,7 +382,14 @@ const HealthSyncPage = ({ user: _user }: Props) => {
             </p>
           ) : null}
           {lastSummary && !lastSummary.ok && lastSummary.skippedReason ? (
-            <p className="health-sync__sync-result warn">⚠ 未完成：{lastSummary.skippedReason}</p>
+            <p className="health-sync__sync-result warn">
+              ⚠ 未完成：
+              {lastSummary.skippedReason === 'rate-limited'
+                ? 'Health Connect 限速,稍等 5-10 分钟再点同步'
+                : lastSummary.skippedReason === 'throttled'
+                  ? '距上次同步不足 30 分钟,自动跳过'
+                  : lastSummary.skippedReason}
+            </p>
           ) : null}
         </section>
 

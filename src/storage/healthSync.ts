@@ -377,6 +377,18 @@ export const syncHealthDataToSupabase = async (
     summary.upsertedDates = rowsToUpsert.map((r) => r.date as string)
   }
 
+  // If anything tripped a skippedReason (rate-limited, throttled,
+  // unavailable, etc.) the sync isn't really "successful" even if no
+  // exception bubbled up — and crucially, we shouldn't pin the
+  // last-synced-at timestamp on a failed attempt because the
+  // auto-sync throttle would then block the next 30 minutes of
+  // retries. The UI ("⚠ 未完成: …") already handles the
+  // ok=false + skippedReason combo.
+  if (summary.skippedReason) {
+    summary.ok = false
+    return summary
+  }
+
   writeLastSyncedAt(Date.now())
   summary.ok = true
   return summary
