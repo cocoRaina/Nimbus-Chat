@@ -224,12 +224,27 @@ export const convertOpenAiRequestToAnthropic = async (
     input_schema: (t.function.parameters as Record<string, unknown>) ?? { type: 'object', properties: {} },
   }))
 
-  // Thinking: if OpenAI request has reasoning.effort, translate to Anthropic
-  // extended thinking with a token budget. Only applies on models that
-  // actually support extended thinking (Claude 4 family + Claude 3.7) —
-  // older Claudes 400 when thinking is included in the body.
+  // Thinking: if OpenAI request has reasoning.effort OR reasoning.max_tokens,
+  // translate to Anthropic extended thinking with a token budget. Only
+  // applies on models that actually support extended thinking (Claude 4
+  // family + Claude 3.7) — older Claudes 400 when thinking is included in
+  // the body.
+  //
+  // Two field shapes to handle:
+  //   - `reasoning.effort: 'high'|'medium'|'low'`  (legacy / non-Claude)
+  //   - `reasoning.max_tokens: <number>`           (Claude-on-OR fix from
+  //                                                today — gives an explicit
+  //                                                Anthropic thinking budget)
+  // Without the max_tokens branch, the Claude path in App.tsx (which now
+  // sends max_tokens:8000 with no effort) would silently miss thinking when
+  // the request flows through this relay adapter — the symptom the user is
+  // calling "msuicode 笨笨的".
   let thinking: AnthropicRequest['thinking']
-  const effort = (body.reasoning as { effort?: string } | undefined)?.effort
+  const reasoningCfg = body.reasoning as
+    | { effort?: string; max_tokens?: number }
+    | undefined
+  const effort = reasoningCfg?.effort
+  const explicitBudget = typeof reasoningCfg?.max_tokens === 'number' ? reasoningCfg.max_tokens : 0
   // Thinking is supported on Claude 4.x and Claude 3.7. Match both naming
   // conventions Anthropic uses across vendors:
   //   - "claude-opus-4" / "claude-sonnet-4-5" / "claude-haiku-4-5"
@@ -243,7 +258,11 @@ export const convertOpenAiRequestToAnthropic = async (
     /claude-(opus|sonnet|haiku)-(3-7|3\.7|4)/i.test(body.model) ||
     /claude-(3-7|3\.7|4)(?:[-.]\d+)?-(opus|sonnet|haiku)/i.test(body.model)
   if (supportsThinking) {
-    if (effort === 'high') {
+    if (explicitBudget >= 1024) {
+      // Honor whatever the caller asked for, but clamp to Anthropic's
+      // 1024 floor (smaller silently disables thinking server-side).
+      thinking = { type: 'enabled', budget_tokens: explicitBudget }
+    } else if (effort === 'high') {
       thinking = { type: 'enabled', budget_tokens: 8000 }
     } else if (effort === 'medium' || effort === 'low') {
       thinking = { type: 'enabled', budget_tokens: 2000 }
