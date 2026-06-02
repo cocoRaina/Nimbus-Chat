@@ -542,3 +542,4 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 | 改名只在聊天界面生效，通知 title 还是「哥哥」 | 通知模块硬编码 `'哥哥'` | 抽 `storage/assistantPersona.ts`（`getAssistantName / setAssistantName`），聊天 + 通知共用 |
 | 流式期间消息列表末尾留个空气泡 | 临时把 streaming 消息放进 messages | 改成只在 chat header 名称下显示 `.chat-typing-subtitle` + 三跳动点，messages 不动 |
 | 输入框和聊天区域之间有缝，看起来分开了 | `.chat-composer` 没去掉自带 padding/border | 把 `.chat-messages` 设透明 + `.chat-composer.glass-card` 显式 `background: #ffffff !important; border-top: 1px solid rgba(15,23,42,0.06) !important` |
+| 朋友圈也走思考链了（两句话发个帖也 thinking，慢 + 贵） | `feedAiConfigBase.reasoning` 写成了 `latestSession?.overrideReasoning ?? activeSettings.chatReasoningEnabled`，直接继承聊天的思考链开关 | hardcode 成 `reasoning: false`，把朋友圈与聊天的思考链解耦。朋友圈用例零收益 |

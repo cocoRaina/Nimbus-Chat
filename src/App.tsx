@@ -279,7 +279,12 @@ const App = () => {
 
   const latestSession = useMemo(() => selectMostRecentSession(sessions), [sessions])
   const feedAiConfigBase = useMemo(() => ({
-    reasoning: latestSession?.overrideReasoning ?? activeSettings.chatReasoningEnabled,
+    // 朋友圈 (snacks / syzygy) generation is short social content —
+    // a couple of sentences per post or reply. Extended thinking adds
+    // latency + cost (2x input + write cost) with zero quality lift
+    // for this use case. Hardcoded off, decoupled from the chat
+    // reasoning toggle which previously bled through here.
+    reasoning: false,
     temperature: activeSettings.temperature,
     topP: activeSettings.topP,
     maxTokens: activeSettings.maxTokens,
@@ -287,7 +292,7 @@ const App = () => {
     snackSystemOverlay: resolveSnackSystemOverlay(activeSettings.snackSystemOverlay),
     syzygyPostSystemPrompt: resolveSyzygyPostPrompt(activeSettings.syzygyPostSystemPrompt),
     syzygyReplySystemPrompt: resolveSyzygyReplyPrompt(activeSettings.syzygyReplySystemPrompt),
-  }), [activeSettings, latestSession])
+  }), [activeSettings])
   const snackAiConfig = useMemo(() => ({
     ...feedAiConfigBase,
     model: resolveModelId('snack', { defaultModelId }),
