@@ -227,10 +227,8 @@ type ChatRequestMessage =
 const applyClaudeCaching = (
   messages: ChatRequestMessage[],
   model: string,
-  options: { iteration?: number } = {},
 ): ChatRequestMessage[] => {
   if (!isClaudeModel(model)) return messages
-  const iteration = options.iteration ?? 1
   // BP1: the FIRST system message (the foundational character + tool
   // schema layer). Marking it gives Anthropic a stable last-resort
   // anchor that survives every higher-level miss — including the
@@ -244,29 +242,57 @@ const applyClaudeCaching = (
       break
     }
   }
-  // Tool-iteration shortcut: on follow-up rounds inside a tool loop,
-  // only mark BP1. The HEAD/BP4 markers would cause Anthropic to *write*
-  // a fresh cache for the full 77k+ token prefix that includes the tool
-  // result blocks — and that cache will never be read, because the next
-  // user turn moves HEAD to a brand-new position and the tool-iteration
-  // prefix isn't the start of any future request. Empirically on the
-  // user's 92k-token session this saved $1.15/iteration (was writing
-  // ~77k tokens at 2x cache-write pricing for no future benefit). We
-  // still read BP1 (~15k system+tools) on the iteration — that part is
-  // shared with every other request and the read is essentially free.
-  if (iteration > 1) {
-    if (firstSystemIdx === -1) return messages
-    return messages.map((msg, idx) =>
-      idx === firstSystemIdx ? markSystemMessageForCaching(msg) : msg,
-    )
-  }
-  // BP4 + HEAD: last two user messages (writes a fresh cache at the
-  // latest turn AND keeps an anchor at the previous turn for walk-up).
+  // BP4 + HEAD: last two user messages. Found bottom-up; we need the
+  // last user index anyway for the tool-block check below.
   const userIndices: number[] = []
   for (let i = messages.length - 1; i >= 0 && userIndices.length < 2; i -= 1) {
     if (messages[i].role === 'user') {
       userIndices.push(i)
     }
+  }
+  // Tool-iteration shortcut: if there are tool_use / tool_result blocks
+  // *after* the last user message, only mark BP1. The HEAD/BP4 markers
+  // would cause Anthropic to *write* a fresh cache for the full 77k+
+  // token prefix that includes the tool result blocks — and that cache
+  // will never be read, because the next user turn moves HEAD to a
+  // brand-new position and the tool-iteration prefix isn't the start
+  // of any future request. Empirically on the user's 92k-token session
+  // this saved $1.15/iteration (was writing ~77k tokens at 2x
+  // cache-write pricing for no future benefit). We still read BP1
+  // (~15k system+tools) on the iteration — that part is shared with
+  // every other request and the read is essentially free.
+  //
+  // Detection is structural — we look for tool_use / tool_result in
+  // messages after the last user message — not based on a caller-
+  // provided iteration counter. The earlier iteration-based check
+  // missed the MAX_TOOL_ITERATIONS finalizer call site (App.tsx:2168)
+  // which legitimately has tool blocks but isn't inside the loop, and
+  // future code paths that load a tool-mid-flow session from storage
+  // would have hit the same trap.
+  const lastUserIdx = userIndices[0] ?? -1
+  let hasToolBlocksAfterLastUser = false
+  for (let i = lastUserIdx + 1; i < messages.length; i += 1) {
+    const m = messages[i]
+    if (m.role === 'tool') {
+      hasToolBlocksAfterLastUser = true
+      break
+    }
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+      hasToolBlocksAfterLastUser = true
+      break
+    }
+    if (Array.isArray(m.content)) {
+      if ((m.content as Array<{ type?: string }>).some((b) => b?.type === 'tool_result')) {
+        hasToolBlocksAfterLastUser = true
+        break
+      }
+    }
+  }
+  if (hasToolBlocksAfterLastUser) {
+    if (firstSystemIdx === -1) return messages
+    return messages.map((msg, idx) =>
+      idx === firstSystemIdx ? markSystemMessageForCaching(msg) : msg,
+    )
   }
   if (userIndices.length === 0 && firstSystemIdx === -1) return messages
   const targets = new Set<number>(userIndices)
@@ -971,20 +997,26 @@ const App = () => {
       keepaliveTimerRef.current = null
       const snapshot = keepaliveBodyRef.current
       if (!snapshot) return
-      // Three things were wrong with the previous keepalive:
-      //   1. max_tokens: 0 — Anthropic 400s on this (min is 1). The
-      //      adapter's fallback then bumps to 4096, so the "cheap" ping
-      //      was actually running a full generation. Now 1 token, which
-      //      is the minimum that still triggers a cache read.
-      //   2. tools/tool_choice were being deleted "to save bytes". But
-      //      tools are part of the cached prefix — removing them changes
-      //      the cache key, the ping misses, no refresh happens. Now we
-      //      keep tools intact and only strip the bits that aren't part
-      //      of the cache key.
-      //   3. reasoning was riding along. On a thinking-enabled snapshot
-      //      that forces max_tokens up to budget+1024 (~9024), turning
-      //      the ping back into a heavy request. We drop reasoning + any
-      //      tool_choice indirection for the ping.
+      // Ping shape rules — copied here because the server-side
+      // cache_keepalive edge function applies the same set:
+      //   1. max_tokens: 1 — Anthropic min (0 400s, the adapter
+      //      fallback then bumps to 4096 and the "cheap" ping turns
+      //      into a full generation).
+      //   2. keep tools / system / messages / model — they're part of
+      //      the cache prefix key, removing them moves the ping onto
+      //      a different cache.
+      //   3. drop reasoning — extended thinking forces max_tokens up
+      //      to budget+1024 (~9024) and Claude actually thinks during
+      //      the ping, billing 8000+ thinking tokens. The trade-off:
+      //      dropping reasoning changes the request shape so the ping
+      //      doesn't perfectly match HEAD/BP4's chat cache key. In
+      //      practice BP1 (system+tools cache_control on the system
+      //      block) still hits since its prefix doesn't depend on
+      //      thinking config, which gives the "system always warm"
+      //      benefit. HEAD/BP4 still naturally expire at 1h if the
+      //      user goes >1h without chatting.
+      //   4. drop tool_choice + usage — OpenAI-shape leftovers that
+      //      don't survive the anthropic.ts adapter conversion anyway.
       const pingBody: Record<string, unknown> = {
         ...snapshot,
         max_tokens: 1,
@@ -1532,7 +1564,7 @@ const App = () => {
             // we slice from here — otherwise the previous iteration's text
             // gets duplicated into the next request's assistant message.
             const iterationContentStart = assistantContent.length
-            const cachedMessages = applyClaudeCaching(baseMessages, effectiveModel, { iteration })
+            const cachedMessages = applyClaudeCaching(baseMessages, effectiveModel)
             const debugBreakpoints = cachedMessages.map((msg, mIdx) => {
               const m = msg as { role: string; content: unknown; tool_calls?: unknown[] }
               const hasCacheControl =

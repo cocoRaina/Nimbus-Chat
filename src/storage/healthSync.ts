@@ -307,7 +307,13 @@ export const syncHealthDataToSupabase = async (
       const errMsg = err instanceof Error ? err.message : String(err)
       summary.errors.push(`${dataType}: ${errMsg}`)
       summary.perType[dataType] = 0
-      if (/rate limit|quota/i.test(errMsg)) {
+      // Match a generous set of phrasings the plugin / Health Connect
+      // have used for the same condition. If we drop the match the
+      // loop hammers the rest of SYNC_TYPES through the same wall and
+      // empties the refill window. The signal is consistent across
+      // vendors: any mention of rate / quota / throttling / 429-ish
+      // language → bail.
+      if (/rate.?limit|quota|throttl|too many|429/i.test(errMsg)) {
         summary.skippedReason = summary.skippedReason ?? 'rate-limited'
         break
       }

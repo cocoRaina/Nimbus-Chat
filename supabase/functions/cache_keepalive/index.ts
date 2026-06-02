@@ -85,13 +85,46 @@ Deno.serve(async (req) => {
     //   2. stream: false   — we don't need SSE for a 1-token ping.
     //   3. drop `thinking` — extended thinking requires max_tokens >
     //      thinking.budget_tokens (~8000), which conflicts with our
-    //      max_tokens:1 and 400s. The cache key doesn't include
-    //      thinking config in a way that matters for prefix lookup
-    //      (per our earlier validation), so dropping it is safe.
+    //      max_tokens:1 and 400s. Trade-off: this changes the request
+    //      shape vs the actual chat (which sends thinking enabled), so
+    //      Anthropic's cache key for the ping doesn't match HEAD/BP4
+    //      exactly — but BP1 (system+tools, marked separately on the
+    //      system block) still hits since its prefix doesn't depend on
+    //      thinking config. Net effect: ping refreshes BP1's TTL and
+    //      provides the "system+tools always warm" benefit; the deeper
+    //      conversation prefix still naturally falls out of cache at
+    //      the 1h TTL boundary if the user doesn't chat for an hour.
     //   4. keep `tools` + `system` + `messages` + `metadata` + `provider`
     //      + `model` — they're all part of the cache prefix key.
     //   5. drop OpenAI-specific leftovers (usage, tool_choice) just in
     //      case App.tsx stored a body that still carried them.
+    //
+    // Defensive shape check: any row written before the
+    // anthropic-native conversion shipped (or written by a rolled-back
+    // build) is in OpenAI-compat shape — missing `metadata`, system as
+    // plain string, messages with string content + tools-as-function-
+    // wrappers. POSTing that to /messages 400s. Detect by the presence
+    // of `metadata.user_id` (which only the Anthropic adapter sets) and
+    // skip with a clear failure label instead of burning a request +
+    // pinning the cooldown.
+    const isAnthropicNativeShape =
+      row.body != null &&
+      typeof row.body === 'object' &&
+      'metadata' in (row.body as Record<string, unknown>) &&
+      (row.body as { metadata?: { user_id?: unknown } }).metadata?.user_id != null
+    if (!isAnthropicNativeShape) {
+      failed++
+      console.warn(`keepalive skip user=${row.user_id} reason=stale_openai_body`)
+      await supabase
+        .from('cache_keepalive_state')
+        .update({
+          last_ping_at: new Date().toISOString(),
+          ping_count: row.ping_count + 1,
+        })
+        .eq('user_id', row.user_id)
+      continue
+    }
+
     const pingBody: Record<string, unknown> = {
       ...row.body,
       max_tokens: 1,
