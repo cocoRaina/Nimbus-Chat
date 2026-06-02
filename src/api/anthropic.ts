@@ -230,7 +230,18 @@ export const convertOpenAiRequestToAnthropic = async (
   // older Claudes 400 when thinking is included in the body.
   let thinking: AnthropicRequest['thinking']
   const effort = (body.reasoning as { effort?: string } | undefined)?.effort
-  const supportsThinking = /claude-(opus-4|sonnet-4|haiku-4|3-7|3\.7)/i.test(body.model)
+  // Thinking is supported on Claude 4.x and Claude 3.7. Match both naming
+  // conventions Anthropic uses across vendors:
+  //   - "claude-opus-4" / "claude-sonnet-4-5" / "claude-haiku-4-5"
+  //     (tier-then-version, used on direct Anthropic + most OR slugs)
+  //   - "claude-4.6-opus" / "claude-4.7-sonnet"
+  //     (version-then-tier, used in dated variants like
+  //      "anthropic/claude-4.6-opus-20260205")
+  //   - "claude-3-7-sonnet" / "claude-3.7-sonnet"
+  // Older Claudes 400 when thinking is included so we still gate.
+  const supportsThinking =
+    /claude-(opus|sonnet|haiku)-(3-7|3\.7|4)/i.test(body.model) ||
+    /claude-(3-7|3\.7|4)(?:[-.]\d+)?-(opus|sonnet|haiku)/i.test(body.model)
   if (supportsThinking) {
     if (effort === 'high') {
       thinking = { type: 'enabled', budget_tokens: 8000 }
