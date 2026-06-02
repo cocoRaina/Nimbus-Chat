@@ -859,14 +859,28 @@ const App = () => {
       keepaliveTimerRef.current = null
       const snapshot = keepaliveBodyRef.current
       if (!snapshot) return
+      // Three things were wrong with the previous keepalive:
+      //   1. max_tokens: 0 — Anthropic 400s on this (min is 1). The
+      //      adapter's fallback then bumps to 4096, so the "cheap" ping
+      //      was actually running a full generation. Now 1 token, which
+      //      is the minimum that still triggers a cache read.
+      //   2. tools/tool_choice were being deleted "to save bytes". But
+      //      tools are part of the cached prefix — removing them changes
+      //      the cache key, the ping misses, no refresh happens. Now we
+      //      keep tools intact and only strip the bits that aren't part
+      //      of the cache key.
+      //   3. reasoning was riding along. On a thinking-enabled snapshot
+      //      that forces max_tokens up to budget+1024 (~9024), turning
+      //      the ping back into a heavy request. We drop reasoning + any
+      //      tool_choice indirection for the ping.
       const pingBody: Record<string, unknown> = {
         ...snapshot,
-        max_tokens: 0,
+        max_tokens: 1,
         stream: false,
       }
-      // Tools / tool_choice don't need to ride along on a keepalive.
-      delete pingBody.tools
+      delete pingBody.reasoning
       delete pingBody.tool_choice
+      delete pingBody.usage
       const controller = new AbortController()
       keepaliveControllerRef.current?.abort()
       keepaliveControllerRef.current = controller
