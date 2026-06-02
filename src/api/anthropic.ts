@@ -617,36 +617,56 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
 // - body.stream === false → an OpenAI-shaped JSON Response built by
 //   consuming the upstream stream end-to-end internally (friend-feed
 //   generator and other one-shot generators that do response.json()).
+//
+// Options control upstream protocol quirks instead of having the
+// adapter sniff the URL — callers know which provider they're talking
+// to via the ProviderConfig and pass the right shape explicitly.
+//   - authStyle: 'bearer'    → Authorization: Bearer <key>  (OR's gateway)
+//                'x-api-key' → x-api-key: <key>             (direct Anthropic + msuicode relays)
+//   - keepModelSlug: true    → leave `anthropic/claude-…` slug as-is (OR routes by slug)
+//                    false   → strip `anthropic/` (Anthropic-direct rejects the prefix)
+type AnthropicCallOptions = {
+  signal?: AbortSignal
+  authStyle?: 'bearer' | 'x-api-key'
+  keepModelSlug?: boolean
+}
+
 export const fetchAnthropicAsOpenAi = async (
   baseUrl: string,
   apiKey: string,
   body: OpenAiRequest,
-  signal?: AbortSignal,
+  optionsOrSignal?: AnthropicCallOptions | AbortSignal,
 ): Promise<Response> => {
+  // Backwards-compat: previously this fn took (baseUrl, apiKey, body, signal).
+  // Detect a raw AbortSignal and wrap it.
+  const options: AnthropicCallOptions =
+    optionsOrSignal && 'aborted' in optionsOrSignal
+      ? { signal: optionsOrSignal }
+      : ((optionsOrSignal as AnthropicCallOptions) ?? {})
+  const { signal } = options
+  const authStyle = options.authStyle ?? 'x-api-key'
+  const keepModelSlug = options.keepModelSlug ?? false
   const wantsStream = body.stream === true
-  // Detect destination by URL. OpenRouter requires its own slug format
-  // (`anthropic/<model>`) and Bearer-style auth on /messages; everyone
-  // else (direct Anthropic, msuicode and similar relays) wants the bare
-  // Anthropic model name and `x-api-key`.
-  const isOpenRouter = /openrouter\.ai/i.test(baseUrl)
   const anthropicBody = await convertOpenAiRequestToAnthropic(
     { ...body, stream: true },
-    { keepModelSlug: isOpenRouter },
+    { keepModelSlug },
   )
   const endpoint = baseUrl.replace(/\/+$/, '') + '/messages'
-  // Build headers per destination. For OR's /messages we send the
-  // absolute minimum that CORS-preflights cleanly: their gateway
-  // allowlists Authorization + Content-Type but NOT the Anthropic-
-  // specific extension headers (anthropic-version,
-  // anthropic-dangerous-direct-browser-access, x-api-key) — including
-  // any of them trips the browser preflight and the fetch resolves
-  // to a "Failed to fetch" with no upstream response. OR handles
-  // versioning + browser auth internally so we can omit them.
-  // For everyone else we keep the full Anthropic-direct header set.
+  // Build headers per destination protocol. Two shapes:
+  //   - bearer style: just Authorization + Content-Type. OR's /messages
+  //     gateway allowlists only those on its CORS preflight — including
+  //     Anthropic-specific headers (anthropic-version, x-api-key,
+  //     anthropic-dangerous-direct-browser-access) trips the browser
+  //     preflight and the fetch resolves to "Failed to fetch" before
+  //     any upstream call.
+  //   - x-api-key style: full Anthropic-direct header set
+  //     (anthropic-version + dangerous-direct-browser-access). Required
+  //     by direct Anthropic; msuicode and similar relays accept it and
+  //     route through.
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
-  if (isOpenRouter) {
+  if (authStyle === 'bearer') {
     headers.Authorization = `Bearer ${apiKey}`
   } else {
     headers['x-api-key'] = apiKey

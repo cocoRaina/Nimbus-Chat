@@ -52,7 +52,22 @@ export const fetchOpenRouter = async (
     !userPickedOpenAi && (format === 'anthropic' || (id === 'openrouter' && looksLikeClaude))
 
   if (useAnthropicNative && path === '/chat/completions' && body) {
-    return fetchAnthropicAsOpenAi(baseUrl, apiKey, body as Parameters<typeof fetchAnthropicAsOpenAi>[2], signal)
+    // Per-provider protocol quirks. OpenRouter's /messages gateway wants
+    // Bearer auth + the OR-style `anthropic/<model>` slug intact (it uses
+    // the prefix to route to its Anthropic upstream). Anthropic-direct
+    // and msuicode-style relays want x-api-key + the bare Anthropic
+    // model name.
+    const isOpenRouterProvider = id === 'openrouter'
+    return fetchAnthropicAsOpenAi(
+      baseUrl,
+      apiKey,
+      body as Parameters<typeof fetchAnthropicAsOpenAi>[2],
+      {
+        signal,
+        authStyle: isOpenRouterProvider ? 'bearer' : 'x-api-key',
+        keepModelSlug: isOpenRouterProvider,
+      },
+    )
   }
 
   return fetch(`${baseUrl}${path}`, {

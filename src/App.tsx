@@ -305,6 +305,28 @@ const applyClaudeCaching = (
   })
 }
 
+const CACHE_CONTROL_MARKER = { type: 'ephemeral' as const, ttl: '1h' as const }
+
+// cache_control sits on a content block (Anthropic requires array-form
+// content for the marker — top-level message cache_control doesn't pass
+// through OR cleanly). Shared between markUserMessageForCaching and
+// markSystemMessageForCaching to avoid drift; returns the new block
+// array with cache_control attached to the last text block, or null
+// if no text block exists. Caller decides whether to append an empty
+// text-block anchor as fallback.
+const attachCacheControlToLastTextBlock = <T extends { type: string; text?: string; cache_control?: CacheControlMarker }>(
+  blocks: readonly T[],
+): T[] | null => {
+  const out = [...blocks]
+  for (let i = out.length - 1; i >= 0; i -= 1) {
+    if (out[i].type === 'text') {
+      out[i] = { ...out[i], cache_control: CACHE_CONTROL_MARKER }
+      return out
+    }
+  }
+  return null
+}
+
 const markSystemMessageForCaching = (msg: ChatRequestMessage): ChatRequestMessage => {
   if (msg.role !== 'system') return msg
   if (typeof msg.content === 'string') {
@@ -313,44 +335,25 @@ const markSystemMessageForCaching = (msg: ChatRequestMessage): ChatRequestMessag
       content: [{ type: 'text', text: msg.content, cache_control: CACHE_CONTROL_MARKER }],
     }
   }
-  // Array form already. Attach CC to the last text block.
-  const blocks = [...msg.content]
-  for (let i = blocks.length - 1; i >= 0; i -= 1) {
-    if (blocks[i].type === 'text') {
-      blocks[i] = { ...blocks[i], cache_control: CACHE_CONTROL_MARKER }
-      return { ...msg, content: blocks }
-    }
-  }
-  return msg
+  const marked = attachCacheControlToLastTextBlock(msg.content)
+  return marked ? { ...msg, content: marked } : msg
 }
-
-const CACHE_CONTROL_MARKER = { type: 'ephemeral' as const, ttl: '1h' as const }
 
 const markUserMessageForCaching = (msg: ChatRequestMessage): ChatRequestMessage => {
   if (msg.role !== 'user') return msg
-  // cache_control sits on a content block (Anthropic requires array-form
-  // content for the marker — top-level message cache_control doesn't
-  // pass through OR cleanly). Convert string content to single-block
-  // array form, or attach to the existing last text block.
   if (typeof msg.content === 'string') {
     return {
       ...msg,
       content: [{ type: 'text', text: msg.content, cache_control: CACHE_CONTROL_MARKER }],
     }
   }
-  const blocks = [...msg.content]
-  for (let i = blocks.length - 1; i >= 0; i -= 1) {
-    const block = blocks[i]
-    if (block.type === 'text') {
-      blocks[i] = { ...block, cache_control: CACHE_CONTROL_MARKER }
-      return { ...msg, content: blocks }
-    }
-  }
-  // No text block (e.g. image-only message). Append an empty text block as
-  // the anchor — Anthropic accepts this for cache_control purposes.
+  const marked = attachCacheControlToLastTextBlock(msg.content)
+  if (marked) return { ...msg, content: marked }
+  // Image-only message: append an empty text-block anchor — Anthropic
+  // accepts this for cache_control purposes.
   return {
     ...msg,
-    content: [...blocks, { type: 'text', text: '', cache_control: CACHE_CONTROL_MARKER }],
+    content: [...msg.content, { type: 'text', text: '', cache_control: CACHE_CONTROL_MARKER }],
   }
 }
 
@@ -969,11 +972,14 @@ const App = () => {
     [applySnapshot, user],
   )
 
-  // Send a max_tokens:0 ping to refresh the prompt cache before 1h TTL expires.
-  // Anthropic serves the prefix from cache (0.1x of input price), writes a
-  // fresh entry, and returns empty content. Net cost ≈ $0.013 for a 20K
-  // prompt vs $0.10 to fully recompute if the cache expires. Schedules itself
-  // again to keep the chain alive while the app stays open.
+  // Client-side keepalive: 55 min after a successful Claude-on-OR chat,
+  // fire a max_tokens:1 ping at the same endpoint to refresh the prompt
+  // cache before its 1h TTL expires. Anthropic serves the prefix from
+  // cache (0.1x of input price), writes a fresh entry, and returns 1
+  // token. Only refreshes BP1 reliably (the ping strips `reasoning` to
+  // stay cheap, which changes the cache key for HEAD/BP4); the
+  // server-side cron at supabase/functions/cache_keepalive covers the
+  // case where the app is killed/backgrounded.
   const scheduleKeepalive = useCallback(() => {
     if (keepaliveTimerRef.current !== null) {
       window.clearTimeout(keepaliveTimerRef.current)
@@ -2303,6 +2309,17 @@ TOOL_SEARCH_HANDOFF,
             // is actually using. Convert here so the edge function can
             // just POST it as-is to /api/v1/messages without any
             // server-side conversion logic.
+            //
+            // Cost note: the conversion re-runs flattenContent which
+            // re-fetches any image URLs in the body as base64. For her
+            // chats that include images (rare), this is N HTTP requests
+            // after every chat just for the keepalive snapshot. Browser
+            // /Capacitor HTTP-layer caching usually absorbs the cost
+            // when the image origin (e.g. Supabase Storage) sets cache
+            // headers. Optimization opportunity if image-heavy use ever
+            // becomes the norm: capture the converted body inside
+            // fetchAnthropicAsOpenAi via a callback instead of
+            // re-converting here.
             if (supabase && user && getActiveProvider() === 'openrouter') {
               const orKey = getProviderConfig('openrouter').apiKey
               if (orKey) {
