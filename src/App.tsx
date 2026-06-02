@@ -2210,61 +2210,15 @@ TOOL_SEARCH_HANDOFF,
             applySnapshot(updatedSessions, updatedMessages)
           }
 
-          // Auto-generate a session title after the first assistant reply.
-          // "新会话" is the default placeholder — once we have real content,
-          // ask the model to condense the exchange into a short title.
-          const currentSession = sessionsRef.current.find((s) => s.id === sessionId)
-          if (
-            currentSession?.title === '新会话' &&
-            assistantContent.trim().length > 0 &&
-            lastSentBody
-          ) {
-            void (async () => {
-              try {
-                const titleBody: Record<string, unknown> = {
-                  ...lastSentBody,
-                  stream: false,
-                  max_tokens: 30,
-                }
-                delete titleBody.tools
-                delete titleBody.tool_choice
-                const titleMsgs = Array.isArray(titleBody.messages)
-                  ? [...(titleBody.messages as ChatRequestMessage[])]
-                  : []
-                if (assistantContent.trim()) {
-                  titleMsgs.push({ role: 'assistant', content: assistantContent })
-                }
-                titleMsgs.push({
-                  role: 'system',
-                  content:
-                    '[内部系统提示] 根据上面的对话,给这段聊天起一个简短标题(4-8个字,中文)。直接输出标题文字,不要引号不要解释。',
-                })
-                titleBody.messages = titleMsgs
-                const resp = await fetchOpenRouter('/chat/completions', {
-                  body: titleBody,
-                })
-                if (!resp.ok) {
-                  // Don't toast — title is a best-effort polish that
-                  // shouldn't pop UI noise on top of normal chat. Log so
-                  // we can spot pattern failures via devtools.
-                  console.warn('auto-title fetch non-ok', resp.status)
-                  return
-                }
-                const raw = ((await resp.json()) as {
-                  choices?: Array<{ message?: { content?: string } }>
-                })?.choices?.[0]?.message?.content
-                const title = raw?.trim().replace(/^["'《「]|["'》」]$/g, '').trim()
-                if (title && title.length >= 2 && title.length <= 20) {
-                  await renameSessionEntry(sessionId, title)
-                } else {
-                  console.warn('auto-title rejected (length / parse)', { raw })
-                }
-              } catch (titleError) {
-                console.warn('auto-title failed', titleError)
-                // best-effort, don't block chat
-              }
-            })()
-          }
+          // Auto-title generation removed (2026-06-02): the user manually
+          // names sessions and the auto-title path was the source of the
+          // mystery 3-4k-token Opus calls visible on OR's dashboard but
+          // missing from our usage_logs. Each chat in a "新会话"-named
+          // session fired a separate ~$0.02 Opus request to generate a
+          // 4-8 character Chinese title — and on short test chats Claude
+          // often returned an out-of-range string that got rejected,
+          // leaving the title at "新会话" so the NEXT chat fired it again.
+          // Net effect was multiple cold-write Opus calls per test session.
 
           // If this request was cached (Claude on OpenRouter), stash the body
           // and schedule a keepalive ping ~55min out to refresh the 1h cache.
