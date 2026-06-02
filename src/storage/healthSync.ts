@@ -298,11 +298,19 @@ export const syncHealthDataToSupabase = async (
     } catch (err) {
       // A single type failing (e.g. permission not granted for that
       // type, or rate-limited) shouldn't kill the whole sync. Log
-      // and continue.
-      summary.errors.push(
-        `${dataType}: ${err instanceof Error ? err.message : String(err)}`,
-      )
+      // and continue — EXCEPT when the failure is Health Connect's
+      // shared per-app rate-limit, in which case every subsequent
+      // type query in this sync will hit the same wall. Breaking out
+      // saves the wasted attempts (and the spammy error rows in the
+      // probe page) and lets the quota refill so the next sync runs
+      // cleanly.
+      const errMsg = err instanceof Error ? err.message : String(err)
+      summary.errors.push(`${dataType}: ${errMsg}`)
       summary.perType[dataType] = 0
+      if (/rate limit|quota/i.test(errMsg)) {
+        summary.skippedReason = summary.skippedReason ?? 'rate-limited'
+        break
+      }
     }
   }
 
