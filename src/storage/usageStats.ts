@@ -14,6 +14,10 @@ export type UsageLogInput = {
   sessionId?: string | null
   rawUsage?: unknown
   requestDebug?: unknown
+  // Force-insert even when token counts are all zero. Used to persist a
+  // failure row (with requestDebug) for troubleshooting — a hard 400 returns
+  // no usage, so without this it would slip past the no-usage guard below.
+  forceRecord?: boolean
 }
 
 export type UsageLogRow = {
@@ -71,7 +75,7 @@ export const recordUsage = async (input: UsageLogInput): Promise<void> => {
   const completionTokens = Math.max(0, Math.round(input.completionTokens || 0))
   const totalTokens = Math.max(0, Math.round(input.totalTokens ?? promptTokens + completionTokens))
   const cachedTokens = Math.max(0, Math.min(promptTokens, Math.round(input.cachedTokens ?? 0)))
-  if (promptTokens === 0 && completionTokens === 0 && totalTokens === 0) {
+  if (!input.forceRecord && promptTokens === 0 && completionTokens === 0 && totalTokens === 0) {
     return
   }
   const { error } = await supabase.from('usage_logs').insert({

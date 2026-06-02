@@ -1081,24 +1081,34 @@ const App = () => {
         } | null = null
         let currentRequestDebug: unknown = null
 
-        const flushUsageRecord = () => {
-          if (!user || !lastUsage) {
+        const flushUsageRecord = (failed = false) => {
+          if (!user) {
+            return
+          }
+          // Success with no usage payload: nothing worth recording.
+          // Failure: record even a zero-token row so the debug payload lands.
+          if (!lastUsage && !failed) {
             return
           }
           const cached =
-            Number(lastUsage.prompt_tokens_details?.cached_tokens ?? lastUsage.cache_read_input_tokens ?? 0)
+            Number(lastUsage?.prompt_tokens_details?.cached_tokens ?? lastUsage?.cache_read_input_tokens ?? 0)
           void recordUsage({
             userId: user.id,
             model: actualModel,
-            promptTokens: Number(lastUsage.prompt_tokens ?? 0),
-            completionTokens: Number(lastUsage.completion_tokens ?? 0),
-            totalTokens: Number(lastUsage.total_tokens ?? 0),
+            promptTokens: Number(lastUsage?.prompt_tokens ?? 0),
+            completionTokens: Number(lastUsage?.completion_tokens ?? 0),
+            totalTokens: Number(lastUsage?.total_tokens ?? 0),
             cachedTokens: cached,
             source: 'chat',
             provider: getActiveProvider(),
             sessionId,
             rawUsage: lastUsage,
-            requestDebug: currentRequestDebug,
+            // request_debug is never read by the UI — it only exists to
+            // troubleshoot failures. Storing it on every successful call was
+            // ~2.5MB of pure bloat (one-time stripped 2026-06). Keep it only
+            // when the request actually failed; null on success.
+            requestDebug: failed ? currentRequestDebug : null,
+            forceRecord: failed,
           })
           lastUsage = null
           currentRequestDebug = null
@@ -2149,8 +2159,11 @@ TOOL_SEARCH_HANDOFF,
             flushTimer = null
           }
           flushPending()
-          flushUsageRecord()
-          if (error instanceof DOMException && error.name === 'AbortError') {
+          // Attach the debug payload only for real failures — a user-initiated
+          // abort (pressing stop) isn't a bug worth persisting debug for.
+          const isAbort = error instanceof DOMException && error.name === 'AbortError'
+          flushUsageRecord(!isAbort)
+          if (isAbort) {
             if (assistantContent.trim().length > 0) {
               const { message: assistantMessage, updatedAt } = await addRemoteMessage(
                 sessionId,
