@@ -200,26 +200,76 @@ type ChatRequestMessage =
   | { role: 'assistant'; content: string | null; tool_calls?: StreamingToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string }
 
-// For Claude / Anthropic models on OpenRouter, mark up to two cache breakpoints
-// so prompt caching can kick in: the system prompt and the prior conversation
-// (everything except the new user turn). Cached reads are ~10% of the input
-// price and the cache lives 5 minutes — great for active multi-turn chats.
-// Non-Claude models are returned untouched.
+// For Claude / Anthropic models on OpenRouter, mark up to two cache_control
+// breakpoints on the last two user-role messages. Anthropic's cache lookup
+// walks bottom-up from each breakpoint, so two anchors lets us:
+//   1. WRITE a new cache at the latest user turn (the "head" anchor)
+//   2. HIT the cache that was written by the previous turn (the "tail"
+//      anchor — what was the head in the previous request)
+// AND it survives tool iterations: when Claude calls a tool, the next
+// iteration appends asst_tool_call + tool_result messages but the
+// "last user message" position stays put, so the breakpoint at that
+// position stays fixed across all tool rounds within a single user turn.
+// Result: tool loops read the cache instead of cold-writing 89K tokens
+// every iteration (the 2026-06-02 07:43 chat paid $0.56 for what should
+// have been $0.07 because of this).
+//
+// We tried top-level cache_control (OR's "automatic" mode) for a while;
+// it places exactly one breakpoint on the literal last message, which
+// rolls forward to tool_result during tool loops — Anthropic then has no
+// anchor matching the previously cached prefix and re-writes everything.
+// Manual two-anchor breakpoints are the only reliable shape we've found.
 const applyClaudeCaching = (
   messages: ChatRequestMessage[],
-  _model: string,
-): unknown[] => {
-  // Per-message cache_control breakpoints don't reliably hit on OpenRouter for
-  // Anthropic Claude — we tested 1/2/3 marker placements and saw 0% cache reads
-  // (only cache writes). OpenRouter recommends top-level `cache_control` in the
-  // request body, which they manage with proper rolling markers themselves. So
-  // this is now a no-op pass-through; caching is enabled in requestBody below.
-  return messages
+  model: string,
+): ChatRequestMessage[] => {
+  if (!isClaudeModel(model)) return messages
+  const userIndices: number[] = []
+  for (let i = messages.length - 1; i >= 0 && userIndices.length < 2; i -= 1) {
+    if (messages[i].role === 'user') {
+      userIndices.push(i)
+    }
+  }
+  if (userIndices.length === 0) return messages
+  const targets = new Set(userIndices)
+  return messages.map((msg, idx) => (targets.has(idx) ? markUserMessageForCaching(msg) : msg))
+}
+
+const CACHE_CONTROL_MARKER = { type: 'ephemeral' as const, ttl: '1h' as const }
+
+const markUserMessageForCaching = (msg: ChatRequestMessage): ChatRequestMessage => {
+  if (msg.role !== 'user') return msg
+  // cache_control sits on a content block (Anthropic requires array-form
+  // content for the marker — top-level message cache_control doesn't
+  // pass through OR cleanly). Convert string content to single-block
+  // array form, or attach to the existing last text block.
+  if (typeof msg.content === 'string') {
+    return {
+      ...msg,
+      content: [{ type: 'text', text: msg.content, cache_control: CACHE_CONTROL_MARKER }],
+    }
+  }
+  const blocks = [...msg.content]
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i]
+    if (block.type === 'text') {
+      blocks[i] = { ...block, cache_control: CACHE_CONTROL_MARKER }
+      return { ...msg, content: blocks }
+    }
+  }
+  // No text block (e.g. image-only message). Append an empty text block as
+  // the anchor — Anthropic accepts this for cache_control purposes.
+  return {
+    ...msg,
+    content: [...blocks, { type: 'text', text: '', cache_control: CACHE_CONTROL_MARKER }],
+  }
 }
 
 
 const isToolCapableModel = (model: string) =>
   /claude|anthropic|gpt-4|gpt-5|openai\//i.test(model)
+
+const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
 
 const App = () => {
   const navigate = useNavigate()
@@ -1387,10 +1437,6 @@ const App = () => {
               content: `[内部系统提示] 你之前用 schedule_proactive_message 预约的「${cancelledProactive.text}」（原定 ${originalFire} 发送）因用户刚刚发新消息已自动取消。如果你判断后续仍需要这条提醒/关心，请在本次回复里重新调用 schedule_proactive_message；如果对话已经转向不再需要，就不用调。`,
             })
           }
-          const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
-          // Tools enabled on every provider. User explicitly accepts the
-          // privacy trade-off — they switch between OR / relay manually
-          // based on the topic's sensitivity.
           const toolsEnabled = isToolCapableModel(effectiveModel) && Boolean(supabase)
           const MAX_TOOL_ITERATIONS = 4
 
@@ -1455,17 +1501,14 @@ const App = () => {
               usage: { include: true },
               isFirstMessage: isFirstMessageInSession,
             }
-            // For Claude / Anthropic on OpenRouter, enable automatic prompt
-            // caching via top-level cache_control. Force routing to Anthropic
-            // direct (skip Bedrock / Vertex) since top-level cache_control
-            // only works on the native Anthropic provider.
+            // For Claude / Anthropic on OpenRouter, force routing to Anthropic
+            // direct (skip Bedrock / Vertex) since per-message cache_control
+            // only works on the native Anthropic provider. The actual cache
+            // breakpoints are placed inside cachedMessages by applyClaudeCaching
+            // above (two anchors on the last two user messages — survives tool
+            // iterations). 1h TTL: writes cost 2x (vs 1.25x for default 5min)
+            // but reads stay 0.1x.
             if (isClaudeModel(effectiveModel) && getActiveProvider() === 'openrouter') {
-              // 1h TTL: writes cost 2x (vs 1.25x for default 5min) but reads
-              // stay 0.1x. Break-even at ~3 reads — easily covered for any
-              // active chat that lasts more than a few minutes. Survives
-              // short breaks (washing dishes, sleeping in) that would expire
-              // the 5min default.
-              requestBody.cache_control = { type: 'ephemeral', ttl: '1h' }
               requestBody.provider = {
                 order: ['Anthropic'],
                 allow_fallbacks: false,
@@ -2167,9 +2210,14 @@ TOOL_SEARCH_HANDOFF,
 
           // If this request was cached (Claude on OpenRouter), stash the body
           // and schedule a keepalive ping ~55min out to refresh the 1h cache.
+          // Eligibility used to gate on top-level lastSentBody.cache_control,
+          // but we moved breakpoints inline to message blocks to fix the
+          // tool-iteration cache miss — so check the canonical condition
+          // directly instead of looking for the marker field.
           if (
             lastSentBody &&
-            (lastSentBody as { cache_control?: unknown }).cache_control != null
+            isClaudeModel(effectiveModel) &&
+            getActiveProvider() === 'openrouter'
           ) {
             keepaliveBodyRef.current = lastSentBody
             scheduleKeepalive()
