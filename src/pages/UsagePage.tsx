@@ -5,6 +5,11 @@ import {
   fetchUsageLogs,
   type UsageLogRow,
 } from '../storage/usageStats'
+import {
+  estimateCostUsd,
+  fetchModelPricing,
+  type ModelPricingMap,
+} from '../storage/openrouterPricing'
 import './UsagePage.css'
 
 type RangeKey = 'today' | 'week' | 'month' | 'all'
@@ -42,6 +47,17 @@ const formatTokenCount = (value: number): string => {
   return value.toLocaleString()
 }
 
+// USD formatter with adaptive precision — very small amounts (a few
+// hundredths of a cent) need more decimals to look meaningful, while
+// dollar-range amounts only want 2.
+const formatUsd = (value: number): string => {
+  if (!Number.isFinite(value) || value <= 0) return '$0'
+  if (value < 0.001) return `$${value.toFixed(5)}`
+  if (value < 0.01) return `$${value.toFixed(4)}`
+  if (value < 1) return `$${value.toFixed(3)}`
+  return `$${value.toFixed(2)}`
+}
+
 type UsagePageProps = {
   user: User | null
 }
@@ -52,6 +68,19 @@ const UsagePage = ({ user }: UsagePageProps) => {
   const [rows, setRows] = useState<UsageLogRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // OpenRouter /models pricing catalogue, 24h cached. Used to estimate
+  // both "what you paid" and "what you would have paid without cache" —
+  // i.e. how much the prompt cache is saving. Failure here just hides
+  // the cost cards (the rest of the page still renders fine).
+  const [pricing, setPricing] = useState<ModelPricingMap>({})
+
+  useEffect(() => {
+    void fetchModelPricing()
+      .then(setPricing)
+      .catch((err) => {
+        console.warn('加载模型价目表失败', err)
+      })
+  }, [])
 
   const loadData = useCallback(async () => {
     if (!user) {
@@ -105,6 +134,31 @@ const UsagePage = ({ user }: UsagePageProps) => {
       cached += row.cachedTokens
     }
     return { calls, prompt, completion, total, cached }
+  }
+
+  // Adds up the actual cost (with 90% cache-read discount applied) and the
+  // hypothetical no-cache cost row-by-row. Per-row so different sessions
+  // with different models all use their own pricing.
+  const computeCostTotals = (subset: typeof rows) => {
+    let actual = 0
+    let withoutCache = 0
+    for (const row of subset) {
+      actual += estimateCostUsd(
+        row.model,
+        row.promptTokens,
+        row.completionTokens,
+        pricing,
+        row.cachedTokens,
+      )
+      withoutCache += estimateCostUsd(
+        row.model,
+        row.promptTokens,
+        row.completionTokens,
+        pricing,
+        0,
+      )
+    }
+    return { actual, withoutCache, saved: Math.max(0, withoutCache - actual) }
   }
 
   const providerLabel = (id: string) =>
@@ -190,7 +244,13 @@ const UsagePage = ({ user }: UsagePageProps) => {
       ) : (
         byProvider.map(([providerId, subset]) => {
           const totals = computeTotals(subset)
+          const costs = computeCostTotals(subset)
           const sessionRanking = aggregateBySession(subset)
+          // Only show the cost banner when at least one row in this
+          // provider's subset has known pricing. msuicode model IDs
+          // generally aren't in OR's catalog, so this panel quietly
+          // hides instead of showing a misleading "$0 saved".
+          const showCostBanner = costs.withoutCache > 0
           return (
             <div key={providerId} className="usage-provider-panel">
               <h2 className="usage-provider-title">{providerLabel(providerId)}</h2>
@@ -214,6 +274,30 @@ const UsagePage = ({ user }: UsagePageProps) => {
                   <span className="label">输出 tokens</span>
                   <span className="value">{formatTokenCount(totals.completion)}</span>
                 </div>
+                {showCostBanner ? (
+                  <div className="usage-summary-card usage-cost-card">
+                    <div className="usage-cost-row">
+                      <div className="usage-cost-stat">
+                        <span className="label">预计花费</span>
+                        <span className="value">{formatUsd(costs.actual)}</span>
+                      </div>
+                      <div className="usage-cost-stat usage-cost-stat--saved">
+                        <span className="label">
+                          预计节省
+                          {costs.withoutCache > 0 ? (
+                            <span className="label-hint">
+                              ｜约 {Math.round((costs.saved / costs.withoutCache) * 100)}%
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="value">{formatUsd(costs.saved)}</span>
+                      </div>
+                    </div>
+                    <span className="usage-cost-note">
+                      按 OR 当前价目表估算；写缓存的 1.25-2× 写入费没算进去，所以实际可能略高
+                    </span>
+                  </div>
+                ) : null}
               </section>
 
               <section className="usage-section">

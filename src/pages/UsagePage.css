@@ -89,6 +89,22 @@
   font-size: 0.88rem;
 }
 
+/* Vertical breathing room between the provider's summary cards row
+   and the 按会话 ranking section below. Without this the two glass
+   panels (summary cards, ranking table) butt right up against each
+   other and feel stuck together. Also adds an inter-provider gap so
+   OpenRouter and 中转站 panels don't fuse visually. */
+.usage-provider-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.usage-provider-panel:first-of-type {
+  margin-top: 0;
+}
+
 .usage-summary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -99,6 +115,40 @@
   .usage-summary {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+}
+
+/* Cost banner spans the full summary row on every breakpoint so it
+   reads as a single emphasised line ("you've spent X, saved Y") rather
+   than competing with the token-count cards above it. */
+.usage-cost-card {
+  grid-column: 1 / -1;
+  background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);
+  border-color: #BFDBFE;
+}
+
+.usage-cost-row {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.usage-cost-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.usage-cost-stat--saved .value {
+  color: #16A34A;
+}
+
+.usage-cost-note {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: #64748B;
+  line-height: 1.4;
 }
 
 .usage-summary-card {

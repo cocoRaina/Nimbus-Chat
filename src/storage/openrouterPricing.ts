@@ -5,7 +5,7 @@ export type ModelPricing = {
   completionUsdPerToken: number
 }
 
-type ModelPricingMap = Record<string, ModelPricing>
+export type ModelPricingMap = Record<string, ModelPricing>
 
 const STORAGE_KEY = 'nimbus_openrouter_pricing_v1'
 const TTL_MS = 24 * 60 * 60 * 1000
