@@ -328,16 +328,28 @@ export const syncHealthDataToSupabase = async (
         row.heartRateRest != null ||
         row.oxygenSaturationAvg != null,
     )
-    .map((row) => ({
-      date: row.date,
-      steps: row.steps,
-      sleep_hours: row.sleepHours,
-      heart_rate_avg: row.heartRateAvg,
-      heart_rate_max: row.heartRateMax,
-      heart_rate_min: row.heartRateMin,
-      heart_rate_rest: row.heartRateRest,
-      oxygen_saturation_avg: row.oxygenSaturationAvg,
-    }))
+    // Build a partial-row payload that only includes the fields the
+    // aggregator actually produced a value for. Earlier we always
+    // emitted the full column set, including the nulls — and Supabase
+    // upsert with onConflict translates each key in the payload into
+    // an `excluded.col = ...` assignment in the ON CONFLICT DO UPDATE
+    // clause. So a day where Health Connect happens to return only
+    // step samples this round (because sleep / HR queries got
+    // rate-limited, or the user hasn't synced their wearable yet)
+    // ended up overwriting the previously-saved sleep_hours /
+    // heart_rate / oxygen values with NULL. Excluding null keys from
+    // the payload means Postgres just leaves those columns alone.
+    .map((row) => {
+      const out: Record<string, unknown> = { date: row.date }
+      if (row.steps != null) out.steps = row.steps
+      if (row.sleepHours != null) out.sleep_hours = row.sleepHours
+      if (row.heartRateAvg != null) out.heart_rate_avg = row.heartRateAvg
+      if (row.heartRateMax != null) out.heart_rate_max = row.heartRateMax
+      if (row.heartRateMin != null) out.heart_rate_min = row.heartRateMin
+      if (row.heartRateRest != null) out.heart_rate_rest = row.heartRateRest
+      if (row.oxygenSaturationAvg != null) out.oxygen_saturation_avg = row.oxygenSaturationAvg
+      return out
+    })
 
   if (rowsToUpsert.length > 0) {
     const { error } = await supabase
@@ -348,7 +360,7 @@ export const syncHealthDataToSupabase = async (
       summary.ok = false
       return summary
     }
-    summary.upsertedDates = rowsToUpsert.map((r) => r.date)
+    summary.upsertedDates = rowsToUpsert.map((r) => r.date as string)
   }
 
   writeLastSyncedAt(Date.now())
