@@ -95,12 +95,19 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 每次工具调用会被记录在消息的 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**（类似 claude.ai）：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回结果。
 
 ### 💰 成本优化
-- **Anthropic Prompt Caching**：1 小时 TTL（写贵 2x，读 0.1x），Claude on OR 自动启用
-- **Keepalive ping**（双层）：
-  - **客户端**：每次成功 chat 后 55min 调度一个 `max_tokens:1` 的 ping，**保留 tools / 去掉 reasoning 让 cache key 跟原对话一致**。8:00-23:00 才跑。**只在 app 前台活着时有效** —— APK 重装、手机睡眠、后台被杀都会让 JS timer 死掉
-  - **服务端**：`cache_keepalive` Edge Function + pg_cron 每 5min 触发。每次成功 chat 时前端把 body + OR key upsert 进 `cache_keepalive_state`；cron 函数扫这张表，对 `last_chat_at` 在 4h 内、且距上次 ping >50min 的用户发同样的 minimal ping。**APK 重装/手机睡眠都不影响**。同样 8:00-23:00 时段
-- **对话压缩**：历史超阈值时自动用 summarizer 模型摘要，节省 token
-- 设置可单独选 summarizer 的 provider 和 model（推荐 OR 的免费模型）
+- **Anthropic Prompt Caching**:1 小时 TTL（写贵 2x，读 0.1x）。**OR 和中转都启用** —— Claude on 中转走 `anthropic.ts` 适配器直接 `/v1/messages`,Claude on OR 自动路由到 OR 原生 `/api/v1/messages` 端点（OR 的 `/chat/completions` 翻译层会丢 `cache_control` marker,踩过 0% 命中工具迭代的坑后切的）
+- **Cache marker 策略**(三个 breakpoint,Anthropic 上限 4 个):
+  - **BP1**:打在系统提示词的 text block 上 —— 几乎永不变的基础上下文,任何上层 miss 都能 walk-up 到这里兜底
+  - **BP4**:倒数第二条 user message —— 上一轮的 HEAD,新一轮请求过来 walk-up 命中
+  - **HEAD**:最新一条 user message —— 写入新缓存
+  - **工具迭代特例**:请求里最后一条 user message 之后有 `tool_use`/`tool_result` 时,**只标 BP1,不标 HEAD/BP4**(避免写入 ~77k token 的新缓存 —— Anthropic 后端在带 tool block 的请求里 walk-up 不稳定,写了也没人读,2x 写入价等于纯烧钱)
+- **`metadata.user_id` 后端粘性**:`anthropic.ts` 把用户 ID 塞到 Anthropic 原生 `metadata.user_id`,Anthropic 用它做后端节点路由 —— 同用户的请求落到同一节点,缓存读写在同一处
+- **Keepalive ping**(双层):
+  - **客户端**:每次成功 chat 后 55min 调度一个 `max_tokens:1` 的 ping。**只在 app 前台活着时有效** —— APK 重装、手机睡眠、后台被杀都会让 JS timer 死掉
+  - **服务端**:`cache_keepalive` Edge Function + pg_cron 每 5min 触发。每次成功 chat 时前端把**转好的 Anthropic-native body** + OR key upsert 进 `cache_keepalive_state`;cron 函数扫这张表,对 `last_chat_at` 在 4h 内、且距上次 ping >50min 的用户,直接把 body POST 到 OR `/api/v1/messages` 同 endpoint 同 key shape。**APK 重装/手机睡眠都不影响**。同样 8:00-23:00 时段
+  - **诚实说明**:ping 把 `thinking` 字段删了避开 `max_tokens:1` + thinking budget 8000 的冲突,代价是 cache key 不完美匹配 HEAD/BP4 —— BP1 还会命中(系统提示词的前缀和 thinking 无关),所以保活实际是"系统提示词+工具定义永远热,深层对话前缀仍按 1h TTL 自然过期"
+- **对话压缩**:历史超阈值时自动用 summarizer 模型摘要,节省 token
+- 设置可单独选 summarizer 的 provider 和 model(推荐 OR 的免费模型)
 
 ### 🌤️ 天气接入
 - 每天**第一条**用户消息自动附带当前天气（地理位置 + Open-Meteo API，无需 key）
@@ -158,7 +165,8 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
   - 静息心率 = 当天最后一条
   - 血氧 = 算术均值，自动归一化（0.95 / 95 都视作 95%）
 - 跳过空数据天 —— 避免覆盖之前已写入的值
-- 单 type 失败不影响其他 type
+- **payload 只塞非 null 字段**：Postgres `ON CONFLICT DO UPDATE` 只更新 payload 里出现的列;某次 Health Connect 只返回了步数没返回睡眠时,不会用 null 把之前已存的睡眠/心率覆盖掉
+- 单 type 失败不影响其他 type;遇到 Health Connect 限速（`rate limit`/`quota`/`throttle`/`429`）会直接 break 整个循环让配额恢复,不再硬着头皮把剩下 4 个 type 也跑一遍
 - upsert 到 `health_data` 表，`ON CONFLICT (date)`
 
 **触发**：
@@ -228,7 +236,6 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
 - **懒加载**：进入只渲染最近 30 条，"加载更早" 按钮分页
 - **工具调用卡片**：每条助手消息上方显示本轮调了哪些工具，可折叠查看详情
 - **入场动画**：新消息从下方滑入 + 淡入（0.25s）
-- **自动标题**：第一轮对话后自动生成 4-8 字中文标题
 - **长按菜单**：复制 / 引用 / 重新生成 / 编辑 / 删除
 
 ---
@@ -259,7 +266,8 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
 ### ⚙️ 模型库
 | 字段 | 说明 |
 |------|------|
-| API Provider 切换 | OpenRouter ↔ 中转站，一键全局切换。OR 下 Claude 有 prompt cache 90% 省，中转无 cache |
+| API Provider 切换 | OpenRouter ↔ 中转站，一键全局切换。两边都走 Anthropic 原生 `/v1/messages` 协议（OR 通过 `Anthropic Skin`、中转通过 `anthropic.ts` 适配器），prompt cache 都有,工具迭代命中率中转 ~100% / OR ~16%（BP1 兜底） |
+| OR API 格式 | OpenAI 兼容 / Anthropic 兼容。Claude 模型默认走 Anthropic（享受原生 cache_control + 思考链）,显式切到 OpenAI 兼容会尊重(用于 debug) |
 | 默认模型 | 从已启用模型里选，新会话自动用这个 |
 | 模型目录搜索 | 搜索 OR 模型目录，启用/停用模型 |
 | 每个模型 | 可单独停用（会弹确认） |
@@ -338,11 +346,13 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
             │           memory_entries, memory_extract_log,
             │           diaries, handoff_letters, timeline,
             │           period_tracking, health_data, essays, usage_logs,
-            │           proactive_queue, fcm_tokens
+            │           proactive_queue, fcm_tokens,
+            │           cache_keepalive_state
             │
             ├─→ edge functions: openrouter-chat, openrouter-models,
             │                   memory-extract, web_search,
-            │                   send_proactive_push (pg_cron 触发)
+            │                   send_proactive_push (pg_cron 触发),
+            │                   cache_keepalive (pg_cron 每 5min)
             │
             └─→ DB functions: search_memories (RPC, filter_table 参数),
                               auto_embed_* (INSERT trigger, REVOKE'd),
@@ -514,6 +524,12 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 | 400 — `anthropic/` 前缀 model ID | 直连 relay（msuicode）不吃 OpenRouter 命名空间 | 转换时 `body.model.replace(/^anthropic\//, '')` |
 | 400 — tool_result 没有 tool_use_id | 上游 delta 丢了 id 或 history 重建丢了链接 | tool role 转换时 `if (!msg.tool_call_id) continue` |
 | 400 — tool_result 挂到 assistant 消息上 | 连续 tool role coalesce 时没看上一条 role | 只在 `last.role === 'user' && Array.isArray(last.content)` 时 push 进去 |
+| Failed to fetch on OR /messages | Capacitor WebView CORS preflight 拒绝 Anthropic-only header(`anthropic-version`、`anthropic-dangerous-direct-browser-access`、`x-api-key`)| OR 走 `/messages` 时只发 `Authorization: Bearer` + `Content-Type`,其他 header 全 strip(直连 Anthropic + 中转才发完整套) |
+| OR /messages 4xx model 不识别 | `anthropic.ts` 默认砍 `anthropic/` 前缀(直连 Anthropic 要求),但 OR 用这个前缀做上游路由 | `keepModelSlug` 选项控制:OR 调用时传 `true` 保留 slug,中转保持 `false` 砍掉 |
+| 工具迭代 cached_tokens = 0(但 chat 2 还命中)| Anthropic 服务端在请求里有 `tool_use`/`tool_result` block 时,HEAD 和 BP4 cache 都 miss(只有 BP1 walk-up 还工作)。同时如果还留 HEAD marker,会写一份 ~77k token 的"没人读"的新缓存白烧 \$2 | 结构性检测:最后一条 user message 之后有 tool block 时,**只标 BP1**,不标 HEAD/BP4 |
+| pg_cron 401 UNAUTHORIZED_NO_AUTH_HEADER | `current_setting('supabase.service_role_key')` 在 pg_cron session 里取不到值,Authorization header 变成 `Bearer ` (空)| cron command 里**直接内联 anon key**(anon key 本来就是公开的,前端 bundle 里也带,放 SQL 里没新增暴露) |
+| cache_keepalive 把睡眠/心率写成 null 覆盖老数据 | upsert payload 不管 null 全字段塞,Supabase 翻成 `excluded.col = NULL`,Postgres `ON CONFLICT DO UPDATE` 把已有数据洗掉 | payload 只塞非 null 字段:`if (row.X != null) out.X = row.X` |
+| Health Connect 大量 4xx Rate Limit | 5 类样本依次查,前面用完 5min 配额后剩下 4 类必失败 | catch 里检测 `/rate.?limit\|quota\|throttl\|too many\|429/i`,撞了就直接 `break` 整个 type loop |
 
 ### 健康同步相关
 
