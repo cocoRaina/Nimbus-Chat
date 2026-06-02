@@ -164,6 +164,7 @@ const flattenContent = async (
 
 export const convertOpenAiRequestToAnthropic = async (
   body: OpenAiRequest,
+  options: { keepModelSlug?: boolean } = {},
 ): Promise<AnthropicRequest> => {
   // Pull system messages out. Each system message becomes one or more
   // Anthropic text blocks. We keep the array form (instead of joining
@@ -382,7 +383,13 @@ export const convertOpenAiRequestToAnthropic = async (
       : undefined
 
   return {
-    model: body.model.replace(/^anthropic\//, ''),
+    // For direct Anthropic + Anthropic-compat relays (msuicode etc.) we
+    // strip the `anthropic/` provider prefix because they expect the
+    // bare Anthropic model name. For OpenRouter's /messages endpoint,
+    // the full OR slug (`anthropic/claude-opus-4.6`) is what's required —
+    // OR uses the prefix to disambiguate which upstream provider to
+    // route to. `keepModelSlug` flips that behavior.
+    model: options.keepModelSlug ? body.model : body.model.replace(/^anthropic\//, ''),
     messages,
     system: systemForRequest,
     max_tokens: finalMaxTokens,
@@ -590,18 +597,25 @@ export const fetchAnthropicAsOpenAi = async (
   signal?: AbortSignal,
 ): Promise<Response> => {
   const wantsStream = body.stream === true
-  const anthropicBody = await convertOpenAiRequestToAnthropic({ ...body, stream: true })
+  // Detect destination by URL. OpenRouter requires its own slug format
+  // (`anthropic/<model>`) and Bearer-style auth on /messages; everyone
+  // else (direct Anthropic, msuicode and similar relays) wants the bare
+  // Anthropic model name and `x-api-key`.
+  const isOpenRouter = /openrouter\.ai/i.test(baseUrl)
+  const anthropicBody = await convertOpenAiRequestToAnthropic(
+    { ...body, stream: true },
+    { keepModelSlug: isOpenRouter },
+  )
   const endpoint = baseUrl.replace(/\/+$/, '') + '/messages'
   const upstream = await fetch(endpoint, {
     method: 'POST',
     headers: {
-      // Send both auth headers. Direct Anthropic + msuicode-style relays
-      // honor x-api-key (Anthropic standard). OpenRouter's /messages
-      // endpoint honors Authorization: Bearer (their standard). Sending
-      // both lets the same code path target either upstream without
-      // having to know who's on the other end.
-      'x-api-key': apiKey,
-      Authorization: `Bearer ${apiKey}`,
+      // Pick the auth header style the destination actually accepts.
+      // Sending both confuses OR's gateway (it sometimes treats a
+      // non-Anthropic-looking x-api-key as a malformed request).
+      ...(isOpenRouter
+        ? { Authorization: `Bearer ${apiKey}` }
+        : { 'x-api-key': apiKey }),
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
       'Content-Type': 'application/json',
