@@ -607,19 +607,28 @@ export const fetchAnthropicAsOpenAi = async (
     { keepModelSlug: isOpenRouter },
   )
   const endpoint = baseUrl.replace(/\/+$/, '') + '/messages'
+  // Build headers per destination. For OR's /messages we send the
+  // absolute minimum that CORS-preflights cleanly: their gateway
+  // allowlists Authorization + Content-Type but NOT the Anthropic-
+  // specific extension headers (anthropic-version,
+  // anthropic-dangerous-direct-browser-access, x-api-key) — including
+  // any of them trips the browser preflight and the fetch resolves
+  // to a "Failed to fetch" with no upstream response. OR handles
+  // versioning + browser auth internally so we can omit them.
+  // For everyone else we keep the full Anthropic-direct header set.
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  if (isOpenRouter) {
+    headers.Authorization = `Bearer ${apiKey}`
+  } else {
+    headers['x-api-key'] = apiKey
+    headers['anthropic-version'] = '2023-06-01'
+    headers['anthropic-dangerous-direct-browser-access'] = 'true'
+  }
   const upstream = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      // Pick the auth header style the destination actually accepts.
-      // Sending both confuses OR's gateway (it sometimes treats a
-      // non-Anthropic-looking x-api-key as a malformed request).
-      ...(isOpenRouter
-        ? { Authorization: `Bearer ${apiKey}` }
-        : { 'x-api-key': apiKey }),
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(anthropicBody),
     signal,
   })
