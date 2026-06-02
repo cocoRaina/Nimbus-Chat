@@ -190,12 +190,16 @@ type StreamingToolCall = {
   function: { name: string; arguments: string }
 }
 
+type CacheControlMarker = { type: 'ephemeral'; ttl?: string }
+
 type RequestContentBlock =
-  | { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
+  | { type: 'text'; text: string; cache_control?: CacheControlMarker }
   | { type: 'image_url'; image_url: { url: string } }
 
+type SystemTextBlock = { type: 'text'; text: string; cache_control?: CacheControlMarker }
+
 type ChatRequestMessage =
-  | { role: 'system'; content: string }
+  | { role: 'system'; content: string | SystemTextBlock[] }
   | { role: 'user'; content: string | RequestContentBlock[] }
   | { role: 'assistant'; content: string | null; tool_calls?: StreamingToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string }
@@ -224,15 +228,55 @@ const applyClaudeCaching = (
   model: string,
 ): ChatRequestMessage[] => {
   if (!isClaudeModel(model)) return messages
+  // BP4 + HEAD: last two user messages (writes a fresh cache at the
+  // latest turn AND keeps an anchor at the previous turn for walk-up).
   const userIndices: number[] = []
   for (let i = messages.length - 1; i >= 0 && userIndices.length < 2; i -= 1) {
     if (messages[i].role === 'user') {
       userIndices.push(i)
     }
   }
-  if (userIndices.length === 0) return messages
-  const targets = new Set(userIndices)
-  return messages.map((msg, idx) => (targets.has(idx) ? markUserMessageForCaching(msg) : msg))
+  // BP1: the FIRST system message (the foundational character + tool
+  // schema layer). Marking it gives Anthropic a stable last-resort
+  // anchor that survives every higher-level miss — including the
+  // tool-iteration scenario where BP4 has been seen to silently miss
+  // on OR despite a byte-identical prefix. Reading 8-15k tokens at BP1
+  // is still a big win over a 90k cold write.
+  let firstSystemIdx = -1
+  for (let i = 0; i < messages.length; i += 1) {
+    if (messages[i].role === 'system') {
+      firstSystemIdx = i
+      break
+    }
+  }
+  if (userIndices.length === 0 && firstSystemIdx === -1) return messages
+  const targets = new Set<number>(userIndices)
+  if (firstSystemIdx >= 0) targets.add(firstSystemIdx)
+  return messages.map((msg, idx) => {
+    if (!targets.has(idx)) return msg
+    if (msg.role === 'user') return markUserMessageForCaching(msg)
+    if (msg.role === 'system') return markSystemMessageForCaching(msg)
+    return msg
+  })
+}
+
+const markSystemMessageForCaching = (msg: ChatRequestMessage): ChatRequestMessage => {
+  if (msg.role !== 'system') return msg
+  if (typeof msg.content === 'string') {
+    return {
+      ...msg,
+      content: [{ type: 'text', text: msg.content, cache_control: CACHE_CONTROL_MARKER }],
+    }
+  }
+  // Array form already. Attach CC to the last text block.
+  const blocks = [...msg.content]
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    if (blocks[i].type === 'text') {
+      blocks[i] = { ...blocks[i], cache_control: CACHE_CONTROL_MARKER }
+      return { ...msg, content: blocks }
+    }
+  }
+  return msg
 }
 
 const CACHE_CONTROL_MARKER = { type: 'ephemeral' as const, ttl: '1h' as const }
@@ -1501,32 +1545,30 @@ const App = () => {
               usage: { include: true },
               isFirstMessage: isFirstMessageInSession,
             }
-            // For Claude / Anthropic on OpenRouter, force routing to Anthropic
-            // direct (skip Bedrock / Vertex) since per-message cache_control
-            // only works on the native Anthropic provider. The actual cache
-            // breakpoints are placed inside cachedMessages by applyClaudeCaching
-            // above (two anchors on the last two user messages — survives tool
-            // iterations). 1h TTL: writes cost 2x (vs 1.25x for default 5min)
-            // but reads stay 0.1x.
+            // Per-message cache_control breakpoints (BP1 + BP4 + HEAD)
+            // are placed inside cachedMessages by applyClaudeCaching above.
+            // Here we add the provider-level routing hints that make those
+            // markers actually land cache hits.
             //
-            // The `user` field is what makes cross-iteration cache hits
-            // actually land. OpenRouter routes Anthropic requests across
-            // multiple upstream Anthropic deployments, and Anthropic's
-            // prompt cache is per-deployment — so two requests made 11s
-            // apart can land on different deployments and miss each
-            // other's cache writes (we saw exactly this: tool-iteration
-            // round 2 cached_tokens=0 even though round 1 had just
-            // written a 89k-token cache at the same breakpoint position).
-            // Passing `user` makes OR consistently hash-route the user
-            // to the same upstream, so subsequent requests hit the same
-            // deployment's cache.
-            if (isClaudeModel(effectiveModel) && getActiveProvider() === 'openrouter') {
-              requestBody.provider = {
-                order: ['Anthropic'],
-                allow_fallbacks: false,
-              }
+            // `user` field — sticky-route this user's requests to the same
+            // upstream backend node. Required for cache reads to land on
+            // the node that did the previous write. Anthropic native (via
+            // our msuicode adapter) maps this to metadata.user_id; OR
+            // ignores it for its own routing (which is hash-based on the
+            // system + first message), but it's harmless there.
+            //
+            // OR-specific: pin to Anthropic direct (skip Bedrock / Vertex),
+            // since per-message cache_control only works on the native
+            // Anthropic upstream. 1h TTL: writes 2x, reads 0.1x.
+            if (isClaudeModel(effectiveModel)) {
               if (user?.id) {
                 requestBody.user = user.id
+              }
+              if (getActiveProvider() === 'openrouter') {
+                requestBody.provider = {
+                  order: ['Anthropic'],
+                  allow_fallbacks: false,
+                }
               }
             }
             if (toolsEnabled) {

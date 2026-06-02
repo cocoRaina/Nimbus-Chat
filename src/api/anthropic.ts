@@ -5,7 +5,14 @@
 
 type OpenAiMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
+  content:
+    | string
+    | Array<{
+        type: string
+        text?: string
+        image_url?: { url: string }
+        cache_control?: { type: 'ephemeral'; ttl?: string }
+      }>
   name?: string
   tool_call_id?: string
   tool_calls?: Array<{
@@ -33,14 +40,23 @@ type OpenAiRequest = {
   max_tokens?: number
   stream?: boolean
   reasoning?: { effort?: string } | Record<string, unknown>
+  // OpenAI-style end-user identifier. We hand it through to Anthropic's
+  // `metadata.user_id` for sticky-routing on the upstream side — same
+  // backend node gets the same user's prefix, which is what makes prompt
+  // cache reads actually land (writes and reads must hit the same node).
+  user?: string
   [key: string]: unknown
 }
 
+type CacheControl = { type: 'ephemeral'; ttl?: string }
+
+type AnthropicTextBlock = { type: 'text'; text: string; cache_control?: CacheControl }
+
 type AnthropicContentBlock =
-  | { type: 'text'; text: string }
-  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
-  | { type: 'image'; source: { type: 'base64' | 'url'; media_type?: string; data?: string; url?: string } }
+  | AnthropicTextBlock
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown>; cache_control?: CacheControl }
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; cache_control?: CacheControl }
+  | { type: 'image'; source: { type: 'base64' | 'url'; media_type?: string; data?: string; url?: string }; cache_control?: CacheControl }
 
 type AnthropicMessage = {
   role: 'user' | 'assistant'
@@ -50,13 +66,23 @@ type AnthropicMessage = {
 type AnthropicRequest = {
   model: string
   messages: AnthropicMessage[]
-  system?: string
+  // Anthropic accepts either a plain string or an array of text blocks.
+  // Array form is needed when we want to attach cache_control to the
+  // system prompt (BP1 — the foundational character + tool schema layer
+  // that virtually never changes between turns).
+  system?: string | AnthropicTextBlock[]
   max_tokens: number
   temperature?: number
   top_p?: number
   stream?: boolean
-  tools?: Array<{ name: string; description?: string; input_schema: Record<string, unknown> }>
+  tools?: Array<{
+    name: string
+    description?: string
+    input_schema: Record<string, unknown>
+    cache_control?: CacheControl
+  }>
   thinking?: { type: 'enabled'; budget_tokens: number }
+  metadata?: { user_id?: string }
 }
 
 const fetchImageAsBase64 = async (
@@ -91,7 +117,16 @@ const flattenContent = async (
       // `{type: 'text', text: ''}` ("text content blocks must
       // contain non-empty text"). Whitespace-only is also rejected.
       if (part.text.trim().length === 0) continue
-      blocks.push({ type: 'text', text: part.text })
+      const block: AnthropicTextBlock = { type: 'text', text: part.text }
+      // Preserve cache_control if the caller attached one (App.tsx's
+      // applyClaudeCaching marks the last two user messages this way).
+      // Stripping it here was the bug that meant our msuicode requests
+      // had to lean entirely on the relay's server-side auto-cache —
+      // explicit markers should layer on top now.
+      if (part.cache_control) {
+        block.cache_control = part.cache_control
+      }
+      blocks.push(block)
     } else if (part.type === 'image_url' && part.image_url?.url) {
       const url = part.image_url.url
       if (url.startsWith('data:')) {
@@ -127,16 +162,44 @@ const flattenContent = async (
 export const convertOpenAiRequestToAnthropic = async (
   body: OpenAiRequest,
 ): Promise<AnthropicRequest> => {
-  // Pull system messages out; concat into top-level system string.
-  const systemParts: string[] = []
+  // Pull system messages out. Each system message becomes one or more
+  // Anthropic text blocks. We keep the array form (instead of joining
+  // into a single string) so that any cache_control attached to a
+  // specific block — BP1 marker on the foundational system prompt —
+  // survives the conversion. Anthropic accepts either shape; the array
+  // form is what's required for cache_control to actually take effect.
+  const systemBlocks: AnthropicTextBlock[] = []
   const rest: OpenAiMessage[] = []
   for (const msg of body.messages) {
-    if (msg.role === 'system') {
-      systemParts.push(typeof msg.content === 'string' ? msg.content : '')
-    } else {
+    if (msg.role !== 'system') {
       rest.push(msg)
+      continue
+    }
+    if (typeof msg.content === 'string') {
+      const trimmed = msg.content.trim()
+      if (trimmed.length > 0) systemBlocks.push({ type: 'text', text: msg.content })
+      continue
+    }
+    if (Array.isArray(msg.content)) {
+      for (const part of msg.content) {
+        if (part.type !== 'text' || typeof part.text !== 'string') continue
+        if (part.text.trim().length === 0) continue
+        const block: AnthropicTextBlock = { type: 'text', text: part.text }
+        if (part.cache_control) block.cache_control = part.cache_control
+        systemBlocks.push(block)
+      }
     }
   }
+  // If no block carries cache_control we can fold back to plain-string
+  // form — it's marginally cheaper bytes on the wire and matches what
+  // the relay used to expect before this change.
+  const anySystemCacheControl = systemBlocks.some((b) => b.cache_control)
+  const systemForRequest: AnthropicRequest['system'] | undefined =
+    systemBlocks.length === 0
+      ? undefined
+      : anySystemCacheControl
+        ? systemBlocks
+        : systemBlocks.map((b) => b.text).join('\n\n')
 
   // Convert each message. OpenAI 'tool' role → Anthropic user message with
   // tool_result block. Assistant with tool_calls → assistant with tool_use blocks.
@@ -293,15 +356,27 @@ export const convertOpenAiRequestToAnthropic = async (
       ? body.top_p
       : undefined
 
+  // Pass the OpenAI-style `user` field through as Anthropic's
+  // metadata.user_id. Per Anthropic + the prompt-cache stickiness
+  // analysis in the NyraSeithhh/cache repo, this is the field that
+  // pins a user's requests to the same upstream backend node — which
+  // is what makes a previous turn's cache write actually be readable
+  // on the next turn. Without it, even byte-identical prefixes can
+  // miss because the read landed on a different node.
+  const metadata = typeof body.user === 'string' && body.user.length > 0
+    ? { user_id: body.user }
+    : undefined
+
   return {
     model: body.model.replace(/^anthropic\//, ''),
     messages,
-    system: systemParts.length > 0 ? systemParts.join('\n\n') : undefined,
+    system: systemForRequest,
     max_tokens: finalMaxTokens,
     temperature: finalTemperature,
     top_p: finalTopP,
     stream: body.stream ?? false,
     tools,
+    ...(metadata ? { metadata } : {}),
     thinking,
   }
 }
