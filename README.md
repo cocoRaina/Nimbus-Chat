@@ -96,7 +96,7 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 
 ### 💰 成本优化
 - **Anthropic Prompt Caching**：1 小时 TTL（写贵 2x，读 0.1x），Claude on OR 自动启用
-- **Keepalive ping**：cache 快到期前发 `max_tokens:0` 的空 ping 续命（8:00-23:00 活跃时段）
+- **Keepalive ping**：cache 快到期前（55min）发 `max_tokens:1` 的最小 ping 续命，**保留 tools / 去掉 reasoning 让 cache key 和原对话一致**（8:00-23:00 活跃时段）
 - **对话压缩**：历史超阈值时自动用 summarizer 模型摘要，节省 token
 - 设置可单独选 summarizer 的 provider 和 model（推荐 OR 的免费模型）
 
