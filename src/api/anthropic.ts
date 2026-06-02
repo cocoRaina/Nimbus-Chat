@@ -431,10 +431,40 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
   // cache_creation across message_start, then final output_tokens in
   // message_delta. Sum them on message_stop and emit one OpenAI-shaped
   // usage chunk so the chat UI's recordUsage path sees the data.
+  //
+  // OR's /messages "Anthropic Skin" is mostly Anthropic-compat but
+  // empirically doesn't always populate usage on message_start —
+  // we've seen requests where input_tokens lands on message_delta or
+  // message_stop instead. Be defensive: try to harvest usage from
+  // every event that might carry it and take the max (input/cache
+  // numbers stay constant per request, output_tokens grow monotonically
+  // across message_delta events).
   let inputTokens = 0
   let cacheReadTokens = 0
   let cacheCreationTokens = 0
   let outputTokens = 0
+
+  type AnthropicUsage = {
+    input_tokens?: number
+    output_tokens?: number
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+  }
+  const absorbUsage = (u: AnthropicUsage | null | undefined) => {
+    if (!u) return
+    if (typeof u.input_tokens === 'number') {
+      inputTokens = Math.max(inputTokens, u.input_tokens)
+    }
+    if (typeof u.cache_read_input_tokens === 'number') {
+      cacheReadTokens = Math.max(cacheReadTokens, u.cache_read_input_tokens)
+    }
+    if (typeof u.cache_creation_input_tokens === 'number') {
+      cacheCreationTokens = Math.max(cacheCreationTokens, u.cache_creation_input_tokens)
+    }
+    if (typeof u.output_tokens === 'number') {
+      outputTokens = Math.max(outputTokens, u.output_tokens)
+    }
+  }
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -466,16 +496,11 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
             const eventType = parsed.type as string
 
             if (eventType === 'message_start') {
-              const msg = parsed.message as
-                | { usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }
-                | undefined
-              const u = msg?.usage
-              if (u) {
-                inputTokens = Number(u.input_tokens ?? 0)
-                cacheReadTokens = Number(u.cache_read_input_tokens ?? 0)
-                cacheCreationTokens = Number(u.cache_creation_input_tokens ?? 0)
-                outputTokens = Number(u.output_tokens ?? 0)
-              }
+              const msg = parsed.message as { usage?: AnthropicUsage } | undefined
+              absorbUsage(msg?.usage)
+              // Some gateways (OR's Anthropic Skin among them) also
+              // surface usage at the top level of message_start.
+              absorbUsage(parsed.usage as AnthropicUsage | undefined)
               continue
             }
 
@@ -530,10 +555,7 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
               }
             } else if (eventType === 'message_delta') {
               const delta = parsed.delta as { stop_reason?: string }
-              const u = parsed.usage as { output_tokens?: number } | undefined
-              if (u?.output_tokens != null) {
-                outputTokens = Number(u.output_tokens)
-              }
+              absorbUsage(parsed.usage as AnthropicUsage | undefined)
               if (delta.stop_reason) {
                 const finishReason =
                   delta.stop_reason === 'tool_use' ? 'tool_calls'
@@ -547,6 +569,11 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
                 )
               }
             } else if (eventType === 'message_stop') {
+              // Some gateways append a final usage envelope on
+              // message_stop; harvest it if present.
+              absorbUsage(parsed.usage as AnthropicUsage | undefined)
+              const msgStop = parsed.message as { usage?: AnthropicUsage } | undefined
+              absorbUsage(msgStop?.usage)
               // Emit a final usage chunk before [DONE] so the OpenAI-shaped
               // parser (see App.tsx flushUsageRecord) picks it up. Total
               // prompt = fresh input + cache write + cache hit.
