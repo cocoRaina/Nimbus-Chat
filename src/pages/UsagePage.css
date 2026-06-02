@@ -117,39 +117,6 @@
   }
 }
 
-/* Cost banner spans the full summary row on every breakpoint so it
-   reads as a single emphasised line ("you've spent X, saved Y") rather
-   than competing with the token-count cards above it. */
-.usage-cost-card {
-  grid-column: 1 / -1;
-  background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);
-  border-color: #BFDBFE;
-}
-
-.usage-cost-row {
-  display: flex;
-  gap: 24px;
-  flex-wrap: wrap;
-}
-
-.usage-cost-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-  min-width: 120px;
-}
-
-.usage-cost-stat--saved .value {
-  color: #16A34A;
-}
-
-.usage-cost-note {
-  margin-top: 8px;
-  font-size: 0.75rem;
-  color: #64748B;
-  line-height: 1.4;
-}
 
 .usage-summary-card {
   display: flex;
