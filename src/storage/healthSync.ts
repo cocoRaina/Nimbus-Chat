@@ -43,7 +43,13 @@ const AUTO_SYNC_MIN_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
 // quota-draining retry, so the quota never recovered. The backoff gives
 // it an enforced quiet window.
 const RATE_LIMIT_BACKOFF_KEY = 'nimbus_health_rate_limit_until_v1'
-const RATE_LIMIT_BACKOFF_MS = 10 * 60 * 1000 // 10 minutes
+// Originally 10 min as a paranoid wait — that assumed we were stuck in
+// some "rolling window resets on every request" trap. Health Connect's
+// actual periodic limit is QPS-style: a fresh request a few seconds
+// later just runs. 3 min is enough breathing room for unusual cases
+// (an external app saturating the quota) without holding the user
+// hostage. Manual sync bypasses this entirely (see force handling).
+const RATE_LIMIT_BACKOFF_MS = 3 * 60 * 1000 // 3 minutes
 
 export const readLastSyncedAt = (): number | null => {
   if (typeof window === 'undefined') return null
@@ -307,15 +313,28 @@ export const syncHealthDataToSupabase = async (
     return summary
   }
 
-  // Rate-limit backoff gate. Checked BEFORE the force bypass — during a
-  // Health Connect quota cooldown even a manual sync must not fire,
-  // because each request restarts the rolling-window clock and the
-  // quota would never refill. We surface 'rate-limited' so the UI shows
-  // its wait-and-retry hint (with minutes-left).
-  const backoffUntil = readRateLimitUntil()
-  if (backoffUntil && Date.now() < backoffUntil) {
-    summary.skippedReason = 'rate-limited'
-    return summary
+  // Rate-limit backoff gate. The previous version of this code blocked
+  // EVEN manual force syncs during the cooldown — that was defensive
+  // armor against an earlier self-inflicted bug (oversized `limit` →
+  // pagination burst → real rate-limit hits). That bug is fixed now
+  // (each readSamples call is one IPC), so a manual sync is essentially
+  // never the thing pinning the quota; instead the lock kept the user
+  // staring at "限速冷却中" with no way out. So:
+  //  - Manual sync (force=true): always proceed. We even clear the
+  //    backoff stamp on the way in, since the user explicitly asked
+  //    for a retry. If THIS attempt then trips a real rate-limit, the
+  //    catch block below will arm a fresh backoff.
+  //  - Auto sync (background): still gated, so we don't auto-hammer
+  //    Health Connect when an external process (Huawei Health Sync etc.)
+  //    has actually exhausted the quota.
+  if (opts.force) {
+    clearRateLimitBackoff()
+  } else {
+    const backoffUntil = readRateLimitUntil()
+    if (backoffUntil && Date.now() < backoffUntil) {
+      summary.skippedReason = 'rate-limited'
+      return summary
+    }
   }
 
   // Throttle: don't auto-sync more than once per AUTO_SYNC_MIN_INTERVAL_MS.
