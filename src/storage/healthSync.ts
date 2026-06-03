@@ -136,12 +136,12 @@ const PER_TYPE_OPTS: Record<HealthDataType, { limit: number; windowHours: number
   oxygenSaturation: { limit: 300, windowHours: 48 },
 } as Record<HealthDataType, { limit: number; windowHours: number }>
 
-// Gap between sequential Health Connect reads. The periodic rate limit
-// is QPS-style, so spacing a handful of single-page reads across ~1.5s
-// keeps us comfortably under it. 300ms × ~5 reads ≈ 1.5s total — barely
-// noticeable to the user, and the difference between "all 6 metrics
-// sync" and "RateLimitException after the second one".
-const READ_GAP_MS = 300
+// Gap between sequential Health Connect reads. Bumped from 300ms to
+// 800ms after the 300ms-version still tripped the rate limiter on a
+// real device. The periodic limit is QPS-style and apparently tighter
+// than we'd estimated. 5 reads × 800ms ≈ 4s total, still tolerable for
+// a background sync.
+const READ_GAP_MS = 800
 
 // Deduplicate samples before aggregating. Capgo's plugin + Health
 // Sync occasionally surface the same physical record twice (same
@@ -354,23 +354,23 @@ export const syncHealthDataToSupabase = async (
   const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
   let firstRead = true
 
-  // Steps via the aggregate API. A daily step count is a SUM, so a
-  // record limit that truncates the list would silently undercount —
-  // unlike an average. queryAggregated returns one exact total per
-  // calendar-day bucket in a single lightweight call per bucket, with
-  // no pagination over thousands of minute-level records. Anchor the
-  // window to LOCAL midnight so the plugin's fixed-24h buckets line up
-  // with calendar days (an unaligned start would split one day's steps
-  // across two buckets).
+  // Steps via the aggregate API, today-only window. A daily step count
+  // is a SUM — a record limit that truncates the list would silently
+  // undercount. queryAggregated returns the bucket total in one
+  // client.aggregate() call per bucket; the Kotlin plugin iterates
+  // buckets back-to-back with NO gap, so a 2-day window with day buckets
+  // is a 2-IPC instantaneous burst that contributed to tripping the
+  // periodic rate limit. By scoping the steps window to "from local
+  // midnight to now" with day buckets, we get exactly ONE aggregate
+  // IPC call, and the result is unambiguously today's total.
+  // Historic days are kept correct by their own day-of syncs.
   const stepsByDay: Record<string, number> = {}
   {
-    const daysBack = Math.max(1, opts.windowDays ?? 2)
     const midnightToday = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate())
-    const stepsStart = new Date(midnightToday.getTime() - (daysBack - 1) * 24 * 3600 * 1000)
     try {
       const agg = await Health.queryAggregated({
         dataType: 'steps',
-        startDate: stepsStart.toISOString(),
+        startDate: midnightToday.toISOString(),
         endDate: endDate.toISOString(),
         bucket: 'day',
         aggregation: 'sum',
