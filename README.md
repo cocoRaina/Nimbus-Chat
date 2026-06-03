@@ -166,7 +166,7 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
   - 血氧 = 算术均值，自动归一化（0.95 / 95 都视作 95%）
 - 跳过空数据天 —— 避免覆盖之前已写入的值
 - **payload 只塞非 null 字段**：Postgres `ON CONFLICT DO UPDATE` 只更新 payload 里出现的列;某次 Health Connect 只返回了步数没返回睡眠时,不会用 null 把之前已存的睡眠/心率覆盖掉
-- 单 type 失败不影响其他 type;遇到 Health Connect 限速（`rate limit`/`quota`/`throttle`/`429`）会直接 break 整个循环让配额恢复,不再硬着头皮把剩下 4 个 type 也跑一遍
+- 单 type 失败不影响其他 type;遇到 Health Connect 限速（`rate limit`/`quota`/`throttle`/`429`）会直接 break 整个循环,并写一个 **10 分钟限速退避**（`nimbus_health_rate_limit_until_v1`）—— 退避期内**连手动 force 同步都不发请求**(限速期发请求只会重置滑窗、让配额永远回不来)。成功同步后清除退避
 - upsert 到 `health_data` 表，`ON CONFLICT (date)`
 
 **触发**：
@@ -530,6 +530,8 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 | pg_cron 401 UNAUTHORIZED_NO_AUTH_HEADER | `current_setting('supabase.service_role_key')` 在 pg_cron session 里取不到值,Authorization header 变成 `Bearer ` (空)| cron command 里**直接内联 anon key**(anon key 本来就是公开的,前端 bundle 里也带,放 SQL 里没新增暴露) |
 | cache_keepalive 把睡眠/心率写成 null 覆盖老数据 | upsert payload 不管 null 全字段塞,Supabase 翻成 `excluded.col = NULL`,Postgres `ON CONFLICT DO UPDATE` 把已有数据洗掉 | payload 只塞非 null 字段:`if (row.X != null) out.X = row.X` |
 | Health Connect 大量 4xx Rate Limit | 5 类样本依次查,前面用完 5min 配额后剩下 4 类必失败 | catch 里检测 `/rate.?limit\|quota\|throttl\|too many\|429/i`,撞了就直接 `break` 整个 type loop |
+| 限速后"今早还限速",一开 app 就失败 | `maybeAutoSyncHealth` 在 mount + 每次切前台触发,靠 `last_synced_at` 节流。失败时不写时间戳(为了能手动重试)反而让自动同步每次前台都重打,持续吃配额,滑窗永远回不来 → 死循环 | 限速时写 10min 退避戳(独立 key),退避期内 auto + force 一律不发请求;成功才清退避 + 写 `last_synced_at` |
+| 同步明明限速了 UI 却显示"✅ 同步成功:0 天入库" | 函数末尾无条件 `summary.ok = true` + `writeLastSyncedAt`,limit-break 出来也算成功 | 末尾先判 `if (summary.skippedReason) { ok = false; return }`,不写时间戳、不清退避 |
 
 ### 健康同步相关
 

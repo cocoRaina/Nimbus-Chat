@@ -12,6 +12,7 @@ import {
 } from '../storage/usageStatsNative'
 import {
   readLastSyncedAt,
+  rateLimitCooldownMinutesLeft,
   syncHealthDataToSupabase,
   type SyncSummary,
 } from '../storage/healthSync'
@@ -269,9 +270,12 @@ const HealthSyncPage = ({ user: _user }: Props) => {
         // the user actually has something to do — "rate-limited" is
         // the only case worth phrasing as a wait-and-retry hint, the
         // rest just surface the code so we can debug from the log.
+        const cooldownLeft = rateLimitCooldownMinutesLeft()
         const reasonText =
           summary.skippedReason === 'rate-limited'
-            ? 'Health Connect 限速,稍等 5-10 分钟再点同步'
+            ? cooldownLeft > 0
+              ? `Health Connect 限速冷却中,约 ${cooldownLeft} 分钟后自动恢复（这期间手动同步也会跳过,别再点了让配额回血）`
+              : 'Health Connect 限速,稍等几分钟再点同步'
             : summary.skippedReason === 'throttled'
               ? '距上次同步不足 30 分钟,自动跳过(手动按钮可强制)'
               : (summary.skippedReason ?? '未知')
@@ -385,7 +389,9 @@ const HealthSyncPage = ({ user: _user }: Props) => {
             <p className="health-sync__sync-result warn">
               ⚠ 未完成：
               {lastSummary.skippedReason === 'rate-limited'
-                ? 'Health Connect 限速,稍等 5-10 分钟再点同步'
+                ? rateLimitCooldownMinutesLeft() > 0
+                  ? `Health Connect 限速冷却中,约 ${rateLimitCooldownMinutesLeft()} 分钟后恢复（别再点,让配额回血）`
+                  : 'Health Connect 限速,稍等几分钟再点同步'
                 : lastSummary.skippedReason === 'throttled'
                   ? '距上次同步不足 30 分钟,自动跳过'
                   : lastSummary.skippedReason}

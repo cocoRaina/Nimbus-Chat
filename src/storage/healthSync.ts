@@ -27,6 +27,24 @@ export type SyncSummary = {
 const LAST_SYNC_KEY = 'nimbus_health_last_sync_at_v1'
 const AUTO_SYNC_MIN_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
 
+// Rate-limit backoff. When Health Connect rejects a read with its
+// quota-exceeded error, we record a cooldown deadline. Until that
+// deadline, NO sync runs — not even a manual `force` one. This is
+// deliberate: during the rate-limit window every additional request
+// fails AND keeps the rolling quota pinned, so the only way the quota
+// refills is to stop touching Health Connect entirely. 10 min is
+// comfortably above Health Connect's ~5 min rolling window.
+//
+// This is the fix for the foreground-retry death-loop: maybeAutoSyncHealth
+// fires on mount + every visibilitychange, and the only thing stopping
+// it from re-hammering the quota was last_synced_at — which we
+// (correctly) stopped writing on failed syncs. Without a separate
+// backoff, a single rate-limit turned every app-foreground into another
+// quota-draining retry, so the quota never recovered. The backoff gives
+// it an enforced quiet window.
+const RATE_LIMIT_BACKOFF_KEY = 'nimbus_health_rate_limit_until_v1'
+const RATE_LIMIT_BACKOFF_MS = 10 * 60 * 1000 // 10 minutes
+
 export const readLastSyncedAt = (): number | null => {
   if (typeof window === 'undefined') return null
   const raw = window.localStorage.getItem(LAST_SYNC_KEY)
@@ -38,6 +56,32 @@ export const readLastSyncedAt = (): number | null => {
 const writeLastSyncedAt = (timestamp: number) => {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(LAST_SYNC_KEY, String(timestamp))
+}
+
+const readRateLimitUntil = (): number | null => {
+  if (typeof window === 'undefined') return null
+  const raw = window.localStorage.getItem(RATE_LIMIT_BACKOFF_KEY)
+  if (!raw) return null
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : null
+}
+
+const writeRateLimitUntil = (timestamp: number) => {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(RATE_LIMIT_BACKOFF_KEY, String(timestamp))
+}
+
+const clearRateLimitBackoff = () => {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(RATE_LIMIT_BACKOFF_KEY)
+}
+
+// How many whole minutes remain in the rate-limit cooldown, for UI hints.
+export const rateLimitCooldownMinutesLeft = (): number => {
+  const until = readRateLimitUntil()
+  if (!until) return 0
+  const ms = until - Date.now()
+  return ms > 0 ? Math.ceil(ms / 60000) : 0
 }
 
 // Local YYYY-MM-DD for any ISO date string. We bucket using the user's
@@ -250,6 +294,17 @@ export const syncHealthDataToSupabase = async (
     return summary
   }
 
+  // Rate-limit backoff gate. Checked BEFORE the force bypass — during a
+  // Health Connect quota cooldown even a manual sync must not fire,
+  // because each request restarts the rolling-window clock and the
+  // quota would never refill. We surface 'rate-limited' so the UI shows
+  // its wait-and-retry hint (with minutes-left).
+  const backoffUntil = readRateLimitUntil()
+  if (backoffUntil && Date.now() < backoffUntil) {
+    summary.skippedReason = 'rate-limited'
+    return summary
+  }
+
   // Throttle: don't auto-sync more than once per AUTO_SYNC_MIN_INTERVAL_MS.
   // `force` bypasses the gate for the manual button.
   if (!opts.force) {
@@ -315,6 +370,11 @@ export const syncHealthDataToSupabase = async (
       // language → bail.
       if (/rate.?limit|quota|throttl|too many|429/i.test(errMsg)) {
         summary.skippedReason = summary.skippedReason ?? 'rate-limited'
+        // Arm the cooldown so neither auto-sync nor a manual force will
+        // touch Health Connect again until the quota has had time to
+        // refill. This is what actually breaks the foreground-retry
+        // loop — without it, the next visibilitychange just re-hammers.
+        writeRateLimitUntil(Date.now() + RATE_LIMIT_BACKOFF_MS)
         break
       }
     }
@@ -389,6 +449,9 @@ export const syncHealthDataToSupabase = async (
     return summary
   }
 
+  // Clean run — clear any stale rate-limit backoff and arm the normal
+  // 30-min auto-sync throttle.
+  clearRateLimitBackoff()
   writeLastSyncedAt(Date.now())
   summary.ok = true
   return summary
