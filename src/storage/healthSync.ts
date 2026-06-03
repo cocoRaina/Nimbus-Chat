@@ -330,54 +330,60 @@ export const syncHealthDataToSupabase = async (
 
   const endDate = new Date()
   const allSamples: HealthSample[] = []
-  for (const dataType of SYNC_TYPES) {
-    const opt = PER_TYPE_OPTS[dataType]
-    const windowHours = opts.windowDays
-      ? opts.windowDays * 24
-      : opt?.windowHours ?? 48
-    const limit = opt?.limit ?? 500
-    const startDate = new Date(endDate.getTime() - windowHours * 3600 * 1000)
-    try {
+  // Parallel reads. Sequential was killing the sync — one type's
+  // rate-limit (typically `steps` or `heartRate` because of pagination)
+  // would `break` the entire loop, leaving the small types
+  // (restingHR, oxygen, even `sleep` if HR came first) unread. With
+  // Promise.allSettled each type's failure is isolated:
+  //  - if 4 types succeed and 1 hits rate-limit, we still get the 4
+  //  - the 1 that failed arms the global backoff so we don't retry
+  //    immediately, but the other 4 are already written
+  // Health Connect's per-app burst budget (~50 reads / 5 min for
+  // foreground apps) easily accommodates 5 simultaneous readSamples
+  // calls even when each one paginates internally — the previous
+  // 250ms-between-types pause was cargo-culted overcaution and can go.
+  let rateLimited = false
+  const results = await Promise.allSettled(
+    SYNC_TYPES.map(async (dataType) => {
+      const opt = PER_TYPE_OPTS[dataType]
+      const windowHours = opts.windowDays
+        ? opts.windowDays * 24
+        : opt?.windowHours ?? 48
+      const limit = opt?.limit ?? 500
+      const startDate = new Date(endDate.getTime() - windowHours * 3600 * 1000)
       const res = await Health.readSamples({
         dataType,
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         limit,
       })
-      summary.perType[dataType] = res.samples.length
-      allSamples.push(...res.samples)
-      // Small pause between types so Health Connect's burst-quota
-      // counter has time to relax — measurable difference on
-      // dense-source phones (e.g. 华为 with minute-level heart rate).
-      await new Promise((resolve) => setTimeout(resolve, 250))
-    } catch (err) {
-      // A single type failing (e.g. permission not granted for that
-      // type, or rate-limited) shouldn't kill the whole sync. Log
-      // and continue — EXCEPT when the failure is Health Connect's
-      // shared per-app rate-limit, in which case every subsequent
-      // type query in this sync will hit the same wall. Breaking out
-      // saves the wasted attempts (and the spammy error rows in the
-      // probe page) and lets the quota refill so the next sync runs
-      // cleanly.
-      const errMsg = err instanceof Error ? err.message : String(err)
+      return { dataType, samples: res.samples }
+    }),
+  )
+  for (let i = 0; i < results.length; i += 1) {
+    const dataType = SYNC_TYPES[i]
+    const result = results[i]
+    if (result.status === 'fulfilled') {
+      summary.perType[dataType] = result.value.samples.length
+      allSamples.push(...result.value.samples)
+    } else {
+      const errMsg =
+        result.reason instanceof Error ? result.reason.message : String(result.reason)
       summary.errors.push(`${dataType}: ${errMsg}`)
       summary.perType[dataType] = 0
       // Match a generous set of phrasings the plugin / Health Connect
-      // have used for the same condition. If we drop the match the
-      // loop hammers the rest of SYNC_TYPES through the same wall and
-      // empties the refill window. The signal is consistent across
-      // vendors: any mention of rate / quota / throttling / 429-ish
-      // language → bail.
+      // have used for rate-limit / quota / throttle / 429. If we arm
+      // the backoff, subsequent syncs (auto AND manual force) skip
+      // until the cooldown ends — which is what actually lets the
+      // rolling quota window refill.
       if (/rate.?limit|quota|throttl|too many|429/i.test(errMsg)) {
-        summary.skippedReason = summary.skippedReason ?? 'rate-limited'
-        // Arm the cooldown so neither auto-sync nor a manual force will
-        // touch Health Connect again until the quota has had time to
-        // refill. This is what actually breaks the foreground-retry
-        // loop — without it, the next visibilitychange just re-hammers.
-        writeRateLimitUntil(Date.now() + RATE_LIMIT_BACKOFF_MS)
-        break
+        rateLimited = true
       }
     }
+  }
+  if (rateLimited) {
+    summary.skippedReason = summary.skippedReason ?? 'rate-limited'
+    writeRateLimitUntil(Date.now() + RATE_LIMIT_BACKOFF_MS)
   }
 
   const dedupedSamples = dedupeSamples(allSamples)

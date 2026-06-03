@@ -279,7 +279,14 @@ const HealthSyncPage = ({ user: _user }: Props) => {
             : summary.skippedReason === 'throttled'
               ? '距上次同步不足 30 分钟,自动跳过(手动按钮可强制)'
               : (summary.skippedReason ?? '未知')
-        pushLog(`⚠️ 同步未完成：${reasonText}`)
+        // Even with skippedReason set we may have partial success — the
+        // parallel-read path saves whatever types didn't rate-limit.
+        // Show those counts so the user can see what made it through.
+        const partialNote =
+          summary.upsertedDates.length > 0
+            ? `（部分入库 ${summary.upsertedDates.length} 天${counts ? ' · ' + counts : ''}）`
+            : ''
+        pushLog(`⚠️ 同步未完成：${reasonText}${partialNote}`)
       }
       for (const err of summary.errors) {
         pushLog(`  · ${err}`)

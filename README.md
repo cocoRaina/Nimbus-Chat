@@ -166,7 +166,8 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
   - 血氧 = 算术均值，自动归一化（0.95 / 95 都视作 95%）
 - 跳过空数据天 —— 避免覆盖之前已写入的值
 - **payload 只塞非 null 字段**：Postgres `ON CONFLICT DO UPDATE` 只更新 payload 里出现的列;某次 Health Connect 只返回了步数没返回睡眠时,不会用 null 把之前已存的睡眠/心率覆盖掉
-- 单 type 失败不影响其他 type;遇到 Health Connect 限速（`rate limit`/`quota`/`throttle`/`429`）会直接 break 整个循环,并写一个 **10 分钟限速退避**（`nimbus_health_rate_limit_until_v1`）—— 退避期内**连手动 force 同步都不发请求**(限速期发请求只会重置滑窗、让配额永远回不来)。成功同步后清除退避
+- **5 类并行同步**（`Promise.allSettled`）—— 之前是顺序循环,一个 type 限速就 `break` 整个循环,导致后面的小 type(restingHR / spo2)永远拿不到数据。改并行后每类独立成败,4 类成功 1 类限速也能入库前 4 类
+- 遇到 Health Connect 限速（`rate limit`/`quota`/`throttle`/`429`）会写一个 **10 分钟限速退避**（`nimbus_health_rate_limit_until_v1`）—— 退避期内**连手动 force 同步都不发请求**(限速期发请求只会重置滑窗、让配额永远回不来)。成功同步后清除退避。部分成功 + 部分限速时仍然入库成功的那几类
 - upsert 到 `health_data` 表，`ON CONFLICT (date)`
 
 **触发**：
