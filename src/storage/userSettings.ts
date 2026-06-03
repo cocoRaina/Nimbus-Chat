@@ -94,7 +94,7 @@ export const createDefaultSettings = (userId: string): UserSettings => ({
   compressionEnabled: true,
   compressionTriggerRatio: 0.65,
   compressionKeepRecentMessages: 20,
-  summarizerModel: 'openai/gpt-4o-mini',
+  summarizerModel: 'deepseek/deepseek-chat-v3.1',
   temperature: 0.7,
   topP: 0.9,
   maxTokens: 1024,

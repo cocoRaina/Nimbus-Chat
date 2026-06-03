@@ -2,7 +2,7 @@ import type { ChatMessage } from '../types'
 import { fetchOpenRouter } from '../api/openrouter'
 import { supabase } from '../supabase/client'
 
-const DEFAULT_SUMMARIZER_MODEL = 'openai/gpt-4o-mini'
+const DEFAULT_SUMMARIZER_MODEL = 'deepseek/deepseek-chat-v3.1'
 const DEFAULT_CONTEXT_LIMIT = 128_000
 const MIN_KEEP_RECENT = 4
 const MIN_EXTRA_OLD_FOR_COMPRESSION = 4
