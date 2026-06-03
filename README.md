@@ -106,8 +106,8 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
   - **客户端**:每次成功 chat 后 55min 调度一个 `max_tokens:1` 的 ping。**只在 app 前台活着时有效** —— APK 重装、手机睡眠、后台被杀都会让 JS timer 死掉
   - **服务端**:`cache_keepalive` Edge Function + pg_cron 每 5min 触发。每次成功 chat 时前端把**转好的 Anthropic-native body** + OR key upsert 进 `cache_keepalive_state`;cron 函数扫这张表,对 `last_chat_at` 在 4h 内、且距上次 ping >50min 的用户,直接把 body POST 到 OR `/api/v1/messages` 同 endpoint 同 key shape。**APK 重装/手机睡眠都不影响**。同样 8:00-23:00 时段
   - **诚实说明**:ping 把 `thinking` 字段删了避开 `max_tokens:1` + thinking budget 8000 的冲突,代价是 cache key 不完美匹配 HEAD/BP4 —— BP1 还会命中(系统提示词的前缀和 thinking 无关),所以保活实际是"系统提示词+工具定义永远热,深层对话前缀仍按 1h TTL 自然过期"
-- **对话压缩**:历史超阈值时自动用 summarizer 模型摘要,节省 token
-- 设置可单独选 summarizer 的 provider 和 model(推荐 OR 的免费模型)
+- **对话压缩**:历史超阈值时自动用 summarizer 模型摘要,节省 token。**工具迭代特例**:模型支持工具时阈值自动收紧到 35%(=Claude 上下文 7万 token,默认 65%=13万),因为 Anthropic 服务端在带 tool block 的请求里 walk-up 不命中,~62k 历史每次以 \$15/M 重读 → 提前压缩成 ~20k 上下文,工具迭代成本从 ~\$1.18 降到 ~\$0.06(降 95%)
+- 默认 summarizer = **DeepSeek-V3.1**(`deepseek/deepseek-chat-v3.1`),比 GPT-4o-mini 中文摘要质量更稳,OR 自带 prompt cache 后实际成本更低。设置可单独选 summarizer 的 provider 和 model
 
 ### 🌤️ 天气接入
 - 每天**第一条**用户消息自动附带当前天气（地理位置 + Open-Meteo API，无需 key）
@@ -291,10 +291,10 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
 | 字段 | 默认 | 说明 |
 |------|------|------|
 | 压缩开关 | ✅ 开 | 总开关 |
-| 触发比例 | 0.65 | 历史 token 占上下文窗口比例超过此值时触发压缩 |
+| 触发比例 | 0.65 | 历史 token 占上下文窗口比例超过此值时触发压缩。**模型支持工具时上限自动收紧到 0.35**（=Claude 7万 token），因为带 tool block 的请求 Anthropic 缓存不命中，提前压缩才能避免 ~$1.18/次工具迭代的全价重读 |
 | 保留最近消息数 | 20 | 压缩时保留最近 N 条不动，只摘要更早的 |
 | Summarizer Provider | OpenRouter | 可以让摘要走 OR（便宜模型），聊天走中转 |
-| Summarizer Model | 自动 | 默认 `openai/gpt-4o-mini`，也可从已启用模型里选 |
+| Summarizer Model | `deepseek/deepseek-chat-v3.1` | DeepSeek 中文摘要稳定 + OR 上自带 prompt cache 后比 GPT-4o-mini 更便宜。也可从已启用模型里选 |
 
 ### 📝 系统提示词
 大文本框，填写全局 system prompt。空 = 用模型默认行为。
