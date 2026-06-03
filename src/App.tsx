@@ -1451,6 +1451,16 @@ const App = () => {
               message.content.trim().length > 0 &&
               !message.meta?.streaming,
           )
+          // Tool-aware compression: fire at 35% of context limit (70k for Claude)
+          // instead of the default 65% (130k). Anthropic's cache walk-up silently
+          // fails when tool_use/tool_result blocks follow the user message, so
+          // BP4/HEAD never hit — only BP1 (~15k) reads, the other 62k re-reads at
+          // $15/M every iteration. Compressing before the first tool call cuts the
+          // context to ~20k and drops tool-iteration cost from ~$1.18 to ~$0.06.
+          const toolsEnabledForCompression = isToolCapableModel(effectiveModel) && Boolean(supabase)
+          const effectiveTriggerRatio = toolsEnabledForCompression
+            ? Math.min(activeSettings.compressionTriggerRatio, 0.35)
+            : activeSettings.compressionTriggerRatio
           const compressionOutcome = await compressIfNeeded(
             sessionId,
             sessionMessages,
@@ -1458,7 +1468,7 @@ const App = () => {
             effectiveModel,
             {
               enabled: activeSettings.compressionEnabled,
-              triggerRatio: activeSettings.compressionTriggerRatio,
+              triggerRatio: effectiveTriggerRatio,
               keepRecentMessages: activeSettings.compressionKeepRecentMessages,
               summarizerModel: activeSettings.summarizerModel,
               summarizerProvider: activeSettings.summarizerProvider,
