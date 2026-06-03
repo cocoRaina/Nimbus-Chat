@@ -113,35 +113,37 @@ const READ_SAMPLE_TYPES: HealthDataType[] = [
   'oxygenSaturation',
 ]
 
-// Per-type read budget. Health Connect enforces BOTH a periodic
-// (short-window burst) rate limit AND a daily quota — exceeding either
-// throws RateLimitException. The plugin paginates readRecords with
-// pageSize = min(limit, 500), firing the pages back-to-back with no
-// gap. So a `limit` above 500 turns one type into a 2-3 request *burst*,
-// and five such types fan out to ~9 near-simultaneous reads — exactly
-// what was tripping the limiter. (The diagnostic probe never trips it:
-// one type, no limit → DEFAULT_LIMIT 100 → a single request, seconds
-// apart between manual clicks.)
+// Lesson from a long regression hunt: the ORIGINAL working sync (commit
+// 41a5996) just called Health.readSamples with NO `limit`. The Capgo
+// plugin then uses DEFAULT_LIMIT=100, which means pageSize=100 and
+// exactly ONE Health Connect IPC call per type. Five types → five IPC
+// calls total, far under the rate limiter — and that version worked.
 //
-// Fix: keep every readSamples type at limit <= 500 so each is exactly
-// ONE request (one page), and read them sequentially with a gap between
-// types (see the sync loop). Averages (HR, SpO2) tolerate "newest 500
-// samples" fine — they're returned newest-first so today is always
-// covered. Sparse sources (sleep sessions, resting HR) need only tiny
-// caps.
-const PER_TYPE_OPTS: Record<HealthDataType, { limit: number; windowHours: number }> = {
-  sleep: { limit: 50, windowHours: 48 },
-  heartRate: { limit: 500, windowHours: 36 },
-  restingHeartRate: { limit: 30, windowHours: 72 },
-  oxygenSaturation: { limit: 300, windowHours: 48 },
-} as Record<HealthDataType, { limit: number; windowHours: number }>
+// A later "fix" added `limit: 1500` to try to land "a whole day's
+// records", not noticing the plugin paginates pageSize=500 and fires
+// pages back-to-back with no gap. That turned each high-cap type into
+// a 3-IPC burst → 5 types → ~9 near-simultaneous reads → tripping
+// Health Connect's periodic QPS limiter on every sync. Every "fix"
+// since then was treating the symptom of a regression introduced by
+// the cap itself.
+//
+// So: drop the cap. Averages over the newest ~100 samples are fine
+// (newest-first ordering means today is covered). Sleep sessions and
+// resting HR are sparse anyway. For the one type that genuinely needs
+// a full-day TOTAL (steps), we use queryAggregated, which doesn't
+// paginate over records at all.
+const PER_TYPE_WINDOW_HOURS: Record<HealthDataType, number> = {
+  sleep: 48,
+  heartRate: 36,
+  restingHeartRate: 72,
+  oxygenSaturation: 48,
+} as Record<HealthDataType, number>
 
-// Gap between sequential Health Connect reads. Bumped from 300ms to
-// 800ms after the 300ms-version still tripped the rate limiter on a
-// real device. The periodic limit is QPS-style and apparently tighter
-// than we'd estimated. 5 reads × 800ms ≈ 4s total, still tolerable for
-// a background sync.
-const READ_GAP_MS = 800
+// Light gap between the steps aggregate call and the readSamples calls.
+// 100ms is enough to keep the IPC calls from being literally back-to-
+// back; we're not at the burst limit any more (5 IPC total) so this is
+// belt-and-suspenders for paranoid devices, not load-bearing.
+const READ_GAP_MS = 100
 
 // Deduplicate samples before aggregating. Capgo's plugin + Health
 // Sync occasionally surface the same physical record twice (same
@@ -395,16 +397,18 @@ export const syncHealthDataToSupabase = async (
   for (const dataType of READ_SAMPLE_TYPES) {
     if (!firstRead) await sleepMs(READ_GAP_MS)
     firstRead = false
-    const opt = PER_TYPE_OPTS[dataType]
-    const windowHours = opts.windowDays ? opts.windowDays * 24 : opt?.windowHours ?? 48
-    const limit = opt?.limit ?? 500
+    const windowHours = opts.windowDays
+      ? opts.windowDays * 24
+      : PER_TYPE_WINDOW_HOURS[dataType] ?? 48
     const startDate = new Date(endDate.getTime() - windowHours * 3600 * 1000)
     try {
+      // No `limit` — Capgo's DEFAULT_LIMIT=100 keeps each call to a
+      // single Health Connect IPC. See the comment on PER_TYPE_WINDOW_HOURS
+      // above for why this is the right shape.
       const res = await Health.readSamples({
         dataType,
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
-        limit,
       })
       summary.perType[dataType] = res.samples.length
       allSamples.push(...res.samples)
