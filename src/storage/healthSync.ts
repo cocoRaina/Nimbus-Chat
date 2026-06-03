@@ -102,35 +102,46 @@ const sampleDurationMinutes = (s: HealthSample): number => {
   return (end - start) / 60000
 }
 
-const SYNC_TYPES: HealthDataType[] = [
-  'steps',
+// Types read via readSamples (raw record list). Steps is handled
+// separately through the aggregate API — see syncHealthDataToSupabase —
+// because a daily step *total* must not be truncated by a record limit
+// the way an average can tolerate it.
+const READ_SAMPLE_TYPES: HealthDataType[] = [
   'sleep',
   'heartRate',
   'restingHeartRate',
   'oxygenSaturation',
 ]
 
-// Per-type read budget. Capgo's plugin defaults to 100 records per
-// page and keeps paginating until it has them all. For high-frequency
-// sources like heart rate or steps (华为 Health Sync emits one record
-// per minute) a 48h window with no limit fans out to dozens of Health
-// Connect requests and trips the "rate limit" guard.
+// Per-type read budget. Health Connect enforces BOTH a periodic
+// (short-window burst) rate limit AND a daily quota — exceeding either
+// throws RateLimitException. The plugin paginates readRecords with
+// pageSize = min(limit, 500), firing the pages back-to-back with no
+// gap. So a `limit` above 500 turns one type into a 2-3 request *burst*,
+// and five such types fan out to ~9 near-simultaneous reads — exactly
+// what was tripping the limiter. (The diagnostic probe never trips it:
+// one type, no limit → DEFAULT_LIMIT 100 → a single request, seconds
+// apart between manual clicks.)
 //
-// We still need *enough* records to cover a full local day, since the
-// plugin returns rows newest-first — too small and the early-morning
-// hours fall off the bottom of the page. ~1500 covers 24h at one
-// sample per minute with a safety buffer. The plugin caps pageSize at
-// 500, so 1500 means three paginated requests; well below Health
-// Connect's burst budget (~2000 reads / 5min for foreground apps).
-//
-// Sparse sources (sleep sessions, resting HR) keep tiny caps.
+// Fix: keep every readSamples type at limit <= 500 so each is exactly
+// ONE request (one page), and read them sequentially with a gap between
+// types (see the sync loop). Averages (HR, SpO2) tolerate "newest 500
+// samples" fine — they're returned newest-first so today is always
+// covered. Sparse sources (sleep sessions, resting HR) need only tiny
+// caps.
 const PER_TYPE_OPTS: Record<HealthDataType, { limit: number; windowHours: number }> = {
-  steps: { limit: 1500, windowHours: 48 },
   sleep: { limit: 50, windowHours: 48 },
-  heartRate: { limit: 1500, windowHours: 24 },
+  heartRate: { limit: 500, windowHours: 36 },
   restingHeartRate: { limit: 30, windowHours: 72 },
-  oxygenSaturation: { limit: 500, windowHours: 48 },
+  oxygenSaturation: { limit: 300, windowHours: 48 },
 } as Record<HealthDataType, { limit: number; windowHours: number }>
+
+// Gap between sequential Health Connect reads. The periodic rate limit
+// is QPS-style, so spacing a handful of single-page reads across ~1.5s
+// keeps us comfortably under it. 300ms × ~5 reads ≈ 1.5s total — barely
+// noticeable to the user, and the difference between "all 6 metrics
+// sync" and "RateLimitException after the second one".
+const READ_GAP_MS = 300
 
 // Deduplicate samples before aggregating. Capgo's plugin + Health
 // Sync occasionally surface the same physical record twice (same
@@ -330,57 +341,81 @@ export const syncHealthDataToSupabase = async (
 
   const endDate = new Date()
   const allSamples: HealthSample[] = []
-  // Parallel reads. Sequential was killing the sync — one type's
-  // rate-limit (typically `steps` or `heartRate` because of pagination)
-  // would `break` the entire loop, leaving the small types
-  // (restingHR, oxygen, even `sleep` if HR came first) unread. With
-  // Promise.allSettled each type's failure is isolated:
-  //  - if 4 types succeed and 1 hits rate-limit, we still get the 4
-  //  - the 1 that failed arms the global backoff so we don't retry
-  //    immediately, but the other 4 are already written
-  // Health Connect's per-app burst budget (~50 reads / 5 min for
-  // foreground apps) easily accommodates 5 simultaneous readSamples
-  // calls even when each one paginates internally — the previous
-  // 250ms-between-types pause was cargo-culted overcaution and can go.
   let rateLimited = false
-  const results = await Promise.allSettled(
-    SYNC_TYPES.map(async (dataType) => {
-      const opt = PER_TYPE_OPTS[dataType]
-      const windowHours = opts.windowDays
-        ? opts.windowDays * 24
-        : opt?.windowHours ?? 48
-      const limit = opt?.limit ?? 500
-      const startDate = new Date(endDate.getTime() - windowHours * 3600 * 1000)
+  const isRateLimitErr = (msg: string) => /rate.?limit|quota|throttl|too many|429/i.test(msg)
+
+  // Sequential reads with a gap between each — NOT parallel. Health
+  // Connect's periodic rate limit is QPS-style, so a simultaneous burst
+  // is the worst case; spacing single-page reads across ~1.5s is what
+  // keeps us under it. We DON'T break the loop on a rate-limit error any
+  // more: each type is one isolated request, so a later type may well
+  // succeed after the inter-read gap. We just note it and arm the
+  // backoff so the *next* whole sync waits.
+  const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  let firstRead = true
+
+  // Steps via the aggregate API. A daily step count is a SUM, so a
+  // record limit that truncates the list would silently undercount —
+  // unlike an average. queryAggregated returns one exact total per
+  // calendar-day bucket in a single lightweight call per bucket, with
+  // no pagination over thousands of minute-level records. Anchor the
+  // window to LOCAL midnight so the plugin's fixed-24h buckets line up
+  // with calendar days (an unaligned start would split one day's steps
+  // across two buckets).
+  const stepsByDay: Record<string, number> = {}
+  {
+    const daysBack = Math.max(1, opts.windowDays ?? 2)
+    const midnightToday = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate())
+    const stepsStart = new Date(midnightToday.getTime() - (daysBack - 1) * 24 * 3600 * 1000)
+    try {
+      const agg = await Health.queryAggregated({
+        dataType: 'steps',
+        startDate: stepsStart.toISOString(),
+        endDate: endDate.toISOString(),
+        bucket: 'day',
+        aggregation: 'sum',
+      })
+      let stepDays = 0
+      for (const s of agg.samples) {
+        const day = isoToLocalDate(s.startDate)
+        if (!day) continue
+        stepsByDay[day] = (stepsByDay[day] ?? 0) + s.value
+        stepDays += 1
+      }
+      summary.perType.steps = stepDays
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      summary.errors.push(`steps: ${errMsg}`)
+      summary.perType.steps = 0
+      if (isRateLimitErr(errMsg)) rateLimited = true
+    }
+    firstRead = false
+  }
+
+  for (const dataType of READ_SAMPLE_TYPES) {
+    if (!firstRead) await sleepMs(READ_GAP_MS)
+    firstRead = false
+    const opt = PER_TYPE_OPTS[dataType]
+    const windowHours = opts.windowDays ? opts.windowDays * 24 : opt?.windowHours ?? 48
+    const limit = opt?.limit ?? 500
+    const startDate = new Date(endDate.getTime() - windowHours * 3600 * 1000)
+    try {
       const res = await Health.readSamples({
         dataType,
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         limit,
       })
-      return { dataType, samples: res.samples }
-    }),
-  )
-  for (let i = 0; i < results.length; i += 1) {
-    const dataType = SYNC_TYPES[i]
-    const result = results[i]
-    if (result.status === 'fulfilled') {
-      summary.perType[dataType] = result.value.samples.length
-      allSamples.push(...result.value.samples)
-    } else {
-      const errMsg =
-        result.reason instanceof Error ? result.reason.message : String(result.reason)
+      summary.perType[dataType] = res.samples.length
+      allSamples.push(...res.samples)
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
       summary.errors.push(`${dataType}: ${errMsg}`)
       summary.perType[dataType] = 0
-      // Match a generous set of phrasings the plugin / Health Connect
-      // have used for rate-limit / quota / throttle / 429. If we arm
-      // the backoff, subsequent syncs (auto AND manual force) skip
-      // until the cooldown ends — which is what actually lets the
-      // rolling quota window refill.
-      if (/rate.?limit|quota|throttl|too many|429/i.test(errMsg)) {
-        rateLimited = true
-      }
+      if (isRateLimitErr(errMsg)) rateLimited = true
     }
   }
+
   if (rateLimited) {
     summary.skippedReason = summary.skippedReason ?? 'rate-limited'
     writeRateLimitUntil(Date.now() + RATE_LIMIT_BACKOFF_MS)
@@ -388,6 +423,16 @@ export const syncHealthDataToSupabase = async (
 
   const dedupedSamples = dedupeSamples(allSamples)
   const byDay = aggregateSamples(dedupedSamples)
+  // Overlay the aggregate step totals onto the per-day rows. readSamples
+  // no longer fetches steps, so aggregateSamples leaves steps null —
+  // this is the single source of truth for the daily count.
+  for (const [day, total] of Object.entries(stepsByDay)) {
+    if (total <= 0) continue
+    if (!byDay[day]) {
+      byDay[day] = { date: day }
+    }
+    byDay[day].steps = Math.round(total)
+  }
   summary.scannedDays = Object.keys(byDay).sort()
 
   if (!supabase) {

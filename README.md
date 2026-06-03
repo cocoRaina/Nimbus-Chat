@@ -157,17 +157,18 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
 **前端用 `@capgo/capacitor-health` v8 plugin**（仅 APK），声明的权限：steps / sleep / heartRate / restingHeartRate / distance / totalCalories / oxygenSaturation，全部 read-only，不会写回。
 
 **同步规则**（`src/storage/healthSync.ts`）：
-- 拉最近 3 天的样本（覆盖跨夜 / 同步延迟）
+- **步数走聚合 API**（`queryAggregated` sum + day bucket，锚定本地午夜）—— 日步数是「总和」,被 record limit 截断就会少算(均值类截断只是偏向近期、可接受,总和不行)。聚合一次返回每个日历日的精确总和,不分页翻几千条分钟级记录
+- 其余 4 类走 `readSamples`,**每类 limit ≤ 500 = 恰好一页 = 一个请求**:睡眠 50 / 心率 500(36h)/ 静息心率 30 / 血氧 300
+- **串行 + 每个请求间隔 300ms**(不是并行!)—— Health Connect 的周期性速率限制是 QPS 式的,同时炸出去一串请求是最差情况;5-6 个单页请求摊到 ~1.5s 就稳稳低于阈值。诊断工具单次单类型能读、同步炸,根因就是同步把 9 个请求(steps×3 页 + HR×3 页 + ...)挤在一起爆发
 - 按本地日期聚合：
-  - 步数 = 累加 (按 startDate)
+  - 步数 = 聚合 API 日总和
   - 睡眠 = 累加段时长 → 小时 (按 endDate, 跳过 awake/inBed)
-  - 心率 = 算术均值
+  - 心率 = 算术均值 / max / min（取最新 500 条样本算，今天必覆盖）
   - 静息心率 = 当天最后一条
   - 血氧 = 算术均值，自动归一化（0.95 / 95 都视作 95%）
 - 跳过空数据天 —— 避免覆盖之前已写入的值
 - **payload 只塞非 null 字段**：Postgres `ON CONFLICT DO UPDATE` 只更新 payload 里出现的列;某次 Health Connect 只返回了步数没返回睡眠时,不会用 null 把之前已存的睡眠/心率覆盖掉
-- **5 类并行同步**（`Promise.allSettled`）—— 之前是顺序循环,一个 type 限速就 `break` 整个循环,导致后面的小 type(restingHR / spo2)永远拿不到数据。改并行后每类独立成败,4 类成功 1 类限速也能入库前 4 类
-- 遇到 Health Connect 限速（`rate limit`/`quota`/`throttle`/`429`）会写一个 **10 分钟限速退避**（`nimbus_health_rate_limit_until_v1`）—— 退避期内**连手动 force 同步都不发请求**(限速期发请求只会重置滑窗、让配额永远回不来)。成功同步后清除退避。部分成功 + 部分限速时仍然入库成功的那几类
+- 单类型失败不影响其他类型(各自 try/catch,**不再 break**,因为请求已拉开间隔、后面的类型大概率能成);遇到 Health Connect 限速（`rate limit`/`quota`/`throttle`/`429`）会写一个 **10 分钟限速退避**（`nimbus_health_rate_limit_until_v1`）—— 退避期内**连手动 force 同步都不发请求**(限速期发请求只会重置滑窗、让配额永远回不来)。成功同步后清除退避。部分成功 + 部分限速时仍然入库成功的那几类
 - upsert 到 `health_data` 表，`ON CONFLICT (date)`
 
 **触发**：
@@ -538,6 +539,7 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 
 | 症状 | 触发条件 | 修法 |
 |---|---|---|
+| 诊断工具单类型能读、整体同步却一直限速(只有睡眠或步数能上) | 同步把 5 类一起读,且 steps/HR 的 `limit:1500` 触发 capgo 插件分页(pageSize 500 → 每类 3 个背靠背请求) → 合计 ~9 个请求挤在一两秒内爆发,撞 Health Connect **周期性(QPS式)速率限制**。诊断只点一个类型、无 limit→默认 100→单请求、手动点击间隔几秒,所以从不触发 | ① steps 改聚合 API(`queryAggregated` sum/day,精确日总和不分页);② 其余 4 类 limit≤500=单页单请求;③ **串行 + 每请求间隔 300ms**(替换掉一度尝试的 `Promise.allSettled` 并行 —— 并行炸串请求对 QPS 限制是最差解);④ 不再 break,各类型 try/catch 续跑 |
 | 心率显示 `62-62（单次）`，实际有上百条样本 | `dedupeSamples` 只按 `platformId` 去重，Health Connect 心率系列里几百个样本共享 parent record 的 metadata.id | dedupe key 加上 `startDate + value`（`storage/healthSync.ts`）|
 | 经期组件总是显示「经期中」 | `period_tracking` 排序只按 `start_date DESC`，相同日期排序不稳定，老 row 还在；且 `end_date is null` 时 phase 默认是「经期中」 | 排序加 `created_at DESC` tiebreaker；phase 改 7 天 fallback（`isInPeriod = end_date ? today <= end : daysSinceStart < 7`）|
 | 屏幕时间显示 `com.tencent.mm` 而不是「微信」 | Android 11+ package visibility 限制，`PackageManager.getApplicationLabel` 拿不到他 app 信息 | `AndroidManifest.xml` 加 `QUERY_ALL_PACKAGES` + `tools:ignore` |
