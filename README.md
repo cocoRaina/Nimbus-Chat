@@ -102,9 +102,10 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
   - **HEAD**:最新一条 user message —— 写入新缓存
   - **工具迭代特例**:请求里最后一条 user message 之后有 `tool_use`/`tool_result` 时,**只标 BP1,不标 HEAD/BP4**(避免写入 ~77k token 的新缓存 —— Anthropic 后端在带 tool block 的请求里 walk-up 不稳定,写了也没人读,2x 写入价等于纯烧钱)
 - **`metadata.user_id` 后端粘性**:`anthropic.ts` 把用户 ID 塞到 Anthropic 原生 `metadata.user_id`,Anthropic 用它做后端节点路由 —— 同用户的请求落到同一节点,缓存读写在同一处
-- **Keepalive ping**(双层):
-  - **客户端**:每次成功 chat 后 55min 调度一个 `max_tokens:1` 的 ping。**只在 app 前台活着时有效** —— APK 重装、手机睡眠、后台被杀都会让 JS timer 死掉
-  - **服务端**:`cache_keepalive` Edge Function + pg_cron 每 5min 触发。每次成功 chat 时前端把**转好的 Anthropic-native body** + OR key upsert 进 `cache_keepalive_state`;cron 函数扫这张表,对 `last_chat_at` 在 4h 内、且距上次 ping >50min 的用户,直接把 body POST 到 OR `/api/v1/messages` 同 endpoint 同 key shape。**APK 重装/手机睡眠都不影响**。同样 8:00-23:00 时段
+- **Keepalive ping**(三层):
+  - **客户端定时**:每次成功 chat 后 55min 调度一个 `max_tokens:1` 的 ping。**只在 app 前台活着时有效** —— APK 重装、手机睡眠、后台被杀都会让 JS timer 死掉
+  - **客户端 pre-warm**(进聊天页触发):进入 `/chat/:id` 时,如果距上次保活 ping >50min,**立即**发一个 ping。覆盖"打开 app 就开聊"这类场景 —— APK 杀了之后 JS timer 死了,直接靠这条触发,把缓存预热到用户按下发送之前
+  - **服务端 cron**:`cache_keepalive` Edge Function + pg_cron **每 5min 触发,24/7 全天**(早期版本只跑 8:00-23:00,夜里冷过期导致早晨第一条消息 ~\$0.21 冷写,后来拆掉了)。每次成功 chat 时前端把**转好的 Anthropic-native body** + OR key upsert 进 `cache_keepalive_state`;cron 函数扫这张表,对 `last_chat_at` 在 4h 内、且距上次 ping >50min 的用户,直接把 body POST 到 OR `/api/v1/messages` 同 endpoint 同 key shape。**APK 重装/手机睡眠/凌晨都不影响**
   - **诚实说明**:ping 把 `thinking` 字段删了避开 `max_tokens:1` + thinking budget 8000 的冲突,代价是 cache key 不完美匹配 HEAD/BP4 —— BP1 还会命中(系统提示词的前缀和 thinking 无关),所以保活实际是"系统提示词+工具定义永远热,深层对话前缀仍按 1h TTL 自然过期"
 - **对话压缩**:历史超阈值时自动用 summarizer 模型摘要,节省 token。**工具迭代特例**:模型支持工具时阈值自动收紧到 35%(=Claude 上下文 7万 token,默认 65%=13万),因为 Anthropic 服务端在带 tool block 的请求里 walk-up 不命中,~62k 历史每次以 \$15/M 重读 → 提前压缩成 ~20k 上下文,工具迭代成本从 ~\$1.18 降到 ~\$0.06(降 95%)
 - 默认 summarizer = **DeepSeek-V3.1**(`deepseek/deepseek-chat-v3.1`),比 GPT-4o-mini 中文摘要质量更稳,OR 自带 prompt cache 后实际成本更低。设置可单独选 summarizer 的 provider 和 model

@@ -401,6 +401,11 @@ const App = () => {
   const keepaliveTimerRef = useRef<number | null>(null)
   const keepaliveBodyRef = useRef<Record<string, unknown> | null>(null)
   const keepaliveControllerRef = useRef<AbortController | null>(null)
+  // Tracks when we last successfully fired a keepalive ping (timer-driven
+  // or pre-warm). prewarmKeepaliveIfStale uses this to decide whether to
+  // pre-warm on chat-page entry — avoids hammering when the timer has
+  // recently fired or pre-warm has already run.
+  const keepaliveLastPingedAtRef = useRef<number>(0)
   const settingsRef = useRef<UserSettings | null>(null)
   const fallbackSettings = useMemo(
     () => createDefaultSettings(user?.id ?? 'local'),
@@ -980,74 +985,98 @@ const App = () => {
   // stay cheap, which changes the cache key for HEAD/BP4); the
   // server-side cron at supabase/functions/cache_keepalive covers the
   // case where the app is killed/backgrounded.
+  //
+  // No quiet hours — an earlier version skipped 23:00-08:00 to "save"
+  // pings, but a cold-write next morning ran ~$0.21 on a 57k prompt,
+  // dwarfing the ~$0.05 of ping cost across the gap. ChatPage also
+  // calls prewarmKeepaliveIfStale below on navigation, which catches
+  // the case where the timer dropped (background kill, refresh, etc).
+  //
+  // Ping shape rules (mirrored on the server-side cache_keepalive edge
+  // function):
+  //   1. max_tokens: 1 — Anthropic min. 0 → 400; the adapter fallback
+  //      then bumps to 4096 and the "cheap" ping turns into a full
+  //      generation.
+  //   2. keep tools / system / messages / model — they're part of the
+  //      cache prefix key. Removing them moves the ping onto a different
+  //      cache entry.
+  //   3. drop reasoning — extended thinking forces max_tokens up to
+  //      budget+1024 (~9024) and Claude actually thinks during the
+  //      ping, billing 8000+ thinking tokens. The trade-off: dropping
+  //      reasoning changes the request shape so the ping doesn't match
+  //      HEAD/BP4's chat cache key. BP1 (system+tools) still hits
+  //      because its prefix doesn't depend on thinking config — that
+  //      gives the "system always warm" benefit. HEAD/BP4 naturally
+  //      expire at 1h if the user is silent >1h.
+  //   4. drop tool_choice + usage — OpenAI-shape leftovers that don't
+  //      survive the anthropic.ts adapter conversion anyway.
+  const firePingNow = useCallback(() => {
+    const snapshot = keepaliveBodyRef.current
+    if (!snapshot) return
+    const pingBody: Record<string, unknown> = {
+      ...snapshot,
+      max_tokens: 1,
+      stream: false,
+    }
+    delete pingBody.reasoning
+    delete pingBody.tool_choice
+    delete pingBody.usage
+    const controller = new AbortController()
+    keepaliveControllerRef.current?.abort()
+    keepaliveControllerRef.current = controller
+    void fetchOpenRouter('/chat/completions', { body: pingBody, signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) {
+          console.warn('keepalive non-2xx', response.status)
+          return
+        }
+        keepaliveLastPingedAtRef.current = Date.now()
+        scheduleKeepaliveRef.current?.()
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        console.warn('keepalive failed', err)
+      })
+  }, [])
+
+  // Indirect to break the scheduleKeepalive → firePingNow → schedule
+  // cycle. The ref is wired up right after the function declarations.
+  const scheduleKeepaliveRef = useRef<(() => void) | null>(null)
+
   const scheduleKeepalive = useCallback(() => {
     if (keepaliveTimerRef.current !== null) {
       window.clearTimeout(keepaliveTimerRef.current)
       keepaliveTimerRef.current = null
     }
     if (!keepaliveBodyRef.current) return
-    // Only ping during waking hours (8:00 - 23:00). At night the cache can
-    // expire — first message next morning pays one-time recompute (~$0.10),
-    // cheaper than 8 hours of useless pings (~$0.10 too, but also wasteful).
-    const ACTIVE_HOUR_START = 8
-    const ACTIVE_HOUR_END = 23
     const KEEPALIVE_DELAY_MS = 55 * 60 * 1000
-    const now = new Date()
-    const fireAt = new Date(now.getTime() + KEEPALIVE_DELAY_MS)
-    const fireHour = fireAt.getHours()
-    if (fireHour < ACTIVE_HOUR_START || fireHour >= ACTIVE_HOUR_END) {
-      // Skip — the next ping window starts tomorrow at 8am, way past 1h TTL.
-      return
-    }
     keepaliveTimerRef.current = window.setTimeout(() => {
       keepaliveTimerRef.current = null
-      const snapshot = keepaliveBodyRef.current
-      if (!snapshot) return
-      // Ping shape rules — copied here because the server-side
-      // cache_keepalive edge function applies the same set:
-      //   1. max_tokens: 1 — Anthropic min (0 400s, the adapter
-      //      fallback then bumps to 4096 and the "cheap" ping turns
-      //      into a full generation).
-      //   2. keep tools / system / messages / model — they're part of
-      //      the cache prefix key, removing them moves the ping onto
-      //      a different cache.
-      //   3. drop reasoning — extended thinking forces max_tokens up
-      //      to budget+1024 (~9024) and Claude actually thinks during
-      //      the ping, billing 8000+ thinking tokens. The trade-off:
-      //      dropping reasoning changes the request shape so the ping
-      //      doesn't perfectly match HEAD/BP4's chat cache key. In
-      //      practice BP1 (system+tools cache_control on the system
-      //      block) still hits since its prefix doesn't depend on
-      //      thinking config, which gives the "system always warm"
-      //      benefit. HEAD/BP4 still naturally expire at 1h if the
-      //      user goes >1h without chatting.
-      //   4. drop tool_choice + usage — OpenAI-shape leftovers that
-      //      don't survive the anthropic.ts adapter conversion anyway.
-      const pingBody: Record<string, unknown> = {
-        ...snapshot,
-        max_tokens: 1,
-        stream: false,
-      }
-      delete pingBody.reasoning
-      delete pingBody.tool_choice
-      delete pingBody.usage
-      const controller = new AbortController()
-      keepaliveControllerRef.current?.abort()
-      keepaliveControllerRef.current = controller
-      void fetchOpenRouter('/chat/completions', { body: pingBody, signal: controller.signal })
-        .then((response) => {
-          if (!response.ok) {
-            console.warn('keepalive non-2xx', response.status)
-            return
-          }
-          scheduleKeepalive()
-        })
-        .catch((err) => {
-          if (err instanceof DOMException && err.name === 'AbortError') return
-          console.warn('keepalive failed', err)
-        })
+      firePingNow()
     }, KEEPALIVE_DELAY_MS)
-  }, [])
+  }, [firePingNow])
+
+  // Wire the ref so firePingNow can call back into scheduleKeepalive
+  // without forming a real circular dependency in the useCallback graph.
+  scheduleKeepaliveRef.current = scheduleKeepalive
+
+  // Pre-warm hook: called by ChatPage when the user navigates into a
+  // chat. If we already have a body to ping and our last ping was more
+  // than PREWARM_STALE_MS ago, fire one immediately so the cache is
+  // fresh by the time they hit send. Cheap (~$0.005 if BP1 still warm,
+  // at worst $0.21 if cache is fully cold — but we'd have paid that
+  // $0.21 on the user's first message either way, this just shifts it
+  // a few seconds earlier so the user doesn't see latency on send).
+  // Cheap-no-op when there's no body cached (e.g. fresh app start
+  // before any chat), or when the last ping is recent.
+  const prewarmKeepaliveIfStale = useCallback(() => {
+    if (!keepaliveBodyRef.current) return
+    if (keepaliveControllerRef.current) return // one already in flight
+    const PREWARM_STALE_MS = 50 * 60 * 1000
+    const lastPing = keepaliveLastPingedAtRef.current
+    if (lastPing > 0 && Date.now() - lastPing < PREWARM_STALE_MS) return
+    firePingNow()
+  }, [firePingNow])
 
   const cancelKeepalive = useCallback(() => {
     if (keepaliveTimerRef.current !== null) {
@@ -2298,6 +2327,10 @@ TOOL_SEARCH_HANDOFF,
             getActiveProvider() === 'openrouter'
           ) {
             keepaliveBodyRef.current = lastSentBody
+            // A successful chat IS a cache refresh — mark it so the
+            // pre-warm path on chat-page entry knows the cache is hot
+            // and skips the redundant ping.
+            keepaliveLastPingedAtRef.current = Date.now()
             scheduleKeepalive()
             // Server-side mirror: the client timer above dies the moment the
             // app is killed / backgrounded too long (mobile JS limitation),
@@ -2873,6 +2906,7 @@ TOOL_SEARCH_HANDOFF,
                 onArchiveSession={handleSessionArchiveStateChange}
                 onActiveSessionChange={setActiveChatSessionId}
                 onManualCompress={handleManualCompress}
+                onChatPageEnter={prewarmKeepaliveIfStale}
                 user={user}
               />
             </RequireAuth>
@@ -3063,6 +3097,7 @@ const ChatRoute = ({
   onArchiveSession,
   onActiveSessionChange,
   onManualCompress,
+  onChatPageEnter,
   user,
 }: {
   sessions: ChatSession[]
@@ -3094,6 +3129,7 @@ const ChatRoute = ({
   onArchiveSession: (sessionId: string, isArchived: boolean) => Promise<void>
   onActiveSessionChange: (sessionId: string) => void
   onManualCompress: (sessionId: string) => Promise<{ ok: boolean; message: string }>
+  onChatPageEnter: () => void
   user: User | null
 }) => {
   const { sessionId } = useParams()
@@ -3106,6 +3142,15 @@ const ChatRoute = ({
       onActiveSessionChange(activeSession.id)
     }
   }, [activeSession, onActiveSessionChange])
+
+  // Fire a pre-warm keepalive ping the moment the user arrives at a
+  // chat. If the last ping was stale (>50min) this refreshes the cache
+  // while they're still typing, so the actual send below doesn't pay
+  // the cold-write penalty. Runs on first mount and on every session
+  // switch — both are real "user about to chat" moments.
+  useEffect(() => {
+    if (sessionId) onChatPageEnter()
+  }, [sessionId, onChatPageEnter])
   const activeMessages = useMemo(() => {
     return messages
       .filter((message) => message.sessionId === sessionId)

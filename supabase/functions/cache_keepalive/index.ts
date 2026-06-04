@@ -1,19 +1,21 @@
 // Server-side cache keepalive — refreshes the Anthropic prompt cache for
-// users who were recently active. Called by pg_cron every 5min during
-// 08:00–23:00 Asia/Shanghai. Per-user gating + 50min ping cooldown.
+// users who were recently active. Called by pg_cron every 5min, 24/7.
+// Per-user gating + 50min ping cooldown.
 //
 // Why this exists: the client-side keepalive timer (App.tsx) dies when
 // the app is killed/backgrounded on mobile. Without this, any >1h gap
 // between chats incurs a fresh cache write (~$2.64 per write on the
 // user's typical 88K-token prompt). With this, a single ~$0.13 read
 // keeps it alive instead. See README "💰 成本优化" for the full story.
+//
+// No quiet hours — an earlier version gated this to 08:00–23:00 to skip
+// "useless" night pings. But the 4h ACTIVE_WINDOW_MS already stops pings
+// once a user goes idle, so removing the hour gate doesn't pay for the
+// dead-of-night case; it pays for the user-who-chats-at-1am case, where
+// the previous gate was costing a cold-write per session.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
-// Asia/Shanghai is UTC+8 with no DST.
-const SHANGHAI_OFFSET_HOURS = 8
-const WINDOW_START_HOUR = 8
-const WINDOW_END_HOUR = 23
 // How long after a user's last successful chat we keep pinging. Set to
 // 4h — captures the "I'll be back in a couple hours" pattern but stops
 // burning pings on users who've truly gone idle.
@@ -34,16 +36,6 @@ type KeepaliveRow = {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { status: 200 })
-  }
-
-  // Window gate. Shanghai hour from UTC.
-  const now = new Date()
-  const shanghaiHour = (now.getUTCHours() + SHANGHAI_OFFSET_HOURS) % 24
-  if (shanghaiHour < WINDOW_START_HOUR || shanghaiHour >= WINDOW_END_HOUR) {
-    return new Response(
-      JSON.stringify({ skipped: 'outside_window', shanghai_hour: shanghaiHour }),
-      { headers: { 'Content-Type': 'application/json' } },
-    )
   }
 
   const supabase = createClient(
@@ -174,7 +166,6 @@ Deno.serve(async (req) => {
 
   return new Response(
     JSON.stringify({
-      shanghai_hour: shanghaiHour,
       total: rows.length,
       pinged,
       cooled,
