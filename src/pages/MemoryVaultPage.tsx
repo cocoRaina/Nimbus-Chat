@@ -188,11 +188,16 @@ const MemoriesTab = ({
 
   const handleDismissEntry = async (id: number) => {
     if (!supabase) return
+    // Hard delete — there's no recycle-bin UI for ignored memory_entries,
+    // and "忽略" intuitively reads as "I don't want this saved anywhere".
+    // The previous soft-delete (is_deleted=true) just accumulated invisible
+    // rows in the DB forever, which is bad for privacy on auto-extracted
+    // candidates that may surface stray details. Pre-existing soft-deleted
+    // rows are cleaned up by the keepalive_memory_entries_hard_delete
+    // migration; the is_deleted column itself is left in place as a
+    // no-op defensive filter on read paths.
     try {
-      await supabase
-        .from('memory_entries')
-        .update({ is_deleted: true, updated_at: new Date().toISOString() })
-        .eq('id', id)
+      await supabase.from('memory_entries').delete().eq('id', id)
       await refreshPending()
     } catch (e) {
       console.warn('忽略记忆失败', e)
