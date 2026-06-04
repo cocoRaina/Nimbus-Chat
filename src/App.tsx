@@ -2315,17 +2315,20 @@ TOOL_SEARCH_HANDOFF,
           // leaving the title at "新会话" so the NEXT chat fired it again.
           // Net effect was multiple cold-write Opus calls per test session.
 
-          // If this request was cached (Claude on OpenRouter), stash the body
-          // and schedule a keepalive ping ~55min out to refresh the 1h cache.
-          // Eligibility used to gate on top-level lastSentBody.cache_control,
-          // but we moved breakpoints inline to message blocks to fix the
-          // tool-iteration cache miss — so check the canonical condition
-          // directly instead of looking for the marker field.
-          if (
-            lastSentBody &&
-            isClaudeModel(effectiveModel) &&
-            getActiveProvider() === 'openrouter'
-          ) {
+          // If this request was cached (any Claude path — OR or 中转站),
+          // stash the body and schedule a keepalive ping ~55min out to refresh
+          // the 1h cache. Eligibility used to gate on top-level
+          // lastSentBody.cache_control, but we moved breakpoints inline to
+          // message blocks to fix the tool-iteration cache miss — so check the
+          // canonical condition directly instead of looking for the marker.
+          //
+          // Was OR-only before; that left 中转站 users (the most common cost-
+          // sensitive path) without any server-side keepalive at all,
+          // resulting in $0.21 cold writes on the first message after >1h
+          // gaps. Now we route per-provider via the routing config the chat
+          // itself used.
+          const activeProvider = getActiveProvider()
+          if (lastSentBody && isClaudeModel(effectiveModel)) {
             keepaliveBodyRef.current = lastSentBody
             // A successful chat IS a cache refresh — mark it so the
             // pre-warm path on chat-page entry knows the cache is hot
@@ -2333,51 +2336,50 @@ TOOL_SEARCH_HANDOFF,
             keepaliveLastPingedAtRef.current = Date.now()
             scheduleKeepalive()
             // Server-side mirror: the client timer above dies the moment the
-            // app is killed / backgrounded too long (mobile JS limitation),
-            // and the previous chat row showed exactly that — an APK update
-            // plus a 3h gap incurred a cold cache write. Mirror the same body
-            // + this user's OR key into cache_keepalive_state so the
-            // cache_keepalive Edge Function (pg_cron every 5min) can keep
-            // the cache warm from the server side, surviving APK reinstall /
-            // phone sleep / process kill. Best-effort: failure here is
-            // silent — local timer still runs.
+            // app is killed / backgrounded too long (mobile JS limitation).
+            // Mirror the same body + this user's provider key into
+            // cache_keepalive_state so the cache_keepalive Edge Function
+            // (pg_cron every 5min) can keep the cache warm from the server
+            // side, surviving APK reinstall / phone sleep / process kill.
+            //
+            // Per-provider routing fields — the edge function uses these to
+            // POST to the right upstream with the right header style. Both
+            // paths hit a `${baseUrl}/messages` endpoint with the same body
+            // shape; only the auth header differs (OR Bearer vs 中转 x-api-key,
+            // see src/api/openrouter.ts for the auto-routing decision).
             //
             // Store the converted Anthropic-native body, not the original
-            // OpenAI-compat one. We switched OR-Claude chat to OR's
-            // /messages endpoint (which expects Anthropic-native shape)
-            // for the tool-iteration cache fix. The keepalive ping has to
-            // hit the same endpoint with the same body shape or the cache
-            // key won't match — pinging /chat/completions with OpenAI
-            // shape would refresh a different cache than what the chat
-            // is actually using. Convert here so the edge function can
-            // just POST it as-is to /api/v1/messages without any
-            // server-side conversion logic.
+            // OpenAI-compat one. The keepalive ping has to hit the same
+            // endpoint with the same body shape or the cache key won't
+            // match — pinging /chat/completions with OpenAI shape would
+            // refresh a different cache than what the chat is using.
             //
             // Cost note: the conversion re-runs flattenContent which
-            // re-fetches any image URLs in the body as base64. For her
-            // chats that include images (rare), this is N HTTP requests
-            // after every chat just for the keepalive snapshot. Browser
-            // /Capacitor HTTP-layer caching usually absorbs the cost
-            // when the image origin (e.g. Supabase Storage) sets cache
-            // headers. Optimization opportunity if image-heavy use ever
-            // becomes the norm: capture the converted body inside
-            // fetchAnthropicAsOpenAi via a callback instead of
-            // re-converting here.
-            if (supabase && user && getActiveProvider() === 'openrouter') {
-              const orKey = getProviderConfig('openrouter').apiKey
-              if (orKey) {
+            // re-fetches any image URLs in the body as base64. For chats
+            // that include images (rare), this is N HTTP requests after
+            // every chat just for the keepalive snapshot. Browser/Capacitor
+            // HTTP-layer caching usually absorbs the cost when the image
+            // origin (e.g. Supabase Storage) sets cache headers.
+            if (supabase && user) {
+              const cfg = getProviderConfig(activeProvider)
+              if (cfg.apiKey && cfg.baseUrl) {
+                const isOR = activeProvider === 'openrouter'
+                const authStyle = isOR ? 'bearer' : 'x-api-key'
                 void (async () => {
                   try {
                     const anthropicBody = await convertOpenAiRequestToAnthropic(
                       lastSentBody as Parameters<typeof convertOpenAiRequestToAnthropic>[0],
-                      { keepModelSlug: true },
+                      { keepModelSlug: isOR },
                     )
                     const { error } = await supabase
                       .from('cache_keepalive_state')
                       .upsert({
                         user_id: user.id,
                         body: anthropicBody as unknown as Record<string, unknown>,
-                        openrouter_key: orKey,
+                        openrouter_key: cfg.apiKey, // historical column name — now generic
+                        provider: activeProvider,
+                        base_url: cfg.baseUrl,
+                        auth_style: authStyle,
                         last_chat_at: new Date().toISOString(),
                       })
                     if (error) console.warn('cache_keepalive upsert failed', error)

@@ -27,10 +27,27 @@ const PING_COOLDOWN_MS = 50 * 60 * 1000
 type KeepaliveRow = {
   user_id: string
   body: Record<string, unknown>
-  openrouter_key: string
+  openrouter_key: string // legacy name; actually the per-provider relay key
+  provider: string | null // 'openrouter' or 'msuicode'; null on pre-migration rows
+  base_url: string | null
+  auth_style: string | null // 'bearer' or 'x-api-key'
   last_chat_at: string
   last_ping_at: string | null
   ping_count: number
+}
+
+// Defense in depth: re-validate the per-row routing fields before using
+// them to issue an HTTP request that carries the user's API key. The DB
+// CHECK constraints already restrict these values, but a defensive check
+// here means a future migration drift or a service-role write outside the
+// schema can't accidentally smuggle an http:// URL or unknown auth style.
+const ALLOWED_AUTH_STYLES = new Set(['bearer', 'x-api-key'])
+const validateRouting = (row: KeepaliveRow): { baseUrl: string; authStyle: 'bearer' | 'x-api-key' } | null => {
+  const baseUrl = row.base_url ?? 'https://openrouter.ai/api/v1'
+  const authStyle = row.auth_style ?? 'bearer'
+  if (!baseUrl.startsWith('https://')) return null
+  if (!ALLOWED_AUTH_STYLES.has(authStyle)) return null
+  return { baseUrl, authStyle: authStyle as 'bearer' | 'x-api-key' }
 }
 
 Deno.serve(async (req) => {
@@ -46,7 +63,9 @@ Deno.serve(async (req) => {
   const activeSince = new Date(Date.now() - ACTIVE_WINDOW_MS).toISOString()
   const { data, error } = await supabase
     .from('cache_keepalive_state')
-    .select('user_id, body, openrouter_key, last_chat_at, last_ping_at, ping_count')
+    .select(
+      'user_id, body, openrouter_key, provider, base_url, auth_style, last_chat_at, last_ping_at, ping_count',
+    )
     .gte('last_chat_at', activeSince)
 
   if (error) {
@@ -127,19 +146,36 @@ Deno.serve(async (req) => {
     delete pingBody.tool_choice
     delete pingBody.usage
 
+    // Route to the same upstream the chat used. OR → bearer + fixed
+    // base_url; msuicode-style relay → x-api-key + that relay's base_url.
+    // Both POST to {baseUrl}/messages, mirroring src/api/anthropic.ts.
+    const routing = validateRouting(row)
+    if (!routing) {
+      failed++
+      console.warn(`keepalive skip user=${row.user_id} reason=invalid_routing`)
+      await supabase
+        .from('cache_keepalive_state')
+        .update({
+          last_ping_at: new Date().toISOString(),
+          ping_count: row.ping_count + 1,
+        })
+        .eq('user_id', row.user_id)
+      continue
+    }
+    const endpoint = `${routing.baseUrl.replace(/\/+$/, '')}/messages`
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (routing.authStyle === 'bearer') {
+      headers.Authorization = `Bearer ${row.openrouter_key}`
+    } else {
+      // x-api-key style for direct-Anthropic-shape relays. anthropic-version
+      // is safe to send server-side (no browser CORS preflight here).
+      headers['x-api-key'] = row.openrouter_key
+      headers['anthropic-version'] = '2023-06-01'
+    }
     try {
-      const resp = await fetch('https://openrouter.ai/api/v1/messages', {
+      const resp = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          // OR's /messages endpoint takes the user's OR key via Bearer
-          // (not the Anthropic-style x-api-key) — same as the chat path.
-          // No anthropic-version / dangerous-direct-browser-access here:
-          // OR's gateway handles versioning internally and those headers
-          // aren't on the /messages CORS allowlist (would 400/trip
-          // preflight if we set them).
-          'Authorization': `Bearer ${row.openrouter_key}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(pingBody),
       })
       if (resp.ok) {
