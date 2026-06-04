@@ -112,6 +112,7 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
   - **数据库安全**(`cache_keepalive_state` 表):
     - RLS:owner 才能 SELECT/UPDATE(`user_id = auth.uid()`),Edge Function 用 service_role 绕开
     - CHECK 约束:`provider in ('openrouter','msuicode')` + `auth_style in ('bearer','x-api-key')` + `base_url ~ '^https://'` —— **HTTPS 强制**是关键,防止某次写入畸形 row 把 API key 通过明文 POST 到攻击者控制的 endpoint
+    - **关于 `provider='msuicode'`**:这是历史命名,**实际是"非 OR 中转站"的类型标记**。任何 OpenAI 兼容的 Anthropic-shape 中转站(treegpt / msuicode.com / 任意自定义)都存为 `provider='msuicode'`,真正区分中转身份的是 `base_url` 列。显示名(treegpt / msuicode)从 base_url 用 `deriveProviderDisplayName` 派生,不存表 —— 换中转站只需改 base_url,无需改 schema
     - Edge Function 在用 row 值发请求前再校验一次(深度防御,如果未来 migration 漂移或 service-role 误写绕过 CHECK,这层还在)
   - **诚实说明**:ping 把 `thinking` 字段删了避开 `max_tokens:1` + thinking budget 8000 的冲突,代价是 cache key 不完美匹配 HEAD/BP4 —— BP1 还会命中(系统提示词的前缀和 thinking 无关),所以保活实际是"系统提示词+工具定义永远热,深层对话前缀仍按 1h TTL 自然过期"
 - **对话压缩**:历史超阈值时自动用 summarizer 模型摘要,节省 token。**工具迭代特例**:模型支持工具时阈值自动收紧到 35%(=Claude 上下文 7万 token,默认 65%=13万),因为 Anthropic 服务端在带 tool block 的请求里 walk-up 不命中,~62k 历史每次以 \$15/M 重读 → 提前压缩成 ~20k 上下文,工具迭代成本从 ~\$1.18 降到 ~\$0.06(降 95%)
