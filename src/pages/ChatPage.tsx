@@ -277,6 +277,13 @@ const ChatPage = ({
   const lastSessionIdRef = useRef<string | null>(null)
   const lastMessagesLengthRef = useRef(0)
   const headerMenuRef = useRef<HTMLDivElement | null>(null)
+  // The header menu is rendered via createPortal into document.body, so
+  // it's NOT a DOM descendant of headerMenuRef (the .header-actions
+  // wrap). Click-outside has to test both refs or taps on items inside
+  // the portal close the menu — and worse, for native <select> elements
+  // the menu unmounts before the system picker has bound to the select,
+  // so the picker silently cancels and the dropdown can't be opened at all.
+  const headerMenuPortalRef = useRef<HTMLDivElement | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
   const longPressTargetRef = useRef<{ id: string; element: HTMLElement | null } | null>(null)
   const headerMenuButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -676,12 +683,9 @@ const ChatPage = ({
       return
     }
     const handleClick = (event: MouseEvent) => {
-      if (!headerMenuRef.current) {
-        return
-      }
-      if (headerMenuRef.current.contains(event.target as Node)) {
-        return
-      }
+      const target = event.target as Node
+      if (headerMenuRef.current?.contains(target)) return
+      if (headerMenuPortalRef.current?.contains(target)) return
       setOpenHeaderMenu(false)
     }
     document.addEventListener('click', handleClick)
@@ -745,6 +749,7 @@ const ChatPage = ({
             ? createPortal(
                 <div
                   className="header-menu"
+                  ref={headerMenuPortalRef}
                   style={{ top: `${headerMenuPosition.top}px`, right: `${headerMenuPosition.right}px` }}
                 >
                   <label className="header-menu-toggle">
