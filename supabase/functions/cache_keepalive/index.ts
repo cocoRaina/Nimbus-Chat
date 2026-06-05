@@ -16,10 +16,17 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
-// How long after a user's last successful chat we keep pinging. Set to
-// 4h — captures the "I'll be back in a couple hours" pattern but stops
-// burning pings on users who've truly gone idle.
-const ACTIVE_WINDOW_MS = 4 * 60 * 60 * 1000
+// How long after a user's last successful chat we keep pinging. Was 4h
+// — assumed if you haven't chatted in 4h you've gone idle. But that
+// killed the cache around 03:00 when you'd chatted at 23:00, and your
+// 08:00 morning chat paid a $0.18 cold write because pings had stopped
+// at 03:00 and Anthropic's 1h TTL ran out by 04:00. 24h covers the
+// "chatted last evening, will chat tomorrow morning" pattern that the
+// user actually has. Cost trade-off: ~$0.06/night extra pings vs
+// $0.18/morning saved cold writes → net positive ~$0.12/day. Worst
+// case (away for a week): ~$0.42 wasted pings before the row falls
+// out — bearable.
+const ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000
 // Slightly less than 55min so a 5-min cron tick won't accidentally
 // skip a slot due to scheduling drift.
 const PING_COOLDOWN_MS = 50 * 60 * 1000
@@ -180,9 +187,33 @@ Deno.serve(async (req) => {
       })
       if (resp.ok) {
         pinged++
+        // Log the usage so we can debug whether the ping actually hit
+        // cache or paid full input rates. Without this we have no visibility
+        // — Supabase Edge Function logs only show HTTP status, and treegpt's
+        // dashboard is the only place we see usage. With this we can grep the
+        // function logs for "keepalive ok ... cache_read=X cache_write=Y"
+        // and instantly tell whether the cache is being kept warm.
+        try {
+          const respJson = await resp.json()
+          const usage = respJson?.usage ?? {}
+          const cacheRead = usage.cache_read_input_tokens ?? 0
+          const cacheCreate1h =
+            usage.cache_creation?.ephemeral_1h_input_tokens ??
+            usage.cache_creation_input_tokens ??
+            0
+          const input = usage.input_tokens ?? 0
+          console.log(
+            `keepalive ok user=${row.user_id} provider=${row.provider} input=${input} cache_read=${cacheRead} cache_create=${cacheCreate1h}`,
+          )
+        } catch (parseErr) {
+          console.warn(`keepalive ok user=${row.user_id} (couldn't parse usage)`, parseErr)
+        }
       } else {
         failed++
-        console.warn(`keepalive non-2xx user=${row.user_id} status=${resp.status}`)
+        const bodyText = await resp.text().catch(() => '')
+        console.warn(
+          `keepalive non-2xx user=${row.user_id} status=${resp.status} body=${bodyText.slice(0, 300)}`,
+        )
       }
     } catch (err) {
       failed++
