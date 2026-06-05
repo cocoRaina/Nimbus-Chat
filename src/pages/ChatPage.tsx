@@ -3,6 +3,10 @@ import { createPortal } from 'react-dom'
 import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
+import { Haptics, ImpactStyle } from '@capacitor/haptics'
+import { Share } from '@capacitor/share'
+import { Network } from '@capacitor/network'
+import { SpeechRecognition } from '@capacitor-community/speech-recognition'
 import { getAssistantName, setAssistantName } from '../storage/assistantPersona'
 import type { ChatMessage, ChatSession } from '../types'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -11,6 +15,12 @@ import ReasoningPanel from '../components/ReasoningPanel'
 import ToolCallCard from '../components/ToolCallCard'
 import type { ToolCallRecord } from '../components/ToolCallCard'
 import './ChatPage.css'
+
+// Haptics swallow errors silently — on web / dev / cameraless emulators
+// the plugin throws and we'd rather drop the buzz than the click.
+const buzz = (style: ImpactStyle = ImpactStyle.Light) => {
+  void Haptics.impact({ style }).catch(() => {})
+}
 
 export type ChatPageProps = {
   session: ChatSession
@@ -173,6 +183,14 @@ const ChatPage = ({
   const [draft, setDraft] = useState('')
   const [openActionsId, setOpenActionsId] = useState<string | null>(null)
   const [actionsMenuPosition, setActionsMenuPosition] = useState<{ top: number; left: number } | null>(null)
+  // Native Network plugin → small "已离线" banner above the composer.
+  // Defaulted to true; the effect below flips it false if we boot offline.
+  const [online, setOnline] = useState(true)
+  // Recording state for the 🎤 button. Idle → recording (mic icon → stop
+  // square) → done (insert transcript into draft). Plugin uses native
+  // Android SpeechRecognizer so transcription is offline + free, no
+  // Whisper round-trip.
+  const [recording, setRecording] = useState(false)
   const [openHeaderMenu, setOpenHeaderMenu] = useState(false)
   const [headerMenuPosition, setHeaderMenuPosition] = useState({ top: 0, right: 0 })
   // Read once on mount; the chat header reflects this for the title +
@@ -270,6 +288,7 @@ const ChatPage = ({
     if (!trimmed && pendingAttachments.length === 0) {
       return
     }
+    buzz()
     let payload = trimmed
     if (quoted) {
       const quoteBlock = quoted.content
@@ -307,6 +326,67 @@ const ChatPage = ({
     setEditingMessageId(null)
     setDraft('')
   }
+
+  // 🎤 button. Native SpeechRecognizer; results streamed via the
+  // partialResults listener as the user speaks, then committed to the
+  // draft when stop() is called. Web fallback uses the browser's Web
+  // Speech API automatically (Chrome/Edge only — Safari and Firefox
+  // gracefully no-op because requestPermissions returns denied).
+  const handleMicToggle = useCallback(async () => {
+    if (recording) {
+      buzz(ImpactStyle.Medium)
+      setRecording(false)
+      await SpeechRecognition.stop().catch(() => {})
+      return
+    }
+    try {
+      const { available } = await SpeechRecognition.available()
+      if (!available) {
+        alert('当前设备不支持语音识别')
+        return
+      }
+      const perm = await SpeechRecognition.requestPermissions()
+      if (perm.speechRecognition !== 'granted') {
+        alert('需要麦克风权限,请到设置→应用→Nimbus 里打开')
+        return
+      }
+      buzz()
+      setRecording(true)
+      // partialResults gives us live updates; we append the LATEST
+      // partial transcript (not concatenate) because the recognizer
+      // emits successive refinements of the same utterance, not
+      // disjoint pieces. Final commit happens on the stop() call.
+      let finalDraftBase = draft
+      SpeechRecognition.removeAllListeners()
+      SpeechRecognition.addListener('partialResults', (data: { matches?: string[] }) => {
+        const text = data.matches?.[0] ?? ''
+        if (text) {
+          setDraft(finalDraftBase ? `${finalDraftBase} ${text}` : text)
+        }
+      })
+      await SpeechRecognition.start({
+        language: 'zh-CN',
+        partialResults: true,
+        popup: false,
+      })
+      // start() resolves when recognition ends naturally (long silence).
+      // Mirror that to UI state so the button flips back to mic.
+      setRecording(false)
+      finalDraftBase = '' // free closure ref
+    } catch (err) {
+      console.warn('语音识别失败', err)
+      setRecording(false)
+    }
+  }, [recording, draft])
+
+  const handleShareMessage = useCallback(async (message: ChatMessage) => {
+    setOpenActionsId(null)
+    try {
+      await Share.share({ text: message.content })
+    } catch {
+      // User canceled the sheet, or web with no Web Share — ignore.
+    }
+  }, [])
 
   const handleFilePick = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -375,6 +455,7 @@ const ChatPage = ({
           // is in the DOM and we know its actual height.
           setActionsMenuPosition({ top: rect.bottom + 4, left: rect.left })
         }
+        buzz()
         setOpenActionsId(messageId)
       }, 500)
     },
@@ -462,6 +543,27 @@ const ChatPage = ({
     document.body.classList.add('chat-page-active')
     return () => {
       document.body.classList.remove('chat-page-active')
+    }
+  }, [])
+
+  // Network status banner. getStatus is one-shot (boot value); listener
+  // covers transitions. We treat any connected:true as online, even
+  // captive-portal'd wifi, because the only thing we use this for is
+  // "should the user trust that send will work" — and the chat path
+  // already retries on failure.
+  useEffect(() => {
+    let cancelled = false
+    void Network.getStatus()
+      .then((status) => {
+        if (!cancelled) setOnline(status.connected)
+      })
+      .catch(() => {})
+    const listenerPromise = Network.addListener('networkStatusChange', (status) => {
+      setOnline(status.connected)
+    })
+    return () => {
+      cancelled = true
+      void listenerPromise.then((handle) => handle.remove()).catch(() => {})
     }
   }, [])
 
@@ -786,6 +888,9 @@ const ChatPage = ({
           style={{ display: 'none' }}
           onChange={(event) => void handleFilePick(event.target.files)}
         />
+        {!online ? (
+          <div className="offline-banner" role="status">📡 已离线 — 发送会等到网络恢复后再尝试</div>
+        ) : null}
         <div className="composer-row composer-line-row">
           <label className="composer-icon-btn" aria-label="切换模型" title="切换模型">
             <span aria-hidden="true">＋</span>
@@ -827,6 +932,15 @@ const ChatPage = ({
             disabled={uploading}
           >
             <span aria-hidden="true">🖼</span>
+          </button>
+          <button
+            type="button"
+            className={`composer-icon-btn ${recording ? 'composer-icon-btn--recording' : ''}`}
+            aria-label={recording ? '停止录音' : '语音输入'}
+            title={recording ? '停止录音' : '语音输入'}
+            onClick={() => void handleMicToggle()}
+          >
+            <span aria-hidden="true">{recording ? '🛑' : '🎤'}</span>
           </button>
           <textarea
             className="composer-line-input"
@@ -885,6 +999,9 @@ const ChatPage = ({
                     </button>
                     <button type="button" role="menuitem" onClick={() => handleQuote(message)}>
                       引用
+                    </button>
+                    <button type="button" role="menuitem" onClick={() => void handleShareMessage(message)}>
+                      分享
                     </button>
                     {message.role === 'assistant' ? (
                       <button
