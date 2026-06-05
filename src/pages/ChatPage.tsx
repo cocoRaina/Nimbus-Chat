@@ -245,6 +245,11 @@ const ChatPage = ({
     }
   }, [compressing, onManualCompress])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // Separate input with capture="environment" so tapping the 拍照 button
+  // jumps straight into the camera on Android instead of routing through
+  // the system chooser (which would let the user pick "Files" / "Photos"
+  // and defeat the point of having a dedicated camera shortcut).
+  const cameraInputRef = useRef<HTMLInputElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const messagesRef = useRef<HTMLElement | null>(null)
   const lastSessionIdRef = useRef<string | null>(null)
@@ -254,6 +259,10 @@ const ChatPage = ({
   const longPressTargetRef = useRef<{ id: string; element: HTMLElement | null } | null>(null)
   const headerMenuButtonRef = useRef<HTMLButtonElement | null>(null)
   const actionsMenuRef = useRef<HTMLDivElement | null>(null)
+  // Rect of the bubble that opened the menu — used by the layout-flip
+  // effect below to decide above vs below placement. Ref rather than
+  // state because we only need it during the post-render measurement.
+  const actionsAnchorRef = useRef<DOMRect | null>(null)
   const navigate = useNavigate()
 
   const submitDraft = async () => {
@@ -361,6 +370,9 @@ const ChatPage = ({
         if (!target || target.id !== messageId) return
         const rect = target.element?.getBoundingClientRect()
         if (rect) {
+          actionsAnchorRef.current = rect
+          // Initial guess — the layout effect refines this once the menu
+          // is in the DOM and we know its actual height.
           setActionsMenuPosition({ top: rect.bottom + 4, left: rect.left })
         }
         setOpenActionsId(messageId)
@@ -373,6 +385,7 @@ const ChatPage = ({
     (event: ReactMouseEvent<HTMLDivElement>, messageId: string) => {
       event.preventDefault()
       const rect = event.currentTarget.getBoundingClientRect()
+      actionsAnchorRef.current = rect
       setActionsMenuPosition({ top: rect.bottom + 4, left: rect.left })
       setOpenActionsId(messageId)
     },
@@ -467,6 +480,31 @@ const ChatPage = ({
       window.removeEventListener('resize', closeOnViewportChange)
       window.removeEventListener('scroll', closeOnViewportChange, true)
     }
+  }, [openActionsId])
+
+  // After the menu renders, measure it and flip above the bubble if there's
+  // no room below. Without this the menu sat off-screen / under the input
+  // when the user long-pressed a bubble near the bottom (her 17:41 screenshot).
+  // Runs synchronously before paint via useLayoutEffect so there's no flash.
+  useLayoutEffect(() => {
+    if (!openActionsId) return
+    const anchor = actionsAnchorRef.current
+    const menu = actionsMenuRef.current
+    if (!anchor || !menu) return
+    const menuH = menu.offsetHeight
+    const menuW = menu.offsetWidth
+    const vh = window.innerHeight
+    const vw = window.innerWidth
+    const margin = 8
+    let top = anchor.bottom + 4
+    if (top + menuH > vh - margin) {
+      const above = anchor.top - menuH - 4
+      top = above >= margin ? above : Math.max(margin, vh - menuH - margin)
+    }
+    let left = anchor.left
+    if (left + menuW > vw - margin) left = vw - menuW - margin
+    if (left < margin) left = margin
+    setActionsMenuPosition({ top, left })
   }, [openActionsId])
 
   useEffect(() => {
@@ -740,6 +778,14 @@ const ChatPage = ({
           style={{ display: 'none' }}
           onChange={(event) => void handleFilePick(event.target.files)}
         />
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          style={{ display: 'none' }}
+          onChange={(event) => void handleFilePick(event.target.files)}
+        />
         <div className="composer-row composer-line-row">
           <label className="composer-icon-btn" aria-label="切换模型" title="切换模型">
             <span aria-hidden="true">＋</span>
@@ -765,11 +811,22 @@ const ChatPage = ({
           <button
             type="button"
             className="composer-icon-btn"
-            aria-label="发送图片"
-            onClick={() => fileInputRef.current?.click()}
+            aria-label="拍照"
+            title="拍照"
+            onClick={() => cameraInputRef.current?.click()}
             disabled={uploading}
           >
             <span aria-hidden="true">📷</span>
+          </button>
+          <button
+            type="button"
+            className="composer-icon-btn"
+            aria-label="从相册选择"
+            title="从相册选择"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            <span aria-hidden="true">🖼</span>
           </button>
           <textarea
             className="composer-line-input"

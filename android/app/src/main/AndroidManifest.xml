@@ -47,6 +47,16 @@
     <!-- Android 13+ requires explicit notification permission. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Camera: the 拍照 button in the chat composer fires an HTML
+         <input capture="environment"> which the Android WebView routes
+         through ACTION_IMAGE_CAPTURE. Without this declaration the
+         intent silently falls back to gallery-only and the button does
+         nothing useful. Hardware feature is required=false so the app
+         still installs on cameraless devices (rare but possible — like
+         tablets). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <!-- Health Connect read-only access (Android 14+ native, older
          versions via the Health Connect app). We never write back. -->
     <uses-permission android:name="android.permission.health.READ_STEPS" />

@@ -408,6 +408,22 @@
   touch-action: pan-y;
 }
 
+/* On touch devices, long-press belongs to OUR action menu (copy / 引用 /
+   regenerate / delete) — not the native browser text-selection handle.
+   Without these the Android WebView would dim the bubble blue and show
+   selection handles the moment our 500ms long-press timer fires, which
+   is both ugly and competes with our portal menu. Desktop / mouse users
+   still get normal text selection because (hover:none, pointer:coarse)
+   only matches touchscreens. The "复制" item in our menu copies the
+   whole message anyway, so the loss of cell-level selection is fine. */
+@media (hover: none) and (pointer: coarse) {
+  .message .bubble {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
 .quote-preview {
   display: flex;
   align-items: flex-start;
