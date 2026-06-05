@@ -98,23 +98,16 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 每次工具调用会被记录在消息的 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**（类似 claude.ai）：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回结果。
 
 ### 💰 成本优化
-- **Anthropic Prompt Caching**:1 小时 TTL（写贵 2x，读 0.1x）。**OR 和中转都启用** —— Claude on 中转走 `anthropic.ts` 适配器直接 `/v1/messages`,Claude on OR 自动路由到 OR 原生 `/api/v1/messages` 端点（OR 的 `/chat/completions` 翻译层会丢 `cache_control` marker,踩过 0% 命中工具迭代的坑后切的）
+- **Anthropic Prompt Caching**:1 小时 TTL(写贵 2x,读 0.1x)。**OR 和中转都启用** —— Claude on 中转走 `anthropic.ts` 适配器直接 `/v1/messages`,Claude on OR 自动路由到 OR 原生 `/api/v1/messages` 端点(OR 的 `/chat/completions` 翻译层会丢 `cache_control` marker,踩过 0% 命中工具迭代的坑后切的)
 - **Cache marker 策略**(三个 breakpoint,Anthropic 上限 4 个):
   - **BP1**:打在系统提示词的 text block 上 —— 几乎永不变的基础上下文,任何上层 miss 都能 walk-up 到这里兜底
   - **BP4**:倒数第二条 user message —— 上一轮的 HEAD,新一轮请求过来 walk-up 命中
   - **HEAD**:最新一条 user message —— 写入新缓存
   - **工具迭代特例**:请求里最后一条 user message 之后有 `tool_use`/`tool_result` 时,**只标 BP1,不标 HEAD/BP4**(避免写入 ~77k token 的新缓存 —— Anthropic 后端在带 tool block 的请求里 walk-up 不稳定,写了也没人读,2x 写入价等于纯烧钱)
 - **`metadata.user_id` 后端粘性**:`anthropic.ts` 把用户 ID 塞到 Anthropic 原生 `metadata.user_id`,Anthropic 用它做后端节点路由 —— 同用户的请求落到同一节点,缓存读写在同一处
-- **Keepalive ping**(三层):
-  - **客户端定时**:每次成功 chat 后 55min 调度一个 `max_tokens:1` 的 ping。**只在 app 前台活着时有效** —— APK 重装、手机睡眠、后台被杀都会让 JS timer 死掉
-  - **客户端 pre-warm**(进聊天页触发):进入 `/chat/:id` 时,如果距上次保活 ping >50min,**立即**发一个 ping。覆盖"打开 app 就开聊"这类场景 —— APK 杀了之后 JS timer 死了,直接靠这条触发,把缓存预热到用户按下发送之前
-  - **服务端 cron**:`cache_keepalive` Edge Function + pg_cron **每 5min 触发,24/7 全天**(早期版本只跑 8:00-23:00,夜里冷过期导致早晨第一条消息 ~\$0.21 冷写,后来拆掉了)。每次成功 chat 时前端把**转好的 Anthropic-native body** + 当前 provider 的 key/base_url/auth_style upsert 进 `cache_keepalive_state`;cron 函数扫这张表,对 `last_chat_at` 在 4h 内、且距上次 ping >50min 的用户,根据 provider 路由,POST 到 `${base_url}/messages` 同 endpoint 同 key shape。**支持 OR 和中转站两条路径**(早期只支持 OR,中转站用户拿不到服务端保活,实际成本最敏感的反而漏掉了)。**APK 重装/手机睡眠/凌晨都不影响**
-  - **数据库安全**(`cache_keepalive_state` 表):
-    - RLS:owner 才能 SELECT/UPDATE(`user_id = auth.uid()`),Edge Function 用 service_role 绕开
-    - CHECK 约束:`provider in ('openrouter','msuicode')` + `auth_style in ('bearer','x-api-key')` + `base_url ~ '^https://'` —— **HTTPS 强制**是关键,防止某次写入畸形 row 把 API key 通过明文 POST 到攻击者控制的 endpoint
-    - **关于 `provider='msuicode'`**:这是历史命名,**实际是"非 OR 中转站"的类型标记**。任何 OpenAI 兼容的 Anthropic-shape 中转站(treegpt / msuicode.com / 任意自定义)都存为 `provider='msuicode'`,真正区分中转身份的是 `base_url` 列。显示名(treegpt / msuicode)从 base_url 用 `deriveProviderDisplayName` 派生,不存表 —— 换中转站只需改 base_url,无需改 schema
-    - Edge Function 在用 row 值发请求前再校验一次(深度防御,如果未来 migration 漂移或 service-role 误写绕过 CHECK,这层还在)
-  - **诚实说明**:ping 把 `thinking` 字段删了避开 `max_tokens:1` + thinking budget 8000 的冲突,代价是 cache key 不完美匹配 HEAD/BP4 —— BP1 还会命中(系统提示词的前缀和 thinking 无关),所以保活实际是"系统提示词+工具定义永远热,深层对话前缀仍按 1h TTL 自然过期"
+- **聊天接力刷新**:命中 cache 自动续 TTL 不要钱(Anthropic 官方:"refreshed at no additional cost")。只要 1h 内继续聊,缓存一直热着。这是主要的省钱机制
+- **`tool_choice` 翻译完整**:`anthropic.ts` 把 OpenAI 的 `tool_choice: 'none'/'auto'/'any'/'required'/{type:'function',function:{name}}` 统一翻成 Anthropic 的 `{type:...}` 形式。**之前没翻译这字段**,导致 MAX_TOOL_ITERATIONS 的收尾调用为了阻止模型继续调工具只能 `delete body.tools`,而 `tools` 是 cache key 的一部分,每次工具循环爆顶都触发 ~50k 全量冷写 ($0.15)。修完之后:保留 tools 用 tool_choice='none' 阻止调用,cache 完整命中
+- **Keepalive ping(已停)**:历史上做过三层(客户端 timer + 进页面 pre-warm + 服务端 pg_cron 每 5min),目的是覆盖 >1h 长 gap 后的早晨第一条冷写。**但中转 relay 中间层会把 `stream:true` 和 `stream:false` 当成不同请求路由(推测)**,服务端 cron 的非流 ping 在 Anthropic 那边永远找不到聊天写下的缓存分片,每次冷写 ~50k 反而**净浪费 ~$5/天**。Anthropic 官方文档没说 stream 字段进 cache key,但 relay 黑盒拗不过。Code 留着但 `pg_cron` job 已 `cron.alter_job(active:=false)` 关掉。要重启:`cron.alter_job(JOB_ID, active:=true)`。日均代价:1-3 次自然冷写 = $0.20-0.50,比 ping 便宜
 - **对话压缩**:历史超阈值时自动用 summarizer 模型摘要,节省 token。**工具迭代特例**:模型支持工具时阈值自动收紧到 35%(=Claude 上下文 7万 token,默认 65%=13万),因为 Anthropic 服务端在带 tool block 的请求里 walk-up 不命中,~62k 历史每次以 \$15/M 重读 → 提前压缩成 ~20k 上下文,工具迭代成本从 ~\$1.18 降到 ~\$0.06(降 95%)
 - 默认 summarizer = **DeepSeek-V3.1**(`deepseek/deepseek-chat-v3.1`),比 GPT-4o-mini 中文摘要质量更稳,OR 自带 prompt cache 后实际成本更低。设置可单独选 summarizer 的 provider 和 model
 
@@ -237,17 +230,20 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
 
 旧数据自动迁移：早期版本的 `widgetOrder/widgets` 顶层字段 → `pages[0]`；早期 dock-only 布局 → 自动把 9 个 app 注入 page 0 作为 shortcut（顺序按 ALL_APP_IDS）。
 
-### 💬 聊天界面交互（LINE 风格）
-- **Header**：左 `←` 返回首页、Claude 的圆头像（同步 `/syzygy` 朋友圈头像）、可改名称（默认"哥哥"，✏️ 修改名称写到 localStorage `nimbus_assistant_name`，主动消息通知 title 也跟着用新名字）；右 `⚙️`（精简菜单：思考链 / 手动压缩 / ✏️ 修改名称）+ `≡`（会话抽屉）
-- **正在输入指示器**：流式期间在 header 名称下方副标题显示「正在输入…」+ 三跳动点，不再在消息流尾巴留空气泡
-- **输入栏**：单行 `[+ 模型] [📷 图片] [输入框 pill] [➤ 发送 / ■ 停止]`，底部是白色 footer 面板，输入框 pill 浅灰色，发送按钮蓝色渐变 / 流式时变红停止
-- **气泡分组**：同人 1 分钟内连发紧贴（3px），换人或间隔大拉开（12px）
-- **居中时间分隔**：间隔 >5 分钟才显示
-- **一条消息 = 一个气泡**：用 `[NEXT]` 显式拆成短句串
-- **懒加载**：进入只渲染最近 30 条，"加载更早" 按钮分页
-- **工具调用卡片**：每条助手消息上方显示本轮调了哪些工具，可折叠查看详情
-- **入场动画**：新消息从下方滑入 + 淡入（0.25s）
-- **长按菜单**：复制 / 引用 / 重新生成 / 编辑 / 删除
+### 💬 聊天界面交互(LINE 风格)
+- **Header**:左 `←` 返回首页、Claude 的圆头像(同步 `/syzygy` 朋友圈头像)、可改名称(默认"哥哥",✏️ 修改名称写到 localStorage `nimbus_assistant_name`,主动消息通知 title 也跟着用新名字);右 `⚙️` + `≡`(会话抽屉)
+- **`⚙️` 齿轮菜单**:🧠 思考链开关 / 🤖 **模型选择**(per-session override,选默认值=清除 override) / 📦 手动压缩对话 / ✏️ 修改名称。模型选择从输入栏挪到这里,输入栏更清爽
+- **正在输入指示器**:流式期间在 header 名称下方副标题显示「正在输入…」+ 三跳动点,不再在消息流尾巴留空气泡
+- **输入栏**:单行 `[+] [🎤] [输入框 pill] [➤ 发送 / ■ 停止]`,底部是白色 footer 面板。`+` 点开浮出小菜单 `📷 拍照 / 🖼 从相册`(分别走 `<input capture="environment">` 直接相机和 `<input multiple>` 相册),`🎤` 调系统 SpeechRecognizer 录音转文字(zh-CN,partialResults 实时塞 textarea)。流式时变红停止
+- **📡 离线条**:`@capacitor/network` 监听网络,断网时在输入栏上方显示黄色「📡 已离线」横条(发送照常排队,网络恢复自动重试)
+- **📳 震动反馈**:`@capacitor/haptics` 在长按菜单弹出 / 发送按钮 / 麦克风停止 时触发轻震,体感反馈用
+- **气泡分组**:同人 1 分钟内连发紧贴(3px),换人或间隔大拉开(12px)
+- **居中时间分隔**:间隔 >5 分钟才显示
+- **一条消息 = 一个气泡**:用 `[NEXT]` 显式拆成短句串
+- **懒加载**:进入只渲染最近 30 条,"加载更早" 按钮分页
+- **工具调用卡片**:每条助手消息上方显示本轮调了哪些工具,可折叠查看详情
+- **入场动画**:新消息从下方滑入 + 淡入(0.25s)
+- **长按菜单**:复制 / 引用 / 分享(`@capacitor/share` 调系统分享面板) / 重新生成 / 编辑 / 删除。菜单**自动翻转**:如果气泡靠近屏幕底部、菜单展开会被输入框压住,`useLayoutEffect` 量完菜单高度后改成出现在气泡**上方**;水平方向也会贴边裁剪。触摸屏下气泡 `user-select: none` + `-webkit-touch-callout: none`,长按不会触发系统蓝色选字(桌面鼠标仍可选,用 `@media (hover:none) and (pointer:coarse)` 隔离)
 
 ---
 
@@ -363,7 +359,7 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
             ├─→ edge functions: openrouter-chat, openrouter-models,
             │                   memory-extract, web_search,
             │                   send_proactive_push (pg_cron 触发),
-            │                   cache_keepalive (pg_cron 每 5min)
+            │                   cache_keepalive (代码仍在,pg_cron job 已停)
             │
             └─→ DB functions: search_memories (RPC, filter_table 参数),
                               auto_embed_* (INSERT trigger, REVOKE'd),
@@ -419,7 +415,7 @@ DB 函数:
 - `GOOGLE_SERVICES_JSON`（可选，FCM 用）
 
 ### Android 权限
-**minSdkVersion 26**（Android 8.0）— 由 Health Connect plugin 决定。
+**minSdkVersion 26**(Android 8.0)— 由 Health Connect plugin 决定。
 
 | 权限 | 用途 |
 |------|------|
@@ -429,9 +425,24 @@ DB 函数:
 | `RECEIVE_BOOT_COMPLETED` | 重启后恢复已调度通知 |
 | `WAKE_LOCK` | 通知唤醒屏幕 |
 | `POST_NOTIFICATIONS` | Android 13+ 通知权限 |
-| `health.READ_STEPS / READ_SLEEP / READ_HEART_RATE / READ_RESTING_HEART_RATE / READ_DISTANCE / READ_TOTAL_CALORIES_BURNED / READ_OXYGEN_SATURATION` | Health Connect 读取（用户在 Health Connect app 中授权后才生效） |
-| `PACKAGE_USAGE_STATS` | 屏幕使用时间。**特殊 AppOp** — 用户必须去系统设置 → 应用 → 使用情况访问 → Nimbus → 开启，app 内调 `requestPermission()` 只跳设置页 |
-| `QUERY_ALL_PACKAGES` | 让屏幕时间 plugin 拿到其他 app 的「显示名」（微信 / B站 等），否则只显示 `com.tencent.mm` 这种包名 |
+| `CAMERA` + `uses-feature camera(required=false)` | 输入栏 📷 拍照按钮 → WebView `<input capture="environment">` 启动 `ACTION_IMAGE_CAPTURE`。**没这行 intent 会 silent fallback 到相册**;feature 标 `required=false` 让无相机的平板也能装 |
+| `RECORD_AUDIO` + `uses-feature microphone(required=false)` | 输入栏 🎤 语音输入 → 原生 `SpeechRecognizer` 离线识别 zh-CN |
+| `VIBRATE` | `@capacitor/haptics` 震动反馈(normal protection,自动给,但显式声明便于 Android 13+ 迁移到 `USE_VIBRATE_PERMISSION`) |
+| `health.READ_STEPS / READ_SLEEP / READ_HEART_RATE / READ_RESTING_HEART_RATE / READ_DISTANCE / READ_TOTAL_CALORIES_BURNED / READ_OXYGEN_SATURATION` | Health Connect 读取(用户在 Health Connect app 中授权后才生效) |
+| `PACKAGE_USAGE_STATS` | 屏幕使用时间。**特殊 AppOp** — 用户必须去系统设置 → 应用 → 使用情况访问 → Nimbus → 开启,app 内调 `requestPermission()` 只跳设置页 |
+| `QUERY_ALL_PACKAGES` | 让屏幕时间 plugin 拿到其他 app 的「显示名」(微信 / B站 等),否则只显示 `com.tencent.mm` 这种包名 |
+
+### Capacitor plugins
+| 插件 | 用途 |
+|---|---|
+| `@capacitor/app`, `@capacitor/device`, `@capacitor/status-bar`, `@capacitor/splash-screen` | 基础生命周期 / 设备信息 / 状态栏 / 启动屏 |
+| `@capacitor/geolocation` | 天气定位 |
+| `@capacitor/local-notifications` + `@capacitor/push-notifications` | 主动消息 + FCM(默认关) |
+| `@capgo/capacitor-health` | Health Connect 读取 |
+| `@capacitor/haptics` | 震动反馈 |
+| `@capacitor/share` | 长按菜单 → 分享 |
+| `@capacitor/network` | 离线条状态监听 |
+| `@capacitor-community/speech-recognition` | 🎤 语音输入,native SpeechRecognizer,离线免费 |
 
 ---
 
@@ -500,19 +511,18 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 
 ## 已知限制 / 未做
 
-- **后台 keepalive**：app 关闭后 timer 不跑，下次开 app 第一条可能要付 cache 重写费
-- **单租户 RLS**：工具表用开放策略，只适合一个账号用
-- **iOS**：通知/状态栏/硬件返回 都是 Android-only 守卫
-- **FCM**：代码保留但默认关闭（华为 GMS 不稳定）
-- **`window.confirm/prompt/alert`**：部分页面还在用原生 dialog，待统一为 `ConfirmDialog`
+- **中转保活 ping 不可靠**:cron job 已 `active:=false` 停掉(见成本优化节)。日均代价 $0.20-0.50 自然冷写
+- **单租户 RLS**:工具表用开放策略,只适合一个账号用
+- **iOS**:通知/状态栏/硬件返回 都是 Android-only 守卫
+- **FCM**:代码保留但默认关闭(华为 GMS 不稳定)
+- **`window.confirm/prompt/alert`**:部分页面还在用原生 dialog,待统一为 `ConfirmDialog`
 
 ## 历史 / 想做但暂缓
 
-- 语音输入（Web Speech API）
-- 语音输出（TTS）
-- 暗黑模式 — 试过，每个页面的硬编码颜色太多，做一半撤了
+- 语音输出(TTS)
+- 暗黑模式 — 试过,每个页面的硬编码颜色太多,做一半撤了
 - 端到端加密的消息存储
-- Anthropic Code Execution 工具（要 BYOK 直连）
+- Anthropic Code Execution 工具(要 BYOK 直连)
 
 ---
 
@@ -538,6 +548,10 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 | Failed to fetch on OR /messages | Capacitor WebView CORS preflight 拒绝 Anthropic-only header(`anthropic-version`、`anthropic-dangerous-direct-browser-access`、`x-api-key`)| OR 走 `/messages` 时只发 `Authorization: Bearer` + `Content-Type`,其他 header 全 strip(直连 Anthropic + 中转才发完整套) |
 | OR /messages 4xx model 不识别 | `anthropic.ts` 默认砍 `anthropic/` 前缀(直连 Anthropic 要求),但 OR 用这个前缀做上游路由 | `keepModelSlug` 选项控制:OR 调用时传 `true` 保留 slug,中转保持 `false` 砍掉 |
 | 工具迭代 cached_tokens = 0(但 chat 2 还命中)| Anthropic 服务端在请求里有 `tool_use`/`tool_result` block 时,HEAD 和 BP4 cache 都 miss(只有 BP1 walk-up 还工作)。同时如果还留 HEAD marker,会写一份 ~77k token 的"没人读"的新缓存白烧 \$2 | 结构性检测:最后一条 user message 之后有 tool block 时,**只标 BP1**,不标 HEAD/BP4 |
+| MAX_TOOL_ITERATIONS 收尾每次冷写 ~$0.15 | `App.tsx` 收尾(`tool_choice='none'` 那段)用 `delete body.tools` 阻止模型继续调工具,但 `tools` 是 Anthropic cache key 的一部分,删了之后整段前缀字节不匹配 → 全量冷写 ~50k。**根本原因**是 `convertOpenAiRequestToAnthropic` 没翻译 `tool_choice` 字段,silent 丢掉,删 tools 是当时唯一阻止调用的方式 | converter 加 `tool_choice` 翻译(`'none'/'auto'/'any'` → `{type:...}`,`'required'` → `{type:'any'}`,`{type:'function',function:{name}}` → `{type:'tool',name}`);收尾保留 `tools`,只用 `tool_choice:'none'` 阻止调用。cache 命中,收尾从 $0.15 降到 $0.015 |
+| 中转保活 ping 永远冷写 ~$0.22 | `cache_keepalive` Edge Function 用 `stream:false` 发非流 ping,推测 relay 把 stream:true(聊天)和 stream:false(ping)路由到不同后端节点,Anthropic 那边落在不同缓存分片。Anthropic 官方文档说 stream 字段不进 cache key,但 relay 黑盒拗不过。验证字节稳定性(tools 顺序硬编码 / system 静态 / 时间戳每条消息固化 / 图像 base64 确定性)都 OK,根本不是字节问题 | 停掉 `pg_cron` job(`cron.alter_job(id, active:=false)`)。聊天本身的接力缓存(Anthropic 命中自动续 1h,免费)足够覆盖大部分场景;只接受 >1h gap 后的偶发冷写($0.20-0.50/天) |
+| 长按菜单永远在气泡下方,屏幕底部时被输入框压住 | `startLongPress` / `handleContextMenuOpen` 写死 `top: rect.bottom + 4`,不看视窗剩余空间 | 加 `useLayoutEffect`:菜单 portal 渲染后量 `offsetHeight`,如果 `rect.bottom + menuH > viewportH - 8`,翻到 `rect.top - menuH - 4`;水平也夹一遍。layout effect 同步在 paint 前跑,无闪烁 |
+| 长按气泡触发系统蓝色选字、和我们的菜单打架 | `.message .bubble` CSS `user-select: text` 让 Android WebView 长按时进文字选择模式 | 加 `@media (hover:none) and (pointer:coarse)` 隔离,触摸屏下 `user-select: none` + `-webkit-touch-callout: none`,桌面鼠标仍可选字。损失:触摸屏选不了部分文字,菜单里有"复制整条"兜底 |
 | pg_cron 401 UNAUTHORIZED_NO_AUTH_HEADER | `current_setting('supabase.service_role_key')` 在 pg_cron session 里取不到值,Authorization header 变成 `Bearer ` (空)| cron command 里**直接内联 anon key**(anon key 本来就是公开的,前端 bundle 里也带,放 SQL 里没新增暴露) |
 | cache_keepalive 把睡眠/心率写成 null 覆盖老数据 | upsert payload 不管 null 全字段塞,Supabase 翻成 `excluded.col = NULL`,Postgres `ON CONFLICT DO UPDATE` 把已有数据洗掉 | payload 只塞非 null 字段:`if (row.X != null) out.X = row.X` |
 | Health Connect 大量 4xx Rate Limit | 5 类样本依次查,前面用完 5min 配额后剩下 4 类必失败 | catch 里检测 `/rate.?limit\|quota\|throttl\|too many\|429/i`,撞了就直接 `break` 整个 type loop |
