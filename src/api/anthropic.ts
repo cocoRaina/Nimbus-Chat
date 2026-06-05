@@ -45,6 +45,7 @@ type OpenAiRequest = {
   // backend node gets the same user's prefix, which is what makes prompt
   // cache reads actually land (writes and reads must hit the same node).
   user?: string
+  tool_choice?: string | { type?: string; function?: { name?: string } }
   [key: string]: unknown
 }
 
@@ -291,6 +292,30 @@ export const convertOpenAiRequestToAnthropic = async (
     input_schema: (t.function.parameters as Record<string, unknown>) ?? { type: 'object', properties: {} },
   }))
 
+  // Translate OpenAI's tool_choice → Anthropic's. Without this the field
+  // got silently dropped during conversion, so the finalizer (which sets
+  // tool_choice='none' to force a text-only answer) had no way to stop
+  // the model from calling tools — its workaround was to delete the
+  // entire `tools` array, which broke prompt-cache match (tools array
+  // is part of the cache key, so removing it forced a full ~$0.15 cold
+  // write every MAX_TOOL_ITERATIONS hit). Keep tools, translate choice.
+  let toolChoice: Record<string, unknown> | undefined
+  const rawChoice = body.tool_choice
+  if (typeof rawChoice === 'string') {
+    if (rawChoice === 'none' || rawChoice === 'auto' || rawChoice === 'any') {
+      toolChoice = { type: rawChoice }
+    } else if (rawChoice === 'required') {
+      toolChoice = { type: 'any' }
+    }
+  } else if (rawChoice && typeof rawChoice === 'object') {
+    const choice = rawChoice as { type?: string; function?: { name?: string } }
+    if (choice.type === 'function' && choice.function?.name) {
+      toolChoice = { type: 'tool', name: choice.function.name }
+    } else if (choice.type === 'none' || choice.type === 'auto' || choice.type === 'any') {
+      toolChoice = { type: choice.type }
+    }
+  }
+
   // Thinking: if OpenAI request has reasoning.effort OR reasoning.max_tokens,
   // translate to Anthropic extended thinking with a token budget. Only
   // applies on models that actually support extended thinking (Claude 4
@@ -397,6 +422,7 @@ export const convertOpenAiRequestToAnthropic = async (
     top_p: finalTopP,
     stream: body.stream ?? false,
     tools,
+    ...(toolChoice ? { tool_choice: toolChoice } : {}),
     ...(metadata ? { metadata } : {}),
     ...(provider ? { provider } : {}),
     thinking,

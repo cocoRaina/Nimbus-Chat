@@ -2240,13 +2240,20 @@ TOOL_SEARCH_HANDOFF,
           if (!conversationDone && lastSentBody) {
             try {
               setToolStatus('收尾中…')
+              // KEEP `tools` in the body. Anthropic's prompt-cache key
+              // is (system + tools + messages); dropping tools forces a
+              // ~$0.15 cold write of the entire conversation. Use
+              // tool_choice='none' to stop the model from actually
+              // calling tools — that's now translated by
+              // convertOpenAiRequestToAnthropic into {type:'none'} on
+              // the wire (previously got silently dropped, which is
+              // why the original code had to delete tools instead).
               const finalBody: Record<string, unknown> = {
                 ...lastSentBody,
                 messages: applyClaudeCaching(baseMessages, effectiveModel),
                 stream: false,
                 tool_choice: 'none',
               }
-              delete finalBody.tools
               const finalResp = await fetchOpenRouter('/chat/completions', {
                 body: finalBody,
                 signal: controller.signal,
