@@ -290,6 +290,70 @@
   height: 16px;
 }
 
+/* Row variant used by the model dropdown in the header gear menu —
+   shares the toggle row's hit area and padding, but the trailing
+   element is a <select> instead of a checkbox. */
+.header-menu-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.header-menu-select:hover {
+  background: #f3f4f6;
+}
+.header-menu-select span {
+  flex-shrink: 0;
+}
+.header-menu-select select {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  background: #fff;
+}
+
+/* The "+" composer button now opens a small menu of attach options
+   above itself. Anchored to .composer-attach-wrap so it tracks the
+   button's position; pops upward because the composer sits at the
+   bottom of the viewport. */
+.composer-attach-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.composer-attach-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 6px;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 100;
+}
+.composer-attach-menu button {
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.composer-attach-menu button:hover {
+  background: #f3f4f6;
+}
+
 
 
 

@@ -193,6 +193,10 @@ const ChatPage = ({
   const [recording, setRecording] = useState(false)
   const [openHeaderMenu, setOpenHeaderMenu] = useState(false)
   const [headerMenuPosition, setHeaderMenuPosition] = useState({ top: 0, right: 0 })
+  // The "+" composer button used to be the model picker; per user
+  // request it's now an attachment menu (拍照 / 从相册). State drives
+  // the small popup that appears above the button.
+  const [openAttachMenu, setOpenAttachMenu] = useState(false)
   // Read once on mount; the chat header reflects this for the title +
   // the proactive notification title. Renaming via the settings menu
   // updates both state and localStorage in one step.
@@ -546,6 +550,20 @@ const ChatPage = ({
     }
   }, [])
 
+  // Close the "+" attach popup when the user taps elsewhere — the
+  // popup is anchored to the composer button so it can't use the
+  // existing portal-menu click-outside logic.
+  useEffect(() => {
+    if (!openAttachMenu) return
+    const onClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('.composer-attach-wrap')) return
+      setOpenAttachMenu(false)
+    }
+    document.addEventListener('click', onClick)
+    return () => document.removeEventListener('click', onClick)
+  }, [openAttachMenu])
+
   // Network status banner. getStatus is one-shot (boot value); listener
   // covers transitions. We treat any connected:true as online, even
   // captive-portal'd wifi, because the only thing we use this for is
@@ -737,6 +755,22 @@ const ChatPage = ({
                     />
                     <span>🧠 思考链 {reasoningHint}</span>
                   </label>
+                  <label className="header-menu-select">
+                    <span>🤖 模型</span>
+                    <select
+                      value={selectedModel}
+                      onChange={(event) => {
+                        const next = event.target.value
+                        onSelectModel(next === defaultModel ? null : next)
+                      }}
+                    >
+                      {modelOptions.map((modelId) => (
+                        <option key={modelId} value={modelId}>
+                          {modelId === defaultModel ? `默认：${modelId}` : modelId}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <button
                     type="button"
                     onClick={handleManualCompress}
@@ -892,47 +926,48 @@ const ChatPage = ({
           <div className="offline-banner" role="status">📡 已离线 — 发送会等到网络恢复后再尝试</div>
         ) : null}
         <div className="composer-row composer-line-row">
-          <label className="composer-icon-btn" aria-label="切换模型" title="切换模型">
-            <span aria-hidden="true">＋</span>
-            {/* Native select stretches over the icon — taps open the
-                system picker (same as before, but the chip is now an
-                icon button). On Android this is the cleanest model
-                picker UX without rolling a custom sheet. */}
-            <select
-              aria-label="选择模型"
-              value={selectedModel}
-              onChange={(event) => {
-                const next = event.target.value
-                onSelectModel(next === defaultModel ? null : next)
-              }}
+          {/* The "+" used to wrap a hidden <select> for model switching;
+              that moved into the header gear menu (less crowding, model
+              switching is a session-level thing rather than per-tap).
+              Now "+" pops a small two-item sheet — 拍照 vs 从相册 —
+              triggering the corresponding hidden file input. The sheet
+              auto-closes on click-outside via the effect below. */}
+          <div className="composer-attach-wrap">
+            <button
+              type="button"
+              className="composer-icon-btn"
+              aria-label="附加图片"
+              title="附加图片"
+              onClick={() => setOpenAttachMenu((v) => !v)}
+              disabled={uploading}
             >
-              {modelOptions.map((modelId) => (
-                <option key={modelId} value={modelId}>
-                  {modelId === defaultModel ? `默认：${modelId}` : modelId}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="composer-icon-btn"
-            aria-label="拍照"
-            title="拍照"
-            onClick={() => cameraInputRef.current?.click()}
-            disabled={uploading}
-          >
-            <span aria-hidden="true">📷</span>
-          </button>
-          <button
-            type="button"
-            className="composer-icon-btn"
-            aria-label="从相册选择"
-            title="从相册选择"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-          >
-            <span aria-hidden="true">🖼</span>
-          </button>
+              <span aria-hidden="true">＋</span>
+            </button>
+            {openAttachMenu ? (
+              <div className="composer-attach-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenAttachMenu(false)
+                    cameraInputRef.current?.click()
+                  }}
+                >
+                  📷 拍照
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenAttachMenu(false)
+                    fileInputRef.current?.click()
+                  }}
+                >
+                  🖼 从相册
+                </button>
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             className={`composer-icon-btn ${recording ? 'composer-icon-btn--recording' : ''}`}
