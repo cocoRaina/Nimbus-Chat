@@ -5,7 +5,9 @@ import ChatPage from './pages/ChatPage'
 import AuthPage from './pages/AuthPage'
 import SessionsDrawer from './components/SessionsDrawer'
 import type { ChatMessage, ChatSession, UserSettings } from './types'
+import { usePendingShare } from './hooks/useShareReceiver'
 import {
+  addMessage,
   createSession,
   deleteMessage,
   deleteSession,
@@ -229,6 +231,7 @@ const applyClaudeCaching = (
   model: string,
 ): ChatRequestMessage[] => {
   if (!isClaudeModel(model)) return messages
+  if (getActiveProvider() !== 'openrouter') return messages
   // BP1: the FIRST system message (the foundational character + tool
   // schema layer). Marking it gives Anthropic a stable last-resort
   // anchor that survives every higher-level miss — including the
@@ -373,11 +376,14 @@ const App = () => {
   const [authReady, setAuthReady] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
+  const [toolStatus, setToolStatus] = useState('')
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null)
   const [settingsReady, setSettingsReady] = useState(false)
   const [sessionsReady, setSessionsReady] = useState(false)
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null)
   const [supabaseConfigured, setSupabaseConfigured] = useState(() => hasSupabaseConfig())
+  const [pendingShare, clearShare] = usePendingShare()
+  const shareDraftRef = useRef<string | null>(null)
   const sessionsRef = useRef(sessions)
   const messagesRef = useRef(messages)
   const streamingControllerRef = useRef<AbortController | null>(null)
@@ -1215,28 +1221,42 @@ const App = () => {
         }
 
         if (!skipUser) {
-          try {
-            const { message: savedUserMessage, updatedAt } = await addRemoteMessage(
-              sessionId,
-              user.id,
-              'user',
-              content,
-              clientId,
-              clientCreatedAt,
-              userMeta,
-            )
+          // Save locally first — instant, works offline, no network dependency.
+          const localResult = addMessage(sessionId, 'user', content, userMeta, {
+            clientId,
+            clientCreatedAt,
+          })
+          if (localResult) {
             const updatedMessages = updateMessage(messagesRef.current, {
-              ...savedUserMessage,
+              ...localResult.message,
               pending: false,
             })
             const updatedSessions = sessionsRef.current.map((session) =>
-              session.id === sessionId ? { ...session, updatedAt } : session,
+              session.id === sessionId ? { ...session, updatedAt: localResult.session.updatedAt } : session,
             )
             applySnapshot(updatedSessions, updatedMessages)
-          } catch (error) {
-            console.warn('写入云端消息失败', error)
-            window.alert('发送失败，请稍后重试。')
-            return
+          }
+          // Sync to cloud in background — never block the API call on this.
+          // Without VPN Supabase may be unreachable; the 5s timeout + catch
+          // ensures the send always proceeds.
+          if (user && supabase) {
+            void Promise.race([
+              addRemoteMessage(sessionId, user.id, 'user', content, clientId, clientCreatedAt, userMeta),
+              new Promise<never>((_, reject) => setTimeout(() => reject(new Error('supabase timeout')), 5000)),
+            ])
+              .then(({ message: savedUserMessage, updatedAt }) => {
+                const updatedMessages = updateMessage(messagesRef.current, {
+                  ...savedUserMessage,
+                  pending: false,
+                })
+                const updatedSessions = sessionsRef.current.map((session) =>
+                  session.id === sessionId ? { ...session, updatedAt } : session,
+                )
+                applySnapshot(updatedSessions, updatedMessages)
+              })
+              .catch((err) => {
+                console.warn('后台同步用户消息失败', err)
+              })
           }
         }
 
@@ -1272,6 +1292,11 @@ const App = () => {
           }
           const cached =
             Number(lastUsage?.prompt_tokens_details?.cached_tokens ?? lastUsage?.cache_read_input_tokens ?? 0)
+          console.log(
+            `[cache-debug] model=${actualModel} prompt=${lastUsage?.prompt_tokens ?? '?'} completion=${lastUsage?.completion_tokens ?? '?'} ` +
+            `cached=${cached} cache_read=${lastUsage?.cache_read_input_tokens ?? 0} cache_create=${lastUsage?.cache_creation_input_tokens ?? 0} ` +
+            `usage_keys=${Object.keys(lastUsage ?? {}).join(',')}`,
+          )
           void recordUsage({
             userId: user.id,
             model: actualModel,
@@ -1414,17 +1439,11 @@ const App = () => {
           return meta
         }
 
-        // Transient status line shown only in the streaming bubble (never persisted).
-        // Used to surface "AI is searching memory…" while tool calls run between
-        // streaming iterations, so the chat doesn't feel like it's silently hung.
-        let toolStatusLine = ''
+        // Tool status is shown in a dedicated bar between messages and composer
+        // (see ChatPage.tsx) instead of being embedded in message content.
+        // This keeps the bubble clean and the status always visible at the bottom.
 
-        const buildDisplayContent = () => {
-          if (!toolStatusLine) {
-            return assistantContent
-          }
-          return assistantContent ? `${assistantContent}\n\n${toolStatusLine}` : toolStatusLine
-        }
+        const buildDisplayContent = () => assistantContent
 
         const pushStreamingUpdate = () => {
           const streamingUpdate = updateMessage(messagesRef.current, {
@@ -1453,11 +1472,6 @@ const App = () => {
             reasoningContent += pendingReasoningDelta
             pendingReasoningDelta = ''
           }
-          pushStreamingUpdate()
-        }
-
-        const setToolStatus = (line: string) => {
-          toolStatusLine = line
           pushStreamingUpdate()
         }
 
@@ -1683,31 +1697,23 @@ TOOL_SEARCH_HANDOFF,
               ]
               requestBody.tool_choice = 'auto'
             }
-            if (reasoningEnabled && isClaudeModel(effectiveModel)) {
-              // OpenRouter's `effort: 'high'` for Anthropic models translates
-              // to "thinking budget = 80% of top-level max_tokens". With the
-              // user's default max_tokens=1024 that's a ~820-token budget —
-              // below Anthropic's hard 1024 minimum — so OR silently drops
-              // thinking and Claude replies without reasoning. The smoking
-              // gun: most recent chats logged completion_tokens_details.
-              // reasoning_tokens=0 even though we sent reasoning:effort:high.
-              //
-              // Fix mirrors src/api/anthropic.ts:253-274 (which handles the
-              // same three Anthropic constraints for our direct adapter):
-              //   1. set reasoning.max_tokens explicitly so OR doesn't do
-              //      the broken percentage math on a small max_tokens
-              //   2. bump top-level max_tokens to budget + 1024 headroom
-              //      (Anthropic requires max_tokens > budget_tokens)
-              //   3. drop temperature / top_p (Anthropic 400s if either is
-              //      non-default when extended thinking is on)
-              const thinkingBudget = 8000
+            // Extended thinking is only worth the cost on the opening turn
+            // (where the model decides strategy) and the final text reply.
+            // Tool iterations 2-4 are just the model scanning a tool result
+            // and deciding which function to call next — 8000 thinking tokens
+            // per iteration at completion rates (~$0.12/iteration) for that
+            // is pure waste. The "笨笨的" symptom (OR silently dropping
+            // thinking when max_tokens is too low) is also avoided on those
+            // iterations since we skip the whole reasoning block.
+            if (reasoningEnabled && isClaudeModel(effectiveModel) && iteration === 1) {
+              const thinkingBudget = 2000
               requestBody.reasoning = { max_tokens: thinkingBudget }
               const currentMaxTokens =
                 typeof requestBody.max_tokens === 'number' ? requestBody.max_tokens : 0
               requestBody.max_tokens = Math.max(currentMaxTokens, thinkingBudget + 1024)
               delete requestBody.temperature
               delete requestBody.top_p
-            } else if (reasoningEnabled && activeSettings.chatHighReasoningEnabled) {
+            } else if (reasoningEnabled && activeSettings.chatHighReasoningEnabled && iteration === 1) {
               requestBody.reasoning = { effort: 'high' }
             }
 
@@ -1723,6 +1729,11 @@ TOOL_SEARCH_HANDOFF,
             }
 
             lastSentBody = requestBody
+            console.log(
+              `[cache-debug] req iter=${iteration} msgs=${cachedMessages.length} markers=${debugBreakpoints.filter((b) => b.cache_control).length} ` +
+              `bps=${debugBreakpoints.filter((b) => b.cache_control).map((b) => `${b.role}[${b.idx}]`).join(',')} ` +
+              `tools=${Array.isArray(requestBody.tools) ? (requestBody.tools as unknown[]).length : 0} reasoning=${requestBody.reasoning != null}`,
+            )
             const response = await fetchOpenRouter('/chat/completions', {
               body: requestBody,
               signal: controller.signal,
@@ -2188,9 +2199,7 @@ TOOL_SEARCH_HANDOFF,
                   const failureLine = `❌ ${tc.function.name} 失败：${message.slice(0, 60)}`
                   setToolStatus(failureLine)
                   window.setTimeout(() => {
-                    if (toolStatusLine === failureLine) {
-                      setToolStatus('')
-                    }
+                    setToolStatus((current) => (current === failureLine ? '' : current))
                   }, 3000)
                 }
                 // Cap tool results so a runaway search / dump doesn't
@@ -2254,6 +2263,18 @@ TOOL_SEARCH_HANDOFF,
                 stream: false,
                 tool_choice: 'none',
               }
+              // Re-enable extended thinking for the final text reply —
+              // it was skipped on tool iterations 2-4 to save cost, but
+              // the user-facing answer benefits from reasoning.
+              if (reasoningEnabled && isClaudeModel(effectiveModel)) {
+                const thinkingBudget = 2000
+                finalBody.reasoning = { max_tokens: thinkingBudget }
+                const currentMax =
+                  typeof finalBody.max_tokens === 'number' ? finalBody.max_tokens : 0
+                finalBody.max_tokens = Math.max(currentMax, thinkingBudget + 1024)
+                delete finalBody.temperature
+                delete finalBody.top_p
+              }
               const finalResp = await fetchOpenRouter('/chat/completions', {
                 body: finalBody,
                 signal: controller.signal,
@@ -2261,6 +2282,13 @@ TOOL_SEARCH_HANDOFF,
               if (finalResp.ok) {
                 const data = (await finalResp.json()) as {
                   choices?: Array<{ message?: { content?: unknown } }>
+                  usage?: Record<string, unknown>
+                }
+                // The finalizer is a real API call — capture its usage so
+                // it shows up in usage_logs alongside the loop iterations.
+                if (data?.usage && typeof data.usage === 'object') {
+                  lastUsage = data.usage as typeof lastUsage
+                  flushUsageRecord()
                 }
                 const text = data?.choices?.[0]?.message?.content
                 if (typeof text === 'string' && text.trim()) {
@@ -2293,23 +2321,41 @@ TOOL_SEARCH_HANDOFF,
 
           // Guard: tool loop can occasionally double-fire the save path.
           if (!messagesRef.current.some((m) => m.clientId === assistantClientId && !m.pending)) {
-            const { message: assistantMessage, updatedAt } = await addRemoteMessage(
-              sessionId,
-              user.id,
-              'assistant',
-              assistantContent,
-              assistantClientId,
-              assistantClientCreatedAt,
-              buildAssistantMeta(false),
-            )
-            const updatedMessages = updateMessage(messagesRef.current, {
-              ...assistantMessage,
-              pending: false,
+            // Save locally first so the reply appears instantly.
+            const localAssistant = addMessage(sessionId, 'assistant', assistantContent, buildAssistantMeta(false), {
+              clientId: assistantClientId,
+              clientCreatedAt: assistantClientCreatedAt,
             })
-            const updatedSessions = sessionsRef.current.map((session) =>
-              session.id === sessionId ? { ...session, updatedAt } : session,
-            )
-            applySnapshot(updatedSessions, updatedMessages)
+            if (localAssistant) {
+              const updatedMessages = updateMessage(messagesRef.current, {
+                ...localAssistant.message,
+                pending: false,
+              })
+              const updatedSessions = sessionsRef.current.map((session) =>
+                session.id === sessionId ? { ...session, updatedAt: localAssistant.session.updatedAt } : session,
+              )
+              applySnapshot(updatedSessions, updatedMessages)
+            }
+            // Sync to cloud in background, same pattern as user message.
+            if (user && supabase) {
+              void Promise.race([
+                addRemoteMessage(sessionId, user.id, 'assistant', assistantContent, assistantClientId, assistantClientCreatedAt, buildAssistantMeta(false)),
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('supabase timeout')), 5000)),
+              ])
+                .then(({ message: savedMessage, updatedAt }) => {
+                  const updatedMessages = updateMessage(messagesRef.current, {
+                    ...savedMessage,
+                    pending: false,
+                  })
+                  const updatedSessions = sessionsRef.current.map((session) =>
+                    session.id === sessionId ? { ...session, updatedAt } : session,
+                  )
+                  applySnapshot(updatedSessions, updatedMessages)
+                })
+                .catch((err) => {
+                  console.warn('后台同步助手回复失败', err)
+                })
+            }
           }
 
           // Auto-title generation removed (2026-06-02): the user manually
@@ -2335,7 +2381,7 @@ TOOL_SEARCH_HANDOFF,
           // gaps. Now we route per-provider via the routing config the chat
           // itself used.
           const activeProvider = getActiveProvider()
-          if (lastSentBody && isClaudeModel(effectiveModel)) {
+          if (lastSentBody && isClaudeModel(effectiveModel) && getActiveProvider() === 'openrouter') {
             keepaliveBodyRef.current = lastSentBody
             // A successful chat IS a cache refresh — mark it so the
             // pre-warm path on chat-page entry knows the cache is hot
@@ -2397,7 +2443,9 @@ TOOL_SEARCH_HANDOFF,
               }
             }
           }
+          setToolStatus('')
         } catch (error) {
+          setToolStatus('')
           if (flushTimer !== null) {
             window.clearTimeout(flushTimer)
             flushTimer = null
@@ -3235,6 +3283,30 @@ const ChatRoute = ({
     }
   }, [activeSession, navigate, onCreateSession, sessions.length, sessionsReady, syncing])
 
+  // When another app shares text to Nimbus, navigate to the active chat
+  // and pre-fill the composer with the shared content.
+  useEffect(() => {
+    if (!pendingShare || !activeSession) return
+    const prefix = pendingShare.title
+      ? `「${pendingShare.title}」\n\n${pendingShare.text}`
+      : pendingShare.text
+    shareDraftRef.current = prefix
+    navigate(`/chat/${activeSession.id}`, { replace: false })
+  }, [pendingShare]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // If a share arrived before any session existed (first launch), the
+  // effect above won't fire because activeSession is null. As soon as a
+  // session is created, trigger the navigation.
+  useEffect(() => {
+    if (!pendingShare || !activeSession) return
+    if (shareDraftRef.current) return // already handled by the effect above
+    const prefix = pendingShare.title
+      ? `「${pendingShare.title}」\n\n${pendingShare.text}`
+      : pendingShare.text
+    shareDraftRef.current = prefix
+    navigate(`/chat/${activeSession.id}`, { replace: false })
+  }, [activeSession, pendingShare, navigate])
+
   if (!activeSession) {
     return null
   }
@@ -3260,6 +3332,12 @@ const ChatRoute = ({
         }
         onManualCompress={() => onManualCompress(activeSession.id)}
         user={user}
+        toolStatus={toolStatus}
+        shareDraft={shareDraftRef.current ?? undefined}
+        onConsumeShare={() => {
+          shareDraftRef.current = null
+          clearShare(pendingShare)
+        }}
       />
       <SessionsDrawer
         open={drawerOpen}

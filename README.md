@@ -98,7 +98,7 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 每次工具调用会被记录在消息的 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**（类似 claude.ai）：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回结果。
 
 ### 💰 成本优化
-- **Anthropic Prompt Caching**:1 小时 TTL(写贵 2x,读 0.1x)。**OR 和中转都启用** —— Claude on 中转走 `anthropic.ts` 适配器直接 `/v1/messages`,Claude on OR 自动路由到 OR 原生 `/api/v1/messages` 端点(OR 的 `/chat/completions` 翻译层会丢 `cache_control` marker,踩过 0% 命中工具迭代的坑后切的)
+- **Anthropic Prompt Caching**:1 小时 TTL(写贵 2x,读 0.1x)。**OR 启用显式断点缓存(BP1+BP4+HEAD 三锚点)**，中转站关闭显式标记(中转 relay 的 keepalive ping 无法匹配聊天请求的缓存 key → ping 会写无用缓存白白浪费钱，且中转自身有服务端自动缓存)。Claude on OR 自动路由到 OR 原生 `/api/v1/messages` 端点(OR 的 `/chat/completions` 翻译层会丢 `cache_control` marker,踩过 0% 命中工具迭代的坑后切的)
 - **Cache marker 策略**(三个 breakpoint,Anthropic 上限 4 个):
   - **BP1**:打在系统提示词的 text block 上 —— 几乎永不变的基础上下文,任何上层 miss 都能 walk-up 到这里兜底
   - **BP4**:倒数第二条 user message —— 上一轮的 HEAD,新一轮请求过来 walk-up 命中
@@ -590,3 +590,32 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 | 输入框和聊天区域之间有缝，看起来分开了 | `.chat-composer` 没去掉自带 padding/border | 把 `.chat-messages` 设透明 + `.chat-composer.glass-card` 显式 `background: #ffffff !important; border-top: 1px solid rgba(15,23,42,0.06) !important` |
 | 朋友圈也走思考链了（两句话发个帖也 thinking，慢 + 贵） | `feedAiConfigBase.reasoning` 写成了 `latestSession?.overrideReasoning ?? activeSettings.chatReasoningEnabled`，直接继承聊天的思考链开关 | hardcode 成 `reasoning: false`，把朋友圈与聊天的思考链解耦。朋友圈用例零收益 |
 | 55min cache 续命 ping 一直在跑但 cache 命中率没涨 | 续命 body 同时踩了三个坑：① `max_tokens: 0` Anthropic 不收，adapter 兜底成 4096 → 续命变成全量生成；② `delete pingBody.tools` —— tools 是 cache 前缀的一部分，删了 cache key 就不一样，续命的 ping 跟原 conversation 不是同一个 cache entry；③ `reasoning` 还在 snapshot 里，配合 thinking 把 max_tokens 顶到 budget+1024 ≈ 9024 | `App.tsx:scheduleKeepalive` 改成 `max_tokens: 1`、保留 `tools`、`delete pingBody.reasoning` + `tool_choice` + `usage`。`/usage` 页能看见 cache hit % 持续上涨 = 续命真的在 work |
+
+---
+
+## 2026-06-05 改动记录
+
+### 新增：Android 分享接收
+- 从其他 App（浏览器、微信、微博）分享文本到 Nimbus → 自动打开聊天页 + 预填内容到输入框
+- AndroidManifest.xml 注册 `ACTION_SEND` intent filter + `ShareReceiverPlugin.java` 自定义 Capacitor 插件
+
+### 优化：发送速度 & 离线可用
+- **消息本地先存、后台同步**：用户消息和 AI 回复都不再等 Supabase。本地 localStorage 秒存 → 立刻显示 → 后台 5 秒超时异步同步到 Supabase。不挂梯子也能正常聊天
+- 工具迭代第 2-4 轮关闭 extended thinking（仅第一轮和收尾开启），每轮工具调用省 ~8000 thinking tokens
+- Extended thinking budget 从 8000 → 2000（首 token 延迟降约 4 倍）
+
+### 修复：缓存 & 中转折中
+- 中转站关闭显式 prompt caching（中转 relay 的 keepalive ping 无法匹配聊天请求的缓存 key → 白白浪费钱写无用缓存）
+- OR 保留完整 BP1+BP4+HEAD 三锚点缓存 + 客户端/服务端保活
+- OR 模型列表缓存永不过期的 bug 修复
+
+### 修复：Bug
+- ChatPage 只有图片没有文字时发送按钮灰色不可点
+- SettingsPage 保存并离开时不等待保存完成就跳转
+- SettingsPage 模型列表对比用 `join('|')` 有碰撞风险
+- MAX_TOOL_ITERATIONS 触发后 finalizer 的用量不记录到 usage_logs
+
+### UX 改进
+- **独立工具状态栏**：工具执行状态从消息气泡中拆出，在消息区和输入框之间显示蓝色状态条（带旋转动画）
+- 发送按钮 disabled 条件考虑 pending attachments
+- 编辑状态提示更清晰

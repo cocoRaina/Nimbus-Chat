@@ -382,7 +382,8 @@ const SettingsPage = ({
 
   const hasUnsavedModelSettings = settings
     ? settings.defaultModel !== draftDefaultModel ||
-      settings.enabledModels.join('|') !== draftEnabledModels.join('|')
+      settings.enabledModels.length !== draftEnabledModels.length ||
+      !settings.enabledModels.every((m, i) => m === draftEnabledModels[i])
     : false
 
   const hasUnsavedGeneration = settings
@@ -785,25 +786,15 @@ const SettingsPage = ({
     pendingAction?.()
   }
 
-  const handleSaveAndLeave = () => {
-    if (hasUnsavedSystemPrompt) {
-      void handleSaveSystemPrompt()
-    }
-    if (hasUnsavedSnackOverlay) {
-      void handleSaveSnackOverlay()
-    }
-    if (hasUnsavedGeneration) {
-      void handleSaveGenerationSettings()
-    }
-    if (hasUnsavedModelSettings) {
-      void handleSaveModelSettings()
-    }
-    if (hasUnsavedSyzygyPostPrompt) {
-      void handleSaveSyzygyPostPrompt()
-    }
-    if (hasUnsavedSyzygyReplyPrompt) {
-      void handleSaveSyzygyReplyPrompt()
-    }
+  const handleSaveAndLeave = async () => {
+    const saves: Promise<void>[] = []
+    if (hasUnsavedSystemPrompt) saves.push(handleSaveSystemPrompt())
+    if (hasUnsavedSnackOverlay) saves.push(handleSaveSnackOverlay())
+    if (hasUnsavedGeneration) saves.push(handleSaveGenerationSettings())
+    if (hasUnsavedModelSettings) saves.push(handleSaveModelSettings())
+    if (hasUnsavedSyzygyPostPrompt) saves.push(handleSaveSyzygyPostPrompt())
+    if (hasUnsavedSyzygyReplyPrompt) saves.push(handleSaveSyzygyReplyPrompt())
+    await Promise.allSettled(saves)
     setShowUnsavedPromptDialog(false)
     const pendingAction = pendingNavigationRef.current
     pendingNavigationRef.current = null

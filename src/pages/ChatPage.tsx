@@ -42,6 +42,9 @@ export type ChatPageProps = {
   onSelectReasoning: (reasoning: boolean | null) => void
   onManualCompress: () => Promise<{ ok: boolean; message: string }>
   user: User | null
+  toolStatus?: string
+  shareDraft?: string
+  onConsumeShare?: () => void
 }
 
 // Split an assistant message into multiple "WeChat-style" bubbles ONLY when
@@ -179,6 +182,9 @@ const ChatPage = ({
   defaultReasoning,
   onSelectReasoning,
   onManualCompress,
+  toolStatus,
+  shareDraft,
+  onConsumeShare,
 }: ChatPageProps) => {
   const [draft, setDraft] = useState('')
   const [openActionsId, setOpenActionsId] = useState<string | null>(null)
@@ -227,6 +233,15 @@ const ChatPage = ({
   useEffect(() => {
     setDisplayLimit(PAGE_SIZE)
   }, [session.id])
+  // When another app shares text to Nimbus, pre-fill the composer.
+  useEffect(() => {
+    if (shareDraft) {
+      setDraft(shareDraft)
+      onConsumeShare?.()
+    }
+    // Only fire when shareDraft actually changes to a new value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shareDraft])
   const displayedMessages = useMemo(
     () => (messages.length > displayLimit ? messages.slice(-displayLimit) : messages),
     [messages, displayLimit],
@@ -860,6 +875,12 @@ const ChatPage = ({
             appearing while we wait for the first token. */}
         <div ref={bottomRef} />
       </main>
+      {toolStatus ? (
+        <div className="tool-status-bar" aria-live="polite">
+          <span className="tool-status-spinner" aria-hidden="true" />
+          <span>{toolStatus}</span>
+        </div>
+      ) : null}
       <form className="chat-composer glass-card" onSubmit={handleSubmit}>
         {editingMessageId ? (
           <div className="quote-preview">
@@ -1012,7 +1033,7 @@ const ChatPage = ({
               type="submit"
               className="composer-send-btn"
               aria-label="发送"
-              disabled={uploading || draft.trim().length === 0}
+              disabled={uploading || (draft.trim().length === 0 && pendingAttachments.length === 0)}
             >
               <span aria-hidden="true">➤</span>
             </button>

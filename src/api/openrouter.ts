@@ -86,15 +86,14 @@ export const fetchOpenRouterModels = async () => {
   const cacheKey = `nimbus_models_cache_v1:${providerId}`
   const cacheTtlMs = 24 * 60 * 60 * 1000
 
-  const readCache = (): Array<{ id: string; name?: string; context_length: number | null }> | null => {
+  const readCache = (allowStale = false): Array<{ id: string; name?: string; context_length: number | null }> | null => {
     if (typeof window === 'undefined') return null
     try {
       const raw = window.localStorage.getItem(cacheKey)
       if (!raw) return null
       const parsed = JSON.parse(raw) as { savedAt: number; models: Array<{ id: string; name?: string; context_length: number | null }> }
-      if (Date.now() - parsed.savedAt > cacheTtlMs) {
-        return parsed.models
-      }
+      const expired = Date.now() - parsed.savedAt > cacheTtlMs
+      if (expired && !allowStale) return null
       return parsed.models
     } catch {
       return null
@@ -110,11 +109,15 @@ export const fetchOpenRouterModels = async () => {
     }
   }
 
+  // Serve fresh cache immediately to skip the network round-trip.
+  const fresh = readCache()
+  if (fresh) return fresh
+
   try {
     const response = await fetchOpenRouter('/models')
     if (!response.ok) {
-      const cached = readCache()
-      if (cached && cached.length > 0) return cached
+      const stale = readCache(true)
+      if (stale && stale.length > 0) return stale
       throw new Error(await response.text())
     }
     const payload = (await response.json()) as { data?: Array<{ id: string; name?: string; context_length?: number | null }> }
@@ -128,10 +131,10 @@ export const fetchOpenRouterModels = async () => {
     if (models.length > 0) writeCache(models)
     return models
   } catch (error) {
-    const cached = readCache()
-    if (cached && cached.length > 0) {
+    const stale = readCache(true)
+    if (stale && stale.length > 0) {
       console.warn('[模型库] 网络获取失败，使用本地缓存', error)
-      return cached
+      return stale
     }
     throw error
   }
