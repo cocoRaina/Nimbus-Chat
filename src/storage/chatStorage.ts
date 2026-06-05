@@ -85,9 +85,11 @@ const sortMessages = (messages: ChatMessage[]) =>
 export const loadSnapshot = (): StorageSnapshot => {
   snapshot.sessions = sortSessions(snapshot.sessions.map(ensureSessionFields))
   snapshot.messages = sortMessages(snapshot.messages.map(ensureMessageFields))
+  // Already normalized + sorted above — hand back fresh arrays so callers
+  // can't mutate the module-level snapshot, without redoing the work.
   return {
-    sessions: sortSessions(snapshot.sessions.map(ensureSessionFields)),
-    messages: sortMessages(snapshot.messages.map(ensureMessageFields)),
+    sessions: [...snapshot.sessions],
+    messages: [...snapshot.messages],
   }
 }
 

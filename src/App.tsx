@@ -2367,20 +2367,18 @@ TOOL_SEARCH_HANDOFF,
           // leaving the title at "新会话" so the NEXT chat fired it again.
           // Net effect was multiple cold-write Opus calls per test session.
 
-          // If this request was cached (any Claude path — OR or 中转站),
-          // stash the body and schedule a keepalive ping ~55min out to refresh
-          // the 1h cache. Eligibility used to gate on top-level
-          // lastSentBody.cache_control, but we moved breakpoints inline to
-          // message blocks to fix the tool-iteration cache miss — so check the
-          // canonical condition directly instead of looking for the marker.
-          //
-          // Was OR-only before; that left 中转站 users (the most common cost-
-          // sensitive path) without any server-side keepalive at all,
-          // resulting in $0.21 cold writes on the first message after >1h
-          // gaps. Now we route per-provider via the routing config the chat
-          // itself used.
+          // Keepalive is OR-only by design. On OpenRouter we drive the
+          // Anthropic cache ourselves with explicit cache_control breakpoints,
+          // so the 1h entry needs a ~55min refresh ping to stay warm. The
+          // 中转站 (msuicode-style relay) does its own server-side auto-cache —
+          // there's nothing for us to keep alive there, so we skip it. This
+          // mirrors applyClaudeCaching, which also only marks breakpoints when
+          // the active provider is OpenRouter. Eligibility used to gate on
+          // top-level lastSentBody.cache_control, but we moved breakpoints
+          // inline to message blocks to fix the tool-iteration cache miss — so
+          // check the canonical condition directly instead of the marker.
           const activeProvider = getActiveProvider()
-          if (lastSentBody && isClaudeModel(effectiveModel) && getActiveProvider() === 'openrouter') {
+          if (lastSentBody && isClaudeModel(effectiveModel) && activeProvider === 'openrouter') {
             keepaliveBodyRef.current = lastSentBody
             // A successful chat IS a cache refresh — mark it so the
             // pre-warm path on chat-page entry knows the cache is hot

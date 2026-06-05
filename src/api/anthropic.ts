@@ -82,7 +82,11 @@ type AnthropicRequest = {
     input_schema: Record<string, unknown>
     cache_control?: CacheControl
   }>
-  thinking?: { type: 'enabled'; budget_tokens: number }
+  // Opus 4.6 and earlier accept manual extended thinking (budget_tokens).
+  // Opus 4.7+ removed it and 400 on that shape — those use adaptive
+  // thinking + the `effort` knob in output_config instead.
+  thinking?: { type: 'enabled'; budget_tokens: number } | { type: 'adaptive' }
+  output_config?: { effort: 'low' | 'medium' | 'high' }
   metadata?: { user_id?: string }
   // OpenRouter-specific routing hint, passed through on requests to OR's
   // /messages endpoint. Ignored by direct Anthropic and most relays.
@@ -349,8 +353,35 @@ export const convertOpenAiRequestToAnthropic = async (
   const supportsThinking =
     /claude-(opus|sonnet|haiku)-(3-7|3\.7|4)/i.test(body.model) ||
     /claude-(3-7|3\.7|4)(?:[-.]\d+)?-(opus|sonnet|haiku)/i.test(body.model)
+
+  // Parse the Claude major.minor (e.g. "4.7" → 407) from either naming
+  // convention. Opus 4.7 and later REMOVED manual extended thinking
+  // (budget_tokens) and the sampling params (temperature/top_p/top_k) —
+  // sending either returns a 400. Those models use adaptive thinking with
+  // the effort knob instead. Treat any Claude >= 4.7 as adaptive-only;
+  // 4.6 and earlier keep the budget_tokens path that works today.
+  const versionMatch =
+    body.model.match(/claude-(?:opus|sonnet|haiku)-(\d+)[-.](\d+)/i) ||
+    body.model.match(/claude-(\d+)[-.](\d+)[-.]?(?:opus|sonnet|haiku)/i)
+  const claudeVersion = versionMatch
+    ? Number(versionMatch[1]) * 100 + Number(versionMatch[2])
+    : 0
+  const adaptiveOnly = claudeVersion >= 407
+
+  let effortLevel: 'low' | 'medium' | 'high' | undefined
   if (supportsThinking) {
-    if (explicitBudget >= 1024) {
+    if (adaptiveOnly) {
+      // budget_tokens is rejected; map the requested budget/effort onto
+      // adaptive thinking's effort knob. A sizeable explicit budget reads
+      // as "high"; otherwise honor the effort string if one was given.
+      if (explicitBudget >= 1024) {
+        thinking = { type: 'adaptive' }
+        effortLevel = 'high'
+      } else if (effort === 'high' || effort === 'medium' || effort === 'low') {
+        thinking = { type: 'adaptive' }
+        effortLevel = effort
+      }
+    } else if (explicitBudget >= 1024) {
       // Honor whatever the caller asked for, but clamp to Anthropic's
       // 1024 floor (smaller silently disables thinking server-side).
       thinking = { type: 'enabled', budget_tokens: explicitBudget }
@@ -371,15 +402,21 @@ export const convertOpenAiRequestToAnthropic = async (
   //   3. top_p must be unset (or also exactly 1, easier to just drop).
   const userMaxTokens =
     typeof body.max_tokens === 'number' && body.max_tokens > 0 ? body.max_tokens : 4096
-  const finalMaxTokens = thinking
-    ? Math.max(userMaxTokens, thinking.budget_tokens + 1024)
-    : userMaxTokens
-  const finalTemperature = thinking
+  const finalMaxTokens =
+    thinking && 'budget_tokens' in thinking
+      ? Math.max(userMaxTokens, thinking.budget_tokens + 1024)
+      : thinking // adaptive: no explicit budget, just give the reply headroom
+        ? Math.max(userMaxTokens, 9216)
+        : userMaxTokens
+  // Sampling params must be dropped when thinking is on (any model) and
+  // ALWAYS on Opus 4.7+ (they 400 there regardless of thinking).
+  const dropSampling = thinking != null || adaptiveOnly
+  const finalTemperature = dropSampling
     ? undefined
     : typeof body.temperature === 'number'
       ? body.temperature
       : undefined
-  const finalTopP = thinking
+  const finalTopP = dropSampling
     ? undefined
     : typeof body.top_p === 'number'
       ? body.top_p
@@ -425,6 +462,7 @@ export const convertOpenAiRequestToAnthropic = async (
     ...(toolChoice ? { tool_choice: toolChoice } : {}),
     ...(metadata ? { metadata } : {}),
     ...(provider ? { provider } : {}),
+    ...(effortLevel ? { output_config: { effort: effortLevel } } : {}),
     thinking,
   }
 }

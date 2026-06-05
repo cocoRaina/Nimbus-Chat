@@ -542,6 +542,7 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 | 400 — `max_tokens` 小于 `budget_tokens` | 用户默认 `maxTokens = 1024`，effort=high 时 `budget_tokens = 8000` | thinking 开启时 `max_tokens = max(user, budget + 1024)` |
 | 400 — temperature/top_p 与 thinking 不兼容 | thinking 要 `temperature === 1`、`top_p` 不传 | thinking 开启时 temperature / top_p 一律 drop |
 | 400 — 模型不支持 thinking | Claude 3.5 / 3 收到 `thinking` 字段直接 400 | 用 `/claude-(opus-4\|sonnet-4\|haiku-4\|3-7\|3\.7)/i` 正则 gate |
+| 400 — Opus 4.7/4.8 不收 `budget_tokens` / 采样参数 | Opus 4.7 起**移除**了手动 extended thinking（`thinking:{type:'enabled',budget_tokens}`)和 `temperature`/`top_p`/`top_k`,收到任一直接 400 | 解析 model 版本号(两种命名都认),≥4.7 走 adaptive thinking:`thinking:{type:'adaptive'}` + `output_config:{effort}`,并对这些模型一律 drop 采样参数(thinking 关也要 drop)。4.6 及更早保持 `budget_tokens` 老路 |
 | 400 — `anthropic/` 前缀 model ID | 直连 relay（msuicode）不吃 OpenRouter 命名空间 | 转换时 `body.model.replace(/^anthropic\//, '')` |
 | 400 — tool_result 没有 tool_use_id | 上游 delta 丢了 id 或 history 重建丢了链接 | tool role 转换时 `if (!msg.tool_call_id) continue` |
 | 400 — tool_result 挂到 assistant 消息上 | 连续 tool role coalesce 时没看上一条 role | 只在 `last.role === 'user' && Array.isArray(last.content)` 时 push 进去 |
@@ -619,3 +620,11 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 - **独立工具状态栏**：工具执行状态从消息气泡中拆出，在消息区和输入框之间显示蓝色状态条（带旋转动画）
 - 发送按钮 disabled 条件考虑 pending attachments
 - 编辑状态提示更清晰
+
+### 修复：构建 & 模型兼容（晚间补丁）
+- **修复 CI 构建失败**：share-intent 重构把 `pendingShare / clearShare / shareDraftRef / toolStatus` 声明在了 `App`、却在 `ChatRoute` 里使用,`tsc` 两头报错(一边"声明未用"一边"找不到名字"),`npm run build` 直接挂、APK 没打成。把 `usePendingShare()` + `shareDraftRef` 移进唯一使用者 `ChatRoute`,`toolStatus` 作为 prop 传入;补 `lastUsage` 类型缺的 `cache_creation_input_tokens` 字段
+- **修复 Opus 4.7/4.8 思考链直接 400**：旧逻辑对任何 `claude-…-4…` 模型都发 `budget_tokens`,但 Opus 4.7 起该字段(连同 `temperature`/`top_p`/`top_k`)已被移除、收到即 400 —— 选了最新 Opus 又开思考链就每条消息必失败。改为解析模型版本号,≥4.7 自动切 adaptive thinking(`thinking:{type:'adaptive'}` + `output_config:{effort}`)并 drop 采样参数;4.6 及更早保持原 `budget_tokens` 路径不变
+
+### 优化：小清理
+- `loadSnapshot` 之前把 map+sort 跑了两遍(赋值一次、return 再算一次),改成赋值后直接返回浅拷贝,省一半遍历
+- keepalive 注释与代码对齐:保活本来就**只对 OR** 生效(OR 才需要客户端打 cache_control 断点;中转站是服务端自动缓存,无需保活),顺手去掉重复的 `getActiveProvider()` 调用
