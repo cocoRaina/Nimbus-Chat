@@ -15,10 +15,29 @@ export const estimateTokens = (text: string): number => {
   return Math.ceil(text.length / 3)
 }
 
-const estimateMessagesTokens = (messages: Array<{ content: string }>): number => {
+// A full-size image is roughly 1.6k tokens; err high (like estimateTokens)
+// so image-heavy chats trigger compression early rather than blowing past
+// the context limit / paying a big cold request first.
+const IMAGE_TOKEN_FALLBACK = 1600
+
+const estimateImageTokens = (att: { width?: number; height?: number }): number => {
+  if (att.width && att.height) {
+    // Anthropic's vision cost ≈ (width × height) / 750 tokens, clamped to a
+    // sane ceiling so a bogus dimension can't dominate the estimate.
+    return Math.min(Math.ceil((att.width * att.height) / 750), 4800)
+  }
+  return IMAGE_TOKEN_FALLBACK
+}
+
+const estimateMessagesTokens = (messages: ChatMessage[]): number => {
   let total = 0
   for (const msg of messages) {
     total += estimateTokens(msg.content)
+    // Image attachments cost real tokens but carry no text — count them so
+    // the trigger fires on time for chats with lots of images.
+    for (const att of msg.meta?.attachments ?? []) {
+      total += estimateImageTokens(att)
+    }
   }
   // overhead per message for role + formatting
   total += messages.length * 4
