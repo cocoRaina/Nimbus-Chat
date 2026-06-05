@@ -382,8 +382,6 @@ const App = () => {
   const [sessionsReady, setSessionsReady] = useState(false)
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null)
   const [supabaseConfigured, setSupabaseConfigured] = useState(() => hasSupabaseConfig())
-  const [pendingShare, clearShare] = usePendingShare()
-  const shareDraftRef = useRef<string | null>(null)
   const sessionsRef = useRef(sessions)
   const messagesRef = useRef(messages)
   const streamingControllerRef = useRef<AbortController | null>(null)
@@ -1278,6 +1276,7 @@ const App = () => {
           total_tokens?: number
           prompt_tokens_details?: { cached_tokens?: number }
           cache_read_input_tokens?: number
+          cache_creation_input_tokens?: number
         } | null = null
         let currentRequestDebug: unknown = null
 
@@ -2965,6 +2964,7 @@ TOOL_SEARCH_HANDOFF,
                 onManualCompress={handleManualCompress}
                 onChatPageEnter={prewarmKeepaliveIfStale}
                 user={user}
+                toolStatus={toolStatus}
               />
             </RequireAuth>
           }
@@ -3156,6 +3156,7 @@ const ChatRoute = ({
   onManualCompress,
   onChatPageEnter,
   user,
+  toolStatus,
 }: {
   sessions: ChatSession[]
   messages: ChatMessage[]
@@ -3188,9 +3189,12 @@ const ChatRoute = ({
   onManualCompress: (sessionId: string) => Promise<{ ok: boolean; message: string }>
   onChatPageEnter: () => void
   user: User | null
+  toolStatus: string
 }) => {
   const { sessionId } = useParams()
   const navigate = useNavigate()
+  const [pendingShare, clearShare] = usePendingShare()
+  const shareDraftRef = useRef<string | null>(null)
 
   const activeSession = sessions.find((session) => session.id === sessionId)
 
