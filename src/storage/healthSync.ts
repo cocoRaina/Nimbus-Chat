@@ -29,27 +29,22 @@ const AUTO_SYNC_MIN_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
 
 // Rate-limit backoff. When Health Connect rejects a read with its
 // quota-exceeded error, we record a cooldown deadline. Until that
-// deadline, NO sync runs — not even a manual `force` one. This is
-// deliberate: during the rate-limit window every additional request
-// fails AND keeps the rolling quota pinned, so the only way the quota
-// refills is to stop touching Health Connect entirely. 10 min is
-// comfortably above Health Connect's ~5 min rolling window.
-//
-// This is the fix for the foreground-retry death-loop: maybeAutoSyncHealth
-// fires on mount + every visibilitychange, and the only thing stopping
-// it from re-hammering the quota was last_synced_at — which we
-// (correctly) stopped writing on failed syncs. Without a separate
-// backoff, a single rate-limit turned every app-foreground into another
-// quota-draining retry, so the quota never recovered. The backoff gives
-// it an enforced quiet window.
+// deadline auto-sync stays quiet so we don't re-hammer a pinned quota
+// (maybeAutoSyncHealth fires on mount + every visibilitychange, so
+// without a backoff a single rate-limit turned every app-foreground into
+// another quota-draining retry). Manual `force` sync always bypasses it.
 const RATE_LIMIT_BACKOFF_KEY = 'nimbus_health_rate_limit_until_v1'
-// Originally 10 min as a paranoid wait — that assumed we were stuck in
-// some "rolling window resets on every request" trap. Health Connect's
-// actual periodic limit is QPS-style: a fresh request a few seconds
-// later just runs. 3 min is enough breathing room for unusual cases
-// (an external app saturating the quota) without holding the user
-// hostage. Manual sync bypasses this entirely (see force handling).
-const RATE_LIMIT_BACKOFF_MS = 3 * 60 * 1000 // 3 minutes
+// EXPONENTIAL backoff, not a flat wait. The old flat 3 min punished the
+// common case — a single transient rate-limit (e.g. Health Sync happened
+// to be writing at the same moment) — exactly as hard as a genuinely
+// exhausted quota, so the health page felt "stuck" for 3 min after every
+// little blip. Now we scale with the number of *consecutive* rate-limited
+// syncs: 1st blip waits just 60s, then 2m, 4m, capped at 5m, and the
+// count resets the moment a sync comes back clean. Transient blips
+// recover fast; only a persistently saturated quota earns the long wait.
+const RATE_LIMIT_COUNT_KEY = 'nimbus_health_rate_limit_count_v1'
+const RATE_LIMIT_BACKOFF_BASE_MS = 60 * 1000 // 1 minute (first blip)
+const RATE_LIMIT_BACKOFF_MAX_MS = 5 * 60 * 1000 // 5 minutes (cap)
 
 export const readLastSyncedAt = (): number | null => {
   if (typeof window === 'undefined') return null
@@ -77,9 +72,33 @@ const writeRateLimitUntil = (timestamp: number) => {
   window.localStorage.setItem(RATE_LIMIT_BACKOFF_KEY, String(timestamp))
 }
 
+const readRateLimitCount = (): number => {
+  if (typeof window === 'undefined') return 0
+  const raw = window.localStorage.getItem(RATE_LIMIT_COUNT_KEY)
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : 0
+}
+
+// Clear both the cooldown deadline and the consecutive-failure counter.
+// Called on a clean sync and at the start of a manual force sync, so the
+// next rate-limit (if any) starts the exponential ramp from 60s again.
 const clearRateLimitBackoff = () => {
   if (typeof window === 'undefined') return
   window.localStorage.removeItem(RATE_LIMIT_BACKOFF_KEY)
+  window.localStorage.removeItem(RATE_LIMIT_COUNT_KEY)
+}
+
+// Record a rate-limit hit: bump the consecutive counter and arm a cooldown
+// that grows with it — 60s, 2m, 4m, capped at 5m.
+const armRateLimitBackoff = () => {
+  if (typeof window === 'undefined') return
+  const count = readRateLimitCount() + 1
+  const backoff = Math.min(
+    RATE_LIMIT_BACKOFF_BASE_MS * 2 ** (count - 1),
+    RATE_LIMIT_BACKOFF_MAX_MS,
+  )
+  window.localStorage.setItem(RATE_LIMIT_COUNT_KEY, String(count))
+  writeRateLimitUntil(Date.now() + backoff)
 }
 
 // How many whole minutes remain in the rate-limit cooldown, for UI hints.
@@ -149,11 +168,14 @@ const PER_TYPE_WINDOW_HOURS: Record<HealthDataType, number> = {
   oxygenSaturation: 48,
 } as Record<HealthDataType, number>
 
-// Light gap between the steps aggregate call and the readSamples calls.
-// 100ms is enough to keep the IPC calls from being literally back-to-
-// back; we're not at the burst limit any more (5 IPC total) so this is
-// belt-and-suspenders for paranoid devices, not load-bearing.
-const READ_GAP_MS = 100
+// Gap between successive Health Connect IPC calls. A full sync now fires
+// 7 calls (steps + heart-rate avg/min/max aggregates + 3 readSamples).
+// Health Connect's limiter is a refilling token bucket, so a tight burst
+// is what trips it — especially when an external app (Huawei Health Sync)
+// is consuming the same quota. 250ms between calls spreads the burst over
+// ~1.5s, which measurably cuts how often we hit the limit, while still
+// being invisible to the user (the whole sync is background + async).
+const READ_GAP_MS = 250
 
 // Deduplicate samples before aggregating. Capgo's plugin + Health
 // Sync occasionally surface the same physical record twice (same
@@ -491,7 +513,7 @@ export const syncHealthDataToSupabase = async (
 
   if (rateLimited) {
     summary.skippedReason = summary.skippedReason ?? 'rate-limited'
-    writeRateLimitUntil(Date.now() + RATE_LIMIT_BACKOFF_MS)
+    armRateLimitBackoff()
   }
 
   const dedupedSamples = dedupeSamples(allSamples)
