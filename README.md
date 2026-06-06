@@ -596,6 +596,12 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 
 ## 2026-06-06 改动记录
 
+### 新增:中转预设(多个中转站一键切换)
+- **需求**:想存多家中转(当前家、金瓜瓜…)随时切,而不是每次覆盖那唯一的自定义槽。
+- **做法(低风险)**:`apiProvider.ts` 加 `RelayPreset`(name/baseUrl/apiKey/format)+ `get/save/delete/applyRelayPreset`,存 `nimbus_relay_presets_v1`。**故意不新增 provider 类型**——`applyRelayPreset` 只是把预设值写进现有 msuicode 槽并设为激活,所以全套按 `'openrouter'|'msuicode'` 分支的路由/缓存/续命逻辑**一行都不用动**。
+- **UI**:设置 → 中转 API Key 区,加「＋ 把当前中转存为预设」+ 预设列表(点一下应用 / × 删除)。
+- ⚠️ 纯前端,需重新打 APK 才生效。
+
 ### 新增:历史图片转文字描述(省缓存冷写 + 不污染前缀)
 - **动机**:每轮都会把会话里的历史图片原样重发,冷写/缓存失效时很贵(图片 token 重),还撑大前缀。
 - **做法(低风险)**:新增 `storage/imageCaptions.ts` 本地缓存层(url 哈希 → 描述)。图片**第一次出现照常发原图**(模型看得到)并异步用当前模型生成一两句中文描述;**之后的轮次改发 `[图片：描述]` 文字**。原图仍存在消息里供 UI 显示——只改"发给模型的内容"。captioning 失败就没有缓存项 → 继续发原图,**优雅回退、不动消息/数据库**。

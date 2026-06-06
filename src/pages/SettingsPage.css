@@ -435,3 +435,64 @@
 .catalog-status.error {
   color: #1D4ED8;
 }
+
+/* Relay presets: saved custom relays you can switch between with one tap. */
+.relay-preset-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.relay-preset-item {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.relay-preset-apply {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.relay-preset-apply:hover {
+  background: #f3f4f6;
+}
+
+.relay-preset-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.relay-preset-url {
+  font-size: 11px;
+  color: #6b7280;
+  word-break: break-all;
+}
+
+.relay-preset-delete {
+  flex: 0 0 auto;
+  width: 36px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #9a3412;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.relay-preset-delete:hover {
+  background: #fff7ed;
+}

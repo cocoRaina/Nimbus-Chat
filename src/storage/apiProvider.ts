@@ -111,3 +111,60 @@ export const getProviderConfig = (id?: ProviderId): ProviderConfig => {
 
 export const PROVIDER_MISSING_KEY_MESSAGE = (label: string) =>
   `未设置 ${label} API Key，请前往 设置 页面配置后再试。`
+
+// ── Relay presets ──────────────────────────────────────────────────────
+// Save several custom relays (base url + key + format) and switch between
+// them with one tap. Deliberately NOT a new provider type: applying a
+// preset just loads its values into the single custom ("msuicode") slot
+// and makes that active, so all the routing / cache / keepalive logic that
+// branches on 'openrouter' vs 'msuicode' keeps working untouched.
+export type RelayPreset = {
+  id: string
+  name: string
+  baseUrl: string
+  apiKey: string
+  format: ApiFormat
+}
+
+const STORAGE_PRESETS = 'nimbus_relay_presets_v1'
+
+export const getRelayPresets = (): RelayPreset[] => {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(STORAGE_PRESETS)
+    const arr = raw ? (JSON.parse(raw) as RelayPreset[]) : []
+    return Array.isArray(arr) ? arr.filter((p) => p && p.id && p.baseUrl) : []
+  } catch {
+    return []
+  }
+}
+
+const writeRelayPresets = (presets: RelayPreset[]) => {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(STORAGE_PRESETS, JSON.stringify(presets))
+}
+
+// Add or update (matched by id) a relay preset.
+export const saveRelayPreset = (preset: RelayPreset) => {
+  const presets = getRelayPresets()
+  const idx = presets.findIndex((p) => p.id === preset.id)
+  if (idx >= 0) presets[idx] = preset
+  else presets.push(preset)
+  writeRelayPresets(presets)
+}
+
+export const deleteRelayPreset = (id: string) => {
+  writeRelayPresets(getRelayPresets().filter((p) => p.id !== id))
+}
+
+// Load a preset into the custom slot and make it active. Returns false if
+// the id no longer exists.
+export const applyRelayPreset = (id: string): boolean => {
+  const preset = getRelayPresets().find((p) => p.id === id)
+  if (!preset) return false
+  saveMsuicodeBaseUrl(preset.baseUrl)
+  saveMsuicodeApiKey(preset.apiKey)
+  setMsuicodeFormat(preset.format)
+  setActiveProvider('msuicode')
+  return true
+}

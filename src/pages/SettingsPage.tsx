@@ -24,8 +24,13 @@ import {
   setActiveProvider,
   setMsuicodeFormat,
   setOpenRouterFormat,
+  getRelayPresets,
+  saveRelayPreset,
+  deleteRelayPreset,
+  applyRelayPreset,
   type ApiFormat,
   type ProviderId,
+  type RelayPreset,
 } from '../storage/apiProvider'
 import {
   clearSandboxConfig,
@@ -97,6 +102,7 @@ const SettingsPage = ({
   const [openRouterApiKeyStatus, setOpenRouterApiKeyStatus] = useState<'idle' | 'saved'>('idle')
   const [openRouterFormat, setOpenRouterFormatState] = useState<ApiFormat>(() => getOpenRouterFormat())
   const [activeProvider, setActiveProviderState] = useState<ProviderId>(() => getActiveProvider())
+  const [relayPresets, setRelayPresets] = useState<RelayPreset[]>(() => getRelayPresets())
   const [msuicodeSectionExpanded, setMsuicodeSectionExpanded] = useState(false)
   const [msuicodeApiKeyInput, setMsuicodeApiKeyInput] = useState(() => getMsuicodeApiKey())
   const [msuicodeApiKeyVisible, setMsuicodeApiKeyVisible] = useState(false)
@@ -316,6 +322,34 @@ const SettingsPage = ({
     clearMsuicodeApiKey()
     setMsuicodeApiKeyInput('')
     setMsuicodeApiKeyStatus('idle')
+  }
+
+  // Save the current custom-relay fields as a reusable preset so several
+  // relays can be kept around and switched between with one tap.
+  const handleSaveCurrentRelayAsPreset = () => {
+    const baseUrl = msuicodeBaseUrlInput.trim() || DEFAULT_MSUICODE_BASE
+    const apiKey = msuicodeApiKeyInput.trim() || getMsuicodeApiKey()
+    const id =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    saveRelayPreset({ id, name: deriveProviderDisplayName(baseUrl), baseUrl, apiKey, format: msuicodeFormat })
+    setRelayPresets(getRelayPresets())
+  }
+
+  const handleApplyRelayPreset = (preset: RelayPreset) => {
+    applyRelayPreset(preset.id)
+    setMsuicodeBaseUrlInput(preset.baseUrl)
+    setMsuicodeApiKeyInput(preset.apiKey)
+    setMsuicodeFormatState(preset.format)
+    setActiveProviderState('msuicode')
+    setMsuicodeApiKeyStatus('saved')
+    setCatalogReloadKey((value) => value + 1)
+  }
+
+  const handleDeleteRelayPreset = (id: string) => {
+    deleteRelayPreset(id)
+    setRelayPresets(getRelayPresets())
   }
 
   const handleSaveSandboxConfig = () => {
@@ -1044,6 +1078,48 @@ const SettingsPage = ({
               </button>
               {msuicodeApiKeyStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
             </div>
+
+            <label>中转预设</label>
+            <div className="system-prompt-actions">
+              <button
+                type="button"
+                className="ghost small"
+                onClick={handleSaveCurrentRelayAsPreset}
+                disabled={!(msuicodeBaseUrlInput.trim() || msuicodeApiKeyInput.trim())}
+              >
+                ＋ 把当前中转存为预设
+              </button>
+            </div>
+            {relayPresets.length > 0 ? (
+              <ul className="relay-preset-list">
+                {relayPresets.map((preset) => (
+                  <li key={preset.id} className="relay-preset-item">
+                    <button
+                      type="button"
+                      className="relay-preset-apply"
+                      onClick={() => handleApplyRelayPreset(preset)}
+                    >
+                      <span className="relay-preset-name">{preset.name}</span>
+                      <span className="relay-preset-url">
+                        {preset.baseUrl}（{preset.format === 'anthropic' ? 'Anthropic' : 'OpenAI'}）
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="relay-preset-delete"
+                      aria-label="删除预设"
+                      onClick={() => handleDeleteRelayPreset(preset.id)}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <span className="settings-hint">
+                把当前 Base URL + Key + 格式存成预设，之后点一下就能在多个中转站之间切换。
+              </span>
+            )}
           </div>
         ) : null}
       </section>
