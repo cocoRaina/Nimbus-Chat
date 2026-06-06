@@ -124,6 +124,22 @@ public class UsageStatsPlugin extends Plugin {
             // ACTIVITY_PAUSED  == MOVE_TO_BACKGROUND. Use the integer
             // constants because some SDK levels rename them. 1 = FG, 2 = BG.
             if (type == UsageEvents.Event.MOVE_TO_FOREGROUND) {
+                // Only ONE app is in the foreground at a time, so a new app
+                // resuming means every OTHER open interval has already ended,
+                // even if that app's MOVE_TO_BACKGROUND was never delivered
+                // (common on fast app switches, and on some OEMs when the
+                // screen locks). Close them here at this timestamp so a
+                // dropped BG event can't let one app keep accumulating time
+                // that actually belonged to whatever the user switched to.
+                long cutoff = Math.min(ts, end);
+                for (Map.Entry<String, long[]> other : stats.entrySet()) {
+                    if (other.getKey().equals(pkg)) continue;
+                    long[] r = other.getValue();
+                    if (r[1] != 0L && cutoff > r[1]) {
+                        r[0] += cutoff - r[1];
+                    }
+                    r[1] = 0L;
+                }
                 long[] row = stats.get(pkg);
                 if (row == null) {
                     row = new long[]{0L, 0L};
