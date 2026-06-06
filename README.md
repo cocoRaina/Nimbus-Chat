@@ -596,6 +596,13 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 
 ## 2026-06-06 改动记录
 
+### 修复:prompt 缓存此前只在 OpenRouter 生效,放开到金瓜瓜等原生中转
+- **症状/根因**:`applyClaudeCaching` 第一行 `if (getActiveProvider() !== 'openrouter') return messages` 把缓存标记**写死成只有 OpenRouter 才挂**。切到金瓜瓜(走 msuicode 槽)时一个 `cache_control` 都不挂 → 哪怕金瓜瓜支持原生缓存也完全用不上。
+- **修法**:门控改为「会走原生 `/v1/messages` 的渠道都挂」——即 OpenRouter,或 **msuicode 且格式=Anthropic**(指向金瓜瓜/PumpkinAPI 这种)。
+- **TTL 按渠道区分**:OpenRouter 用 1h(配 55min 续命 ping);金瓜瓜类只支持 5m、挂 1h 会被拒,所以那条路径用普通 5m ephemeral 标记。`marker` 参数透传进 `markSystem/UserMessageForCaching` + `attachCacheControlToLastTextBlock`。
+- 金瓜瓜不需要续命 ping(ping 仍只在 OpenRouter 触发):5m TTL 连续对话自然命中,停>5min 下条重建一次即可。
+- ⚠️ 纯前端改动,需重新打 APK 才生效。验证:Anthropic 兼容格式下连聊 3 句,看 `/usage` 缓存命中是否非零。
+
 ### 修复:记忆提取「忽略」点了没反应(缺 DELETE 的 RLS 策略)
 - **症状**:待确认记忆只能「确认」,点「忽略」毫无反应。
 - **根因**:`memory_entries` 的 RLS 只有 INSERT/SELECT/UPDATE 三条策略,**没有 DELETE**。确认走 UPDATE(`status='confirmed'`)能过;忽略走硬删除 `DELETE` 被默认拒绝。而 PostgREST 在 RLS 拦截 DELETE 时**返回成功+0 行、不报错**,加上 `handleDismissEntry` 失败只 `console.warn`,所以表现为「死按钮」。

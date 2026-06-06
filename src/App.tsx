@@ -60,7 +60,7 @@ import {
 import { resolveModelId } from './utils/modelResolver'
 import { fetchOpenRouter } from './api/openrouter'
 import { convertOpenAiRequestToAnthropic } from './api/anthropic'
-import { getActiveProvider, getProviderConfig } from './storage/apiProvider'
+import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './storage/apiProvider'
 import { recordUsage } from './storage/usageStats'
 import { maybeAutoSyncHealth } from './storage/healthSync'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
@@ -231,7 +231,24 @@ const applyClaudeCaching = (
   model: string,
 ): ChatRequestMessage[] => {
   if (!isClaudeModel(model)) return messages
-  if (getActiveProvider() !== 'openrouter') return messages
+  // cache_control markers only do anything on the native Anthropic
+  // /v1/messages path. That's OpenRouter (we auto-route Claude there) and
+  // the msuicode slot WHEN it's set to Anthropic format (e.g. pointing at
+  // 金瓜瓜/PumpkinAPI). On an OpenAI-format relay the markers ride along
+  // uselessly, so bail. This used to be hard-gated to OpenRouter only,
+  // which is why caching silently did nothing on 金瓜瓜.
+  const cacheProvider = getActiveProvider()
+  const nativeAnthropic =
+    cacheProvider === 'openrouter' ||
+    (cacheProvider === 'msuicode' && getMsuicodeFormat() === 'anthropic')
+  if (!nativeAnthropic) return messages
+  // TTL differs by upstream: OpenRouter honors the 1h extended cache (kept
+  // warm by the ~55min keepalive ping); 金瓜瓜-style relays cap at 5m and
+  // can reject ttl:'1h', so there we use the plain 5m ephemeral marker.
+  const marker: CacheControlMarker =
+    cacheProvider === 'openrouter'
+      ? { type: 'ephemeral', ttl: '1h' }
+      : { type: 'ephemeral' }
   // BP1: the FIRST system message (the foundational character + tool
   // schema layer). Marking it gives Anthropic a stable last-resort
   // anchor that survives every higher-level miss — including the
@@ -294,7 +311,7 @@ const applyClaudeCaching = (
   if (hasToolBlocksAfterLastUser) {
     if (firstSystemIdx === -1) return messages
     return messages.map((msg, idx) =>
-      idx === firstSystemIdx ? markSystemMessageForCaching(msg) : msg,
+      idx === firstSystemIdx ? markSystemMessageForCaching(msg, marker) : msg,
     )
   }
   if (userIndices.length === 0 && firstSystemIdx === -1) return messages
@@ -302,8 +319,8 @@ const applyClaudeCaching = (
   if (firstSystemIdx >= 0) targets.add(firstSystemIdx)
   return messages.map((msg, idx) => {
     if (!targets.has(idx)) return msg
-    if (msg.role === 'user') return markUserMessageForCaching(msg)
-    if (msg.role === 'system') return markSystemMessageForCaching(msg)
+    if (msg.role === 'user') return markUserMessageForCaching(msg, marker)
+    if (msg.role === 'system') return markSystemMessageForCaching(msg, marker)
     return msg
   })
 }
@@ -319,44 +336,51 @@ const CACHE_CONTROL_MARKER = { type: 'ephemeral' as const, ttl: '1h' as const }
 // text-block anchor as fallback.
 const attachCacheControlToLastTextBlock = <T extends { type: string; text?: string; cache_control?: CacheControlMarker }>(
   blocks: readonly T[],
+  marker: CacheControlMarker = CACHE_CONTROL_MARKER,
 ): T[] | null => {
   const out = [...blocks]
   for (let i = out.length - 1; i >= 0; i -= 1) {
     if (out[i].type === 'text') {
-      out[i] = { ...out[i], cache_control: CACHE_CONTROL_MARKER }
+      out[i] = { ...out[i], cache_control: marker }
       return out
     }
   }
   return null
 }
 
-const markSystemMessageForCaching = (msg: ChatRequestMessage): ChatRequestMessage => {
+const markSystemMessageForCaching = (
+  msg: ChatRequestMessage,
+  marker: CacheControlMarker = CACHE_CONTROL_MARKER,
+): ChatRequestMessage => {
   if (msg.role !== 'system') return msg
   if (typeof msg.content === 'string') {
     return {
       ...msg,
-      content: [{ type: 'text', text: msg.content, cache_control: CACHE_CONTROL_MARKER }],
+      content: [{ type: 'text', text: msg.content, cache_control: marker }],
     }
   }
-  const marked = attachCacheControlToLastTextBlock(msg.content)
+  const marked = attachCacheControlToLastTextBlock(msg.content, marker)
   return marked ? { ...msg, content: marked } : msg
 }
 
-const markUserMessageForCaching = (msg: ChatRequestMessage): ChatRequestMessage => {
+const markUserMessageForCaching = (
+  msg: ChatRequestMessage,
+  marker: CacheControlMarker = CACHE_CONTROL_MARKER,
+): ChatRequestMessage => {
   if (msg.role !== 'user') return msg
   if (typeof msg.content === 'string') {
     return {
       ...msg,
-      content: [{ type: 'text', text: msg.content, cache_control: CACHE_CONTROL_MARKER }],
+      content: [{ type: 'text', text: msg.content, cache_control: marker }],
     }
   }
-  const marked = attachCacheControlToLastTextBlock(msg.content)
+  const marked = attachCacheControlToLastTextBlock(msg.content, marker)
   if (marked) return { ...msg, content: marked }
   // Image-only message: append an empty text-block anchor — Anthropic
   // accepts this for cache_control purposes.
   return {
     ...msg,
-    content: [...msg.content, { type: 'text', text: '', cache_control: CACHE_CONTROL_MARKER }],
+    content: [...msg.content, { type: 'text', text: '', cache_control: marker }],
   }
 }
 
