@@ -596,6 +596,12 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 
 ## 2026-06-06 改动记录
 
+### 修复:金瓜瓜报错「temperature 和 top_p 不能同时指定」
+- **症状**:切到金瓜瓜后弹错 `` `temperature` and `top_p` cannot both be specified for this model ``。
+- **根因**:`anthropic.ts` 在不开思考链时,会把 `temperature` 和 `top_p` **两个都透传**给上游;风铃草上游只允许其一。
+- **修法**:原生路径上**两者并存时只保留 `temperature`、丢掉 `top_p`**(无 temperature 时才用 top_p)。对所有上游都安全,Anthropic 本身也建议只用一个。
+- ⚠️ 纯前端,需重新打 APK 才生效。
+
 ### 新增:中转预设(多个中转站一键切换)
 - **需求**:想存多家中转(当前家、金瓜瓜…)随时切,而不是每次覆盖那唯一的自定义槽。
 - **做法(低风险)**:`apiProvider.ts` 加 `RelayPreset`(name/baseUrl/apiKey/format)+ `get/save/delete/applyRelayPreset`,存 `nimbus_relay_presets_v1`。**故意不新增 provider 类型**——`applyRelayPreset` 只是把预设值写进现有 msuicode 槽并设为激活,所以全套按 `'openrouter'|'msuicode'` 分支的路由/缓存/续命逻辑**一行都不用动**。

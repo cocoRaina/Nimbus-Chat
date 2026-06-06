@@ -416,11 +416,16 @@ export const convertOpenAiRequestToAnthropic = async (
     : typeof body.temperature === 'number'
       ? body.temperature
       : undefined
-  const finalTopP = dropSampling
-    ? undefined
-    : typeof body.top_p === 'number'
-      ? body.top_p
-      : undefined
+  // Some upstreams (notably 金瓜瓜/风铃草) reject a request that carries
+  // BOTH temperature and top_p ("cannot both be specified for this model").
+  // Anthropic itself recommends using only one, so send just top_p when no
+  // temperature is present — otherwise drop it and keep temperature.
+  const finalTopP =
+    dropSampling || finalTemperature !== undefined
+      ? undefined
+      : typeof body.top_p === 'number'
+        ? body.top_p
+        : undefined
 
   // Pass the OpenAI-style `user` field through as Anthropic's
   // metadata.user_id. Per Anthropic + the prompt-cache stickiness
