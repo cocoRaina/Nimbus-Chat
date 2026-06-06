@@ -108,13 +108,18 @@ const sampleDurationMinutes = (s: HealthSample): number => {
   return (end - start) / 60000
 }
 
-// Types read via readSamples (raw record list). Steps is handled
-// separately through the aggregate API — see syncHealthDataToSupabase —
-// because a daily step *total* must not be truncated by a record limit
-// the way an average can tolerate it.
+// Types read via readSamples (raw record list). Steps AND heart rate are
+// handled separately through the aggregate API — see
+// syncHealthDataToSupabase. Steps because a daily *total* must not be
+// truncated by a record limit; heart rate because its daily min/max/avg
+// must see the WHOLE day, not just the newest ~100 samples readSamples
+// returns (a wearable logging HR every few seconds fits only the last
+// few minutes in 100 samples, so min/max came out absurdly narrow and
+// earlier-in-the-day readings were missing). Health Connect aggregates
+// HeartRateRecord natively (BPM_AVG/MIN/MAX), exposed by the plugin as
+// queryAggregated heartRate + average/min/max.
 const READ_SAMPLE_TYPES: HealthDataType[] = [
   'sleep',
-  'heartRate',
   'restingHeartRate',
   'oxygenSaturation',
 ]
@@ -140,7 +145,6 @@ const READ_SAMPLE_TYPES: HealthDataType[] = [
 // paginate over records at all.
 const PER_TYPE_WINDOW_HOURS: Record<HealthDataType, number> = {
   sleep: 48,
-  heartRate: 36,
   restingHeartRate: 72,
   oxygenSaturation: 48,
 } as Record<HealthDataType, number>
@@ -188,7 +192,9 @@ const dedupeSamples = (samples: HealthSample[]): HealthSample[] => {
 //                       up" is the day people associate sleep with.
 //                       Filters out 'awake' / 'inBed' segments so we
 //                       only count actual sleep stages.
-//  - heartRate:         arithmetic mean of values bucketed by startDate
+//  - heartRate:         NOTE: no longer fed here — HR avg/min/max now come
+//                       from the aggregate API (see syncHealthDataToSupabase).
+//                       The case below is kept harmless but unreached.
 //  - restingHeartRate:  latest reading per day (one number per day in
 //                       practice from most wearables)
 //  - oxygenSaturation:  arithmetic mean per day
@@ -413,6 +419,50 @@ export const syncHealthDataToSupabase = async (
     firstRead = false
   }
 
+  // Heart rate avg/min/max via the aggregate API, today-only window —
+  // same shape as steps, and for the same reason. readSamples only
+  // returns the newest ~100 samples (Capgo DEFAULT_LIMIT=100); on a watch
+  // that logs HR every few seconds that's the last few minutes, so the
+  // stored daily min/max came out far too narrow (e.g. 70–85 when the
+  // real day spans resting lows to exertion peaks) and earlier readings
+  // were dropped. queryAggregated maps to HeartRateRecord BPM_AVG/MIN/MAX,
+  // one day bucket → one IPC per metric. Historic days stay correct via
+  // their own day-of syncs. The plugin returns a single value per call,
+  // so we make one call per metric.
+  const hrToday: { avg?: number; min?: number; max?: number } = {}
+  let hrTodayDay: string | null = null
+  {
+    const midnightToday = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate())
+    const hrMetrics: Array<['average' | 'min' | 'max', 'avg' | 'min' | 'max']> = [
+      ['average', 'avg'],
+      ['min', 'min'],
+      ['max', 'max'],
+    ]
+    for (const [aggregation, key] of hrMetrics) {
+      await sleepMs(READ_GAP_MS)
+      try {
+        const agg = await Health.queryAggregated({
+          dataType: 'heartRate',
+          startDate: midnightToday.toISOString(),
+          endDate: endDate.toISOString(),
+          bucket: 'day',
+          aggregation,
+        })
+        for (const s of agg.samples) {
+          const day = isoToLocalDate(s.startDate)
+          if (!day) continue
+          hrTodayDay = day
+          hrToday[key] = s.value
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        summary.errors.push(`heartRate(${aggregation}): ${errMsg}`)
+        if (isRateLimitErr(errMsg)) rateLimited = true
+      }
+    }
+    summary.perType.heartRate = hrTodayDay ? 1 : 0
+  }
+
   for (const dataType of READ_SAMPLE_TYPES) {
     if (!firstRead) await sleepMs(READ_GAP_MS)
     firstRead = false
@@ -455,6 +505,15 @@ export const syncHealthDataToSupabase = async (
       byDay[day] = { date: day }
     }
     byDay[day].steps = Math.round(total)
+  }
+  // Overlay today's aggregate heart-rate metrics. Like steps, these come
+  // from queryAggregated (not readSamples), so aggregateSamples leaves
+  // them null and this is the single source of truth for HR avg/min/max.
+  if (hrTodayDay) {
+    if (!byDay[hrTodayDay]) byDay[hrTodayDay] = { date: hrTodayDay }
+    if (hrToday.avg != null) byDay[hrTodayDay].heartRateAvg = Math.round(hrToday.avg)
+    if (hrToday.min != null) byDay[hrTodayDay].heartRateMin = Math.round(hrToday.min)
+    if (hrToday.max != null) byDay[hrTodayDay].heartRateMax = Math.round(hrToday.max)
   }
   summary.scannedDays = Object.keys(byDay).sort()
 

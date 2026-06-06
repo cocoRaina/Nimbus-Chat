@@ -596,6 +596,12 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 
 ## 2026-06-06 改动记录
 
+### 修复：心率 min/max 偏窄、历史天大量缺失（改走聚合 API）
+- **症状**：健康页心率「波动范围」异常窄（如 `70–85`），且很多天 avg/min/max 直接空白。
+- **根因**：心率走 `readSamples`，Capgo 默认 `limit=100`。手表几秒一个样本 → 最新 100 个只覆盖最近几分钟，所以全天 min/max 严重偏窄，稍早/历史的读数被截断丢掉。
+- **修法**：心率改用 `Health.queryAggregated`（`heartRate` + `average`/`min`/`max`，映射 Health Connect 的 `BPM_AVG/MIN/MAX`），当天 00:00→现在、day 桶，各 1 次 IPC，拿**真·全天**值——和 steps 同款套路。`READ_SAMPLE_TYPES` 移除 `heartRate`；`aggregateSamples` 的 heartRate 分支保留但不再触发。血氧/睡眠插件不支持聚合，维持 readSamples。
+- 每次同步比之前多 2 个 IPC，保留 100ms 间隔 + 限速退避。⚠️ 含原生依赖，需重新打 APK 才生效。
+
 ### 修复：屏幕时间总时长虚高（锁屏挂机被算成使用）
 - **症状**：屏幕使用时间总时长远超实际，通常是锁屏前最后开的那个 App 占了一大坨（早上尤其明显——把整夜挂机算进去了）。
 - **根因**：`UsageStatsPlugin.java` 用 `queryEvents` 配对 `MOVE_TO_FOREGROUND/BACKGROUND`，但**安卓息屏/锁屏时不保证给当前 App 发 `MOVE_TO_BACKGROUND`**，于是那条前台计时一直不收尾，末尾兜底时把「锁屏 → 现在」的整段空闲全算成前台时间。
