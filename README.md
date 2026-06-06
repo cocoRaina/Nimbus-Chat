@@ -594,6 +594,16 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 
 ---
 
+## 2026-06-06 改动记录
+
+### 修复：屏幕时间总时长虚高（锁屏挂机被算成使用）
+- **症状**：屏幕使用时间总时长远超实际，通常是锁屏前最后开的那个 App 占了一大坨（早上尤其明显——把整夜挂机算进去了）。
+- **根因**：`UsageStatsPlugin.java` 用 `queryEvents` 配对 `MOVE_TO_FOREGROUND/BACKGROUND`，但**安卓息屏/锁屏时不保证给当前 App 发 `MOVE_TO_BACKGROUND`**，于是那条前台计时一直不收尾，末尾兜底时把「锁屏 → 现在」的整段空闲全算成前台时间。
+- **修法**：事件循环里额外处理设备级事件——`SCREEN_NON_INTERACTIVE(16)` / `KEYGUARD_SHOWN(17)` / `DEVICE_SHUTDOWN(26)`，遇到就把所有「正在计时」的 App 在那一刻收尾。这些事件包名常为 null，所以放在 `pkg == null` 跳过之前处理。
+- ⚠️ 这是原生（Java）改动，需重新打 APK 才生效。
+
+---
+
 ## 2026-06-05 改动记录
 
 ### 新增：Android 分享接收

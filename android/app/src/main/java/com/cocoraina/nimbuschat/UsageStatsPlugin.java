@@ -93,8 +93,31 @@ public class UsageStatsPlugin extends Plugin {
         while (events != null && events.hasNextEvent()) {
             events.getNextEvent(event);
             int type = event.getEventType();
-            String pkg = event.getPackageName();
             long ts = event.getTimeStamp();
+
+            // Device-level events that end the current foreground session
+            // WITHOUT a per-app MOVE_TO_BACKGROUND: screen turned off / lock
+            // screen shown / device shutdown. Android does NOT guarantee a
+            // per-app PAUSED event when the screen locks, so without this the
+            // app that was open at lock time keeps accumulating — all the
+            // idle/locked time (e.g. overnight) gets counted as foreground
+            // usage, which reads as "screen time is way too high". These
+            // events often carry a null/"android" package, so handle them
+            // BEFORE the per-app pkg null-check below. Integer literals
+            // because the named constants don't exist on every SDK level:
+            //   16 = SCREEN_NON_INTERACTIVE, 17 = KEYGUARD_SHOWN, 26 = DEVICE_SHUTDOWN
+            if (type == 16 || type == 17 || type == 26) {
+                long cutoff = Math.min(ts, end);
+                for (long[] row : stats.values()) {
+                    if (row[1] != 0L && cutoff > row[1]) {
+                        row[0] += cutoff - row[1];
+                    }
+                    row[1] = 0L;
+                }
+                continue;
+            }
+
+            String pkg = event.getPackageName();
             if (pkg == null) continue;
 
             // ACTIVITY_RESUMED == MOVE_TO_FOREGROUND on modern Android;
