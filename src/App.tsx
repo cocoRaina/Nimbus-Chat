@@ -61,6 +61,7 @@ import { resolveModelId } from './utils/modelResolver'
 import { fetchOpenRouter } from './api/openrouter'
 import { convertOpenAiRequestToAnthropic } from './api/anthropic'
 import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './storage/apiProvider'
+import { ensureImageCaption, getImageCaption } from './storage/imageCaptions'
 import { recordUsage } from './storage/usageStats'
 import { maybeAutoSyncHealth } from './storage/healthSync'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
@@ -1586,7 +1587,18 @@ const App = () => {
                 blocks.push({ type: 'text', text: textContent })
               }
               for (const att of imageAttachments) {
-                blocks.push({ type: 'image_url', image_url: { url: att.url } })
+                // Send the cached text description if we have one (every turn
+                // after the first); otherwise send the real image and kick
+                // off captioning so later turns send text instead. The
+                // original image stays in storage for display — only what we
+                // send the model changes. See storage/imageCaptions.ts.
+                const caption = getImageCaption(att.url)
+                if (caption) {
+                  blocks.push({ type: 'text', text: `[图片：${caption}]` })
+                } else {
+                  blocks.push({ type: 'image_url', image_url: { url: att.url } })
+                  void ensureImageCaption(att.url, effectiveModel, getActiveProvider())
+                }
               }
               baseMessages.push({ role: 'user', content: blocks })
             } else {

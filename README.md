@@ -596,6 +596,11 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 
 ## 2026-06-06 改动记录
 
+### 新增:历史图片转文字描述(省缓存冷写 + 不污染前缀)
+- **动机**:每轮都会把会话里的历史图片原样重发,冷写/缓存失效时很贵(图片 token 重),还撑大前缀。
+- **做法(低风险)**:新增 `storage/imageCaptions.ts` 本地缓存层(url 哈希 → 描述)。图片**第一次出现照常发原图**(模型看得到)并异步用当前模型生成一两句中文描述;**之后的轮次改发 `[图片：描述]` 文字**。原图仍存在消息里供 UI 显示——只改"发给模型的内容"。captioning 失败就没有缓存项 → 继续发原图,**优雅回退、不动消息/数据库**。
+- ⚠️ 纯前端,需重新打 APK 才生效。
+
 ### 修复:prompt 缓存此前只在 OpenRouter 生效,放开到金瓜瓜等原生中转
 - **症状/根因**:`applyClaudeCaching` 第一行 `if (getActiveProvider() !== 'openrouter') return messages` 把缓存标记**写死成只有 OpenRouter 才挂**。切到金瓜瓜(走 msuicode 槽)时一个 `cache_control` 都不挂 → 哪怕金瓜瓜支持原生缓存也完全用不上。
 - **修法**:门控改为「会走原生 `/v1/messages` 的渠道都挂」——即 OpenRouter,或 **msuicode 且格式=Anthropic**(指向金瓜瓜/PumpkinAPI 这种)。
