@@ -596,6 +596,11 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 
 ## 2026-06-06 改动记录
 
+### 修复:记忆提取「忽略」点了没反应(缺 DELETE 的 RLS 策略)
+- **症状**:待确认记忆只能「确认」,点「忽略」毫无反应。
+- **根因**:`memory_entries` 的 RLS 只有 INSERT/SELECT/UPDATE 三条策略,**没有 DELETE**。确认走 UPDATE(`status='confirmed'`)能过;忽略走硬删除 `DELETE` 被默认拒绝。而 PostgREST 在 RLS 拦截 DELETE 时**返回成功+0 行、不报错**,加上 `handleDismissEntry` 失败只 `console.warn`,所以表现为「死按钮」。
+- **修法**:① 新增迁移 `20260606120000_add_delete_policy_to_memory_entries.sql`,补 `for delete using (auth.uid() = user_id)` 策略,并已 apply 到线上库(**服务端改动,立即生效,无需重装 APK**);② `handleDismissEntry` 改用 `.delete().select('id')` 检测影响行数,0 行或报错时 `setError` 提示,不再静默。
+
 ### 体验：思考链开了但不会生效时,在开关下给灰字提示
 - 🧠思考链开关此前在两种情况下是**静默空操作**:① 当前模型非 Claude 且没开全局「高触发 Thinking」;② 模型是 Claude 但 API 提供方是「OpenAI 兼容」格式,请求没走原生 `/v1/messages`,中转端直接丢掉 `reasoning`。
 - 现在在开关下方按这两个门控(对齐 `App.tsx` 的 reasoning 附加 + `openrouter.ts` 的原生路由判断)给出⚠️提示,告诉用户为什么没思考链、怎么修。纯前端改动。

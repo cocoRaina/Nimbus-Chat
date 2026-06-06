@@ -197,10 +197,24 @@ const MemoriesTab = ({
     // migration; the is_deleted column itself is left in place as a
     // no-op defensive filter on read paths.
     try {
-      await supabase.from('memory_entries').delete().eq('id', id)
+      const { data, error: deleteError } = await supabase
+        .from('memory_entries')
+        .delete()
+        .eq('id', id)
+        .select('id')
+      if (deleteError) throw deleteError
+      if (!data || data.length === 0) {
+        // A blocking RLS policy makes PostgREST return success with zero
+        // rows rather than an error, which is exactly how this silently
+        // failed before the DELETE policy existed. Surface it instead of
+        // leaving the entry sitting there looking like a dead button.
+        setError('忽略失败：没有删除权限')
+        return
+      }
       await refreshPending()
     } catch (e) {
       console.warn('忽略记忆失败', e)
+      setError('忽略失败')
     }
   }
 
