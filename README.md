@@ -18,7 +18,8 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 
 长篇内容都拆到 `docs/` 下，README 只留功能清单和使用说明：
 
-- [**Prompt Caching 指南**](docs/caching.md) — 缓存原理、各家中转对比、怎么配（金瓜瓜等）、怎么验证命中、块布局铁律、图片转文字、踩坑 FAQ
+- [**Prompt Caching 入门（给所有人）**](docs/guides/prompt-caching.md) — 不依赖本项目的通用教程，可直接分享：原理、挑中转、两要件、怎么验证、踩坑
+- [**Prompt Caching 指南（实现 / 内部）**](docs/caching.md) — 缓存原理、各家中转对比、怎么配（金瓜瓜等）、怎么验证命中、块布局铁律、图片转文字、踩坑 FAQ
 - [**改动记录 & Debug 日志**](docs/changelog.md) — 按日期的改动 + 踩过的坑和修法
 
 ---
