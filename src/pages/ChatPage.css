@@ -284,6 +284,16 @@
   background: #f3f4f6;
 }
 
+.header-menu-warning {
+  margin: -2px 12px 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .header-menu-toggle input[type='checkbox'] {
   accent-color: var(--accent-strong, #f97316);
   width: 16px;

@@ -8,6 +8,11 @@ import { Share } from '@capacitor/share'
 import { Network } from '@capacitor/network'
 import { SpeechRecognition } from '@capacitor-community/speech-recognition'
 import { getAssistantName, setAssistantName } from '../storage/assistantPersona'
+import {
+  getActiveProvider,
+  getMsuicodeFormat,
+  getOpenRouterFormat,
+} from '../storage/apiProvider'
 import type { ChatMessage, ChatSession } from '../types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MarkdownRenderer from '../components/MarkdownRenderer'
@@ -39,6 +44,7 @@ export type ChatPageProps = {
   defaultModel: string
   onSelectModel: (model: string | null) => void
   defaultReasoning: boolean
+  highReasoningEnabled: boolean
   onSelectReasoning: (reasoning: boolean | null) => void
   onManualCompress: () => Promise<{ ok: boolean; message: string }>
   user: User | null
@@ -180,6 +186,7 @@ const ChatPage = ({
   defaultModel,
   onSelectModel,
   defaultReasoning,
+  highReasoningEnabled,
   onSelectReasoning,
   onManualCompress,
   toolStatus,
@@ -532,6 +539,35 @@ const ChatPage = ({
   const sessionOverrideReasoning = session.overrideReasoning ?? null
   const reasoningEnabled = sessionOverrideReasoning ?? defaultReasoning
   const reasoningHint = sessionOverrideReasoning === null ? '（默认）' : '（会话覆盖）'
+
+  // Explain when 思考链 is toggled ON but the current model + provider combo
+  // means no reasoning will actually come back, so the switch isn't a
+  // silent no-op. Mirrors the two real gates:
+  //   1. App.tsx only attaches `reasoning` for Claude models, or for any
+  //      model when the global "高触发 Thinking" setting is on.
+  //   2. openrouter.ts only routes Claude through the native /v1/messages
+  //      path (where thinking is honored) when the active provider isn't in
+  //      OpenAI-compat format. An OpenAI-format relay silently drops it.
+  // Recomputed each render off localStorage-backed provider settings; the
+  // header menu is opened on demand so it always reflects the latest format.
+  const reasoningInactiveHint = useMemo(() => {
+    if (!reasoningEnabled) return null
+    const isClaude = /claude|anthropic/i.test(selectedModel)
+    if (!isClaude) {
+      return highReasoningEnabled
+        ? null
+        : '当前模型不是 Claude，思考链需在「设置 → 思考链」打开「高触发 Thinking」才会附加。'
+    }
+    const provider = getActiveProvider()
+    const format = provider === 'openrouter' ? getOpenRouterFormat() : getMsuicodeFormat()
+    const userPickedOpenAi = provider === 'openrouter' && format === 'openai'
+    const useAnthropicNative =
+      !userPickedOpenAi && (format === 'anthropic' || provider === 'openrouter')
+    if (!useAnthropicNative) {
+      return '当前 API 提供方是「OpenAI 兼容」格式，Claude 思考链不会生效。到「设置 → API 提供方」切到「Anthropic 兼容」即可。'
+    }
+    return null
+  }, [reasoningEnabled, selectedModel, highReasoningEnabled, openHeaderMenu])
   const modelOptions = useMemo(() => {
     const unique = new Set<string>()
     enabledModels.forEach((model) => unique.add(model))
@@ -775,6 +811,9 @@ const ChatPage = ({
                     />
                     <span>🧠 思考链 {reasoningHint}</span>
                   </label>
+                  {reasoningInactiveHint ? (
+                    <p className="header-menu-warning">⚠️ {reasoningInactiveHint}</p>
+                  ) : null}
                   <label className="header-menu-select">
                     <span>🤖 模型</span>
                     <select

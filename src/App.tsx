@@ -2956,6 +2956,7 @@ TOOL_SEARCH_HANDOFF,
                 defaultModel={defaultModelId}
                 onSelectModel={handleSessionOverrideChange}
                 defaultReasoning={activeSettings.chatReasoningEnabled}
+                highReasoningEnabled={activeSettings.chatHighReasoningEnabled}
                 onSelectReasoning={handleSessionReasoningOverrideChange}
                 onArchiveSession={handleSessionArchiveStateChange}
                 onActiveSessionChange={setActiveChatSessionId}
@@ -3148,6 +3149,7 @@ const ChatRoute = ({
   defaultModel,
   onSelectModel,
   defaultReasoning,
+  highReasoningEnabled,
   onSelectReasoning,
   onArchiveSession,
   onActiveSessionChange,
@@ -3181,6 +3183,7 @@ const ChatRoute = ({
   defaultModel: string
   onSelectModel: (sessionId: string, model: string | null) => Promise<void>
   defaultReasoning: boolean
+  highReasoningEnabled: boolean
   onSelectReasoning: (sessionId: string, reasoning: boolean | null) => Promise<void>
   onArchiveSession: (sessionId: string, isArchived: boolean) => Promise<void>
   onActiveSessionChange: (sessionId: string) => void
@@ -3329,6 +3332,7 @@ const ChatRoute = ({
         defaultModel={defaultModel}
         onSelectModel={(model) => onSelectModel(activeSession.id, model)}
         defaultReasoning={defaultReasoning}
+        highReasoningEnabled={highReasoningEnabled}
         onSelectReasoning={(reasoning) =>
           onSelectReasoning(activeSession.id, reasoning)
         }
