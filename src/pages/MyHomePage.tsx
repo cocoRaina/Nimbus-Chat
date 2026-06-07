@@ -434,12 +434,18 @@ const MyHomePage = ({ user, snackAiConfig }: MyHomePageProps) => {
       | Record<string, unknown>
       | undefined
     const message = ((choice?.message as Record<string, unknown>) ?? choice ?? {}) as Record<string, unknown>
-    const content =
+    const rawContent =
       typeof message.content === 'string'
         ? message.content
         : typeof choice?.text === 'string'
           ? choice.text
           : ''
+    // Strip any literal <thinking>…</thinking> the model emitted as text
+    // (e.g. *-thinking model variants), so it doesn't leak into the post.
+    const content = rawContent
+      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+      .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+      .trim()
 
     const reasoningCandidates = [
       message.reasoning,

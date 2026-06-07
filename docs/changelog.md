@@ -70,6 +70,16 @@
 
 ---
 
+## 2026-06-07 改动记录
+
+### 修复：朋友圈/TA 动态正文里漏出 `<thinking>` 标签
+- **症状**：TA 动态（syzygy）发的帖子正文开头带一整段 `<thinking>…</thinking>`，即使聊天思考链已关。
+- **根因**：发帖路径 `reasoning:false`（原生思考确实关了），但模型（多为 `*-thinking` 变体）会把思考当**纯文字**写进 content；而发帖路径**没有**像聊天那样剥离 `<thinking>`（聊天有 `splitReasoningFromContent`）。
+- **修法**：`AssistantHomePage.tsx` / `MyHomePage.tsx` 取到正文后用正则剥掉 `<thinking>…</thinking>` 和 `<reasoning>…</reasoning>` 再保存。
+- 备注：若默认模型选的是 `*-thinking` 变体，它仍会**花思考 token 再被剥掉**（浪费）；想省可把朋友圈默认模型换成非 thinking 版。⚠️ 纯前端，需重打 APK。
+
+---
+
 ## 2026-06-06 改动记录
 
 ### 修复:金瓜瓜报错「temperature 和 top_p 不能同时指定」

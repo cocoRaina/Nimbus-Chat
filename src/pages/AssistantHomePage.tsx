@@ -439,12 +439,20 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
       | Record<string, unknown>
       | undefined
     const message = ((choice?.message as Record<string, unknown>) ?? choice ?? {}) as Record<string, unknown>
-    const content =
+    const rawContent =
       typeof message.content === 'string'
         ? message.content
         : typeof choice?.text === 'string'
           ? choice.text
           : ''
+    // Some models (especially the *-thinking variants) emit a literal
+    // <thinking>…</thinking> block as TEXT even when extended thinking is
+    // off. The chat path strips it via splitReasoningFromContent; the feed
+    // path didn't, so the tags leaked into the published post. Strip here.
+    const content = rawContent
+      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+      .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+      .trim()
 
     const reasoningCandidates = [
       message.reasoning,
