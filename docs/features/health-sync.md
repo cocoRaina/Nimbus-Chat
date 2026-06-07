@@ -1,7 +1,7 @@
 # 健康同步（Health Connect → health_data）
 
 > 让 Claude 知道你今天走了多少步、睡了多久、心率多少 —— 不靠手动告诉它，自动从手机健康数据里拉。
-> 相关代码：`src/storage/healthSync.ts`、`src/pages/HealthSyncPage.tsx`、`android/.../UsageStatsPlugin.java`（屏幕时间另见）。
+> 相关代码：`src/storage/healthSync.ts`、`src/pages/HealthSyncPage.tsx`。屏幕使用时间是另一套（`UsageStatsPlugin.java`），见 [screen-time.md](screen-time.md)。
 
 ## 数据链路（华为示例）
 

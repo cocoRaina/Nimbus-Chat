@@ -145,6 +145,7 @@
 - Extended thinking budget 从 8000 → 2000（首 token 延迟降约 4 倍）
 
 ### 修复：缓存 & 中转折中
+> ⚠️ 本节第一条**已于 2026-06-06 推翻**：放开了中转(Anthropic 兼容格式)的原生缓存，金瓜瓜实测 99% 命中。见上方 06-06「prompt 缓存放开到金瓜瓜」与 [docs/caching.md](caching.md)。
 - 中转站关闭显式 prompt caching（中转 relay 的 keepalive ping 无法匹配聊天请求的缓存 key → 白白浪费钱写无用缓存）
 - OR 保留完整 BP1+BP4+HEAD 三锚点缓存 + 客户端/服务端保活
 - OR 模型列表缓存永不过期的 bug 修复

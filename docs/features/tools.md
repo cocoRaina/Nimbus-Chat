@@ -27,4 +27,4 @@
 |------|------|
 | `run_code` | 通过用户配的代码沙盒跑 Python/JS（需配 endpoint） |
 | `schedule_proactive_message` | 预设一条未来主动消息（1-1440 分钟 / 最长 24h；带可选 `persist` 区分"普通 ping"和"叫起床这种不可取消提醒"）。仅 APK，web 不可用 |
-| `get_device_state` | 查手机电量 / 是否充电 / 今日总屏幕时长 / Top 5 app 时长。`@capacitor/device` + 自定义 UsageStats plugin。APK 限定；屏幕时间需用户在系统设置开「使用情况访问权限」 |
+| `get_device_state` | 查手机电量 / 是否充电 / 今日总屏幕时长 / Top 5 app 时长。`@capacitor/device` + 自定义 UsageStats plugin。APK 限定；屏幕时间需用户在系统设置开「使用情况访问权限」。屏幕时间实现见 [screen-time.md](screen-time.md) |
