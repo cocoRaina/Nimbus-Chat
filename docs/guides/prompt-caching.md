@@ -184,3 +184,93 @@ OpenAI 兼容响应里对应字段是 `usage.prompt_tokens_details.cached_tokens
 ## 十、一句话总结
 
 **原生 `/v1/messages` + `cache_control` + 固定 `metadata.user_id` + 前缀逐字节稳定**——四件事做齐，长对话就能稳定命中、省下 ~90% 的输入成本。剩下的只是按你的中转选对 TTL 和倍率。
+
+---
+
+## 附录：可直接抄的代码（通用，不挑前端/语言）
+
+> 缓存全靠**请求体的形状**，跟你用什么前端/语言无关——本质就是一段发给 `/v1/messages` 的 JSON。下面任何栈都能照搬，丢给你的 AI 让它套进你的代码即可。前端只决定「怎么拼消息、动态内容放哪」，不影响缓存本身。
+
+### 1. 最小请求（curl，直连 Anthropic）
+
+```bash
+curl https://api.anthropic.com/v1/messages \
+  -H "x-api-key: $ANTHROPIC_API_KEY" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "content-type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "system": [
+      {
+        "type": "text",
+        "text": "<长且稳定的人设/规则/工具说明，必须超过最低 token 门槛>",
+        "cache_control": { "type": "ephemeral" }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "你好" },
+      { "role": "assistant", "content": "你好呀～" },
+      {
+        "role": "user",
+        "content": [
+          { "type": "text",
+            "text": "（倒数第二条 user：挂 rolling 断点，把历史纳进缓存）",
+            "cache_control": { "type": "ephemeral" } }
+        ]
+      },
+      { "role": "assistant", "content": "上一轮回复" },
+      { "role": "user", "content": "这一轮的新消息（最后一条，不挂标）" }
+    ],
+    "metadata": { "user_id": "user-42-固定不变" }
+  }'
+```
+
+要点全在里头：① system 块挂 `cache_control`；② **倒数第二条 user 消息**也挂一个（content 必须写成数组才能挂标）；③ 顶层固定 `metadata.user_id`。
+
+> **走中转**：只改 URL 和鉴权头（`x-api-key` 或 `Authorization: Bearer`），body 一模一样。
+> **想要 1h TTL**：标记写成 `{ "type": "ephemeral", "ttl": "1h" }`（写入贵到 2×，且要渠道支持）。不写 ttl 就是默认 5 分钟。
+
+### 2. 断点放哪——伪代码（每次发请求前组装）
+
+```text
+system = [ { type:"text", text: 稳定提示词, cache_control:{type:"ephemeral"} } ]
+
+messages = 历史所有轮次              // user/assistant 严格交替，一字不改
+找到 messages 里【倒数第二条 role=user】的消息：
+    把它的 content 改成数组形式，在最后一个 text block 上加 cache_control
+    （最后一条 user 是本轮新输入、每次都变，挂了等于没挂——所以挂倒数第二条）
+
+会变的东西（当前时间 / 本轮召回的记忆 / 临时提示）：
+    放进【最后一条 user 消息】里，或它前面一个不挂标的临时块
+    千万别塞进 system（一变整段缓存全废）
+
+metadata.user_id = 一个固定不变的字符串（按用户或会话固定）
+```
+
+### 3. 怎么确认命中——看响应 usage
+
+```json
+"usage": {
+  "input_tokens": 12,                  // 本轮新增的非缓存输入（很小）
+  "cache_creation_input_tokens": 0,    // 写缓存的量（第一轮会很大）
+  "cache_read_input_tokens": 8543,     // 从缓存读的量 → 非零 = 命中！
+  "output_tokens": 200
+}
+```
+
+- 第一轮：`cache_creation` 一大坨、`cache_read=0` —— 正常冷启动。
+- 第二轮起：`cache_read` 非零 —— 命中。命中率 ≈ `cache_read / (cache_read + cache_creation + input)`。
+- OpenAI 兼容响应里则看 `usage.prompt_tokens_details.cached_tokens`。
+
+### 4. 保活心跳（只有 1h TTL 才值得，5m 别做）
+
+距上次对话约 55 分钟时，发一条**前缀完全一样**的请求把缓存焐热：
+
+```text
+body 和正常请求一样（同样的 system + 同样的 metadata.user_id），但：
+  max_tokens: 1            ← 只让它吐一个字
+  messages 末尾不加新内容（或加个最短的占位）
+命中缓存 → 几乎不要钱，但把 1h TTL 续上一轮
+```
+
