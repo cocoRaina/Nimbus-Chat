@@ -72,6 +72,12 @@
 
 ## 2026-06-07 改动记录
 
+### 修复：用量统计把"没回复成功"的失败请求也算上了
+- **症状**：`/usage` 把失败/报错的消息也统计进去（调用计数虚高）。
+- **根因**：`flushUsageRecord` 在硬失败（无 usage、0 token）时用 `forceRecord` 强插一条 0-token 行（本是为存 `request_debug` 排查）——0 成本却占了一条调用。
+- **修法**：改成**没拿到 usage 就不记**（`if (!lastUsage) return`），不再 force-insert 0-token 失败行。失败但已产生计费（部分消费）的仍会按真实 token 记。另外把库里已有的 22 条 0-token 行清掉了（服务端，立即生效）。
+- ⚠️ 代码部分纯前端，需重打 APK；DB 清理已即时生效。
+
 ### 修复：朋友圈/TA 动态正文里漏出 `<thinking>` 标签
 - **症状**：TA 动态（syzygy）发的帖子正文开头带一整段 `<thinking>…</thinking>`，即使聊天思考链已关。
 - **根因**：发帖路径 `reasoning:false`（原生思考确实关了），但模型（多为 `*-thinking` 变体）会把思考当**纯文字**写进 content；而发帖路径**没有**像聊天那样剥离 `<thinking>`（聊天有 `splitReasoningFromContent`）。

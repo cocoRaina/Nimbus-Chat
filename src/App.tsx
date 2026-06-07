@@ -1309,9 +1309,11 @@ const App = () => {
           if (!user) {
             return
           }
-          // Success with no usage payload: nothing worth recording.
-          // Failure: record even a zero-token row so the debug payload lands.
-          if (!lastUsage && !failed) {
+          // Only record when the upstream actually returned a usage payload
+          // (= something was billed). A hard failure / empty error returns no
+          // usage → nothing was charged → don't pollute 用量统计 with a
+          // 0-token "failed message" row (it just inflated the call count).
+          if (!lastUsage) {
             return
           }
           const cached =
@@ -1333,11 +1335,11 @@ const App = () => {
             sessionId,
             rawUsage: lastUsage,
             // request_debug is never read by the UI — it only exists to
-            // troubleshoot failures. Storing it on every successful call was
-            // ~2.5MB of pure bloat (one-time stripped 2026-06). Keep it only
-            // when the request actually failed; null on success.
+            // troubleshoot failures. Keep it only when the request failed (and
+            // still produced a usage payload, i.e. partial spend); null on
+            // success. We no longer force-insert zero-token failure rows —
+            // those only cluttered 用量统计 without representing any cost.
             requestDebug: failed ? currentRequestDebug : null,
-            forceRecord: failed,
           })
           lastUsage = null
           currentRequestDebug = null
