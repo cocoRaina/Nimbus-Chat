@@ -5,6 +5,7 @@ import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { Share } from '@capacitor/share'
+import { Clipboard } from '@capacitor/clipboard'
 import { Network } from '@capacitor/network'
 import { getAssistantName, setAssistantName } from '../storage/assistantPersona'
 import {
@@ -484,10 +485,19 @@ const ChatPage = ({
   }
 
   const handleCopy = async (message: ChatMessage) => {
+    // Native Clipboard plugin first — navigator.clipboard is unreliable in the
+    // Android WebView (silently no-ops without a real secure context / gesture),
+    // which is why copy "didn't reach the clipboard". Fall back to the web API.
     try {
-      await navigator.clipboard.writeText(message.content)
-    } catch (error) {
-      console.warn('Unable to copy message', error)
+      await Clipboard.write({ string: message.content })
+      buzz()
+    } catch {
+      try {
+        await navigator.clipboard.writeText(message.content)
+        buzz()
+      } catch (error) {
+        console.warn('Unable to copy message', error)
+      }
     } finally {
       setOpenActionsId(null)
     }
