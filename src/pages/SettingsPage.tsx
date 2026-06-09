@@ -39,6 +39,7 @@ import {
   saveSandboxEndpoint,
   saveSandboxToken,
 } from '../storage/sandbox'
+import { getTtsConfig, saveTtsConfig, DEFAULT_TTS_BASE } from '../storage/ttsConfig'
 import {
   DEFAULT_SNACK_SYSTEM_OVERLAY,
   DEFAULT_SYZYGY_POST_PROMPT,
@@ -109,6 +110,10 @@ const SettingsPage = ({
   const [msuicodeApiKeyStatus, setMsuicodeApiKeyStatus] = useState<'idle' | 'saved'>('idle')
   const [msuicodeFormat, setMsuicodeFormatState] = useState<ApiFormat>(() => getMsuicodeFormat())
   const [msuicodeBaseUrlInput, setMsuicodeBaseUrlInput] = useState(() => getMsuicodeBaseUrl())
+  const [ttsSectionExpanded, setTtsSectionExpanded] = useState(false)
+  const [ttsDraft, setTtsDraft] = useState(() => getTtsConfig())
+  const [ttsApiKeyVisible, setTtsApiKeyVisible] = useState(false)
+  const [ttsStatus, setTtsStatus] = useState<'idle' | 'saved'>('idle')
   const [sandboxSectionExpanded, setSandboxSectionExpanded] = useState(false)
   const [sandboxEndpointInput, setSandboxEndpointInput] = useState(() => getSandboxEndpoint())
   const [sandboxTokenInput, setSandboxTokenInput] = useState(() => getSandboxToken())
@@ -1120,6 +1125,64 @@ const SettingsPage = ({
                 把当前 Base URL + Key + 格式存成预设，之后点一下就能在多个中转站之间切换。
               </span>
             )}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="settings-section" role="listitem">
+        <button
+          type="button"
+          className="collapse-header"
+          onClick={() => setTtsSectionExpanded((current) => !current)}
+          aria-expanded={ttsSectionExpanded}
+        >
+          <span className="section-title">
+            <span className="section-icon" aria-hidden="true">🔊</span>
+            <h2 className="ui-title">语音（TTS · MiniMax）</h2>
+            <p>开启后，AI 用 [voice]…[/voice] 包起来的内容会显示成语音条（点播才合成，可转文字）。</p>
+          </span>
+          <span className="collapse-indicator" aria-hidden="true">›</span>
+        </button>
+        {ttsSectionExpanded ? (
+          <div className="accordion-content">
+            <label className="header-menu-toggle" style={{ paddingLeft: 0 }}>
+              <input
+                type="checkbox"
+                checked={ttsDraft.enabled}
+                onChange={(e) => { setTtsDraft((d) => ({ ...d, enabled: e.target.checked })); setTtsStatus('idle') }}
+              />
+              <span>开启语音条</span>
+            </label>
+            <label htmlFor="tts-voice-id">Voice ID</label>
+            <input id="tts-voice-id" type="text" value={ttsDraft.voiceId}
+              onChange={(e) => { setTtsDraft((d) => ({ ...d, voiceId: e.target.value })); setTtsStatus('idle') }}
+              placeholder="moss_audio_..." />
+            <label htmlFor="tts-api-key">API Key</label>
+            <div className="model-select-row">
+              <input id="tts-api-key" type={ttsApiKeyVisible ? 'text' : 'password'} value={ttsDraft.apiKey}
+                onChange={(e) => { setTtsDraft((d) => ({ ...d, apiKey: e.target.value })); setTtsStatus('idle') }}
+                placeholder="MiniMax API Key（仅存本地）" />
+              <button type="button" className="ghost small" onClick={() => setTtsApiKeyVisible((v) => !v)}>
+                {ttsApiKeyVisible ? '隐藏' : '显示'}
+              </button>
+            </div>
+            <label htmlFor="tts-group-id">GroupId（MiniMax 控制台，可能必填）</label>
+            <input id="tts-group-id" type="text" value={ttsDraft.groupId}
+              onChange={(e) => { setTtsDraft((d) => ({ ...d, groupId: e.target.value })); setTtsStatus('idle') }}
+              placeholder="留空先试，报错再填" />
+            <label htmlFor="tts-base-url">Base URL</label>
+            <input id="tts-base-url" type="text" value={ttsDraft.baseUrl}
+              onChange={(e) => { setTtsDraft((d) => ({ ...d, baseUrl: e.target.value })); setTtsStatus('idle') }}
+              placeholder={DEFAULT_TTS_BASE} />
+            <span className="settings-hint">国际版 {DEFAULT_TTS_BASE}；国内账号用 https://api.minimaxi.com</span>
+            <div className="system-prompt-actions">
+              <button type="button" className="primary"
+                onClick={() => { saveTtsConfig(ttsDraft); setTtsStatus('saved') }}
+                disabled={!ttsDraft.voiceId.trim() || !ttsDraft.apiKey.trim()}>
+                保存
+              </button>
+              {ttsStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
+            </div>
           </div>
         ) : null}
       </section>

@@ -1,0 +1,88 @@
+.voice-bubble-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.voice-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 120px;
+  padding: 9px 14px;
+  border: none;
+  border-radius: 16px;
+  background: #95ec69; /* WeChat-ish green */
+  color: #1a1a1a;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.message.in .voice-bar {
+  background: #e8f0fe;
+  color: #1f2937;
+}
+
+.voice-bar__icon {
+  font-size: 13px;
+  width: 14px;
+  text-align: center;
+}
+
+.voice-bar__wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+
+.voice-bar__wave i {
+  width: 2px;
+  height: 5px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.voice-bar.is-playing .voice-bar__wave i {
+  animation: voice-wave 0.9s ease-in-out infinite;
+}
+
+@keyframes voice-wave {
+  0%, 100% { height: 5px; opacity: 0.5; }
+  50% { height: 15px; opacity: 0.9; }
+}
+
+.voice-bar__dur {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.voice-bar__txt-toggle {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0 2px;
+  color: #6b7280;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.voice-bar__err {
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.voice-bar__transcript {
+  max-width: 100%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.04);
+  font-size: 14px;
+}
+
+.voice-fallback {
+  /* TTS not configured → render the inner text like a normal bubble */
+}

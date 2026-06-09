@@ -15,6 +15,7 @@ import {
 import type { ChatMessage, ChatSession } from '../types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MarkdownRenderer from '../components/MarkdownRenderer'
+import VoiceBubble from '../components/VoiceBubble'
 import ReasoningPanel from '../components/ReasoningPanel'
 import ToolCallCard from '../components/ToolCallCard'
 import type { ToolCallRecord } from '../components/ToolCallCard'
@@ -67,6 +68,30 @@ const splitAssistantContent = (content: string): string[] => {
   return parts.length > 0 ? parts : [content]
 }
 
+// Split an assistant reply into ordered text / voice segments. The model
+// wraps spoken content in [voice]…[/voice]; those become WeChat-style voice
+// bars (see VoiceBubble). Everything else is normal text, still subject to
+// [NEXT] bubble splitting.
+type MsgSegment = { type: 'text' | 'voice'; text: string }
+const splitAssistantSegments = (content: string): MsgSegment[] => {
+  const segs: MsgSegment[] = []
+  const re = /\[voice\]([\s\S]*?)\[\/voice\]/gi
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(content)) !== null) {
+    for (const t of splitAssistantContent(content.slice(last, m.index))) {
+      if (t.trim()) segs.push({ type: 'text', text: t })
+    }
+    const vt = m[1].trim()
+    if (vt) segs.push({ type: 'voice', text: vt })
+    last = re.lastIndex
+  }
+  for (const t of splitAssistantContent(content.slice(last))) {
+    if (t.trim()) segs.push({ type: 'text', text: t })
+  }
+  return segs.length > 0 ? segs : [{ type: 'text', text: content }]
+}
+
 // Memoised single-message renderer. The chat history can be hundreds of
 // messages; without this, every keystroke in the composer re-runs the
 // map over all of them. With stable handler refs from the parent, memo
@@ -88,19 +113,22 @@ const MessageRow = memo(function MessageRow({
 }: MessageRowProps) {
   const reasoningText =
     message.meta?.reasoning_text?.trim() ?? message.meta?.reasoning?.trim()
-  const chunks =
-    message.role === 'assistant' ? splitAssistantContent(message.content) : [message.content]
+  const segments: MsgSegment[] =
+    message.role === 'assistant'
+      ? splitAssistantSegments(message.content)
+      : [{ type: 'text', text: message.content }]
   const isOut = message.role === 'user'
   return (
     <div
       className={`message ${isOut ? 'out' : 'in'} ${groupWithPrevious ? 'group-with-previous' : ''}`}
     >
-      {chunks.map((chunk, chunkIdx) => {
+      {segments.map((seg, chunkIdx) => {
         const isFirst = chunkIdx === 0
+        const chunk = seg.text
         return (
           <div
             key={`${message.id}-${chunkIdx}`}
-            className={`bubble ${chunks.length > 1 ? 'bubble-stacked' : ''}`}
+            className={`bubble ${segments.length > 1 ? 'bubble-stacked' : ''}`}
             onPointerDown={(event) => onStartLongPress(event, message.id)}
             onPointerUp={onCancelLongPress}
             onPointerLeave={onCancelLongPress}
@@ -133,7 +161,9 @@ const MessageRow = memo(function MessageRow({
                   ))}
               </div>
             ) : null}
-            {message.role === 'assistant' ? (
+            {seg.type === 'voice' ? (
+              <VoiceBubble text={chunk} />
+            ) : message.role === 'assistant' ? (
               <div className="assistant-markdown">
                 <MarkdownRenderer content={chunk} />
               </div>
