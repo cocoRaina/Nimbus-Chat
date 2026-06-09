@@ -40,7 +40,7 @@ import {
   saveSandboxToken,
 } from '../storage/sandbox'
 import { getTtsConfig, saveTtsConfig, DEFAULT_TTS_BASE } from '../storage/ttsConfig'
-const TTS_MODELS = ['speech-02-turbo', 'speech-02-hd', 'speech-2.5-turbo-preview', 'speech-2.5-hd-preview', 'speech-01-turbo', 'speech-01-hd']
+const TTS_MODELS = ['Speech-2.8-Turbo', 'Speech-2.8-HD']
 import {
   DEFAULT_SNACK_SYSTEM_OVERLAY,
   DEFAULT_SYZYGY_POST_PROMPT,
