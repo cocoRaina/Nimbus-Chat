@@ -10,8 +10,8 @@ const K = {
   model: 'nimbus_tts_model',
 }
 
-export const DEFAULT_TTS_BASE = 'https://api.minimax.io'
-export const DEFAULT_TTS_MODEL = 'speech-02-turbo'
+export const DEFAULT_TTS_BASE = 'https://api.minimaxi.com'
+export const DEFAULT_TTS_MODEL = 'Speech-2.8-Turbo'
 
 export type TtsConfig = {
   enabled: boolean
