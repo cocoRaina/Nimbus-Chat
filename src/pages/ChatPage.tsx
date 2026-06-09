@@ -6,7 +6,6 @@ import { useNavigate } from 'react-router-dom'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { Share } from '@capacitor/share'
 import { Network } from '@capacitor/network'
-import { SpeechRecognition } from '@capacitor-community/speech-recognition'
 import { getAssistantName, setAssistantName } from '../storage/assistantPersona'
 import {
   getActiveProvider,
@@ -199,11 +198,6 @@ const ChatPage = ({
   // Native Network plugin → small "已离线" banner above the composer.
   // Defaulted to true; the effect below flips it false if we boot offline.
   const [online, setOnline] = useState(true)
-  // Recording state for the 🎤 button. Idle → recording (mic icon → stop
-  // square) → done (insert transcript into draft). Plugin uses native
-  // Android SpeechRecognizer so transcription is offline + free, no
-  // Whisper round-trip.
-  const [recording, setRecording] = useState(false)
   const [openHeaderMenu, setOpenHeaderMenu] = useState(false)
   const [headerMenuPosition, setHeaderMenuPosition] = useState({ top: 0, right: 0 })
   // The "+" composer button used to be the model picker; per user
@@ -359,58 +353,6 @@ const ChatPage = ({
     setEditingMessageId(null)
     setDraft('')
   }
-
-  // 🎤 button. Native SpeechRecognizer; results streamed via the
-  // partialResults listener as the user speaks, then committed to the
-  // draft when stop() is called. Web fallback uses the browser's Web
-  // Speech API automatically (Chrome/Edge only — Safari and Firefox
-  // gracefully no-op because requestPermissions returns denied).
-  const handleMicToggle = useCallback(async () => {
-    if (recording) {
-      buzz(ImpactStyle.Medium)
-      setRecording(false)
-      await SpeechRecognition.stop().catch(() => {})
-      return
-    }
-    try {
-      const { available } = await SpeechRecognition.available()
-      if (!available) {
-        alert('当前设备不支持语音识别')
-        return
-      }
-      const perm = await SpeechRecognition.requestPermissions()
-      if (perm.speechRecognition !== 'granted') {
-        alert('需要麦克风权限,请到设置→应用→Nimbus 里打开')
-        return
-      }
-      buzz()
-      setRecording(true)
-      // partialResults gives us live updates; we append the LATEST
-      // partial transcript (not concatenate) because the recognizer
-      // emits successive refinements of the same utterance, not
-      // disjoint pieces. Final commit happens on the stop() call.
-      let finalDraftBase = draft
-      SpeechRecognition.removeAllListeners()
-      SpeechRecognition.addListener('partialResults', (data: { matches?: string[] }) => {
-        const text = data.matches?.[0] ?? ''
-        if (text) {
-          setDraft(finalDraftBase ? `${finalDraftBase} ${text}` : text)
-        }
-      })
-      await SpeechRecognition.start({
-        language: 'zh-CN',
-        partialResults: true,
-        popup: false,
-      })
-      // start() resolves when recognition ends naturally (long silence).
-      // Mirror that to UI state so the button flips back to mic.
-      setRecording(false)
-      finalDraftBase = '' // free closure ref
-    } catch (err) {
-      console.warn('语音识别失败', err)
-      setRecording(false)
-    }
-  }, [recording, draft])
 
   const handleShareMessage = useCallback(async (message: ChatMessage) => {
     setOpenActionsId(null)
@@ -1033,15 +975,6 @@ const ChatPage = ({
               </div>
             ) : null}
           </div>
-          <button
-            type="button"
-            className={`composer-icon-btn ${recording ? 'composer-icon-btn--recording' : ''}`}
-            aria-label={recording ? '停止录音' : '语音输入'}
-            title={recording ? '停止录音' : '语音输入'}
-            onClick={() => void handleMicToggle()}
-          >
-            <span aria-hidden="true">{recording ? '🛑' : '🎤'}</span>
-          </button>
           <textarea
             className="composer-line-input"
             placeholder="输入你的消息"
