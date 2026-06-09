@@ -890,7 +890,7 @@ const SettingsPage = ({
       <div className="settings-page app-shell__content">
         <div className="settings-ribbon-divider" aria-hidden="true">
           <span className="settings-ribbon-line" />
-          <span className="settings-ribbon-icon">🐱❌🐺</span>
+          <span className="settings-ribbon-icon">☁</span>
           <span className="settings-ribbon-line" />
         </div>
         <div className="settings-group" role="list">
