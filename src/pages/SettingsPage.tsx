@@ -40,6 +40,7 @@ import {
   saveSandboxToken,
 } from '../storage/sandbox'
 import { getTtsConfig, saveTtsConfig, DEFAULT_TTS_BASE } from '../storage/ttsConfig'
+const TTS_MODELS = ['speech-02-turbo', 'speech-02-hd', 'speech-2.5-turbo-preview', 'speech-2.5-hd-preview', 'speech-01-turbo', 'speech-01-hd']
 import {
   DEFAULT_SNACK_SYSTEM_OVERLAY,
   DEFAULT_SYZYGY_POST_PROMPT,
@@ -1175,6 +1176,13 @@ const SettingsPage = ({
               onChange={(e) => { setTtsDraft((d) => ({ ...d, baseUrl: e.target.value })); setTtsStatus('idle') }}
               placeholder={DEFAULT_TTS_BASE} />
             <span className="settings-hint">国际版 {DEFAULT_TTS_BASE}；国内账号用 https://api.minimaxi.com</span>
+            <label htmlFor="tts-model">模型</label>
+            <select id="tts-model" value={ttsDraft.model}
+              onChange={(e) => { setTtsDraft((d) => ({ ...d, model: e.target.value })); setTtsStatus('idle') }}>
+              {(TTS_MODELS.includes(ttsDraft.model) ? TTS_MODELS : [ttsDraft.model, ...TTS_MODELS]).map((m) => (
+                <option key={m} value={m}>{m === 'speech-02-turbo' ? `${m}（快·便宜，推荐）` : m === 'speech-02-hd' ? `${m}（高质量·贵）` : m}</option>
+              ))}
+            </select>
             <div className="system-prompt-actions">
               <button type="button" className="primary"
                 onClick={() => { saveTtsConfig(ttsDraft); setTtsStatus('saved') }}

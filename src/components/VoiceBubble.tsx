@@ -48,6 +48,7 @@ const VoiceBubble = memo(function VoiceBubble({ text }: Props) {
             api_key: cfg.apiKey,
             group_id: cfg.groupId,
             base_url: cfg.baseUrl,
+            model: cfg.model,
           },
         })
         if (err) throw new Error(err.message ?? String(err))

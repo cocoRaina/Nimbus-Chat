@@ -7,9 +7,11 @@ const K = {
   groupId: 'nimbus_tts_group_id',
   voiceId: 'nimbus_tts_voice_id',
   baseUrl: 'nimbus_tts_base_url',
+  model: 'nimbus_tts_model',
 }
 
 export const DEFAULT_TTS_BASE = 'https://api.minimax.io'
+export const DEFAULT_TTS_MODEL = 'speech-02-turbo'
 
 export type TtsConfig = {
   enabled: boolean
@@ -17,6 +19,7 @@ export type TtsConfig = {
   groupId: string
   voiceId: string
   baseUrl: string
+  model: string
 }
 
 const read = (k: string): string => {
@@ -30,6 +33,7 @@ export const getTtsConfig = (): TtsConfig => ({
   groupId: read(K.groupId),
   voiceId: read(K.voiceId),
   baseUrl: read(K.baseUrl) || DEFAULT_TTS_BASE,
+  model: read(K.model) || DEFAULT_TTS_MODEL,
 })
 
 export const saveTtsConfig = (c: Partial<TtsConfig>) => {
@@ -39,6 +43,7 @@ export const saveTtsConfig = (c: Partial<TtsConfig>) => {
   if (c.groupId !== undefined) window.localStorage.setItem(K.groupId, c.groupId.trim())
   if (c.voiceId !== undefined) window.localStorage.setItem(K.voiceId, c.voiceId.trim())
   if (c.baseUrl !== undefined) window.localStorage.setItem(K.baseUrl, c.baseUrl.trim())
+  if (c.model !== undefined) window.localStorage.setItem(K.model, c.model.trim())
 }
 
 // Ready = turned on AND has the minimum to call MiniMax.
