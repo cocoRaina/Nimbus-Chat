@@ -890,7 +890,7 @@ const SettingsPage = ({
       <div className="settings-page app-shell__content">
         <div className="settings-ribbon-divider" aria-hidden="true">
           <span className="settings-ribbon-line" />
-          <span className="settings-ribbon-icon">🎀</span>
+          <span className="settings-ribbon-icon">🐱❌🐺</span>
           <span className="settings-ribbon-line" />
         </div>
         <div className="settings-group" role="list">
@@ -1180,7 +1180,7 @@ const SettingsPage = ({
             <select id="tts-model" value={ttsDraft.model}
               onChange={(e) => { setTtsDraft((d) => ({ ...d, model: e.target.value })); setTtsStatus('idle') }}>
               {(TTS_MODELS.includes(ttsDraft.model) ? TTS_MODELS : [ttsDraft.model, ...TTS_MODELS]).map((m) => (
-                <option key={m} value={m}>{m === 'speech-02-turbo' ? `${m}（快·便宜，推荐）` : m === 'speech-02-hd' ? `${m}（高质量·贵）` : m}</option>
+                <option key={m} value={m}>{m === 'Speech-2.8-Turbo ? `${m}（快·便宜，推荐）` : m === 'Speech-2.8-HD' ? `${m}（高质量·贵）` : m}</option>
               ))}
             </select>
             <div className="system-prompt-actions">
@@ -1796,7 +1796,7 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
           aria-expanded={snackSectionExpanded}
         >
           <span className="section-title">
-            <span className="section-icon" aria-hidden="true">🍪</span>
+            <span className="section-icon" aria-hidden="true">🐱</span>
             <h2 className="ui-title">我的主页</h2>
             <p>仅用于我的主页；基础系统提示词保持不变。</p>
           </span>
@@ -1837,7 +1837,7 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
           aria-expanded={syzygySectionExpanded}
         >
           <span className="section-title">
-            <span className="section-icon" aria-hidden="true">📓</span>
+            <span className="section-icon" aria-hidden="true">🐺</span>
             <h2 className="ui-title">TA的主页</h2>
             <p>控制发帖与回复时的提示词行为。</p>
           </span>
@@ -1902,7 +1902,7 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
       <ConfirmDialog
         open={pendingDisable !== null}
         title="停用这个模型？"
-        description="停用后模型会从仓鼠模型库移除，并不会删除云端数据。"
+        description="停用后模型会从猫咪模型库移除，并不会删除云端数据。"
         confirmLabel="停用"
         onCancel={() => setPendingDisable(null)}
         onConfirm={handleDisableModel}
