@@ -21,6 +21,7 @@
 | 屏幕使用时间（UsageStats） | [features/screen-time.md](features/screen-time.md) |
 | 主页 widget 系统 | [features/widgets.md](features/widgets.md) |
 | 聊天界面交互 | [features/chat-ui.md](features/chat-ui.md) |
+| 语音消息（TTS·MiniMax） | [features/voice-tts.md](features/voice-tts.md) |
 
 ## 还没单独成文（要动到时看代码）
 

@@ -70,6 +70,20 @@
 
 ---
 
+## 2026-06-09 改动记录
+
+### 新增：语音消息（TTS · MiniMax）
+- AI 用 `[voice]…[/voice]` 包内容 → 微信式语音条（点 ▶ 才合成、缓存、转文字、未配置降级为文字）。`tts` Edge Function 代理 MiniMax T2A v2（hex→base64，key 从设置页发、不入库/仓库）；设置页 🔊 语音区（voice_id/key/GroupId/Base URL/模型）。详见 [features/voice-tts.md](features/voice-tts.md)。
+- **失败也返回 200 + 真实原因**：`supabase.functions.invoke` 会把任何非 2xx 压成笼统 "non-2xx status code"，所以 tts 失败时回 200 带 MiniMax 的 `status_msg`，App 红字能看到真因。
+
+### 修复：复制不进剪贴板 → 改用原生 `@capacitor/clipboard`
+- WebView 里 `navigator.clipboard` 静默失效；改用原生 Clipboard 插件 + navigator 兜底 + 复制成功震一下。新增原生依赖,需重打 APK。
+
+### 移除：内置 🎤 语音输入
+- `@capacitor-community/speech-recognition` 在 Android 11+ 因缺 RecognitionService `<queries>` 静默失效,且和输入法语音转文字重复 → 撤掉,用输入法的。
+
+---
+
 ## 2026-06-07 改动记录
 
 ### 修复：用量统计把"没回复成功"的失败请求也算上了

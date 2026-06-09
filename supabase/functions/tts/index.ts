@@ -52,18 +52,21 @@ Deno.serve(async (req: Request) => {
     const data = await res.json().catch(() => null) as
       | { data?: { audio?: string }; base_resp?: { status_code?: number; status_msg?: string } }
       | null
+    const msg = data?.base_resp?.status_msg ?? ''
+    // Return 200 even on failure so supabase.functions.invoke surfaces the
+    // real reason (it collapses any non-2xx into a generic message otherwise).
     if (!res.ok || !data) {
-      return json({ error: `minimax ${res.status}`, detail: data?.base_resp ?? null }, 502)
+      return json({ error: `MiniMax ${res.status}${msg ? ': ' + msg : ''}`, detail: data?.base_resp ?? null })
     }
     const hex = data.data?.audio
     if (!hex) {
-      return json({ error: 'no audio', detail: data.base_resp ?? null }, 502)
+      return json({ error: `MiniMax 无音频${msg ? ': ' + msg : ''}`, detail: data.base_resp ?? null })
     }
     // MiniMax returns audio as a hex string → bytes → base64 for the client.
     const bytes = new Uint8Array(hex.length / 2)
     for (let i = 0; i < bytes.length; i += 1) bytes[i] = parseInt(hex.substr(i * 2, 2), 16)
     return json({ audio_base64: encodeBase64(bytes), mime: 'audio/mp3' })
   } catch (err) {
-    return json({ error: String(err) }, 500)
+    return json({ error: String(err) })
   }
 })

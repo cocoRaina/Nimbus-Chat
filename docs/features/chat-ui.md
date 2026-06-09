@@ -3,7 +3,8 @@
 - **Header**：左 `←` 返回首页、Claude 的圆头像（同步 `/syzygy` 朋友圈头像）、可改名称（默认"哥哥"，✏️ 修改名称写到 localStorage `nimbus_assistant_name`，主动消息通知 title 也跟着用新名字）；右 `⚙️` + `≡`（会话抽屉）
 - **`⚙️` 齿轮菜单**：🧠 思考链开关 / 🤖 **模型选择**（per-session override，选默认值=清除 override） / 📦 手动压缩对话 / ✏️ 修改名称。模型选择从输入栏挪到这里，输入栏更清爽
 - **正在输入指示器**：流式期间在 header 名称下方副标题显示「正在输入…」+ 三跳动点，不再在消息流尾巴留空气泡
-- **输入栏**：单行 `[+] [🎤] [输入框 pill] [➤ 发送 / ■ 停止]`，底部是白色 footer 面板。`+` 点开浮出小菜单 `📷 拍照 / 🖼 从相册`（分别走 `<input capture="environment">` 直接相机和 `<input multiple>` 相册），`🎤` 调系统 SpeechRecognizer 录音转文字（zh-CN，partialResults 实时塞 textarea）。流式时变红停止
+- **输入栏**：单行 `[+] [输入框 pill] [➤ 发送 / ■ 停止]`，底部是白色 footer 面板。`+` 点开浮出小菜单 `📷 拍照 / 🖼 从相册`（分别走 `<input capture="environment">` 直接相机和 `<input multiple>` 相册）。流式时变红停止。（内置 🎤 语音输入已移除——`@capacitor-community/speech-recognition` 在 Android 11+ 因缺 RecognitionService `<queries>` 静默失效，且和输入法自带语音转文字重复，改用输入法的）
+- **复制**：长按菜单「复制」走原生 `@capacitor/clipboard`（WebView 的 `navigator.clipboard` 会静默失效），带 navigator 兜底
 - **📡 离线条**：`@capacitor/network` 监听网络，断网时在输入栏上方显示黄色「📡 已离线」横条（发送照常排队，网络恢复自动重试）
 - **📳 震动反馈**：`@capacitor/haptics` 在长按菜单弹出 / 发送按钮 / 麦克风停止 时触发轻震，体感反馈用
 - **气泡分组**：同人 1 分钟内连发紧贴（3px），换人或间隔大拉开（12px）
