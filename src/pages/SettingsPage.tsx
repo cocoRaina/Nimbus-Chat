@@ -1180,7 +1180,15 @@ const SettingsPage = ({
             <select id="tts-model" value={ttsDraft.model}
               onChange={(e) => { setTtsDraft((d) => ({ ...d, model: e.target.value })); setTtsStatus('idle') }}>
               {(TTS_MODELS.includes(ttsDraft.model) ? TTS_MODELS : [ttsDraft.model, ...TTS_MODELS]).map((m) => (
-                <option key={m} value={m}>{m === 'Speech-2.8-Turbo ? `${m}（快·便宜，推荐）` : m === 'Speech-2.8-HD' ? `${m}（高质量·贵）` : m}</option>
+                <option key={m} value={m}>
+  {
+    m === 'Speech-2.8-Turbo'
+      ? `${m}（快·便宜，推荐）`
+      : m === 'Speech-2.8-HD'
+        ? `${m}（高质量·贵）`
+        : m
+  }
+</option>
               ))}
             </select>
             <div className="system-prompt-actions">
