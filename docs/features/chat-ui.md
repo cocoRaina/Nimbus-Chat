@@ -14,5 +14,7 @@
 - **工具调用卡片**：每条助手消息上方显示本轮调了哪些工具，可折叠查看详情
 - **入场动画**：新消息从下方滑入 + 淡入（0.25s）
 - **长按菜单**：复制 / 引用 / 分享（`@capacitor/share` 调系统分享面板） / 重新生成 / 编辑 / 删除。菜单**自动翻转**：如果气泡靠近屏幕底部、菜单展开会被输入框压住，`useLayoutEffect` 量完菜单高度后改成出现在气泡**上方**；水平方向也会贴边裁剪。触摸屏下气泡 `user-select: none` + `-webkit-touch-callout: none`，长按不会触发系统蓝色选字（桌面鼠标仍可选，用 `@media (hover:none) and (pointer:coarse)` 隔离）
-- **连发（批量回复）**：composer 发送改走 `queueUserMessage`——只落用户消息 + 起 2 秒 debounce 定时器（`App.tsx` `BATCH_REPLY_MS`），期间再发就重置；定时器到了用 `sendMessage(skipUser)` 一次性生成回复，让 AI 看这一批。连发期间没流式，所以不被停止键挡。
+- **连发（批量回复）**：composer 发送改走 `queueUserMessage`——只落用户消息 + 起 2.5 秒 debounce 定时器（`App.tsx` `BATCH_REPLY_MS`，`armBatchTimer`），期间再发就重置；定时器到了用 `sendMessage(skipUser)` 一次性生成回复，让 AI 看这一批。连发期间没流式，所以不被停止键挡。
+  - **打字也推后定时器（防抢答）**：光靠"两次发送之间重置"不够——人打下一条字常常超过窗口，AI 就抢着回复、随后流式锁住输入框，导致连发不了几条。所以输入框 `onChange` 会调 `onComposerActivity`（→ `App.tsx` `notifyComposerActivity`），**只在定时器已经在跑时**重置它（平时打字不受影响），把窗口放宽到 2.5 秒，只有真正停顿才自动回复。
+  - **表情包也走这条**：点贴纸 = `onSendMessage('[sticker:名字]')` = `queueUserMessage`，所以连发表情包、文字+表情混发都会批到一起。
 - **表情包（`[sticker:名字]`）**：你和 AI 共用一套贴纸（`storage/stickers.ts`，压缩成小 PNG 存 localStorage）。`+ → 🧷 表情` 面板导入/发送/删除；发送即发 `[sticker:名字]` 文本，前端解析成图片（用户和 AI 都解析）。可用贴纸列表注入进聊天 system prompt（`buildStickerSystemSection`），AI 据此自己发。
