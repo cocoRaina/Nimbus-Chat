@@ -40,7 +40,7 @@ import {
   saveSandboxToken,
 } from '../storage/sandbox'
 import { getTtsConfig, saveTtsConfig, DEFAULT_TTS_BASE } from '../storage/ttsConfig'
-const TTS_MODELS = ['Speech-2.8-Turbo', 'Speech-2.8-HD']
+const TTS_MODELS = ['speech-2.8-turbo', 'speech-2.8-hd']
 import {
   DEFAULT_SNACK_SYSTEM_OVERLAY,
   DEFAULT_SYZYGY_POST_PROMPT,
@@ -1182,9 +1182,9 @@ const SettingsPage = ({
               {(TTS_MODELS.includes(ttsDraft.model) ? TTS_MODELS : [ttsDraft.model, ...TTS_MODELS]).map((m) => (
                 <option key={m} value={m}>
   {
-    m === 'Speech-2.8-Turbo'
+    m === 'speech-2.8-turbo'
       ? `${m}（快·便宜，推荐）`
-      : m === 'Speech-2.8-HD'
+      : m === 'speech-2.8-hd'
         ? `${m}（高质量·贵）`
         : m
   }

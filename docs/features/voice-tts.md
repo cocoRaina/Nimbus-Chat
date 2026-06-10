@@ -25,7 +25,7 @@
 | API Key | MiniMax key(仅存本地 localStorage) |
 | GroupId | MiniMax 控制台;部分接口必填,留空报错再填 |
 | Base URL | 国际版 `https://api.minimax.io`(默认)/ 国内 `https://api.minimaxi.com` |
-| 模型 | `Speech-2.8-HD/Speech-2.8-Turbo` |
+| 模型 | `speech-2.8-hd/speech-2.8-turbo` |
 
 ## 克隆音色（国内版用 API）
 

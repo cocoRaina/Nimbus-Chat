@@ -11,7 +11,7 @@ const K = {
 }
 
 export const DEFAULT_TTS_BASE = 'https://api.minimaxi.com'
-export const DEFAULT_TTS_MODEL = 'Speech-2.8-Turbo'
+export const DEFAULT_TTS_MODEL = 'speech-2.8-turbo'
 
 export type TtsConfig = {
   enabled: boolean
