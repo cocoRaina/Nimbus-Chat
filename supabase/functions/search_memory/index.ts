@@ -104,12 +104,12 @@ Deno.serve(async (req: Request) => {
     })
     if (!embedRes.ok) {
       const text = await embedRes.text()
-      return jsonResponse({ error: `SiliconFlow ${embedRes.status}: ${text}` }, 502)
+      return jsonResponse({ error: `SiliconFlow ${embedRes.status}: ${text}` })
     }
     const embedData = await embedRes.json()
     const queryEmbedding = embedData?.data?.[0]?.embedding
     if (!Array.isArray(queryEmbedding)) {
-      return jsonResponse({ error: 'unexpected embedding response' }, 502)
+      return jsonResponse({ error: 'unexpected embedding response' })
     }
 
     const authHeader = req.headers.get('Authorization') ?? ''
@@ -152,7 +152,7 @@ Deno.serve(async (req: Request) => {
     ])
 
     if (searchResult.error) {
-      return jsonResponse({ error: searchResult.error.message }, 500)
+      return jsonResponse({ error: 'RPC: ' + searchResult.error.message })
     }
     return jsonResponse({
       results: searchResult.data ?? [],
@@ -160,6 +160,6 @@ Deno.serve(async (req: Request) => {
       health_data: healthResult.error ? [] : healthResult.data ?? [],
     })
   } catch (err) {
-    return jsonResponse({ error: String(err) }, 500)
+    return jsonResponse({ error: String(err) })
   }
 })
