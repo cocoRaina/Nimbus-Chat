@@ -2561,8 +2561,31 @@ TOOL_SEARCH_HANDOFF,
   // 连发：用户消息先落库显示，不立刻触发生成；停顿 BATCH_REPLY_MS 后再一次性
   // 生成回复（skipUser），让 AI 把这一批连发的消息一起看。期间没流式，所以
   // 连发不被停止键挡；一旦开始回复，UI 切到停止键自然挡住后续输入。
-  const BATCH_REPLY_MS = 2000
+  const BATCH_REPLY_MS = 2500
   const batchTimerRef = useRef<number | null>(null)
+  const batchSessionRef = useRef<string | null>(null)
+
+  // 起/重置「连发后自动回复」定时器。停顿 BATCH_REPLY_MS 没有新动作才触发。
+  const armBatchTimer = useCallback(
+    (sessionId: string) => {
+      batchSessionRef.current = sessionId
+      if (batchTimerRef.current) window.clearTimeout(batchTimerRef.current)
+      batchTimerRef.current = window.setTimeout(() => {
+        batchTimerRef.current = null
+        batchSessionRef.current = null
+        void sendMessage(sessionId, '', { skipUser: true })
+      }, BATCH_REPLY_MS)
+    },
+    [sendMessage],
+  )
+
+  // 用户还在输入框打字 → 推后自动回复，别在他打下一条时抢答。只有定时器
+  // 已经在跑（说明刚连发过）时才重置，平时打字不受影响。
+  const notifyComposerActivity = useCallback(() => {
+    if (batchTimerRef.current && batchSessionRef.current) {
+      armBatchTimer(batchSessionRef.current)
+    }
+  }, [armBatchTimer])
 
   const persistUserMessage = useCallback(
     (
@@ -2641,13 +2664,9 @@ TOOL_SEARCH_HANDOFF,
       options?: { attachments?: Array<{ type: 'image'; url: string; width?: number; height?: number }> },
     ): Promise<void> => {
       persistUserMessage(sessionId, content, options?.attachments ?? [])
-      if (batchTimerRef.current) window.clearTimeout(batchTimerRef.current)
-      batchTimerRef.current = window.setTimeout(() => {
-        batchTimerRef.current = null
-        void sendMessage(sessionId, '', { skipUser: true })
-      }, BATCH_REPLY_MS)
+      armBatchTimer(sessionId)
     },
-    [persistUserMessage, sendMessage],
+    [persistUserMessage, armBatchTimer],
   )
 
   const handleStopStreaming = useCallback(() => {
@@ -3074,6 +3093,7 @@ TOOL_SEARCH_HANDOFF,
                 sessionsReady={sessionsReady}
                 isStreaming={isStreaming}
                 onStopStreaming={handleStopStreaming}
+                onComposerActivity={notifyComposerActivity}
                 onOpenDrawer={() => setDrawerOpen(true)}
                 onCloseDrawer={() => setDrawerOpen(false)}
                 onCreateSession={createSessionEntry}
@@ -3267,6 +3287,7 @@ const ChatRoute = ({
   sessionsReady,
   isStreaming,
   onStopStreaming,
+  onComposerActivity,
   onOpenDrawer,
   onCloseDrawer,
   onCreateSession,
@@ -3297,6 +3318,7 @@ const ChatRoute = ({
   sessionsReady: boolean
   isStreaming: boolean
   onStopStreaming: () => void
+  onComposerActivity: () => void
   onOpenDrawer: () => void
   onCloseDrawer: () => void
   onCreateSession: (title?: string) => Promise<ChatSession>
@@ -3459,6 +3481,7 @@ const ChatRoute = ({
         onEditUserMessage={onEditUserMessage}
         isStreaming={isStreaming}
         onStopStreaming={onStopStreaming}
+        onComposerActivity={onComposerActivity}
         enabledModels={enabledModels}
         defaultModel={defaultModel}
         onSelectModel={(model) => onSelectModel(activeSession.id, model)}

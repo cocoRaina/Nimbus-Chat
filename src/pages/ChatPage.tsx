@@ -49,6 +49,9 @@ export type ChatPageProps = {
   onEditUserMessage: (userMessageId: string, newContent: string) => void | Promise<void>
   isStreaming: boolean
   onStopStreaming: () => void
+  // 连发：用户在输入框打字时调用，用来推后「自动回复」定时器，避免还在
+  // 打下一条时 AI 就抢着回复（见 App.tsx queueUserMessage）。
+  onComposerActivity?: () => void
   enabledModels: string[]
   defaultModel: string
   onSelectModel: (model: string | null) => void
@@ -251,6 +254,7 @@ const ChatPage = ({
   onEditUserMessage,
   isStreaming,
   onStopStreaming,
+  onComposerActivity,
   enabledModels,
   defaultModel,
   onSelectModel,
@@ -1121,7 +1125,10 @@ const ChatPage = ({
             placeholder="输入你的消息"
             rows={1}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value)
+              onComposerActivity?.()
+            }}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) {
                 return
