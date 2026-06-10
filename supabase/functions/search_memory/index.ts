@@ -3,7 +3,9 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 const SF_URL = 'https://api.siliconflow.cn/v1/embeddings'
 const MODEL = 'BAAI/bge-m3'
-const SILICONFLOW_API_KEY = Deno.env.get('SILICONFLOW_API_KEY') ?? 'sk-jzeaidgwuyoeqvsnxymheonwdwuzvmkgsqnjltgnczokimpu'
+const SILICONFLOW_API_KEY = Deno.env.get('SILICONFLOW_API_KEY') ?? ''
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -63,6 +65,29 @@ Deno.serve(async (req: Request) => {
   if (!query) {
     return jsonResponse({ error: 'query required' }, 400)
   }
+
+  if (!SILICONFLOW_API_KEY) {
+    return jsonResponse({ error: 'SILICONFLOW_API_KEY not configured' }, 500)
+  }
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return jsonResponse({ error: 'Supabase env vars not configured' }, 500)
+  }
+
+  // JWT 校验,放在 embedding 调用之前——否则未鉴权请求也会触发 SiliconFlow
+  // embedding(烧钱)。和 web_search 等其他 function 对齐:防 dashboard 误关
+  // verify_jwt 时把额度开放给所有人。
+  const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization')
+  const apikey = req.headers.get('apikey')
+  if (!authHeader || !apikey) {
+    return jsonResponse({ error: 'missing auth headers' }, 401)
+  }
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader, apikey } },
+  })
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return jsonResponse({ error: 'invalid auth token' }, 401)
+  }
   const count = Math.max(1, Math.min(20, Math.floor(Number(payload.count ?? 5)) || 5))
   const category = typeof payload.category === 'string' && payload.category.trim().length > 0
     ? payload.category.trim()
@@ -111,15 +136,6 @@ Deno.serve(async (req: Request) => {
     if (!Array.isArray(queryEmbedding)) {
       return jsonResponse({ error: 'unexpected embedding response' })
     }
-
-    const authHeader = req.headers.get('Authorization') ?? ''
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
-      authHeader
-        ? { global: { headers: { Authorization: authHeader } } }
-        : undefined,
-    )
 
     // 混合检索：向量召回 + 关键词（ILIKE）召回，RPC 内用 RRF 融合。
     // 标签搜索时把相似度阈值降到 0（纯靠标签召回 + 相似度排序）。

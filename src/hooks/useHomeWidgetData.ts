@@ -81,15 +81,20 @@ const computePeriodMetrics = (
   historyRows: Array<{ start_date: string }>,
 ): PeriodMetrics | null => {
   if (!row) return null
-  const start = new Date(row.start_date)
-  if (Number.isNaN(start.getTime())) return null
+  // Parse 'YYYY-MM-DD' as a calendar date (date-only, no time/zone). Using
+  // `new Date('YYYY-MM-DD')` parses as UTC midnight, which in UTC+8 shifts
+  // the local day and makes comparisons against `today` off by up to a day
+  // (the "period ends a day early after 8am" bug).
+  const parseDateNum = (s: string): number | null => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
+    return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null
+  }
+  const startNum = parseDateNum(row.start_date)
+  if (startNum === null) return null
   const today = new Date()
   const oneDay = 24 * 60 * 60 * 1000
-  const daysSinceStart = Math.floor(
-    (Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) -
-      Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) /
-      oneDay,
-  )
+  const todayNum = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+  const daysSinceStart = Math.floor((todayNum - startNum) / oneDay)
   // Cycle length priority:
   //   1. Median of historical gaps (most accurate — adapts to user)
   //   2. cycle_length explicitly written by Claude via log_period
@@ -118,8 +123,10 @@ const computePeriodMetrics = (
   // current period in June).
   let isInPeriod: boolean
   if (row.end_date) {
-    const end = new Date(row.end_date)
-    isInPeriod = !Number.isNaN(end.getTime()) && today <= end
+    const endNum = parseDateNum(row.end_date)
+    // Date-only comparison: on the end date itself (todayNum === endNum) the
+    // user is still in their period.
+    isInPeriod = endNum !== null && todayNum <= endNum
   } else {
     isInPeriod = daysSinceStart >= 0 && daysSinceStart < 7
   }
@@ -141,7 +148,7 @@ const computePeriodMetrics = (
     cycleSource,
     cycleSampleSize,
     phase,
-    nextDate: new Date(start.getTime() + cycleLength * oneDay),
+    nextDate: new Date(startNum + cycleLength * oneDay),
     notes: row.notes,
   }
 }

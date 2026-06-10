@@ -783,12 +783,15 @@ const App = () => {
         // Pull whatever's new in Health Connect → health_data.
         // Throttled to 30min inside; no-op on web.
         void maybeAutoSyncHealth()
-        // Detect "dead stream"
+        // Detect "dead stream". Only abort — do NOT null the ref here:
+        // the abort makes the in-flight read reject, and sendMessage's
+        // finally clears isStreaming + the ref via its `=== controller`
+        // guard. Nulling here would make that guard fail, leaving the UI
+        // stuck on "正在输入…" forever (and blocking auto memory extract).
         if (streamingControllerRef.current && lastChunkAtRef.current > 0) {
           const ageMs = Date.now() - lastChunkAtRef.current
           if (ageMs > 8000) {
             streamingControllerRef.current.abort()
-            streamingControllerRef.current = null
           }
         }
         // If fire time passed → insert proactive message now. Check both
@@ -1066,6 +1069,15 @@ const App = () => {
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return
         console.warn('keepalive failed', err)
+      })
+      .finally(() => {
+        // Clear the in-flight marker so prewarmKeepaliveIfStale doesn't see
+        // a stale "in flight" forever (which would silently disable prewarm
+        // after the first ping → cold writes on later sends). Guard against a
+        // newer ping having already replaced the ref.
+        if (keepaliveControllerRef.current === controller) {
+          keepaliveControllerRef.current = null
+        }
       })
   }, [])
 
@@ -2313,10 +2325,23 @@ TOOL_SEARCH_HANDOFF,
                 delete finalBody.temperature
                 delete finalBody.top_p
               }
-              const finalResp = await fetchOpenRouter('/chat/completions', {
+              let finalResp = await fetchOpenRouter('/chat/completions', {
                 body: finalBody,
                 signal: controller.signal,
               })
+              // If the reasoning-enabled finalizer failed (e.g. Anthropic
+              // 400s on thinking when the tool_use history has no thinking
+              // blocks), retry once without reasoning so the user still gets
+              // a text reply instead of an empty bubble.
+              if (!finalResp.ok && finalBody.reasoning) {
+                console.warn('finalizer with reasoning failed, retrying without', finalResp.status)
+                const plainFinalBody = { ...finalBody }
+                delete plainFinalBody.reasoning
+                finalResp = await fetchOpenRouter('/chat/completions', {
+                  body: plainFinalBody,
+                  signal: controller.signal,
+                })
+              }
               if (finalResp.ok) {
                 const data = (await finalResp.json()) as {
                   choices?: Array<{ message?: { content?: unknown } }>
@@ -2493,23 +2518,57 @@ TOOL_SEARCH_HANDOFF,
           flushUsageRecord(!isAbort)
           if (isAbort) {
             if (assistantContent.trim().length > 0) {
-              const { message: assistantMessage, updatedAt } = await addRemoteMessage(
+              // Save the partial reply locally first (instant, offline-safe),
+              // then sync to cloud in the background — same local-first +
+              // timeout + catch pattern as the success path. A bare awaited
+              // addRemoteMessage here would lose the partial reply (and throw
+              // an unhandled rejection) whenever Supabase is unreachable.
+              const localPartial = addMessage(
                 sessionId,
-                user.id,
                 'assistant',
                 assistantContent,
-                assistantClientId,
-                assistantClientCreatedAt,
                 buildAssistantMeta(false),
+                { clientId: assistantClientId, clientCreatedAt: assistantClientCreatedAt },
               )
-              const updatedMessages = updateMessage(messagesRef.current, {
-                ...assistantMessage,
-                pending: false,
-              })
-              const updatedSessions = sessionsRef.current.map((session) =>
-                session.id === sessionId ? { ...session, updatedAt } : session,
-              )
-              applySnapshot(updatedSessions, updatedMessages)
+              if (localPartial) {
+                const updatedMessages = updateMessage(messagesRef.current, {
+                  ...localPartial.message,
+                  pending: false,
+                })
+                const updatedSessions = sessionsRef.current.map((session) =>
+                  session.id === sessionId
+                    ? { ...session, updatedAt: localPartial.session.updatedAt }
+                    : session,
+                )
+                applySnapshot(updatedSessions, updatedMessages)
+              }
+              if (user && supabase) {
+                void Promise.race([
+                  addRemoteMessage(
+                    sessionId,
+                    user.id,
+                    'assistant',
+                    assistantContent,
+                    assistantClientId,
+                    assistantClientCreatedAt,
+                    buildAssistantMeta(false),
+                  ),
+                  new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error('supabase timeout')), 5000),
+                  ),
+                ])
+                  .then(({ message: savedMessage, updatedAt }) => {
+                    const updatedMessages = updateMessage(messagesRef.current, {
+                      ...savedMessage,
+                      pending: false,
+                    })
+                    const updatedSessions = sessionsRef.current.map((session) =>
+                      session.id === sessionId ? { ...session, updatedAt } : session,
+                    )
+                    applySnapshot(updatedSessions, updatedMessages)
+                  })
+                  .catch((err) => console.warn('后台同步中断回复失败', err))
+              }
             } else {
               const abortedMessages = updateMessage(messagesRef.current, {
                 id: assistantClientId,

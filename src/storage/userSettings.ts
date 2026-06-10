@@ -159,9 +159,13 @@ export const ensureUserSettings = async (userId: string): Promise<UserSettings> 
   if (!data) {
     const defaults = createDefaultSettings(userId)
     const now = defaults.updatedAt
+    // upsert (not insert) so two concurrent first-login calls don't collide
+    // on the user_id primary key (23505) and fail settings load. On conflict
+    // it just re-writes the same defaults — harmless, since this only runs
+    // before any settings UI is shown.
     const { data: inserted, error: insertError } = await supabase
       .from('user_settings')
-      .insert({
+      .upsert({
         user_id: defaults.userId,
         enabled_models: defaults.enabledModels,
         default_model: defaults.defaultModel,
@@ -182,7 +186,7 @@ export const ensureUserSettings = async (userId: string): Promise<UserSettings> 
         memory_extract_model: defaults.memoryExtractModel,
         memory_extract_interval_hours: defaults.memoryExtractIntervalHours,
         updated_at: now,
-      })
+      }, { onConflict: 'user_id' })
       .select(
         'user_id,enabled_models,default_model,compression_enabled,compression_trigger_ratio,compression_keep_recent_messages,summarizer_model,temperature,top_p,max_tokens,system_prompt,user_home_system_prompt,assistant_post_system_prompt,assistant_reply_system_prompt,enable_reasoning,chat_reasoning_enabled,updated_at',
       )

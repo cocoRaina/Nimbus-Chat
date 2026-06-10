@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { encodeBase64 } from 'jsr:@std/encoding/base64'
+import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 // MiniMax T2A v2 proxy. The client (settings page) sends the MiniMax api_key
 // + group_id + voice_id with each request — we never store the key server-side
@@ -16,6 +17,22 @@ const json = (b: unknown, s = 200) =>
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405)
+
+  // JWT 校验，和其他 edge function 对齐：虽然 MiniMax key 由客户端自带、
+  // 不烧服务端钱，但开放代理仍应只对已登录用户开放。
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+  const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization')
+  const apikey = req.headers.get('apikey')
+  if (!supabaseUrl || !supabaseAnonKey) return json({ error: 'Supabase env vars not configured' }, 500)
+  if (!authHeader || !apikey) return json({ error: 'missing auth headers' }, 401)
+  {
+    const sb = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader, apikey } },
+    })
+    const { data: { user }, error: userError } = await sb.auth.getUser()
+    if (userError || !user) return json({ error: 'invalid auth token' }, 401)
+  }
 
   let p: {
     text?: string; voice_id?: string; api_key?: string; group_id?: string

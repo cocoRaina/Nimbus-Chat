@@ -52,6 +52,19 @@ const readSnapshot = (): StorageSnapshot => {
 const snapshot: StorageSnapshot = readSnapshot()
 let pendingWrite: ReturnType<typeof setTimeout> | null = null
 
+const writeNow = () => {
+  if (typeof localStorage === 'undefined') return
+  if (pendingWrite) {
+    clearTimeout(pendingWrite)
+    pendingWrite = null
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
+  } catch (error) {
+    console.warn('Failed to persist chat storage', error)
+  }
+}
+
 const scheduleWrite = () => {
   if (typeof localStorage === 'undefined') {
     return
@@ -61,12 +74,22 @@ const scheduleWrite = () => {
   }
   pendingWrite = setTimeout(() => {
     pendingWrite = null
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
-    } catch (error) {
-      console.warn('Failed to persist chat storage', error)
-    }
+    writeNow()
   }, 150)
+}
+
+// Flush the 150ms-debounced write synchronously when the page is being
+// hidden/unloaded. On Android the WebView can be killed while backgrounded,
+// which would otherwise drop the last messages written within the debounce
+// window — and offline that localStorage copy is the only copy.
+if (typeof window !== 'undefined') {
+  const flushIfPending = () => {
+    if (pendingWrite) writeNow()
+  }
+  window.addEventListener('pagehide', flushIfPending)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushIfPending()
+  })
 }
 
 const sortSessions = (sessions: ChatSession[]) =>

@@ -363,11 +363,16 @@ serve(async (req) => {
       return jsonResponse({ error: '请先在设置中配置默认模型或抽取模型' }, 400, cors)
     }
 
-    const resolvedApiKey = payload.apiKey?.trim() || Deno.env.get('OPENROUTER_API_KEY') || ''
-    if (!resolvedApiKey) {
-      return jsonResponse({ error: '未提供 API Key（请求体或环境变量均为空）' }, 500, cors)
-    }
     const resolvedApiBase = payload.apiBase?.trim() || 'https://openrouter.ai/api/v1'
+    // 服务端的 OPENROUTER_API_KEY 只能发给 OpenRouter。如果客户端把 apiBase
+    // 指向自定义中转站，必须自带 key——否则会把服务端 key 的
+    // `Authorization: Bearer …` POST 到任意 URL（SSRF + 密钥外带）。
+    const isDefaultBase = resolvedApiBase === 'https://openrouter.ai/api/v1'
+    const resolvedApiKey =
+      payload.apiKey?.trim() || (isDefaultBase ? Deno.env.get('OPENROUTER_API_KEY') || '' : '')
+    if (!resolvedApiKey) {
+      return jsonResponse({ error: '未提供 API Key（自定义中转站需在请求体中携带 key）' }, 400, cors)
+    }
 
     const conversation = recentMessages
       // Label speakers with the names DeepSeek (or whichever extractor)

@@ -134,7 +134,10 @@ export const fetchCurrentWeather = async (
       lat: coords.lat,
       lon: coords.lon,
     }
-    writeCache(snap)
+    // Only cache GPS-based readings. A cityOverride result must not land in
+    // the shared cache key, or a later no-override (GPS) call within the TTL
+    // would return the override city's weather.
+    if (!cityOverride) writeCache(snap)
     return snap
   } catch (err) {
     console.warn('weather fetch failed', err)

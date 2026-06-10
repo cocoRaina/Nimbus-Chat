@@ -538,14 +538,25 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        while (true) {
+        let streamDone = false
+        while (!streamDone) {
           const { done, value } = await reader.read()
-          if (done) break
-          buffer += decoder.decode(value, { stream: true })
-
-          // SSE events are separated by blank lines.
-          const events = buffer.split('\n\n')
-          buffer = events.pop() ?? ''
+          let events: string[]
+          if (done) {
+            streamDone = true
+            // Flush any trailing event left in the buffer when the stream
+            // ends without a final blank-line separator (some relays omit
+            // it) — otherwise the last content delta / message_stop / usage
+            // envelope would be silently dropped.
+            if (!buffer.trim()) break
+            events = [buffer]
+            buffer = ''
+          } else {
+            buffer += decoder.decode(value, { stream: true })
+            // SSE events are separated by blank lines.
+            events = buffer.split('\n\n')
+            buffer = events.pop() ?? ''
+          }
 
           for (const rawEvent of events) {
             const lines = rawEvent.split('\n')
@@ -783,12 +794,41 @@ const collectAnthropicStreamAsJson = async (anthropicResponse: Response): Promis
   let stopReason = ''
   let buffer = ''
 
-  while (true) {
+  // Max-merge usage from whichever events carry it. Different gateways put it
+  // on message_start (nested or top-level), message_delta, or message_stop —
+  // mirror the streaming path so non-streaming calls (finalizer, friend-feed
+  // generators) don't record 0 usage on gateways that defer it.
+  type AnthropicUsage = {
+    input_tokens?: number
+    output_tokens?: number
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+  }
+  const absorbUsage = (u: AnthropicUsage | null | undefined) => {
+    if (!u) return
+    if (typeof u.input_tokens === 'number') inputTokens = Math.max(inputTokens, u.input_tokens)
+    if (typeof u.cache_read_input_tokens === 'number')
+      cacheReadTokens = Math.max(cacheReadTokens, u.cache_read_input_tokens)
+    if (typeof u.cache_creation_input_tokens === 'number')
+      cacheCreationTokens = Math.max(cacheCreationTokens, u.cache_creation_input_tokens)
+    if (typeof u.output_tokens === 'number') outputTokens = Math.max(outputTokens, u.output_tokens)
+  }
+
+  let streamDone = false
+  while (!streamDone) {
     const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const events = buffer.split('\n\n')
-    buffer = events.pop() ?? ''
+    let events: string[]
+    if (done) {
+      streamDone = true
+      // Flush trailing event when the stream ends without a final blank line.
+      if (!buffer.trim()) break
+      events = [buffer]
+      buffer = ''
+    } else {
+      buffer += decoder.decode(value, { stream: true })
+      events = buffer.split('\n\n')
+      buffer = events.pop() ?? ''
+    }
     for (const rawEvent of events) {
       let dataLine = ''
       for (const line of rawEvent.split('\n')) {
@@ -806,13 +846,8 @@ const collectAnthropicStreamAsJson = async (anthropicResponse: Response): Promis
         const msg = parsed.message as { id?: string; model?: string; usage?: { input_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number; output_tokens?: number } } | undefined
         if (msg?.id) id = msg.id
         if (msg?.model) model = msg.model
-        const u = msg?.usage
-        if (u) {
-          inputTokens = Number(u.input_tokens ?? 0)
-          cacheReadTokens = Number(u.cache_read_input_tokens ?? 0)
-          cacheCreationTokens = Number(u.cache_creation_input_tokens ?? 0)
-          outputTokens = Number(u.output_tokens ?? 0)
-        }
+        absorbUsage(msg?.usage)
+        absorbUsage(parsed.usage as AnthropicUsage | undefined)
       } else if (eventType === 'content_block_start') {
         const idx = parsed.index as number
         const block = parsed.content_block as { type: string; id?: string; name?: string }
@@ -833,8 +868,11 @@ const collectAnthropicStreamAsJson = async (anthropicResponse: Response): Promis
       } else if (eventType === 'message_delta') {
         const delta = parsed.delta as { stop_reason?: string }
         if (delta.stop_reason) stopReason = delta.stop_reason
-        const u = parsed.usage as { output_tokens?: number } | undefined
-        if (u?.output_tokens != null) outputTokens = Number(u.output_tokens)
+        absorbUsage(parsed.usage as AnthropicUsage | undefined)
+      } else if (eventType === 'message_stop') {
+        absorbUsage(parsed.usage as AnthropicUsage | undefined)
+        const msgStop = parsed.message as { usage?: AnthropicUsage } | undefined
+        absorbUsage(msgStop?.usage)
       }
     }
   }
