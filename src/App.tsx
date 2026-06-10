@@ -96,7 +96,6 @@ import {
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
 import { LocalNotifications } from '@capacitor/local-notifications'
-import { PushNotifications } from '@capacitor/push-notifications'
 import { compressIfNeeded } from './storage/conversationCompression'
 
 const MEMORY_EXTRACT_RECENT_MESSAGES = 24
@@ -411,7 +410,6 @@ const App = () => {
   const sessionsRef = useRef(sessions)
   const messagesRef = useRef(messages)
   const streamingControllerRef = useRef<AbortController | null>(null)
-  const fcmTokenRef = useRef<string | null>(null)
   // Track when we last received a streamed chunk. Used to detect streams
   // that got silently killed while the app was backgrounded.
   const lastChunkAtRef = useRef<number>(0)
@@ -723,49 +721,6 @@ const App = () => {
     }
     void refreshRemoteSessions()
   }, [drawerOpen, refreshRemoteSessions])
-
-  // FCM push token registration + incoming push handlers.
-  useEffect(() => {
-    if (!user || !supabase || Capacitor.getPlatform() === 'web') return
-    const sb = supabase
-    const regSub = PushNotifications.addListener('registration', async (token) => {
-      fcmTokenRef.current = token.value
-      try {
-        await sb.from('fcm_tokens').upsert({
-          user_id: user.id,
-          token: token.value,
-          updated_at: new Date().toISOString(),
-        })
-      } catch (err) {
-        console.warn('save FCM token failed', err)
-      }
-    })
-    const handleProactivePush = (data: Record<string, string> | undefined) => {
-      if (!data?.session_id || !data?.text) return
-      void insertPendingProactiveRef.current({
-        sessionId: data.session_id,
-        text: data.text,
-        fireAt: 0,
-      })
-      // Clean up the queue row
-      if (data.proactive_id) {
-        void sb.from('proactive_queue').delete().eq('id', data.proactive_id)
-      }
-    }
-    const receivedSub = PushNotifications.addListener(
-      'pushNotificationReceived',
-      (notification) => handleProactivePush(notification.data as Record<string, string>),
-    )
-    const actionSub = PushNotifications.addListener(
-      'pushNotificationActionPerformed',
-      (action) => handleProactivePush(action.notification.data as Record<string, string>),
-    )
-    return () => {
-      void regSub.then((s) => s.remove())
-      void receivedSub.then((s) => s.remove())
-      void actionSub.then((s) => s.remove())
-    }
-  }, [user])
 
   useEffect(() => {
     if (!user) {
@@ -2179,11 +2134,31 @@ TOOL_SEARCH_HANDOFF,
                     for (const [k, v] of Object.entries(payload)) {
                       if (v !== null && v !== '') cleaned[k] = v
                     }
-                    const { data: inserted, error: insertErr } = await supabase
-                      .from(table)
-                      .insert(cleaned)
-                      .select()
-                      .single()
+                    // health_data has no unique constraint on `date`, and the
+                    // auto health sync / log_health edge function both upsert
+                    // by date. A plain insert here would create a 2nd row for a
+                    // day that already has data, then break the date-keyed
+                    // .maybeSingle() reads (it errors on >1 match). Mirror the
+                    // upsert: update the existing day's row instead.
+                    let inserted: unknown = null
+                    let insertErr: { message: string } | null = null
+                    if (table === 'health_data' && typeof cleaned.date === 'string') {
+                      const { data: existing } = await supabase
+                        .from('health_data')
+                        .select('id')
+                        .eq('date', cleaned.date)
+                        .maybeSingle()
+                      const q = existing?.id
+                        ? supabase.from('health_data').update(cleaned).eq('id', existing.id)
+                        : supabase.from('health_data').insert(cleaned)
+                      const res = await q.select().single()
+                      inserted = res.data
+                      insertErr = res.error
+                    } else {
+                      const res = await supabase.from(table).insert(cleaned).select().single()
+                      inserted = res.data
+                      insertErr = res.error
+                    }
                     resultText = insertErr
                       ? JSON.stringify({ error: insertErr.message })
                       : JSON.stringify({ ok: true, table, inserted })
@@ -2202,14 +2177,6 @@ TOOL_SEARCH_HANDOFF,
                       const fireAt = Date.now() + delayMs
                       savePendingProactive({ sessionId, text: proText, fireAt, persist })
                       void scheduleProactiveNotification(proText, delayMs, { persist })
-                      if (supabase && user) {
-                        void supabase.from('proactive_queue').insert({
-                          user_id: user.id,
-                          session_id: sessionId,
-                          text: proText,
-                          fire_at: new Date(fireAt).toISOString(),
-                        })
-                      }
                       setToolStatus(
                         persist
                           ? `⏰ 已锁定提醒：${delayMin} 分钟后`
