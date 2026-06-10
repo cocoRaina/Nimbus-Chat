@@ -376,8 +376,10 @@ const ChatPage = ({
     if (!file) return
     try {
       const dataUrl = await fileToStickerDataUrl(file)
-      const base = (file.name.replace(/\.[^.]+$/, '') || '贴纸').slice(0, 20)
-      const name = (window.prompt('给这个表情起个名字（AI 也会按这个名字发）', base) || base).trim().slice(0, 20)
+      // [ ] 换行会弄坏 [sticker:名字] 标记（解析正则是 [^\]\n]{1,40}），名字里不能出现
+      const sanitize = (s: string) => s.replace(/[[\]\n\r]/g, '').trim().slice(0, 20)
+      const base = sanitize(file.name.replace(/\.[^.]+$/, '')) || '贴纸'
+      const name = sanitize(window.prompt('给这个表情起个名字（AI 也会按这个名字发）', base) || base)
       if (!name) return
       upsertSticker({ name, desc: '', dataUrl })
       setStickers(getStickers())

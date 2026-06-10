@@ -258,7 +258,6 @@ DB 函数:
 | `WAKE_LOCK` | 通知唤醒屏幕 |
 | `POST_NOTIFICATIONS` | Android 13+ 通知权限 |
 | `CAMERA` + `uses-feature camera(required=false)` | 输入栏 📷 拍照按钮 → WebView `<input capture="environment">` 启动 `ACTION_IMAGE_CAPTURE`。**没这行 intent 会 silent fallback 到相册**;feature 标 `required=false` 让无相机的平板也能装 |
-| `RECORD_AUDIO` + `uses-feature microphone(required=false)` | 输入栏 🎤 语音输入 → 原生 `SpeechRecognizer` 离线识别 zh-CN |
 | `VIBRATE` | `@capacitor/haptics` 震动反馈(normal protection,自动给,但显式声明便于 Android 13+ 迁移到 `USE_VIBRATE_PERMISSION`) |
 | `health.READ_STEPS / READ_SLEEP / READ_HEART_RATE / READ_RESTING_HEART_RATE / READ_DISTANCE / READ_TOTAL_CALORIES_BURNED / READ_OXYGEN_SATURATION` | Health Connect 读取(用户在 Health Connect app 中授权后才生效) |
 | `PACKAGE_USAGE_STATS` | 屏幕使用时间。**特殊 AppOp** — 用户必须去系统设置 → 应用 → 使用情况访问 → Nimbus → 开启,app 内调 `requestPermission()` 只跳设置页 |
@@ -274,7 +273,6 @@ DB 函数:
 | `@capacitor/haptics` | 震动反馈 |
 | `@capacitor/share` | 长按菜单 → 分享 |
 | `@capacitor/network` | 离线条状态监听 |
-| `@capacitor-community/speech-recognition` | 🎤 语音输入,native SpeechRecognizer,离线免费 |
 
 ---
 
@@ -294,6 +292,7 @@ src/
 │   ├── MarkdownRenderer.tsx   # React.memo markdown（content equality）
 │   ├── ReasoningPanel.tsx     # 思考链折叠面板（memo）
 │   ├── ToolCallCard.tsx       # 工具调用可折叠卡片（图标+名称+参数预览+耗时）
+│   ├── VoiceBubble.tsx        # 微信式语音条（点播才合成 MiniMax TTS，object URL 缓存防重复计费）
 │   ├── SessionsDrawer.tsx     # 左侧会话抽屉
 │   ├── ConfirmDialog.tsx
 │   └── LocalAvatar.tsx        # 头像上传（MyHomePage / AssistantHomePage 用）
@@ -330,6 +329,9 @@ src/
 │   ├── statusBar.ts           # Android StatusBar 跟随页面 bg
 │   ├── homeLayout.ts          # 首页布局（pages[] + 迁移逻辑 + IndexedDB 图片）
 │   ├── openrouterPricing.ts   # 模型定价（24h 缓存）
+│   ├── stickers.ts            # 表情包：共享贴纸集（[sticker:名字]，压缩 PNG 存 localStorage + 注入 system prompt）
+│   ├── ttsConfig.ts           # MiniMax TTS 配置（key 仅存 localStorage）
+│   ├── imageCaptions.ts       # 图片→文字描述缓存（历史图片转述省 token，保 prompt cache 稳定）
 │   └── imageUpload.ts         # 图片压缩 + Supabase Storage 上传
 └── supabase/
     └── client.ts              # supabase 单例 + 本地配置覆盖
@@ -351,7 +353,7 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 
 ## 历史 / 想做但暂缓
 
-- 语音输出(TTS)
+- 内置 🎤 语音输入 — 已移除:`@capacitor-community/speech-recognition` 在 Android 11+ 因缺 RecognitionService `<queries>` 静默失效,且和输入法自带语音转文字重复,改用输入法的(依赖和 `RECORD_AUDIO` 权限已清理)
 - 暗黑模式 — 试过,每个页面的硬编码颜色太多,做一半撤了
 - 端到端加密的消息存储
 - Anthropic Code Execution 工具(要 BYOK 直连)

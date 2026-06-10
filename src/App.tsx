@@ -2568,9 +2568,22 @@ TOOL_SEARCH_HANDOFF,
   // 起/重置「连发后自动回复」定时器。停顿 BATCH_REPLY_MS 没有新动作才触发。
   const armBatchTimer = useCallback(
     (sessionId: string) => {
+      if (batchTimerRef.current) {
+        window.clearTimeout(batchTimerRef.current)
+        // 窗口内切到别的会话连发：旧会话那批不能丢，立刻替它触发回复。
+        const prev = batchSessionRef.current
+        if (prev && prev !== sessionId) {
+          void sendMessage(prev, '', { skipUser: true })
+        }
+      }
       batchSessionRef.current = sessionId
-      if (batchTimerRef.current) window.clearTimeout(batchTimerRef.current)
-      batchTimerRef.current = window.setTimeout(() => {
+      batchTimerRef.current = window.setTimeout(function fire() {
+        // 有流正在跑（上面 flush 的旧会话回复、或窗口内点了编辑/重新生成）
+        // 就再等一个窗口，别去抢 streamingController 把人家的流掐断。
+        if (streamingControllerRef.current) {
+          batchTimerRef.current = window.setTimeout(fire, BATCH_REPLY_MS)
+          return
+        }
         batchTimerRef.current = null
         batchSessionRef.current = null
         void sendMessage(sessionId, '', { skipUser: true })
@@ -2578,6 +2591,16 @@ TOOL_SEARCH_HANDOFF,
     },
     [sendMessage],
   )
+
+  // 撤掉挂着的批量回复定时器。编辑/重新生成会自己触发生成，挂着的定时器
+  // 不撤会在它们的流上再叠一次生成（见 sendMessage 开头的 abort）。
+  const cancelBatchTimer = useCallback(() => {
+    if (batchTimerRef.current) {
+      window.clearTimeout(batchTimerRef.current)
+      batchTimerRef.current = null
+    }
+    batchSessionRef.current = null
+  }, [])
 
   // 用户还在输入框打字 → 推后自动回复，别在他打下一条时抢答。只有定时器
   // 已经在跑（说明刚连发过）时才重置，平时打字不受影响。
@@ -2830,6 +2853,7 @@ TOOL_SEARCH_HANDOFF,
       if (!priorUser) return
       // Abort any active streaming for safety
       streamingControllerRef.current?.abort()
+      cancelBatchTimer()
       // Delete the stale assistant message
       try {
         if (user && supabase && !target.pending) {
@@ -2845,7 +2869,7 @@ TOOL_SEARCH_HANDOFF,
       // Re-stream using the existing user message (skipUser = true)
       await sendMessage(target.sessionId, priorUser.content, { skipUser: true })
     },
-    [user, sendMessage, applySnapshot],
+    [user, sendMessage, applySnapshot, cancelBatchTimer],
   )
 
   const editUserMessage = useCallback(
@@ -2868,6 +2892,7 @@ TOOL_SEARCH_HANDOFF,
       if (targetIdx < 0) return
       // Stop any in-flight streaming before mutating message history.
       streamingControllerRef.current?.abort()
+      cancelBatchTimer()
       // Remove the edited user message AND every message after it (assistant
       // replies, follow-ups). The edit replays from this turn forward.
       const removeIds = new Set(sessionMessages.slice(targetIdx).map((m) => m.id))
@@ -2894,11 +2919,14 @@ TOOL_SEARCH_HANDOFF,
       // re-attach if needed.
       await sendMessage(target.sessionId, trimmed)
     },
-    [user, sendMessage, applySnapshot],
+    [user, sendMessage, applySnapshot, cancelBatchTimer],
   )
 
   const removeMessage = useCallback(
     async (messageId: string) => {
+      // 连发窗口内删消息也算「还在整理」，推后自动回复（批里剩下的消息
+      // 等用户停手后照常一起回）。
+      notifyComposerActivity()
       const targetMessage = messagesRef.current.find(
         (message) => message.id === messageId || message.clientId === messageId,
       )
@@ -2926,7 +2954,7 @@ TOOL_SEARCH_HANDOFF,
         prev.filter((message) => message.id !== messageId && message.clientId !== messageId),
       )
     },
-    [applySnapshot, user],
+    [applySnapshot, user, notifyComposerActivity],
   )
 
   const removeSession = useCallback(

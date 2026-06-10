@@ -17,4 +17,5 @@
 - **连发（批量回复）**：composer 发送改走 `queueUserMessage`——只落用户消息 + 起 2.5 秒 debounce 定时器（`App.tsx` `BATCH_REPLY_MS`，`armBatchTimer`），期间再发就重置；定时器到了用 `sendMessage(skipUser)` 一次性生成回复，让 AI 看这一批。连发期间没流式，所以不被停止键挡。
   - **打字也推后定时器（防抢答）**：光靠"两次发送之间重置"不够——人打下一条字常常超过窗口，AI 就抢着回复、随后流式锁住输入框，导致连发不了几条。所以输入框 `onChange` 会调 `onComposerActivity`（→ `App.tsx` `notifyComposerActivity`），**只在定时器已经在跑时**重置它（平时打字不受影响），把窗口放宽到 2.5 秒，只有真正停顿才自动回复。
   - **表情包也走这条**：点贴纸 = `onSendMessage('[sticker:名字]')` = `queueUserMessage`，所以连发表情包、文字+表情混发都会批到一起。
+  - **边缘情况**：窗口内切会话再发 → 先 flush 旧会话那批（立刻替它生成回复），不丢；窗口内「编辑/重新生成」→ `cancelBatchTimer()` 撤销定时器（它们自己会触发生成，不撤会双重生成）；窗口内删消息 → 只推后定时器，批里剩下的照常回；定时器到点时如有流在跑 → 推迟一个窗口再试，不抢 `streamingController` 掐断别人的流。app 在窗口内被杀 → 该批不会自动回，1 小时后 proactive nudge 兜底。
 - **表情包（`[sticker:名字]`）**：你和 AI 共用一套贴纸（`storage/stickers.ts`，压缩成小 PNG 存 localStorage）。`+ → 🧷 表情` 面板导入/发送/删除；发送即发 `[sticker:名字]` 文本，前端解析成图片（用户和 AI 都解析）。可用贴纸列表注入进聊天 system prompt（`buildStickerSystemSection`），AI 据此自己发。
