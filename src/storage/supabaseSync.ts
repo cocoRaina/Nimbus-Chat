@@ -593,11 +593,9 @@ export const permanentlyDeleteSnackPost = async (postId: string): Promise<void> 
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
   }
-  const { error: repliesError } = await supabase.from('user_replies').delete().eq('post_id', postId)
-  if (repliesError) {
-    throw repliesError
-  }
-
+  // user_replies.post_id has ON DELETE CASCADE (init.sql), so deleting the
+  // post removes its replies atomically — no separate (non-atomic) replies
+  // delete that could leave orphans if the second step failed.
   const { error: postError } = await supabase
     .from('user_posts')
     .delete()
@@ -813,11 +811,8 @@ export const permanentlyDeleteSyzygyPost = async (postId: string): Promise<void>
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
   }
-  const { error: repliesError } = await supabase.from('assistant_replies').delete().eq('post_id', postId)
-  if (repliesError) {
-    throw repliesError
-  }
-
+  // assistant_replies.post_id has ON DELETE CASCADE (init.sql) — delete the
+  // post in one atomic step; replies follow automatically.
   const { error: postError } = await supabase
     .from('assistant_posts')
     .delete()
