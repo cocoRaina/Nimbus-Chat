@@ -4,7 +4,6 @@ import { HashRouter } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
 import { LocalNotifications } from '@capacitor/local-notifications'
-// import { PushNotifications } from '@capacitor/push-notifications'
 import { SplashScreen } from '@capacitor/splash-screen'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import './index.css'
@@ -47,14 +46,6 @@ if (Capacitor.getPlatform() === 'android') {
     sound: 'default',
     vibration: true,
   })
-
-  // FCM push — disabled for now (Huawei + no stable GMS). Enable by
-  // flipping to true when switching to a phone with Google Play Services.
-  // void PushNotifications.requestPermissions().then((result) => {
-  //   if (result.receive === 'granted') {
-  //     void PushNotifications.register()
-  //   }
-  // })
 }
 
 createRoot(document.getElementById('root')!).render(

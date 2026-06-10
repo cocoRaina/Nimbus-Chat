@@ -71,6 +71,11 @@
 
 ---
 
+## 2026-06-10 移除 FCM + 工具审查
+
+- **移除 FCM 推送**：改用本地通知（`@capacitor/local-notifications`）后 FCM 成死代码（`PushNotifications.register()` 早已注释，listener 永不触发）。清掉 `@capacitor/push-notifications` 插件 + App.tsx 注册/接收 listener + 已弃用的 `proactive_queue` 写入 + gradle 引用。**原生改动，重打 APK 生效**。服务端 `send_proactive_push` 函数 + `fcm_tokens` 表需在 Supabase Dashboard 手删（无 MCP 删除工具）。
+- **工具审查**：12 个工具中 `log_health`（in-app tool）之前用 `.insert()`，但 `health_data.date` 无唯一约束、读取走 `.eq(date).maybeSingle()`（>1 行即报错）。当天已有数据时再调一次会造重复行、读取崩。改为按 date upsert（和自动同步 / log_health edge function 一致）。其余写库工具（add_memory/write_diary/...）正常。
+
 ## 2026-06-10 全局代码审查修复
 
 并行审查全仓库后修掉的确认 bug（详见对应 Debug 日志行）：
