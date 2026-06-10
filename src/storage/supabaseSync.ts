@@ -342,13 +342,10 @@ export const deleteRemoteSession = async (sessionId: string) => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
   }
-  const { error: messagesError } = await supabase
-    .from('messages')
-    .delete()
-    .eq('session_id', sessionId)
-  if (messagesError) {
-    throw messagesError
-  }
+  // messages.session_id has ON DELETE CASCADE (see init.sql), so deleting the
+  // session removes its messages atomically. The old two-step delete (messages
+  // then session) could leave an empty session behind if the second step
+  // failed.
   const { error: sessionError } = await supabase
     .from('sessions')
     .delete()
@@ -403,7 +400,16 @@ export const deleteRemoteMessage = async (messageId: string) => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
   }
-  const { error } = await supabase.from('messages').delete().eq('id', messageId)
+  // Match on id OR client_id. When addRemoteMessage hit its 5s race timeout
+  // but the insert actually landed, the local copy keeps the local clientId
+  // as its id — deleting by server id alone would miss the row, and a later
+  // fetch would "resurrect" the message. client_id is text; only test id.eq
+  // when messageId is a valid UUID (the id column is uuid, so a non-UUID
+  // local id would otherwise blow up the query with a cast error).
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const filters = [`client_id.eq.${messageId}`]
+  if (UUID_RE.test(messageId)) filters.unshift(`id.eq.${messageId}`)
+  const { error } = await supabase.from('messages').delete().or(filters.join(','))
   if (error) {
     throw error
   }

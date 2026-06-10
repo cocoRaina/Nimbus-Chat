@@ -71,7 +71,29 @@
 
 ---
 
-## 2026-06-10 改动记录
+## 2026-06-10 全局代码审查修复
+
+并行审查全仓库后修掉的确认 bug（详见对应 Debug 日志行）：
+
+**安全（edge functions，CI 部署后生效）**
+- `search_memory`：删掉硬编码的 SiliconFlow API key 兜底（已进 git 历史，key 已轮换）；补 `getUser()` JWT 校验，放在 embedding 调用之前——之前未鉴权请求也能触发 embedding 烧钱。
+- `memory-extract`：客户端可控 `apiBase` + 服务端 key 兜底 = SSRF + key 外带。改为只有用默认 OpenRouter base 时才用 env key 兜底；自定义中转站必须自带 key。
+- `tts`：补 JWT 校验，和其他 function 对齐（虽 MiniMax key 客户端自带、不烧服务端钱）。
+
+**前端核心管线（`App.tsx` / `anthropic.ts`）**
+- 死流检测 abort 后不再把 `streamingControllerRef` 置 null——之前会让 finalizer 的 `=== controller` 守卫失败，UI 永久卡在「正在输入…」、自动记忆抽取被阻塞。
+- 停止键保存半截回复：改成本地先存 + 远端 `Promise.race(5s)` + catch，断网时不再丢半截回复 / 抛 unhandled rejection。
+- keepalive `firePingNow` 完成后清空 controller ref——之前首次 55min ping 后预热永久失效，吃冷写。
+- MAX_TOOL_ITERATIONS 收尾请求带 reasoning 若失败，去掉 reasoning 重试一次（防 thinking + 无 thinking 块的 tool_use 历史 400 → 空回复）。
+- Anthropic 流解析：流结束无尾随空行时 flush 残留 buffer（之前丢最后一个事件：content delta / message_stop / usage）；非流式收集器同修，并改用 max-merge 收集 usage（覆盖 message_start 顶层 + message_stop）。
+
+**前端数据层（`storage/` + `hooks/`）**
+- 经期判断时区 bug：`new Date('YYYY-MM-DD')` 按 UTC 午夜解析，UTC+8 下经期最后一天早上 8 点后被提前判「已结束」。改为纯日期比较。
+- `deleteRemoteSession` 改为只删 session（messages 有 ON DELETE CASCADE，原子），不再两步删可能残留空 session。
+- `deleteRemoteMessage` 按 id **或** client_id 删（超时但实际插入成功时本地存的是 local id，否则删不掉远端 → 下次 fetch「复活」）；非 UUID 的 local id 不查 uuid 列防类型错。
+- `chatStorage` 加 pagehide/visibilitychange 同步 flush——安卓杀后台不再丢 150ms debounce 窗口内的最近消息（离线时是唯一副本）。
+- `ensureUserSettings` 改 upsert（onConflict user_id），并发首登不再撞主键 23505 导致设置加载失败。
+- `weather` cityOverride 结果不写共享缓存，避免之后无 override 的 GPS 调用拿到 override 城市天气。
 
 ### 新增：连发（批量回复）
 - composer 发送改走 `queueUserMessage`：只落用户消息 + 2 秒 debounce,期间再发重置;到点用 `sendMessage(skipUser)` 一次性回这一批。连发期间无流式,不被停止键挡。
