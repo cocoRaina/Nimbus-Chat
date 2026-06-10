@@ -1,0 +1,7 @@
+# Read by `supabase functions deploy` in CI (.github/workflows/deploy-functions.yml).
+# Only auto_embed needs verify_jwt disabled — it's invoked by a pg_net DB trigger
+# (INSERT → embed) that doesn't send a user JWT, so a default verify_jwt=true would
+# 401 the trigger and silently stop embedding new rows. Every other function does
+# its own getUser() check and keeps the CLI default verify_jwt=true.
+[functions.auto_embed]
+verify_jwt = false
