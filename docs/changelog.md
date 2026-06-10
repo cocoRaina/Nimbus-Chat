@@ -70,6 +70,19 @@
 
 ---
 
+## 2026-06-10 改动记录
+
+### 新增：连发（批量回复）
+- composer 发送改走 `queueUserMessage`：只落用户消息 + 2 秒 debounce,期间再发重置;到点用 `sendMessage(skipUser)` 一次性回这一批。连发期间无流式,不被停止键挡。
+
+### 新增：表情包（共用一套,你和 AI 都能发）
+- `[sticker:名字]` 引用,前端双方都解析成图片;`storage/stickers.ts` 压缩成小 PNG 存 localStorage;`+ → 🧷 表情` 导入/发送/删除;可用贴纸列表注入 system prompt(`buildStickerSystemSection`)让 AI 自己发。
+
+### 杂项（TTS 后续）
+- TTS 模型列表改小写 `speech-2.8-turbo/hd`(MiniMax 拒显示名大小写);失败回 200 + 真实 `status_msg`;`@capacitor/clipboard` 修复复制;移除内置 🎤 语音输入。
+
+---
+
 ## 2026-06-09 改动记录
 
 ### 新增：语音消息（TTS · MiniMax）

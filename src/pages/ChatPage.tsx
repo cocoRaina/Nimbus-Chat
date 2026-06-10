@@ -17,6 +17,14 @@ import type { ChatMessage, ChatSession } from '../types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import VoiceBubble from '../components/VoiceBubble'
+import {
+  type Sticker,
+  getStickers,
+  findSticker,
+  upsertSticker,
+  deleteSticker,
+  fileToStickerDataUrl,
+} from '../storage/stickers'
 import ReasoningPanel from '../components/ReasoningPanel'
 import ToolCallCard from '../components/ToolCallCard'
 import type { ToolCallRecord } from '../components/ToolCallCard'
@@ -73,7 +81,28 @@ const splitAssistantContent = (content: string): string[] => {
 // wraps spoken content in [voice]…[/voice]; those become WeChat-style voice
 // bars (see VoiceBubble). Everything else is normal text, still subject to
 // [NEXT] bubble splitting.
-type MsgSegment = { type: 'text' | 'voice'; text: string }
+type MsgSegment = { type: 'text' | 'voice' | 'sticker'; text: string }
+
+// Extract [sticker:名字] markers from a text chunk → sticker segments. Applies
+// to both user and assistant messages (shared sticker set). `text` of a
+// sticker segment is the sticker NAME.
+const splitStickerSegments = (text: string): MsgSegment[] => {
+  const re = /\[sticker:([^\]\n]{1,40})\]/gi
+  if (!re.test(text)) return [{ type: 'text', text }]
+  re.lastIndex = 0
+  const out: MsgSegment[] = []
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const before = text.slice(last, m.index)
+    if (before.trim()) out.push({ type: 'text', text: before })
+    out.push({ type: 'sticker', text: m[1].trim() })
+    last = re.lastIndex
+  }
+  const tail = text.slice(last)
+  if (tail.trim()) out.push({ type: 'text', text: tail })
+  return out.length > 0 ? out : [{ type: 'text', text }]
+}
 const splitAssistantSegments = (content: string): MsgSegment[] => {
   const segs: MsgSegment[] = []
   const re = /\[voice\]([\s\S]*?)\[\/voice\]/gi
@@ -114,10 +143,11 @@ const MessageRow = memo(function MessageRow({
 }: MessageRowProps) {
   const reasoningText =
     message.meta?.reasoning_text?.trim() ?? message.meta?.reasoning?.trim()
-  const segments: MsgSegment[] =
+  const segments: MsgSegment[] = (
     message.role === 'assistant'
       ? splitAssistantSegments(message.content)
-      : [{ type: 'text', text: message.content }]
+      : [{ type: 'text' as const, text: message.content }]
+  ).flatMap((seg) => (seg.type === 'text' ? splitStickerSegments(seg.text) : [seg]))
   const isOut = message.role === 'user'
   return (
     <div
@@ -129,7 +159,7 @@ const MessageRow = memo(function MessageRow({
         return (
           <div
             key={`${message.id}-${chunkIdx}`}
-            className={`bubble ${segments.length > 1 ? 'bubble-stacked' : ''}`}
+            className={`bubble ${segments.length > 1 ? 'bubble-stacked' : ''} ${seg.type === 'sticker' ? 'is-sticker' : ''}`}
             onPointerDown={(event) => onStartLongPress(event, message.id)}
             onPointerUp={onCancelLongPress}
             onPointerLeave={onCancelLongPress}
@@ -162,7 +192,16 @@ const MessageRow = memo(function MessageRow({
                   ))}
               </div>
             ) : null}
-            {seg.type === 'voice' ? (
+            {seg.type === 'sticker' ? (
+              (() => {
+                const st = findSticker(chunk)
+                return st ? (
+                  <img className="chat-sticker" src={st.dataUrl} alt={`[${chunk}]`} loading="lazy" />
+                ) : (
+                  <p className="sticker-missing">[贴纸:{chunk}]</p>
+                )
+              })()
+            ) : seg.type === 'voice' ? (
               <VoiceBubble text={chunk} />
             ) : message.role === 'assistant' ? (
               <div className="assistant-markdown">
@@ -235,6 +274,8 @@ const ChatPage = ({
   // request it's now an attachment menu (拍照 / 从相册). State drives
   // the small popup that appears above the button.
   const [openAttachMenu, setOpenAttachMenu] = useState(false)
+  const [showStickerTray, setShowStickerTray] = useState(false)
+  const [stickers, setStickers] = useState<Sticker[]>(() => getStickers())
   // Read once on mount; the chat header reflects this for the title +
   // the proactive notification title. Renaming via the settings menu
   // updates both state and localStorage in one step.
@@ -319,6 +360,32 @@ const ChatPage = ({
   // the system chooser (which would let the user pick "Files" / "Photos"
   // and defeat the point of having a dedicated camera shortcut).
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
+  const stickerInputRef = useRef<HTMLInputElement | null>(null)
+
+  const handleSendSticker = (name: string) => {
+    setShowStickerTray(false)
+    void onSendMessage(`[sticker:${name}]`)
+  }
+
+  const handleImportSticker = async (files: FileList | null) => {
+    const file = files?.[0]
+    if (!file) return
+    try {
+      const dataUrl = await fileToStickerDataUrl(file)
+      const base = (file.name.replace(/\.[^.]+$/, '') || '贴纸').slice(0, 20)
+      const name = (window.prompt('给这个表情起个名字（AI 也会按这个名字发）', base) || base).trim().slice(0, 20)
+      if (!name) return
+      upsertSticker({ name, desc: '', dataUrl })
+      setStickers(getStickers())
+    } catch {
+      // ignore bad image
+    }
+  }
+
+  const handleDeleteSticker = (name: string) => {
+    deleteSticker(name)
+    setStickers(getStickers())
+  }
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const messagesRef = useRef<HTMLElement | null>(null)
   const lastSessionIdRef = useRef<string | null>(null)
@@ -969,6 +1036,29 @@ const ChatPage = ({
           style={{ display: 'none' }}
           onChange={(event) => void handleFilePick(event.target.files)}
         />
+        <input
+          ref={stickerInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={(event) => {
+            void handleImportSticker(event.target.files)
+            event.target.value = ''
+          }}
+        />
+        {showStickerTray ? (
+          <div className="sticker-tray">
+            {stickers.map((s) => (
+              <div key={s.name} className="sticker-tray__item">
+                <button type="button" className="sticker-tray__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
+                  <img src={s.dataUrl} alt={s.name} loading="lazy" />
+                </button>
+                <button type="button" className="sticker-tray__del" aria-label="删除" onClick={() => handleDeleteSticker(s.name)}>×</button>
+              </div>
+            ))}
+            <button type="button" className="sticker-tray__add" onClick={() => stickerInputRef.current?.click()}>＋<br />导入</button>
+          </div>
+        ) : null}
         {!online ? (
           <div className="offline-banner" role="status">📡 已离线 — 发送会等到网络恢复后再尝试</div>
         ) : null}
@@ -1011,6 +1101,17 @@ const ChatPage = ({
                   }}
                 >
                   🖼 从相册
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenAttachMenu(false)
+                    setStickers(getStickers())
+                    setShowStickerTray((v) => !v)
+                  }}
+                >
+                  🧷 表情
                 </button>
               </div>
             ) : null}

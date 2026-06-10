@@ -62,6 +62,7 @@ import { fetchOpenRouter } from './api/openrouter'
 import { convertOpenAiRequestToAnthropic } from './api/anthropic'
 import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './storage/apiProvider'
 import { ensureImageCaption, getImageCaption } from './storage/imageCaptions'
+import { buildStickerSystemSection } from './storage/stickers'
 import { recordUsage } from './storage/usageStats'
 import { maybeAutoSyncHealth } from './storage/healthSync'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
@@ -1138,7 +1139,7 @@ const App = () => {
         top_p: activeSettings.topP,
         max_tokens: activeSettings.maxTokens,
       }
-      const systemPrompt = activeSettings.systemPrompt
+      const systemPrompt = (activeSettings.systemPrompt ?? '') + buildStickerSystemSection()
       const isFirstMessageInSession = !messagesRef.current.some(
         (message) =>
           message.sessionId === sessionId &&
