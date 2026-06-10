@@ -65,12 +65,6 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
-    <!-- Microphone: the 🎤 button in the chat composer streams audio
-         to the native SpeechRecognizer (Android: 离线语音输入,无需联网,
-         无费用). Required at install time so the runtime prompt actually
-         appears the first time the user taps the mic. -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- Haptics: VIBRATE is normal-protection (auto-granted) but
          declared so the Capacitor plugin's runtime check doesn't warn,

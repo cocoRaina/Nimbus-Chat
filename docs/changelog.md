@@ -75,6 +75,11 @@
 
 ### 新增：连发（批量回复）
 - composer 发送改走 `queueUserMessage`：只落用户消息 + 2 秒 debounce,期间再发重置;到点用 `sendMessage(skipUser)` 一次性回这一批。连发期间无流式,不被停止键挡。
+- 后续修复:打字推后定时器防抢答(窗口放宽 2.5s,见 Debug 日志);跨会话连发不丢回复(切会话时先 flush 旧会话那批);窗口内编辑/重新生成会撤销挂着的定时器防双重生成,删消息只推后;定时器到点如有流在跑则推迟一个窗口再回,不抢 streamingController。
+- 贴纸名导入时过滤 `[`/`]`/换行(会弄坏 `[sticker:名字]` 标记,解析正则吃不下)。
+
+### 清理：移除死掉的语音输入依赖
+- `@capacitor-community/speech-recognition` 功能早已移除但依赖还挂着:从 package.json、AndroidManifest(`RECORD_AUDIO` + microphone feature)、capacitor gradle 引用全部清掉(CI `cap sync` 会按 package.json 重新生成 gradle,安全)。**原生改动,重打 APK 生效**。
 
 ### 新增：表情包（共用一套,你和 AI 都能发）
 - `[sticker:名字]` 引用,前端双方都解析成图片;`storage/stickers.ts` 压缩成小 PNG 存 localStorage;`+ → 🧷 表情` 导入/发送/删除;可用贴纸列表注入 system prompt(`buildStickerSystemSection`)让 AI 自己发。
