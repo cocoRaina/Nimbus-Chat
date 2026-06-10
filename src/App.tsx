@@ -2557,6 +2557,98 @@ TOOL_SEARCH_HANDOFF,
     [applySnapshot, cancelKeepalive, resolveSessionReasoning, resolveSessionModel, scheduleKeepalive, user],
   )
 
+  // 连发：用户消息先落库显示，不立刻触发生成；停顿 BATCH_REPLY_MS 后再一次性
+  // 生成回复（skipUser），让 AI 把这一批连发的消息一起看。期间没流式，所以
+  // 连发不被停止键挡；一旦开始回复，UI 切到停止键自然挡住后续输入。
+  const BATCH_REPLY_MS = 2000
+  const batchTimerRef = useRef<number | null>(null)
+
+  const persistUserMessage = useCallback(
+    (
+      sessionId: string,
+      content: string,
+      attachments: Array<{ type: 'image'; url: string; width?: number; height?: number }> = [],
+    ) => {
+      const clientId = createClientId()
+      const clientCreatedAt = new Date().toISOString()
+      const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
+      const WEATHER_DATE_KEY = 'nimbus_weather_injected_date'
+      const lastWeatherDate =
+        typeof window !== 'undefined' ? window.localStorage.getItem(WEATHER_DATE_KEY) : null
+      const weatherSnap = lastWeatherDate !== todayCN ? peekCachedWeather() : null
+      if (weatherSnap && typeof window !== 'undefined') {
+        window.localStorage.setItem(WEATHER_DATE_KEY, todayCN)
+      }
+      const userMeta: ChatMessage['meta'] = {
+        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(weatherSnap
+          ? {
+              weather: {
+                temperatureC: weatherSnap.temperatureC,
+                feelsLikeC: weatherSnap.feelsLikeC,
+                condition: weatherSnap.condition,
+              },
+            }
+          : {}),
+      }
+      const clientCreatedAtIso = clientCreatedAt
+      const optimisticMessage: ChatMessage = {
+        id: clientId,
+        sessionId,
+        role: 'user',
+        content,
+        createdAt: clientCreatedAtIso,
+        clientId,
+        clientCreatedAt: clientCreatedAtIso,
+        meta: userMeta,
+        pending: true,
+      }
+      applySnapshot(
+        sessionsRef.current.map((s) => (s.id === sessionId ? { ...s, updatedAt: clientCreatedAtIso } : s)),
+        sortMessages([...messagesRef.current, optimisticMessage]),
+      )
+      const localResult = addMessage(sessionId, 'user', content, userMeta, { clientId, clientCreatedAt })
+      if (localResult) {
+        applySnapshot(
+          sessionsRef.current.map((s) =>
+            s.id === sessionId ? { ...s, updatedAt: localResult.session.updatedAt } : s,
+          ),
+          updateMessage(messagesRef.current, { ...localResult.message, pending: false }),
+        )
+      }
+      if (user && supabase) {
+        void Promise.race([
+          addRemoteMessage(sessionId, user.id, 'user', content, clientId, clientCreatedAt, userMeta),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('supabase timeout')), 5000)),
+        ])
+          .then(({ message: saved, updatedAt }) => {
+            applySnapshot(
+              sessionsRef.current.map((s) => (s.id === sessionId ? { ...s, updatedAt } : s)),
+              updateMessage(messagesRef.current, { ...saved, pending: false }),
+            )
+          })
+          .catch((err) => console.warn('后台同步用户消息失败', err))
+      }
+    },
+    [applySnapshot, user],
+  )
+
+  const queueUserMessage = useCallback(
+    async (
+      sessionId: string,
+      content: string,
+      options?: { attachments?: Array<{ type: 'image'; url: string; width?: number; height?: number }> },
+    ): Promise<void> => {
+      persistUserMessage(sessionId, content, options?.attachments ?? [])
+      if (batchTimerRef.current) window.clearTimeout(batchTimerRef.current)
+      batchTimerRef.current = window.setTimeout(() => {
+        batchTimerRef.current = null
+        void sendMessage(sessionId, '', { skipUser: true })
+      }, BATCH_REPLY_MS)
+    },
+    [persistUserMessage, sendMessage],
+  )
+
   const handleStopStreaming = useCallback(() => {
     streamingControllerRef.current?.abort()
     setIsStreaming(false)
@@ -2985,7 +3077,7 @@ TOOL_SEARCH_HANDOFF,
                 onCloseDrawer={() => setDrawerOpen(false)}
                 onCreateSession={createSessionEntry}
                 onRenameSession={renameSessionEntry}
-                onSendMessage={sendMessage}
+                onSendMessage={queueUserMessage}
                 onDeleteMessage={removeMessage}
                 onRegenerate={regenerateAssistantReply}
                 onEditUserMessage={editUserMessage}
