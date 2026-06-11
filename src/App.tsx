@@ -2236,8 +2236,24 @@ TOOL_SEARCH_HANDOFF,
                       resultText = JSON.stringify({ error: '缺少 action 或 id' })
                     } else if (action === 'update' && !String(args.content ?? '').trim()) {
                       resultText = JSON.stringify({ error: 'update 需要 content' })
-                    } else if (action !== 'lock' && action !== 'unlock' && action !== 'update') {
+                    } else if (
+                      action !== 'lock' &&
+                      action !== 'unlock' &&
+                      action !== 'update' &&
+                      action !== 'archive'
+                    ) {
                       resultText = JSON.stringify({ error: `未知 action: ${action}` })
+                    } else if (action === 'archive') {
+                      // Soft delete: move to memories_archive (skips locked).
+                      setToolStatus('🗄️ 归档记忆…')
+                      const { data: archived, error: archiveErr } = await supabase.rpc('archive_memory', {
+                        p_id: memId,
+                      })
+                      resultText = archiveErr
+                        ? JSON.stringify({ error: archiveErr.message })
+                        : archived === true
+                          ? JSON.stringify({ ok: true, id: String(memId), action: 'archive' })
+                          : JSON.stringify({ ok: false, id: String(memId), reason: '未找到或已锁定，未归档' })
                     } else {
                       setToolStatus(
                         action === 'lock' ? '🔒 锁定记忆…' : action === 'unlock' ? '🔓 解锁记忆…' : '✏️ 整理记忆…',

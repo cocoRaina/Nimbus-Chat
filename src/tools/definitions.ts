@@ -361,12 +361,13 @@ export const TOOL_MANAGE_MEMORY = {
       '- action=lock：锁定。锁定的记忆会**常驻注入**到系统提示、你每次都看得到，留给真正重要、长期有效的事。\n' +
       '- action=unlock：解锁。退出常驻（仍可被搜索），用于过时 / 重复 / 噪音 / 不重要的记忆。\n' +
       '- action=update：修正或合并这条记忆的内容（传 content，1-3 句话）。\n' +
-      '你可以在合适时机主动帮用户整理记忆库：把重要的锁定、把过时重复的 update 或 unlock。' +
-      '会改动内容或大批整理前，最好先跟用户确认一句。（删除目前不开放。）',
+      '- action=archive：软删除——把这条没用/过时/重复的记忆移进归档表（AI 不再看得到，但用户能在后台找回）。锁定的记忆不会被归档。\n' +
+      '你可以在合适时机主动帮用户整理记忆库：把重要的锁定、把过时重复的 update/合并、把垃圾 archive。' +
+      '会改动内容、归档、或大批整理前，最好先跟用户确认一句。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['lock', 'unlock', 'update'], description: '操作类型' },
+        action: { type: 'string', enum: ['lock', 'unlock', 'update', 'archive'], description: '操作类型' },
         id: { type: 'string', description: '记忆 id（来自 search_memory / list_memories 中 source=memory 的结果）' },
         content: { type: 'string', description: 'action=update 时的新内容，1-3 句话' },
       },
