@@ -2,6 +2,10 @@
 
 > 从 README 拆出来的开发历史与踩坑记录(README 太长了)。功能清单和使用说明见 [README](../README.md)。
 
+## 2026-06-11 记忆系统 P1：可锁定记忆
+
+借鉴 kiwi-mem 的「lockable memories」(非抄代码,AGPL)。`memories` 加 `locked` 列(迁移 `20260611160000`,已上线);记忆库每条加 🔒 锁定/解锁开关 + 锁定指示。锁定的记忆将来不会被自动冲突消解作废(见 P2)。改 `Memory` 类型 / `MemoryRow` / `mapMemoryRow` / `MEMORY_SELECT_FIELDS` / `updateMemory` + `MemoryVaultPage`。
+
 ## 🩹 Debug 日志（踩过的坑 + 修法）
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。

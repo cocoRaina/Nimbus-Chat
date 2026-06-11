@@ -86,6 +86,7 @@ type MemoryRow = {
   content: string
   tags: string[] | null
   source: string | null
+  locked: boolean | null
   created_at: string
   updated_at: string
 }
@@ -145,11 +146,12 @@ const mapMemoryRow = (row: MemoryRow): Memory => ({
   content: row.content,
   tags: row.tags ?? [],
   source: row.source ?? 'manual',
+  locked: row.locked ?? false,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 })
 
-const MEMORY_SELECT_FIELDS = 'id,category,content,tags,source,created_at,updated_at'
+const MEMORY_SELECT_FIELDS = 'id,category,content,tags,source,locked,created_at,updated_at'
 
 const mapCheckinRow = (row: CheckinRow): CheckinEntry => ({
   id: row.id,
@@ -887,6 +889,7 @@ export const updateMemory = async (
     content?: string
     category?: string
     tags?: string[]
+    locked?: boolean
   },
 ): Promise<Memory> => {
   if (!supabase) {
@@ -896,6 +899,7 @@ export const updateMemory = async (
   if (typeof patch.content === 'string') updates.content = patch.content
   if (typeof patch.category === 'string') updates.category = patch.category.trim() || '日常'
   if (Array.isArray(patch.tags)) updates.tags = patch.tags
+  if (typeof patch.locked === 'boolean') updates.locked = patch.locked
   // When content changes, clear embedding so the trigger recomputes it via auto_embed.
   if (typeof patch.content === 'string') {
     updates.embedding = null
