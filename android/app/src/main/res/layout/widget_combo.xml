@@ -21,8 +21,10 @@
     </LinearLayout>
 
     <FrameLayout
-        android:layout_width="66dp"
-        android:layout_height="66dp">
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:minWidth="60dp">
         <ViewFlipper
             android:id="@+id/combo_flipper"
             android:layout_width="match_parent"
