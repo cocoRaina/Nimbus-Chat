@@ -28,6 +28,13 @@
 - **删除暂不开放**(AI 误删风险高;要做会做成可恢复软删除)。`search_memories_hybrid` 本就返回 id,所以 Claude 能精确定位某条。
 - 工具加在请求体 tools 数组(部署后首条冷写一次,之后稳定)。纯前端,等 APK。
 
+## 2026-06-11 记忆软删除:归档表 + Claude 可 archive
+
+按用户方案做软删除(不真删,移到另一张表,可找回):
+- 新表 `memories_archive`(AI 不读/不搜/不注入)+ RPC `archive_memory(id)`(原子:复制到归档表 + 从主表删,**锁定的不归档**)+ `restore_memory(archive_id)`(移回主表、新 id 重嵌)。开放 RLS,用户可在 Supabase 后台直接看/恢复。迁移 `20260611170000`,已上线。
+- `manage_memory` 工具加 `action=archive`(走 `archive_memory` RPC);描述说明"软删除、锁定的不归档、用户能找回"。
+- 主表自然保持干净,搜索/注入不用加任何过滤。
+
 ## 🩹 Debug 日志（踩过的坑 + 修法）
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
