@@ -71,6 +71,13 @@
 
 ---
 
+## 2026-06-10 桌宠可点击：戳一下随机播 24 个动画
+
+- **分区点击**:组合组件左半(日期/经期)点 → 开 App;右半(螃蟹)点 → 随机切到 **24 个动画之一**(`setOnClickPendingIntent` 广播 → `onReceive(ACTION_POKE)` → 随机 index 存 prefs → 刷新;下次周期刷新 `onUpdate` 自动回到相位默认)。
+- **全部 24 个动画**各 20 帧(从 clawd-tank slack-emojis 抽),共 480 张,**放进独立资源目录 `android/app/src/main/res-crab/drawable-nodpi/`**(build.gradle `sourceSets.main.res.srcDirs += 'src/main/res-crab'` 挂上,仍并进 `R.drawable`),主 `res/` 不再堆几百张帧。
+- 帧用编译期 `R.drawable` 数组引用(`minifyEnabled false`,且不走 getIdentifier,资源不会被误删)。
+- 默认相位映射不变(夜→sleep、经期中→away、滤泡期→walk、排卵期→happy、黄体期→idle、无记录→rest)。**原生改动,重打 APK 生效。**
+
 ## 2026-06-10 组合组件升级：6 状态 + 40 帧动画
 
 - **6 个状态各一动画**（回应"多做几个状态"）：经期中→going-away、滤泡期→crab-walking、排卵期→happy、黄体期→idle、夜里→sleeping、无记录→静止 rest。
