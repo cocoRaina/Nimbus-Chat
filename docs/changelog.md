@@ -71,6 +71,14 @@
 
 ---
 
+## 2026-06-10 新增：经期+桌宠 2×1 组合小组件（多状态动画）
+
+新增第三个桌面小组件 `ComboWidgetProvider`（2×1）：左边日期 + 🩸经期相位/天数/预测，右边会动的 Clawd 螃蟹。
+- **多状态**：夜里→睡觉、排卵期→happy、经期中→静止 base、其余→idle，按时段+相位切 ViewFlipper 可见性。
+- **更顺**：动画帧从 8 提到 16（idle/happy/sleeping），rest 用 static-base 单帧；都铺 128×128。新增 `crab_happy_*` / `crab_rest_0`。
+- 日期用 `SimpleDateFormat("M月d日 EEE", Locale.CHINA)`。复用 `PeriodCalc`；`PeriodWidgetPlugin` 推数据时一并刷新三个 widget。
+- 原有经期卡 + 桌宠保留（可单独添加）。MIT 署名见 `THIRD_PARTY_NOTICES.md`。**原生改动，重打 APK 生效。**
+
 ## 2026-06-10 桌宠换成 Clawd 螃蟹（真·动画精灵）
 
 把 emoji 桌宠换成 [clawd-tank](https://github.com/marciogranzotto/clawd-tank) 的 Clawd 螃蟹（**MIT**，© Marcio Granzotto；非官方 Anthropic 同人）。

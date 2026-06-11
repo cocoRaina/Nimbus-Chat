@@ -30,6 +30,7 @@ public class PeriodWidgetPlugin extends Plugin {
 
         PeriodWidgetProvider.updateAll(ctx);
         PetWidgetProvider.updateAll(ctx);
+        ComboWidgetProvider.updateAll(ctx);
         call.resolve();
     }
 }
