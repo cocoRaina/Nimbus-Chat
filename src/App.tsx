@@ -244,12 +244,12 @@ const applyClaudeCaching = (
     (cacheProvider === 'msuicode' && getMsuicodeFormat() === 'anthropic')
   if (!nativeAnthropic) return messages
   // TTL differs by upstream: OpenRouter honors the 1h extended cache (kept
-  // warm by the ~55min keepalive ping); 金瓜瓜-style relays cap at 5m and
+  // warm by the ~55min keepalive ping); 金瓜瓜-style relays cap at 5m（1h） and
   // can reject ttl:'1h', so there we use the plain 5m ephemeral marker.
   const marker: CacheControlMarker =
     cacheProvider === 'openrouter'
       ? { type: 'ephemeral', ttl: '1h' }
-      : { type: 'ephemeral' }
+      : { type: 'ephemeral', ttl: '1h' }
   // BP1: the FIRST system message (the foundational character + tool
   // schema layer). Marking it gives Anthropic a stable last-resort
   // anchor that survives every higher-level miss — including the
