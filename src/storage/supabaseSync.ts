@@ -855,6 +855,27 @@ export const listMemories = async (): Promise<Memory[]> => {
   return (data ?? []).map((row) => mapMemoryRow(row as MemoryRow))
 }
 
+// Builds the "always-injected" core-memory block for the chat system prompt.
+// Memories are TA's long-term facts, so they live in the cached system prefix
+// (the AI always knows them — no need to call search_memory for them; diaries /
+// letters / timeline still go through the search tools). Sorted by id so the
+// bytes are stable across turns → Anthropic prompt cache keeps hitting; the
+// block only changes (one cold write next turn) when memories are edited.
+export const buildMemorySystemSection = (memories: Memory[]): string => {
+  if (!memories.length) return ''
+  const sorted = [...memories].sort((a, b) => a.id - b.id)
+  const lines = sorted.map((m) => {
+    const tags = m.tags.length > 0 ? ' ' + m.tags.map((t) => `#${t}`).join(' ') : ''
+    return `- （${m.category}）${m.content}${tags}`
+  })
+  return (
+    '\n\n## 关于 TA 的核心记忆\n' +
+    '（以下是你长期记住的、关于用户的事实，默认已知，**无需**用搜索工具去查；' +
+    '日记 / 交接信 / 时间轴才需要用 search_memory / search_handoff 读取。）\n' +
+    lines.join('\n')
+  )
+}
+
 export const createMemory = async (input: {
   content: string
   category?: string

@@ -6,6 +6,13 @@
 
 借鉴 kiwi-mem 的「lockable memories」(非抄代码,AGPL)。`memories` 加 `locked` 列(迁移 `20260611160000`,已上线);记忆库每条加 🔒 锁定/解锁开关 + 锁定指示。锁定的记忆将来不会被自动冲突消解作废(见 P2)。改 `Memory` 类型 / `MemoryRow` / `mapMemoryRow` / `MEMORY_SELECT_FIELDS` / `updateMemory` + `MemoryVaultPage`。
 
+## 2026-06-11 核心记忆改为自动注入(不再靠搜索)
+
+之前 `memories` 只能靠 AI 主动调 `search_memory` 才读到——"想不起来搜"就等于不知道。改成:**核心记忆默认注入系统提示**(常驻档案),日记/交接信/时间轴继续按需搜。
+- `supabaseSync.buildMemorySystemSection()`:把所有记忆按 **id 排序**拼成「关于 TA 的核心记忆」块,追加进 system prompt(在 `sendMessage` 里 `await listMemories()`)。固定顺序=逐字节稳定,进 Anthropic 缓存前缀;只在记忆增删改时下条冷写一次。
+- `search_memory` 工具描述更新:核心记忆已注入、不必再搜它,本工具主要用于日记/交接信/时间轴/朋友圈 —— 少一次工具调用,反而对缓存更好(工具块会破坏缓存)。
+- 纯前端,等下次 APK 生效;部署后首条消息会冷写一次(系统前缀变了),之后稳定。
+
 ## 🩹 Debug 日志（踩过的坑 + 修法）
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。

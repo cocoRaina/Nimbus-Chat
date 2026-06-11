@@ -28,11 +28,13 @@ import {
 } from './storage/userSettings'
 import {
   addRemoteMessage,
+  buildMemorySystemSection,
   createRemoteSession,
   deleteRemoteMessage,
   deleteRemoteSession,
   fetchRemoteMessages,
   fetchRemoteSessions,
+  listMemories,
   renameRemoteSession,
   updateRemoteSessionArchiveState,
   updateRemoteSessionOverride,
@@ -1106,7 +1108,18 @@ const App = () => {
         top_p: activeSettings.topP,
         max_tokens: activeSettings.maxTokens,
       }
-      const systemPrompt = (activeSettings.systemPrompt ?? '') + buildStickerSystemSection()
+      // Auto-inject core memories into the (cached) system prefix so the AI
+      // always knows TA's long-term facts without having to call search_memory.
+      // Stable order keeps the prefix byte-stable for prompt caching; the block
+      // only shifts when memories are edited (one cold write next turn).
+      let memorySection = ''
+      try {
+        memorySection = buildMemorySystemSection(await listMemories())
+      } catch (memErr) {
+        console.warn('注入核心记忆失败', memErr)
+      }
+      const systemPrompt =
+        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection()
       const isFirstMessageInSession = !messagesRef.current.some(
         (message) =>
           message.sessionId === sessionId &&
