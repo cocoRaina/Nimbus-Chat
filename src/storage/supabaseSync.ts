@@ -855,23 +855,39 @@ export const listMemories = async (): Promise<Memory[]> => {
   return (data ?? []).map((row) => mapMemoryRow(row as MemoryRow))
 }
 
-// Builds the "always-injected" core-memory block for the chat system prompt.
-// Memories are TA's long-term facts, so they live in the cached system prefix
-// (the AI always knows them — no need to call search_memory for them; diaries /
-// letters / timeline still go through the search tools). Sorted by id so the
-// bytes are stable across turns → Anthropic prompt cache keeps hitting; the
-// block only changes (one cold write next turn) when memories are edited.
+// Fetch only LOCKED memories — these are the ones the user pinned as
+// important. The vault accumulates a lot of noise (old / imported / junk
+// memories), so we only auto-inject the curated locked set; everything else
+// stays searchable via search_memory but out of the always-on prefix.
+export const listLockedMemories = async (): Promise<Memory[]> => {
+  if (!supabase) return []
+  const { data, error } = await supabase
+    .from('memories')
+    .select(MEMORY_SELECT_FIELDS)
+    .eq('locked', true)
+    .order('created_at', { ascending: false })
+  if (error) {
+    throw error
+  }
+  return (data ?? []).map((row) => mapMemoryRow(row as MemoryRow))
+}
+
+// Builds the "always-injected" core-memory block for the chat system prompt
+// from the LOCKED memories only. Sorted by id so the bytes are stable across
+// turns → Anthropic prompt cache keeps hitting; the block only changes (one
+// cold write next turn) when the user locks/unlocks/edits a memory.
 export const buildMemorySystemSection = (memories: Memory[]): string => {
-  if (!memories.length) return ''
-  const sorted = [...memories].sort((a, b) => a.id - b.id)
+  const locked = memories.filter((m) => m.locked)
+  if (!locked.length) return ''
+  const sorted = locked.sort((a, b) => a.id - b.id)
   const lines = sorted.map((m) => {
     const tags = m.tags.length > 0 ? ' ' + m.tags.map((t) => `#${t}`).join(' ') : ''
     return `- （${m.category}）${m.content}${tags}`
   })
   return (
     '\n\n## 关于 TA 的核心记忆\n' +
-    '（以下是你长期记住的、关于用户的事实，默认已知，**无需**用搜索工具去查；' +
-    '日记 / 交接信 / 时间轴才需要用 search_memory / search_handoff 读取。）\n' +
+    '（以下是用户标记为重要、要你长期记住的事，默认已知，**无需**用搜索工具去查；' +
+    '其余未锁定的记忆、以及日记 / 交接信 / 时间轴，才用 search_memory / search_handoff 读取。）\n' +
     lines.join('\n')
   )
 }
