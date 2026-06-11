@@ -63,6 +63,18 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/pet_widget_info" />
         </receiver>
+
+        <!-- Combined 2x1: date + period info + animated Clawd crab. -->
+        <receiver
+            android:name=".ComboWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/combo_widget_info" />
+        </receiver>
     </application>
 
     <!-- Permissions -->

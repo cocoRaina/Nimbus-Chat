@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_combo_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="@drawable/widget_period_bg"
+    android:padding="12dp"
+    android:gravity="center_vertical">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1.4"
+        android:orientation="vertical"
+        android:paddingEnd="8dp">
+        <TextView android:id="@+id/combo_date" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="" android:textColor="#9E9E9E" android:textSize="11sp" />
+        <TextView android:id="@+id/combo_phase" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="🩸 经期" android:textColor="#D81B60" android:textSize="17sp" android:textStyle="bold" />
+        <TextView android:id="@+id/combo_detail" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="" android:textColor="#888888" android:textSize="11sp" android:maxLines="2" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="66dp"
+        android:layout_height="66dp">
+        <ViewFlipper
+            android:id="@+id/combo_idle"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:autoStart="true"
+            android:flipInterval="90"
+            android:measureAllChildren="true">
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_0" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_1" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_2" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_3" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_4" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_5" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_6" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_7" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_8" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_9" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_10" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_11" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_12" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_13" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_14" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_15" android:contentDescription="@null" />
+        </ViewFlipper>
+        <ViewFlipper
+            android:id="@+id/combo_happy"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:autoStart="true"
+            android:flipInterval="90"
+            android:visibility="gone"
+            android:measureAllChildren="true">
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_0" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_1" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_2" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_3" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_4" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_5" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_6" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_7" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_8" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_9" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_10" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_11" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_12" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_13" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_14" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_happy_15" android:contentDescription="@null" />
+        </ViewFlipper>
+        <ViewFlipper
+            android:id="@+id/combo_sleep"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:autoStart="true"
+            android:flipInterval="200"
+            android:visibility="gone"
+            android:measureAllChildren="true">
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_0" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_1" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_2" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_3" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_4" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_5" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_6" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_7" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_8" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_9" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_10" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_11" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_12" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_13" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_14" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_15" android:contentDescription="@null" />
+        </ViewFlipper>
+        <ImageView android:id="@+id/combo_rest" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_rest_0" android:visibility="gone" android:contentDescription="@null" />
+    </FrameLayout>
+</LinearLayout>
