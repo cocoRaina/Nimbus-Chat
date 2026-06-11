@@ -71,6 +71,14 @@
 
 ---
 
+## 2026-06-10 桌宠换成 Clawd 螃蟹（真·动画精灵）
+
+把 emoji 桌宠换成 [clawd-tank](https://github.com/marciogranzotto/clawd-tank) 的 Clawd 螃蟹（**MIT**，© Marcio Granzotto；非官方 Anthropic 同人）。
+- 从它 `assets/slack-emojis/` 的干净角色 GIF（`clawd-idle-living` / `clawd-sleeping`）各抽 8 帧、统一铺到 128×128 透明 PNG，放 `res/drawable-nodpi/`。
+- 布局用两个 ViewFlipper 自动循环（白天 idle、夜里 sleeping），Provider 按时段切可见性 + 按经期相位配台词。**纯帧动画，无需 GIF 解码/动画代码**。
+- MIT 合规：`THIRD_PARTY_NOTICES.md` 附完整 MIT 许可 + 署名 + 同人声明。
+- **原生改动，重打 APK 生效**；Java/资源仅静态 review（此环境无法编 APK，请装新包后亲测渲染/动画/切换）。
+
 ## 2026-06-10 新增：emoji 桌宠小组件
 
 第二个桌面小组件，一只会随你状态变心情的 emoji 小宠物（独立于经期数据卡，可单独添加）：

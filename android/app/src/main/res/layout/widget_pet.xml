@@ -5,35 +5,50 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@drawable/widget_period_bg"
-    android:padding="10dp"
+    android:padding="8dp"
     android:gravity="center">
 
-    <!-- Two emoji frames in a ViewFlipper; autoStart + flipInterval makes
-         the pet gently blink/breathe with no animation code. -->
-    <ViewFlipper
-        android:id="@+id/widget_pet_face"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:autoStart="true"
-        android:flipInterval="1100"
-        android:measureAllChildren="true">
+    <FrameLayout
+        android:layout_width="62dp"
+        android:layout_height="62dp">
 
-        <TextView
-            android:id="@+id/widget_pet_a"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="🐱"
-            android:textSize="40sp"
-            android:gravity="center" />
+        <!-- Awake: idle-living crab loop. -->
+        <ViewFlipper
+            android:id="@+id/widget_pet_awake"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:autoStart="true"
+            android:flipInterval="130"
+            android:measureAllChildren="true">
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_0" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_1" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_2" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_3" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_4" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_5" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_6" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_idle_7" android:contentDescription="@null" />
+        </ViewFlipper>
 
-        <TextView
-            android:id="@+id/widget_pet_b"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="😺"
-            android:textSize="40sp"
-            android:gravity="center" />
-    </ViewFlipper>
+        <!-- Asleep: shown at night. -->
+        <ViewFlipper
+            android:id="@+id/widget_pet_asleep"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:autoStart="true"
+            android:flipInterval="220"
+            android:visibility="gone"
+            android:measureAllChildren="true">
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_0" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_1" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_2" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_3" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_4" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_5" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_6" android:contentDescription="@null" />
+            <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/crab_sleep_7" android:contentDescription="@null" />
+        </ViewFlipper>
+    </FrameLayout>
 
     <TextView
         android:id="@+id/widget_pet_line"
