@@ -351,3 +351,45 @@ export const TOOL_GET_DEVICE_STATE = {
     },
   },
 }
+
+export const TOOL_MANAGE_MEMORY = {
+  type: 'function' as const,
+  function: {
+    name: 'manage_memory',
+    description:
+      '管理记忆库里某一条已有记忆（id 来自 search_memory / list_memories 里 source=memory 的结果）。\n' +
+      '- action=lock：锁定。锁定的记忆会**常驻注入**到系统提示、你每次都看得到，留给真正重要、长期有效的事。\n' +
+      '- action=unlock：解锁。退出常驻（仍可被搜索），用于过时 / 重复 / 噪音 / 不重要的记忆。\n' +
+      '- action=update：修正或合并这条记忆的内容（传 content，1-3 句话）。\n' +
+      '你可以在合适时机主动帮用户整理记忆库：把重要的锁定、把过时重复的 update 或 unlock。' +
+      '会改动内容或大批整理前，最好先跟用户确认一句。（删除目前不开放。）',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['lock', 'unlock', 'update'], description: '操作类型' },
+        id: { type: 'string', description: '记忆 id（来自 search_memory / list_memories 中 source=memory 的结果）' },
+        content: { type: 'string', description: 'action=update 时的新内容，1-3 句话' },
+      },
+      required: ['action', 'id'],
+    },
+  },
+}
+
+export const TOOL_LIST_MEMORIES = {
+  type: 'function' as const,
+  function: {
+    name: 'list_memories',
+    description:
+      '通览记忆库（只读），整理时用来看有哪些记忆、哪些已锁定。返回 id / 分类 / 内容 / 是否锁定。' +
+      '分页：limit（默认 30，最多 50）、offset。only_unlocked=true 时只看未锁定的（找噪音/待整理的更方便）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: '返回多少条，默认 30，最多 50' },
+        offset: { type: 'number', description: '偏移，分页用，默认 0' },
+        only_unlocked: { type: 'boolean', description: '只看未锁定的记忆，默认 false' },
+      },
+      required: [],
+    },
+  },
+}
