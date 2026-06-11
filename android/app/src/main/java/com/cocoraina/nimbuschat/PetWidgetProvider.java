@@ -7,15 +7,18 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.view.View;
 import android.widget.RemoteViews;
 import java.util.Calendar;
 
 /**
- * Emoji desktop pet widget. Shares the period data pushed via
- * {@link PeriodWidgetPlugin} and shows a little creature whose face + line
- * reflect the cycle phase and time of day. The face is two emoji frames in a
- * ViewFlipper (auto-flips) so it gently "blinks" without any animation code.
- * No image assets needed — emoji render crisp at any size.
+ * Desktop pet widget — the "Clawd" crab. Sprite frames are extracted from
+ * the clawd-tank Slack-emoji GIFs (MIT, © Marcio Granzotto; unofficial
+ * Anthropic fan character — see THIRD_PARTY_NOTICES.md). Two ViewFlippers in
+ * the layout auto-loop the idle vs sleeping animation; we just toggle which
+ * is visible (awake by day, asleep at night) and set a mood line that
+ * reflects the cycle phase. Shares the period data pushed via
+ * {@link PeriodWidgetPlugin}.
  */
 public class PetWidgetProvider extends AppWidgetProvider {
 
@@ -38,32 +41,26 @@ public class PetWidgetProvider extends AppWidgetProvider {
     static void updateWidget(Context context, AppWidgetManager mgr, int id) {
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_pet);
         PeriodCalc.Result r = PeriodCalc.fromPrefs(context);
+        boolean night = isNight();
 
-        // face = [normal frame, blink frame], plus a mood line.
-        String faceA, faceB, line;
+        // Sprite: sleeping at night, idle-living by day.
+        views.setViewVisibility(R.id.widget_pet_asleep, night ? View.VISIBLE : View.GONE);
+        views.setViewVisibility(R.id.widget_pet_awake, night ? View.GONE : View.VISIBLE);
+
+        // Mood line.
+        String line;
         if (!r.hasData) {
-            faceA = "🐱"; faceB = "😺"; line = "戳我去设置经期吧~";
-        } else if (isNight()) {
-            faceA = "😴"; faceB = "😪"; line = "夜深了，早点睡哦…";
+            line = "戳我去设置经期吧~";
+        } else if (night) {
+            line = "夜深了，早点睡哦…";
         } else {
             switch (r.phase) {
-                case "经期中":
-                    faceA = "🥺"; faceB = "😣"; line = "今天要多喝热水哦";
-                    break;
-                case "滤泡期":
-                    faceA = "😊"; faceB = "😄"; line = "状态回来啦~";
-                    break;
-                case "排卵期":
-                    faceA = "😻"; faceB = "😺"; line = "元气满满！";
-                    break;
-                default: // 黄体期
-                    faceA = "😌"; faceB = "🙂"; line = "想被多关心一点…";
-                    break;
+                case "经期中": line = "今天要多喝热水哦"; break;
+                case "滤泡期": line = "状态回来啦~"; break;
+                case "排卵期": line = "元气满满！"; break;
+                default:       line = "想被多关心一点…"; break; // 黄体期
             }
         }
-
-        views.setTextViewText(R.id.widget_pet_a, faceA);
-        views.setTextViewText(R.id.widget_pet_b, faceB);
         views.setTextViewText(R.id.widget_pet_line, line);
 
         // Tap → open the app.
