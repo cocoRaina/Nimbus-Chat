@@ -15,9 +15,9 @@
         android:layout_weight="1.4"
         android:orientation="vertical"
         android:paddingEnd="8dp">
-        <TextView android:id="@+id/combo_date" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="" android:textColor="#9E9E9E" android:textSize="11sp" />
-        <TextView android:id="@+id/combo_phase" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="🩸 经期" android:textColor="#D81B60" android:textSize="17sp" android:textStyle="bold" />
-        <TextView android:id="@+id/combo_detail" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="" android:textColor="#888888" android:textSize="11sp" android:maxLines="2" />
+        <TextView android:id="@+id/combo_date" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="" android:textColor="#9E9E9E" android:textSize="13sp" />
+        <TextView android:id="@+id/combo_phase" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="🩸 经期" android:textColor="#D81B60" android:textSize="22sp" android:textStyle="bold" />
+        <TextView android:id="@+id/combo_detail" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="" android:textColor="#888888" android:textSize="13sp" android:maxLines="2" />
     </LinearLayout>
 
     <FrameLayout
