@@ -9,6 +9,7 @@
     android:gravity="center_vertical">
 
     <LinearLayout
+        android:id="@+id/combo_left"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1.4"
@@ -49,26 +50,6 @@
             <ImageView android:id="@+id/combo_f_17" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
             <ImageView android:id="@+id/combo_f_18" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
             <ImageView android:id="@+id/combo_f_19" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_20" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_21" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_22" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_23" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_24" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_25" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_26" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_27" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_28" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_29" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_30" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_31" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_32" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_33" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_34" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_35" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_36" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_37" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_38" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
-            <ImageView android:id="@+id/combo_f_39" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@null" />
         </ViewFlipper>
     </FrameLayout>
 </LinearLayout>

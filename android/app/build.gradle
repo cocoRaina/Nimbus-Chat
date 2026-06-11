@@ -22,6 +22,14 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Clawd crab desktop-pet sprite frames live in their own resource dir
+    // (res-crab) to keep the hundreds of frame PNGs out of the main res/.
+    // They still merge into R.drawable, so widgets reference them normally.
+    sourceSets {
+        main {
+            res.srcDirs += 'src/main/res-crab'
+        }
+    }
     if (hasReleaseKeystore) {
         signingConfigs {
             release {
