@@ -71,6 +71,13 @@
 
 ---
 
+## 2026-06-10 组合组件升级：6 状态 + 40 帧动画
+
+- **6 个状态各一动画**（回应"多做几个状态"）：经期中→going-away、滤泡期→crab-walking、排卵期→happy、黄体期→idle、夜里→sleeping、无记录→静止 rest。
+- **40 帧/状态**（回应"帧多一点、别短短的"）：从原 GIF 线性采样 40 帧（不足的循环补齐），比之前 16 帧顺滑很多。
+- **架构改成单 ViewFlipper 复用**：一个 40 槽 flipper，Provider 按状态 `setImageViewResource` 填充当前状态的 40 帧——避免每状态堆一组 flipper 导致几百个 View。帧用编译期 `R.drawable` 数组引用（不走 getIdentifier，资源压缩不会误删）。
+- 新增素材 `crab_away_*` / `crab_walk_*`；idle/sleep/happy 重抽到 40 帧。原经期卡 + 独立桌宠保留。**原生改动，重打 APK 生效。**
+
 ## 2026-06-10 新增：经期+桌宠 2×1 组合小组件（多状态动画）
 
 新增第三个桌面小组件 `ComboWidgetProvider`（2×1）：左边日期 + 🩸经期相位/天数/预测，右边会动的 Clawd 螃蟹。
