@@ -18,7 +18,7 @@ public class PeriodWidgetPlugin extends Plugin {
     @PluginMethod
     public void update(PluginCall call) {
         Context ctx = getContext();
-        SharedPreferences prefs = ctx.getSharedPreferences(PeriodWidgetProvider.PREFS, Context.MODE_PRIVATE);
+        SharedPreferences prefs = ctx.getSharedPreferences(PeriodCalc.PREFS, Context.MODE_PRIVATE);
         SharedPreferences.Editor e = prefs.edit();
         e.putBoolean("hasData", Boolean.TRUE.equals(call.getBoolean("hasData", false)));
         e.putString("startDate", call.getString("startDate", ""));
