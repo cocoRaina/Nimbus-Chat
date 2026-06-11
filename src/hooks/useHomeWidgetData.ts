@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../supabase/client'
 import { readDailyUsage, type DailyUsageResult } from '../storage/usageStatsNative'
+import { updatePeriodWidget } from '../storage/periodWidget'
 
 // Aggregated data for the three on-home content widgets (health,
 // screen-time, period). Pulled together once and shared via this
@@ -201,7 +202,16 @@ export const useHomeWidgetData = (userId: string | null | undefined): HomeWidget
     }
     if (!periodRes.error) {
       const rows = (periodRes.data as PeriodRow[] | null) ?? []
-      setPeriodMetrics(computePeriodMetrics(rows[0] ?? null, rows))
+      const metrics = computePeriodMetrics(rows[0] ?? null, rows)
+      setPeriodMetrics(metrics)
+      // Push the latest cycle to the Android home-screen widget. Feed it the
+      // raw start/end dates + the resolved (adaptive) cycle length; the widget
+      // recomputes phase/day itself so it stays correct day to day.
+      void updatePeriodWidget({
+        startDate: rows[0]?.start_date,
+        endDate: rows[0]?.end_date,
+        cycleLength: metrics?.cycleLength,
+      })
     }
     setScreenTime(usageRes)
   }, [])
