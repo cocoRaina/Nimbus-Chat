@@ -36,6 +36,7 @@ import {
   fetchRemoteSessions,
   listLockedMemories,
   renameRemoteSession,
+  updateMemory,
   updateRemoteSessionArchiveState,
   updateRemoteSessionOverride,
   updateRemoteSessionReasoningOverride,
@@ -83,6 +84,8 @@ import {
   TOOL_RUN_CODE,
   TOOL_SCHEDULE_PROACTIVE,
   TOOL_GET_DEVICE_STATE,
+  TOOL_MANAGE_MEMORY,
+  TOOL_LIST_MEMORIES,
 } from './tools/definitions'
 import { syncStatusBarToPage } from './storage/statusBar'
 import {
@@ -1706,6 +1709,8 @@ const App = () => {
 TOOL_SEARCH_HANDOFF,
                 TOOL_WEB_SEARCH,
                 TOOL_ADD_MEMORY,
+                TOOL_MANAGE_MEMORY,
+                TOOL_LIST_MEMORIES,
                 TOOL_WRITE_DIARY,
                 TOOL_WRITE_LETTER,
                 TOOL_ADD_TIMELINE,
@@ -2218,6 +2223,63 @@ TOOL_SEARCH_HANDOFF,
                         error: deviceErr instanceof Error ? deviceErr.message : String(deviceErr),
                       })
                     }
+                  } else if (tc.function.name === 'manage_memory' && supabase) {
+                    let args: { action?: string; id?: string | number; content?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}')
+                    } catch (jsonError) {
+                      console.warn('解析 manage_memory 失败', jsonError)
+                    }
+                    const memId = Number(args.id)
+                    const action = args.action
+                    if (!Number.isFinite(memId) || !action) {
+                      resultText = JSON.stringify({ error: '缺少 action 或 id' })
+                    } else if (action === 'update' && !String(args.content ?? '').trim()) {
+                      resultText = JSON.stringify({ error: 'update 需要 content' })
+                    } else if (action !== 'lock' && action !== 'unlock' && action !== 'update') {
+                      resultText = JSON.stringify({ error: `未知 action: ${action}` })
+                    } else {
+                      setToolStatus(
+                        action === 'lock' ? '🔒 锁定记忆…' : action === 'unlock' ? '🔓 解锁记忆…' : '✏️ 整理记忆…',
+                      )
+                      const patch =
+                        action === 'lock'
+                          ? { locked: true }
+                          : action === 'unlock'
+                            ? { locked: false }
+                            : { content: String(args.content).trim() }
+                      await updateMemory(memId, patch)
+                      resultText = JSON.stringify({ ok: true, id: String(memId), action })
+                    }
+                  } else if (tc.function.name === 'list_memories' && supabase) {
+                    let args: { limit?: number; offset?: number; only_unlocked?: boolean } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}')
+                    } catch (jsonError) {
+                      console.warn('解析 list_memories 失败', jsonError)
+                    }
+                    const limit = Math.max(1, Math.min(50, Math.floor(Number(args.limit) || 30)))
+                    const offset = Math.max(0, Math.floor(Number(args.offset) || 0))
+                    setToolStatus('📋 查看记忆库…')
+                    let q = supabase
+                      .from('memories')
+                      .select('id,category,content,locked,created_at')
+                      .order('created_at', { ascending: false })
+                      .range(offset, offset + limit - 1)
+                    if (args.only_unlocked === true) q = q.eq('locked', false)
+                    const { data, error } = await q
+                    resultText = error
+                      ? JSON.stringify({ error: error.message })
+                      : JSON.stringify({
+                          memories: (data ?? []).map(
+                            (r: { id: number; category: string | null; content: string; locked: boolean | null }) => ({
+                              id: String(r.id),
+                              category: r.category ?? '日常',
+                              content: r.content,
+                              locked: !!r.locked,
+                            }),
+                          ),
+                        })
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })
                   }
