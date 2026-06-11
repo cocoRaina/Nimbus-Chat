@@ -34,7 +34,7 @@ import {
   deleteRemoteSession,
   fetchRemoteMessages,
   fetchRemoteSessions,
-  listMemories,
+  listLockedMemories,
   renameRemoteSession,
   updateRemoteSessionArchiveState,
   updateRemoteSessionOverride,
@@ -1108,13 +1108,14 @@ const App = () => {
         top_p: activeSettings.topP,
         max_tokens: activeSettings.maxTokens,
       }
-      // Auto-inject core memories into the (cached) system prefix so the AI
-      // always knows TA's long-term facts without having to call search_memory.
-      // Stable order keeps the prefix byte-stable for prompt caching; the block
-      // only shifts when memories are edited (one cold write next turn).
+      // Auto-inject the user's LOCKED (pinned) memories into the cached system
+      // prefix so the AI always knows the curated facts without calling
+      // search_memory. Only locked ones — the vault has too much noise to inject
+      // wholesale. Stable order keeps the prefix byte-stable for prompt caching;
+      // the block only shifts when the user locks/unlocks/edits a memory.
       let memorySection = ''
       try {
-        memorySection = buildMemorySystemSection(await listMemories())
+        memorySection = buildMemorySystemSection(await listLockedMemories())
       } catch (memErr) {
         console.warn('注入核心记忆失败', memErr)
       }
