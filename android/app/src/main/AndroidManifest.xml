@@ -36,6 +36,20 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Home-screen period widget. Reads data the app pushes via the
+             PeriodWidget Capacitor plugin; recomputes phase/day on each
+             refresh so it stays correct across day rollovers. -->
+        <receiver
+            android:name=".PeriodWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/period_widget_info" />
+        </receiver>
     </application>
 
     <!-- Permissions -->

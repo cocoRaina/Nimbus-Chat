@@ -71,6 +71,14 @@
 
 ---
 
+## 2026-06-10 新增：经期桌面小组件（Android 主屏 AppWidget）
+
+第一个真·桌面小组件（不是 App 内的 widget）。长按桌面 → 添加小组件 → Nimbus → 经期，主屏直接看当前阶段 / 第几天 / 距下次几天，点一下开 App。
+
+- 原生：`PeriodWidgetProvider`（AppWidgetProvider，RemoteViews 渲染 + 从 SharedPreferences 读数据 + 点击开 App）、`PeriodWidgetPlugin`（Capacitor 插件，把数据写进 SharedPreferences 并刷新 widget）、`res/layout/widget_period.xml` + `res/drawable/widget_period_bg.xml` + `res/xml/period_widget_info.xml`、manifest `<receiver>`、MainActivity 注册。
+- 数据：`useHomeWidgetData` 算出 periodMetrics 后，把 raw start/end date + 解析后的 cycleLength 推给 widget（`storage/periodWidget.ts`）。**相位/天数在 Java 里按 UTC 纯日期重算**（和 useHomeWidgetData 的时区修复一致），所以跨天不打开 App 也会随 `updatePeriodMillis`（30min）自刷。
+- **原生改动，重打 APK 才有**。装新包后：home 页加载会推一次数据；首次没数据时 widget 显示「暂无记录」。
+
 ## 2026-06-10 移除 FCM + 工具审查
 
 - **移除 FCM 推送**：改用本地通知（`@capacitor/local-notifications`）后 FCM 成死代码（`PushNotifications.register()` 早已注释，listener 永不触发）。清掉 `@capacitor/push-notifications` 插件 + App.tsx 注册/接收 listener + 已弃用的 `proactive_queue` 写入 + gradle 引用。**原生改动，重打 APK 生效**。服务端 `send_proactive_push` 函数 + `fcm_tokens` 表需在 Supabase Dashboard 手删（无 MCP 删除工具）。
