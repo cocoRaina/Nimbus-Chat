@@ -358,7 +358,7 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 ├── PetWidgetProvider.java     # 桌面小组件：emoji 桌宠
 └── ComboWidgetProvider.java   # 桌面小组件：2×1 组合卡（日期+经期+Clawd 螃蟹，戳→随机 24 动画）
 
-android/app/src/main/res-crab/drawable-nodpi/   # Clawd 螃蟹精灵帧（24 动画×20 帧，独立资源目录，见 build.gradle sourceSets）
+android/app/src/main/res-crab/drawable-nodpi/   # Clawd 螃蟹精灵帧（24 动画×40 帧，独立资源目录，见 build.gradle sourceSets）
 ```
 
 ---
