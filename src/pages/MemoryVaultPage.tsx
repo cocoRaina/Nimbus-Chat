@@ -427,6 +427,17 @@ const MemoriesTab = ({
     }
   }
 
+  // 锁定的记忆不会被自动提取的冲突消解作废/删除（手动锁=永久保留）。
+  const handleToggleLock = async (id: number, locked: boolean) => {
+    try {
+      await updateMemory(id, { locked: !locked })
+      await refresh()
+    } catch (lockError) {
+      console.warn('切换锁定失败', lockError)
+      setError('锁定操作失败')
+    }
+  }
+
   return (
     <>
       <p className="memory-vault-hint">这里写下的记忆会自动生成向量 embedding，AI 聊天时可以语义检索。</p>
@@ -590,6 +601,9 @@ const MemoriesTab = ({
               >
                 <div className="memory-vault-item-meta">
                   <span className="memory-vault-item-category">{memory.category}</span>
+                  {memory.locked ? (
+                    <span className="auto-mark" title="已锁定：不会被自动作废">🔒</span>
+                  ) : null}
                   {memory.source === 'auto' ? (
                     <span className="auto-mark" title="自动提取">✨</span>
                   ) : null}
@@ -605,6 +619,9 @@ const MemoriesTab = ({
                 </div>
                 <p className="memory-vault-item-content">{memory.content}</p>
                 <div className="memory-vault-item-actions">
+                  <button type="button" className="ghost" onClick={() => void handleToggleLock(memory.id, memory.locked)}>
+                    {memory.locked ? '🔒 已锁定' : '🔓 锁定'}
+                  </button>
                   <button type="button" className="ghost" onClick={() => startEdit(memory)}>
                     编辑
                   </button>

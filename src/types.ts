@@ -134,6 +134,7 @@ export type Memory = {
   content: string
   tags: string[]
   source: string
+  locked: boolean
   createdAt: string
   updatedAt: string
 }
