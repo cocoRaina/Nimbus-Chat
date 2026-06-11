@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_pet_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_period_bg"
+    android:padding="10dp"
+    android:gravity="center">
+
+    <!-- Two emoji frames in a ViewFlipper; autoStart + flipInterval makes
+         the pet gently blink/breathe with no animation code. -->
+    <ViewFlipper
+        android:id="@+id/widget_pet_face"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:autoStart="true"
+        android:flipInterval="1100"
+        android:measureAllChildren="true">
+
+        <TextView
+            android:id="@+id/widget_pet_a"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🐱"
+            android:textSize="40sp"
+            android:gravity="center" />
+
+        <TextView
+            android:id="@+id/widget_pet_b"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="😺"
+            android:textSize="40sp"
+            android:gravity="center" />
+    </ViewFlipper>
+
+    <TextView
+        android:id="@+id/widget_pet_line"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="…"
+        android:textColor="#C2185B"
+        android:textSize="12sp"
+        android:gravity="center"
+        android:maxLines="1" />
+</LinearLayout>

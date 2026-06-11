@@ -71,6 +71,14 @@
 
 ---
 
+## 2026-06-10 新增：emoji 桌宠小组件
+
+第二个桌面小组件，一只会随你状态变心情的 emoji 小宠物（独立于经期数据卡，可单独添加）：
+- 用 emoji 当宠物（无需图片素材，任意尺寸清晰）。`ViewFlipper` 双帧自动循环 → 不写动画代码也会"眨眼"。
+- 心情联动经期相位 + 时段：经期中🥺 / 滤泡期😊 / 排卵期😻 / 黄体期😌 / 深夜😴 / 无数据🐱，配一行台词。点击开 App。
+- 复用经期数据（`PeriodWidgetPlugin` 推的同一份 SharedPreferences）。抽了共享的 `PeriodCalc`（相位/天数计算），经期卡和桌宠都用，逻辑不再两份。
+- 原生：`PetWidgetProvider` + `PeriodCalc` + `widget_pet` 布局 + `pet_widget_info` + manifest receiver；plugin 推数据时一并刷新两个 widget。**原生改动，重打 APK 生效。**
+
 ## 2026-06-10 新增：经期桌面小组件（Android 主屏 AppWidget）
 
 第一个真·桌面小组件（不是 App 内的 widget）。长按桌面 → 添加小组件 → Nimbus → 经期，主屏直接看当前阶段 / 第几天 / 距下次几天，点一下开 App。
