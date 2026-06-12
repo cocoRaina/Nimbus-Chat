@@ -73,6 +73,11 @@
 
 ---
 
+## 2026-06-12
+
+### 搜索:日记/交接信改用 date 而非 created_at
+`search_memories_hybrid` 里 diaries / handoff_letters 的时间筛选 + 近度加权改用各自的 `date` 列（条目真实日期，与 timeline 用 event_date 一致），不再用 created_at（入库时间）——导入/补写的日记 date 才有意义。RPC 即时生效。
+
 ## 2026-06-11
 
 ### 记忆系统 P1：可锁定记忆
