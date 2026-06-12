@@ -355,23 +355,25 @@ const MemoriesTab = ({
 
       <section className="memory-vault-list">
         <div className="memory-vault-toolbar">
-          <input
-            className="memory-vault-search" type="search" placeholder="搜索内容 / 标签"
-            value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <div className="source-filter">
-            <button type="button" className={sourceFilter === 'all' ? 'active' : ''} onClick={() => setSourceFilter('all')}>全部({sourceCounts.all})</button>
-            <button type="button" className={sourceFilter === 'manual' ? 'active' : ''} onClick={() => setSourceFilter('manual')}>手动({sourceCounts.manual})</button>
-            <button type="button" className={sourceFilter === 'auto' ? 'active' : ''} onClick={() => setSourceFilter('auto')}>✨自动({sourceCounts.auto})</button>
-          </div>
-          {lockedBudget.count > 0 ? (
-            <span className={`locked-budget${lockedBudget.tokens > 2000 ? ' locked-budget--warn' : ''}`} title="锁定记忆注入系统提示的 token 估算（中文约 2字/token）">
-              🔒 {lockedBudget.count} 条 ≈ {lockedBudget.tokens.toLocaleString()} tokens{lockedBudget.tokens > 2000 ? ' ⚠️' : ''}
-            </span>
-          ) : null}
-          <div className="toolbar-actions">
+          <div className="toolbar-row1">
+            <input
+              className="memory-vault-search" type="search" placeholder="搜索内容 / 标签"
+              value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+            />
             <button type="button" className="btn-add-new" onClick={() => { cancelEdit(); setShowNew(true) }} title="新增记忆">＋</button>
             <button type="button" className="btn-refresh" onClick={() => void refresh()} disabled={loading} title="刷新">{loading ? '…' : '↺'}</button>
+          </div>
+          <div className="toolbar-row2">
+            <div className="source-filter">
+              <button type="button" className={sourceFilter === 'all' ? 'active' : ''} onClick={() => setSourceFilter('all')}>全部({sourceCounts.all})</button>
+              <button type="button" className={sourceFilter === 'manual' ? 'active' : ''} onClick={() => setSourceFilter('manual')}>手动({sourceCounts.manual})</button>
+              <button type="button" className={sourceFilter === 'auto' ? 'active' : ''} onClick={() => setSourceFilter('auto')}>✨自动({sourceCounts.auto})</button>
+            </div>
+            {lockedBudget.count > 0 ? (
+              <span className={`locked-budget${lockedBudget.tokens > 2000 ? ' locked-budget--warn' : ''}`} title="锁定记忆注入系统提示的 token 估算（中文约 2字/token）">
+                🔒 {lockedBudget.count} 条 ≈ {lockedBudget.tokens.toLocaleString()} tokens{lockedBudget.tokens > 2000 ? ' ⚠️' : ''}
+              </span>
+            ) : null}
           </div>
         </div>
 

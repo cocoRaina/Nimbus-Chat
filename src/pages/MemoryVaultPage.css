@@ -199,8 +199,20 @@
 
 .memory-vault-toolbar {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toolbar-row1 {
+  display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.toolbar-row2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .memory-vault-search {
@@ -666,12 +678,8 @@
   width: 100%;
 }
 
-/* ── Toolbar add / refresh buttons ── */
-
-.toolbar-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
+/* locked-budget pushed to the right in row2 */
+.toolbar-row2 .locked-budget {
   margin-left: auto;
 }
 
