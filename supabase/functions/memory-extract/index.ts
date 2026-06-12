@@ -1,5 +1,5 @@
-import { serve } from 'https://deno.land/std@0.208.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
+import "jsr:@supabase/functions-js/edge-runtime.d.ts"
+import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 type MessageInput = {
   role: 'user' | 'assistant' | 'system'
@@ -285,7 +285,7 @@ const enforcePendingCap = async (supabase: ReturnType<typeof createClient>, user
   return { error: softDeleteError }
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const cors = buildCorsHeaders(req)
   try {
     if (req.method === 'OPTIONS') {
