@@ -68,7 +68,7 @@ import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './stora
 import { ensureImageCaption, getImageCaption } from './storage/imageCaptions'
 import { buildStickerSystemSection } from './storage/stickers'
 import { recordUsage } from './storage/usageStats'
-import { maybeAutoSyncHealth } from './storage/healthSync'
+import { maybeAutoSyncHealth, syncHealthDataToSupabase } from './storage/healthSync'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
 import { getDeviceState } from './storage/deviceState'
 import { runSandboxCode } from './storage/sandbox'
@@ -1163,6 +1163,11 @@ const App = () => {
       let healthSnap: string | null = null
       let deviceSnap: string | null = null
       if (shouldInjectHealth) {
+        // On APK, force a Health Connect sync before reading the snapshot so
+        // sleep data from last night is already in Supabase when we query.
+        if (Capacitor.getPlatform() !== 'web') {
+          try { await syncHealthDataToSupabase({ force: true }) } catch { /* non-fatal */ }
+        }
         if (supabase) {
           try {
             healthSnap = await fetchHealthSnapshot()
