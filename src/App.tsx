@@ -32,6 +32,7 @@ import {
   createRemoteSession,
   deleteRemoteMessage,
   deleteRemoteSession,
+  fetchHealthSnapshot,
   fetchRemoteMessages,
   fetchRemoteSessions,
   listLockedMemories,
@@ -1150,6 +1151,36 @@ const App = () => {
       if (weatherSnap && typeof window !== 'undefined') {
         window.localStorage.setItem(WEATHER_DATE_KEY, todayCN)
       }
+
+      // Health + device snapshot — injected once per day on the first message,
+      // same pattern as weather. Claude naturally notices sleep/steps/period/battery
+      // without needing to call any tool.
+      const HEALTH_DATE_KEY = 'nimbus_health_injected_date'
+      const lastHealthDate = typeof window !== 'undefined'
+        ? window.localStorage.getItem(HEALTH_DATE_KEY)
+        : null
+      const shouldInjectHealth = lastHealthDate !== todayCN
+      let healthSnap: string | null = null
+      let deviceSnap: string | null = null
+      if (shouldInjectHealth) {
+        if (supabase) {
+          try {
+            healthSnap = await fetchHealthSnapshot()
+            if (healthSnap && typeof window !== 'undefined') {
+              window.localStorage.setItem(HEALTH_DATE_KEY, todayCN)
+            }
+          } catch { /* non-fatal */ }
+        }
+        if (Capacitor.getPlatform() !== 'web') {
+          try {
+            const ds = await getDeviceState()
+            if (ds.battery_percent !== null) {
+              deviceSnap = `🔋${ds.battery_percent}%${ds.is_charging ? ' 充电中' : ''}`
+            }
+          } catch { /* non-fatal */ }
+        }
+      }
+
       const userMeta: ChatMessage['meta'] = {
         ...(userAttachments.length > 0 ? { attachments: userAttachments } : {}),
         ...(weatherSnap
@@ -1161,6 +1192,8 @@ const App = () => {
               },
             }
           : {}),
+        ...(healthSnap ? { healthSnapshot: healthSnap } : {}),
+        ...(deviceSnap ? { deviceSnapshot: deviceSnap } : {}),
       }
       const optimisticMessage: ChatMessage = {
         id: clientId,
@@ -1568,7 +1601,13 @@ const App = () => {
             const weatherStr = weatherMeta
               ? ` [当时天气] ${weatherMeta.temperatureC}°C ${weatherMeta.condition}`
               : ''
-            const prefix = stamp ? `[当前时间] ${stamp}${weatherStr}\n\n` : ''
+            const healthMeta = message.role === 'user' ? message.meta?.healthSnapshot : undefined
+            const deviceMeta = message.role === 'user' ? message.meta?.deviceSnapshot : undefined
+            const statusParts = [healthMeta, deviceMeta].filter(Boolean)
+            const statusStr = statusParts.length > 0
+              ? `\n[TA 今日状态] ${statusParts.join('；')}`
+              : ''
+            const prefix = stamp ? `[当前时间] ${stamp}${weatherStr}${statusStr}\n\n` : ''
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []
               const textContent = `${prefix}${message.content}`

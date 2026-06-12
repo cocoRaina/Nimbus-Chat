@@ -40,6 +40,8 @@ export type ChatMessage = {
       condition: string
       feelsLikeC?: number
     }
+    healthSnapshot?: string
+    deviceSnapshot?: string
     tool_calls?: Array<{
       name: string
       args: unknown

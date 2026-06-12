@@ -892,6 +892,54 @@ export const buildMemorySystemSection = (memories: Memory[]): string => {
   )
 }
 
+// Compact snapshot of the user's recent health state for daily injection
+// into the first user message of the day. Returns null if no data exists.
+export const fetchHealthSnapshot = async (): Promise<string | null> => {
+  if (!supabase) return null
+  const [healthResult, periodResult] = await Promise.all([
+    supabase
+      .from('health_data')
+      .select('date,sleep_hours,sleep_quality,steps,notes')
+      .order('date', { ascending: false })
+      .limit(1),
+    supabase
+      .from('period_tracking')
+      .select('start_date,end_date')
+      .order('start_date', { ascending: false })
+      .limit(1),
+  ])
+
+  const parts: string[] = []
+  const row = (healthResult.data ?? [])[0] as {
+    date?: string
+    sleep_hours?: number
+    sleep_quality?: string
+    steps?: number
+    notes?: string
+  } | undefined
+
+  if (row) {
+    const items: string[] = []
+    if (row.sleep_hours) {
+      items.push(`昨晚睡了 ${row.sleep_hours}h${row.sleep_quality ? `（${row.sleep_quality}）` : ''}`)
+    }
+    if (row.steps) items.push(`步数 ${row.steps}`)
+    if (row.notes) items.push(row.notes)
+    if (items.length) parts.push(items.join('，'))
+  }
+
+  const period = (periodResult.data ?? [])[0] as { start_date?: string; end_date?: string } | undefined
+  if (period?.start_date) {
+    parts.push(
+      period.end_date
+        ? `上次经期 ${period.start_date}`
+        : `经期进行中（${period.start_date} 起）`,
+    )
+  }
+
+  return parts.length > 0 ? parts.join('；') : null
+}
+
 export const createMemory = async (input: {
   content: string
   category?: string
