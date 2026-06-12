@@ -472,8 +472,6 @@ ${JSON.stringify(mergeInput)}`,
         tokens: tokenizeForSimilarity(typeof row.content === 'string' ? row.content : ''),
       }))
       .filter((m) => m.tokens.size > 0)
-    const confirmedMemoryTokenSets = confirmedMemoryMeta.map((m) => m.tokens)
-
     const acceptedItems: string[] = []
     const acceptedTokenSets: Set<string>[] = []
     const seenNormalized = new Set<string>()
