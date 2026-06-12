@@ -14,12 +14,14 @@
 
 **检索实现**：Edge Function `search_memory` 嵌入查询（BGE-M3 via SiliconFlow）→ `search_memories_hybrid` RPC 跨表 UNION，**向量召回 + 关键词（ILIKE）召回，RRF 融合**，再叠一个**时间近度小加分**（半衰期 30 天、权重 0.006：相关度相近时近的靠前，但不盖过明显更相关的旧项）→ 加结构化数据一起返回。`search_handoff` 单独搜交接信（长文在混合搜里容易被挤掉）。
 
+**每次搜索命中的 `memories` 条目会 fire-and-forget 更新 `access_count + last_accessed_at`**（`bump_memory_access` RPC），用于衰减追踪。
+
 ## 核心记忆生命周期：锁定 → 常驻 → 自管理 → 归档
 
 记忆库会越攒越杂（旧的 / 导入的 / 没用的），所以**不是全部喂给 AI**，而是分层：
 
 - **🔒 锁定 = 常驻注入**：在记忆库给一条记忆加锁，它就被拼进 system prompt 的**缓存前缀**（`buildMemorySystemSection`，按 id 排序保证逐字节稳定 → 进 Anthropic 缓存；只在锁/解锁/改时下一条冷写一次）。**只有锁定的常驻**，AI 每次都"知道"；未锁定的不注入，留作可搜索归档。
-- **Claude 自管理**：两个工具让 AI 按需整理（见 [tools.md](tools.md)）——`manage_memory`（lock / unlock / update 合并 / archive）+ `list_memories`（只读通览）。
+- **Claude 自管理**：四个工具让 AI 按需整理（见 [tools.md](tools.md)）——`manage_memory`（lock / unlock / update / archive）+ `list_memories`（只读通览）+ `garden_memories`（扫近重复对）+ `check_memory_health`（查休眠记忆）。
 - **软删除可找回**：archive 不真删，把记忆原子地移进 `memories_archive` 表（AI 不读/不搜/不注入）。锁定的记忆**不会被归档**。用户可在 Supabase 后台看/恢复：RPC `archive_memory(id)` / `restore_memory(archive_id)`。
 
 ## 自动记忆提取（参考 Hamster-Nest）
@@ -45,3 +47,30 @@
 **设置**（设置页 → ✨ 自动记忆提取）：总开关 / 提取提供商（可和聊天分开走）/ 提取模型（推荐便宜小模型）。
 
 **来源标记**：记忆列表右侧 ✨ 区分自动 vs 手动；来源筛选 chips：全部 / 手动 / ✨自动。锁定的记忆显示 🔒。
+
+## 去重：提取时跨两张表检查
+
+`memory-extract` 在插入前会同时比对：
+1. `memory_entries`（pending/confirmed 流水线）— 防止自动提取重复进队列
+2. `memories` 表（已确认的手动/自动记忆）— 防止"手动加过的"被重复提取
+
+相似度阈值 **0.85 Jaccard**（CJK 用 2-char bigram，Latin 用词级 token）：
+- 与 `memory_entries` 重复 → 直接跳过
+- 与 `memories` 重复 → **强化原条目**（fire-and-forget `bump_memory_access`），不新建副本
+
+## 访问追踪 + 记忆健康
+
+`memories` 表有 `access_count`（历史被搜索到的次数）和 `last_accessed_at`（上次搜索命中时间戳）：
+
+- **每次 `search_memory` 命中** → fire-and-forget `bump_memory_access(ids)`
+- **提取发现重复** → 也触发 `bump_memory_access`（强化而非新建）
+- **`check_memory_health` 工具** → 调用 `get_stale_memories(days_inactive, min_days_old, max_count)` RPC，返回长期未被召回的未锁定记忆。Claude 据此决定归档（过时）或保留（仍有效）。锁定的记忆永远不出现在休眠列表里。
+
+## 每日状态注入
+
+每天第一条消息，在用户消息内容前自动注入一行 `[TA 今日状态]`，包含：
+- 最近一次 `health_data`（昨晚睡眠 / 步数，APK 先 force 同步 Health Connect 再读）
+- `period_tracking` 最新一条（进行中或上次结束日期）
+- 当前电量 + 充电状态（APK only，`🔋32% 充电中`）
+
+Claude 看到后可自然关心"昨晚睡得不太好"等，无需主动调工具。数据为空时不注入，不影响对话。亦可随时调 `get_health_status` 工具获取最新数据。
