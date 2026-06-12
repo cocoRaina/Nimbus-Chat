@@ -86,6 +86,7 @@ import {
   TOOL_GET_DEVICE_STATE,
   TOOL_MANAGE_MEMORY,
   TOOL_LIST_MEMORIES,
+  TOOL_GARDEN_MEMORIES,
 } from './tools/definitions'
 import { syncStatusBarToPage } from './storage/statusBar'
 import {
@@ -1711,6 +1712,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_ADD_MEMORY,
                 TOOL_MANAGE_MEMORY,
                 TOOL_LIST_MEMORIES,
+                TOOL_GARDEN_MEMORIES,
                 TOOL_WRITE_DIARY,
                 TOOL_WRITE_LETTER,
                 TOOL_ADD_TIMELINE,
@@ -2302,6 +2304,39 @@ TOOL_SEARCH_HANDOFF,
                               locked: !!r.locked,
                             }),
                           ),
+                        })
+                  } else if (tc.function.name === 'garden_memories' && supabase) {
+                    let args: { similarity_threshold?: number; max_pairs?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}')
+                    } catch (jsonError) {
+                      console.warn('解析 garden_memories 失败', jsonError)
+                    }
+                    const threshold = Math.max(0.5, Math.min(0.99, Number(args.similarity_threshold) || 0.85))
+                    const maxPairs = Math.max(1, Math.min(30, Math.floor(Number(args.max_pairs) || 15)))
+                    setToolStatus('🌿 扫描相似记忆…')
+                    const { data, error } = await supabase.rpc('find_similar_memory_pairs', {
+                      similarity_threshold: threshold,
+                      max_pairs: maxPairs,
+                    })
+                    resultText = error
+                      ? JSON.stringify({ error: error.message })
+                      : JSON.stringify({
+                          pairs: (data ?? []).map((r: {
+                            id_a: number; id_b: number
+                            content_a: string; content_b: string
+                            category_a: string; category_b: string
+                            similarity: number
+                          }) => ({
+                            id_a: String(r.id_a), id_b: String(r.id_b),
+                            content_a: r.content_a, content_b: r.content_b,
+                            category_a: r.category_a, category_b: r.category_b,
+                            similarity: r.similarity,
+                          })),
+                          count: (data ?? []).length,
+                          note: (data ?? []).length === 0
+                            ? '未发现相似记忆对，库里没有明显重复。'
+                            : `发现 ${(data ?? []).length} 对相似记忆，建议合并或归档重复的一方。`,
                         })
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })

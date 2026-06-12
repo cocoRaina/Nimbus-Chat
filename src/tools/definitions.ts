@@ -357,14 +357,18 @@ export const TOOL_MANAGE_MEMORY = {
   function: {
     name: 'manage_memory',
     description:
-      '管理记忆库里某一条已有记忆（id 来自 search_memory / list_memories 里 source=memory 的结果）。\n' +
+      '管理记忆库里某一条已有记忆（id 来自 search_memory / list_memories / garden_memories 里 source=memory 的结果）。\n' +
       '- action=lock：锁定。锁定的记忆会**常驻注入**到系统提示、你每次都看得到，留给真正重要、长期有效的事。\n' +
       '- action=unlock：解锁。退出常驻（仍可被搜索），用于过时 / 重复 / 噪音 / 不重要的记忆。\n' +
       '- action=update：修正或合并这条记忆的内容（传 content，1-3 句话）。\n' +
-      '- action=archive：软删除——把这条没用/过时/重复的记忆移进归档表（AI 不再看得到，但用户能在后台找回）。锁定的记忆不会被归档。\n' +
-      '你可以在合适时机主动帮用户整理记忆库：把重要的锁定、把过时重复的 update/合并、把垃圾 archive。' +
+      '- action=archive：软删除——把这条没用/过时/重复的记忆移进归档表（AI 不再看得到，但用户能在后台找回）。锁定的记忆不会被归档。\n\n' +
+      '**主动整理时机**（不要等用户说）：\n' +
+      '1. 用户刚批量确认了一批待确认记忆后 → 用 garden_memories 扫重复，再合并/归档\n' +
+      '2. 搜索时发现两条内容高度相似的记忆 → 合并成一条，archive 另一条\n' +
+      '3. 用户说了新情况与旧记忆冲突（如换工作、搬家） → update 旧记忆为最新情况\n' +
+      '4. 用户明确说「帮我整理记忆」 → 先 garden_memories 扫，再逐对处理\n\n' +
       '注意 id 来自 source=memory 的结果（search_memory 跨多张表，别拿日记/交接信的 id 来管理记忆）；' +
-      '会改动内容、归档、或大批整理前，最好先跟用户确认一句。',
+      '大批 archive 或改内容前，先跟用户确认计划。',
     parameters: {
       type: 'object',
       properties: {
@@ -374,6 +378,38 @@ export const TOOL_MANAGE_MEMORY = {
         content: { type: 'string', description: 'action=update 时的新内容，1-3 句话' },
       },
       required: ['action', 'id'],
+    },
+  },
+}
+
+export const TOOL_GARDEN_MEMORIES = {
+  type: 'function' as const,
+  function: {
+    name: 'garden_memories',
+    description:
+      '扫描记忆库，找出语义相似度高的记忆对（潜在的重复 / 冗余 / 需要合并的条目）。\n' +
+      '返回 pairs 数组，每条含 id_a、id_b、content_a、content_b、similarity（0-1）。\n\n' +
+      '**何时主动调用**（不必等用户说）：\n' +
+      '- 用户刚批量确认了一批待确认记忆\n' +
+      '- 你觉得库里可能积累了重复条目\n' +
+      '- 用户说「帮我整理 / 清理一下记忆库」\n\n' +
+      '**拿到结果后怎么做**：\n' +
+      '- similarity ≥ 0.95：几乎完全相同 → 直接 archive 旧的，或 update 新的补充细节\n' +
+      '- similarity 0.85-0.95：高度重叠 → 判断哪条更完整，合并后 archive 另一条\n' +
+      '- 操作前简要告知用户你的计划（"发现 3 对重复，我来合并一下"），不用逐条请示。',
+    parameters: {
+      type: 'object',
+      properties: {
+        similarity_threshold: {
+          type: 'number',
+          description: '相似度阈值 0-1，默认 0.85。调低会找到更多候选，调高只找几乎完全相同的',
+        },
+        max_pairs: {
+          type: 'integer',
+          description: '最多返回多少对，默认 15，最多 30',
+        },
+      },
+      required: [],
     },
   },
 }

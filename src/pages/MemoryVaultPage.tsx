@@ -139,6 +139,8 @@ const MemoriesTab = ({
   recentMessages: ExtractMessageInput[]
   memoryExtractProvider: ProviderId
 }) => {
+  const PAGE_SIZE = 20
+
   const [memories, setMemories] = useState<Memory[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -147,6 +149,7 @@ const MemoriesTab = ({
   const [saving, setSaving] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
+  const [page, setPage] = useState(0)
   const [extracting, setExtracting] = useState(false)
   const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([])
   const [lastLog, setLastLog] = useState<{
@@ -221,14 +224,27 @@ const MemoriesTab = ({
   const handleConfirmAll = async () => {
     if (!supabase || pendingEntries.length === 0) return
     try {
-      for (const entry of pendingEntries) {
-        await createMemory({ content: entry.content, category: '自动提取', tags: ['auto'], source: 'auto' })
-      }
+      // Parallel inserts instead of sequential — each createMemory triggers
+      // an async auto_embed call via pg_net, so they all fire concurrently.
+      const newMemories = await Promise.all(
+        pendingEntries.map((entry) =>
+          createMemory({ content: entry.content, category: '自动提取', tags: ['auto'], source: 'auto' }),
+        ),
+      )
       const ids = pendingEntries.map((e) => e.id)
       await supabase
         .from('memory_entries')
         .update({ status: 'confirmed', updated_at: new Date().toISOString() })
         .in('id', ids)
+      // Batch embed: re-embed all newly confirmed memories in one SiliconFlow
+      // call, superseding any in-flight trigger calls (trigger skips if embedding
+      // is already set, so this is safe to race).
+      void supabase.functions.invoke('auto_embed', {
+        body: {
+          records: newMemories.map((m) => ({ id: m.id, content: m.content })),
+          table: 'memories',
+        },
+      })
       await refreshPending()
       await refresh()
     } catch (e) {
@@ -274,6 +290,14 @@ const MemoriesTab = ({
       else manual++
     }
     return { all: memories.length, manual, auto }
+  }, [memories])
+
+  // Rough token estimate for locked memories injected into system prompt.
+  // Chinese text ≈ 2 chars/token; mixed text ≈ 2.5 chars/token.
+  const lockedBudget = useMemo(() => {
+    const locked = memories.filter((m) => m.locked)
+    const chars = locked.reduce((sum, m) => sum + m.content.length + m.tags.join('').length, 0)
+    return { count: locked.length, tokens: Math.round(chars / 2) }
   }, [memories])
 
   const handleManualExtract = async () => {
@@ -378,6 +402,15 @@ const MemoriesTab = ({
       )
     })
   }, [memories, searchTerm, sourceFilter])
+
+  // Reset to first page when filter/search changes
+  useEffect(() => { setPage(0) }, [searchTerm, sourceFilter])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated = useMemo(
+    () => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [filtered, page, PAGE_SIZE],
+  )
 
   const startEdit = (memory: Memory) => {
     setEditingId(memory.id)
@@ -586,6 +619,15 @@ const MemoriesTab = ({
               ✨自动({sourceCounts.auto})
             </button>
           </div>
+          {lockedBudget.count > 0 ? (
+            <span
+              className={`locked-budget${lockedBudget.tokens > 2000 ? ' locked-budget--warn' : ''}`}
+              title="锁定记忆注入系统提示的 token 估算（中文约 2字/token）"
+            >
+              🔒 {lockedBudget.count} 条 ≈ {lockedBudget.tokens.toLocaleString()} tokens
+              {lockedBudget.tokens > 2000 ? ' ⚠️' : ''}
+            </span>
+          ) : null}
         </div>
 
         {filtered.length === 0 ? (
@@ -594,7 +636,7 @@ const MemoriesTab = ({
           </p>
         ) : (
           <ul className="memory-vault-items">
-            {filtered.map((memory) => (
+            {paginated.map((memory) => (
               <li
                 key={memory.id}
                 className={`memory-vault-item ${editingId === memory.id ? 'editing' : ''}`}
@@ -633,6 +675,29 @@ const MemoriesTab = ({
             ))}
           </ul>
         )}
+        {totalPages > 1 ? (
+          <div className="memory-vault-pagination">
+            <button
+              type="button"
+              className="ghost"
+              disabled={page === 0}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              ← 上一页
+            </button>
+            <span className="pagination-info">
+              {page + 1} / {totalPages}（共 {filtered.length} 条）
+            </span>
+            <button
+              type="button"
+              className="ghost"
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              下一页 →
+            </button>
+          </div>
+        ) : null}
       </section>
     </>
   )
