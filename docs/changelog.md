@@ -35,6 +35,10 @@
 - `manage_memory` 工具加 `action=archive`(走 `archive_memory` RPC);描述说明"软删除、锁定的不归档、用户能找回"。
 - 主表自然保持干净,搜索/注入不用加任何过滤。
 
+## 2026-06-11 搜索加时间近度加权
+
+借鉴 paramecium 的 RRF + recency 思路(MIT,重写非抄)。`search_memories_hybrid` 最终排序在 RRF 分上加一个**指数衰减的近度小加分**(半衰期 30 天、权重 0.006):相关度差不多时,越近的越靠前;但加分上限 0.006 远小于强相关项的 RRF,所以明显更相关的旧记忆/日记**不会被近度盖过**。只改了 ORDER BY,签名不变,edge function 不用动。RPC 即时生效(不用等 APK)。
+
 ## 🩹 Debug 日志（踩过的坑 + 修法）
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
