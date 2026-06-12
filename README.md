@@ -1,18 +1,14 @@
 # Nimbus Chat
 
-自托管的私人 AI 陪伴应用 —— 一个能记住你的事、写日记、控制智能家居（未来）的 Claude。（完全依托于串串老师的开源程序修改~感谢老师）
+自托管的私人 AI 陪伴 App —— 一个能记住你、写日记、主动给你发消息的 Claude。
 
-原仓库地址：https://github.com/chuan-101/Nibble-Chat
+基于 [Nibble-Chat](https://github.com/chuan-101/Nibble-Chat)（感谢串串老师 🙏）二次开发。**数据完全存在你自己的 Supabase 里，本项目不提供任何公共后端。**
 
-原README：项目简介 Nibble-Chat 是一个自托管的聊天小工具。前端部署在 GitHub Pages；数据存储与多端同步由用户自行创建的 Supabase 项目提供。本项目不提供中心化服务器，你的数据只在你自己的 Supabase 里。
+- 前端：React + Vite → **GitHub Pages PWA** + **Android APK**（Capacitor）
+- 后端：你自己的 **Supabase**（数据库 + Auth + Edge Functions）
+- LLM：**OpenRouter** 主 + **任意中转站** 备，设置页一键切换
 
-详细教程请查看：https://pan.baidu.com/s/1xv6jAOLd2fLeOwE8pPdohw?pwd=vyfr 提取码：vyfr
-
-本项目不提供公共后端。请先创建你自己的 Supabase 项目，并在应用内 Setup 页面填写 URL/anon key。
-
-部署：**GitHub Pages**（PWA）+ **Android APK**（Capacitor 打包）
-后端：你自己的 **Supabase** 项目（数据库 + 认证 + Edge Functions）
-LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
+> 📦 安装教程（含 Supabase 配置）：[百度网盘](https://pan.baidu.com/s/1xv6jAOLd2fLeOwE8pPdohw?pwd=vyfr) 提取码：`vyfr`
 
 ---
 
@@ -367,15 +363,15 @@ android/app/src/main/res-crab/drawable-nodpi/   # Clawd 螃蟹精灵帧（24 动
 
 ## 已知限制 / 未做
 
-- **中转保活 ping 不可靠**:cron job 已 `active:=false` 停掉(见成本优化节)。日均代价 $0.20-0.50 自然冷写
-- **单租户 RLS**:工具表用开放策略,只适合一个账号用
-- **iOS**:通知/状态栏/硬件返回 都是 Android-only 守卫
-- **`window.confirm/prompt/alert`**:部分页面还在用原生 dialog,待统一为 `ConfirmDialog`
+- **中转保活 ping 不可靠** — cron job 已 `active:=false` 停掉（见成本优化节），日均代价 $0.20–0.50 自然承担
+- **单租户 RLS** — 工具表用开放策略，只适合一个账号自用
+- **iOS** — 通知 / 状态栏 / 硬件返回键都有 Android-only 守卫，未测试 iOS
+- **原生 dialog** — 部分页面还在用 `window.confirm/prompt/alert`，待统一为 `ConfirmDialog`
 
 ## 历史 / 想做但暂缓
 
-- 内置 🎤 语音输入 — 已移除:`@capacitor-community/speech-recognition` 在 Android 11+ 因缺 RecognitionService `<queries>` 静默失效,且和输入法自带语音转文字重复,改用输入法的(依赖和 `RECORD_AUDIO` 权限已清理)
-- 暗黑模式 — 试过,每个页面的硬编码颜色太多,做一半撤了
-- 端到端加密的消息存储
-- Anthropic Code Execution 工具(要 BYOK 直连)
+- 🎤 内置语音输入 — 已移除：`@capacitor-community/speech-recognition` 在 Android 11+ 因缺 `RecognitionService` `<queries>` 声明静默失效，与输入法自带语音重复，改用输入法（依赖和 `RECORD_AUDIO` 权限已清理）
+- 暗黑模式 — 试过，各页面硬编码颜色太分散，做一半撤了
+- 端到端加密消息存储
+- Anthropic Code Execution 工具（需要 BYOK 直连）
 
