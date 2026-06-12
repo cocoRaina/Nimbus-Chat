@@ -32,7 +32,7 @@
 
 ### 2. 部署 Web 版
 
-Fork 本仓库 → Settings → Secrets → Actions 添加：
+Fork 本仓库 → Settings → Secrets →Actions 添加：
 
 | Secret | 说明 |
 |--------|------|
