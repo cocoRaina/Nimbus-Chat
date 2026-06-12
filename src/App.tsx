@@ -1171,10 +1171,12 @@ const App = () => {
         if (supabase) {
           try {
             healthSnap = await fetchHealthSnapshot()
-            if (healthSnap && typeof window !== 'undefined') {
-              window.localStorage.setItem(HEALTH_DATE_KEY, todayCN)
-            }
           } catch { /* non-fatal */ }
+          // Mark today as attempted whether or not we got data, so we don't
+          // hit Supabase on every message when Health Connect has no data yet.
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem(HEALTH_DATE_KEY, todayCN)
+          }
         }
         if (Capacitor.getPlatform() !== 'web') {
           try {
@@ -1787,6 +1789,17 @@ TOOL_SEARCH_HANDOFF,
               delete requestBody.top_p
             } else if (reasoningEnabled && activeSettings.chatHighReasoningEnabled && iteration === 1) {
               requestBody.reasoning = { effort: 'high' }
+            }
+
+            // Tool-selection iterations (2-3) only need to output a short
+            // function-call JSON blob — cap tokens to avoid verbose preambles.
+            // Iteration 4 keeps full tokens (last loop pass, likely final reply).
+            // The force-final-text path below always restores paramsSnapshot.max_tokens.
+            if (iteration > 1 && iteration < MAX_TOOL_ITERATIONS) {
+              requestBody.max_tokens = Math.min(
+                typeof requestBody.max_tokens === 'number' ? requestBody.max_tokens : 512,
+                512,
+              )
             }
 
             currentRequestDebug = {
@@ -2497,6 +2510,9 @@ TOOL_SEARCH_HANDOFF,
                 messages: applyClaudeCaching(baseMessages, effectiveModel),
                 stream: false,
                 tool_choice: 'none',
+                // Restore full max_tokens — lastSentBody may have the capped
+                // value from a mid-loop iteration (see tool-selection cap above).
+                max_tokens: paramsSnapshot.max_tokens,
               }
               // Re-enable extended thinking for the final text reply —
               // it was skipped on tool iterations 2-4 to save cost, but
