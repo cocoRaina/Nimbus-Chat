@@ -2,42 +2,7 @@
 
 > 从 README 拆出来的开发历史与踩坑记录(README 太长了)。功能清单和使用说明见 [README](../README.md)。
 
-## 2026-06-11 记忆系统 P1：可锁定记忆
-
-借鉴 kiwi-mem 的「lockable memories」(非抄代码,AGPL)。`memories` 加 `locked` 列(迁移 `20260611160000`,已上线);记忆库每条加 🔒 锁定/解锁开关 + 锁定指示。锁定的记忆将来不会被自动冲突消解作废(见 P2)。改 `Memory` 类型 / `MemoryRow` / `mapMemoryRow` / `MEMORY_SELECT_FIELDS` / `updateMemory` + `MemoryVaultPage`。
-
-## 2026-06-11 核心记忆改为自动注入(不再靠搜索)
-
-之前 `memories` 只能靠 AI 主动调 `search_memory` 才读到——"想不起来搜"就等于不知道。改成:**核心记忆默认注入系统提示**(常驻档案),日记/交接信/时间轴继续按需搜。
-- `supabaseSync.buildMemorySystemSection()`:把所有记忆按 **id 排序**拼成「关于 TA 的核心记忆」块,追加进 system prompt(在 `sendMessage` 里 `await listMemories()`)。固定顺序=逐字节稳定,进 Anthropic 缓存前缀;只在记忆增删改时下条冷写一次。
-- `search_memory` 工具描述更新:核心记忆已注入、不必再搜它,本工具主要用于日记/交接信/时间轴/朋友圈 —— 少一次工具调用,反而对缓存更好(工具块会破坏缓存)。
-- 纯前端,等下次 APK 生效;部署后首条消息会冷写一次(系统前缀变了),之后稳定。
-
-## 2026-06-11 核心记忆自动注入改为「只注入锁定的」
-
-记忆库噪音多(旧的/ChatGPT 导入的/没用的),全注入既费 token 又喂垃圾。改成**只自动注入用户锁定(🔒)的记忆**:
-- `listLockedMemories()` 只查 `locked=true`(随库变大也只拉锁定的几条);`buildMemorySystemSection` 也 filter locked。没锁任何记忆时不注入任何东西。
-- `search_memory` 工具描述更新:锁定的核心记忆已注入、不用搜;**未锁定的记忆**仍需用工具检索(日记/交接信/时间轴照旧)。
-- 用法:在记忆库把重要的记忆 🔒 一下,它们才常驻;其余的当作可搜索的归档。
-
-## 2026-06-11 让 Claude 自己管理记忆库(锁定/解锁/修改/通览)
-
-给 Claude 两个新工具,配合"锁定=常驻注入"的架构,让它按需整理记忆:
-- `manage_memory`(action: lock / unlock / update + id):锁定重要的(→ 常驻)、解锁噪音/过时的(→ 退出常驻但仍可搜)、修正或合并某条内容(走 updateMemory,改内容会清 embedding 触发重嵌)。
-- `list_memories`(只读,limit/offset/only_unlocked):通览记忆库,整理时看有哪些、哪些已锁定。
-- **删除暂不开放**(AI 误删风险高;要做会做成可恢复软删除)。`search_memories_hybrid` 本就返回 id,所以 Claude 能精确定位某条。
-- 工具加在请求体 tools 数组(部署后首条冷写一次,之后稳定)。纯前端,等 APK。
-
-## 2026-06-11 记忆软删除:归档表 + Claude 可 archive
-
-按用户方案做软删除(不真删,移到另一张表,可找回):
-- 新表 `memories_archive`(AI 不读/不搜/不注入)+ RPC `archive_memory(id)`(原子:复制到归档表 + 从主表删,**锁定的不归档**)+ `restore_memory(archive_id)`(移回主表、新 id 重嵌)。开放 RLS,用户可在 Supabase 后台直接看/恢复。迁移 `20260611170000`,已上线。
-- `manage_memory` 工具加 `action=archive`(走 `archive_memory` RPC);描述说明"软删除、锁定的不归档、用户能找回"。
-- 主表自然保持干净,搜索/注入不用加任何过滤。
-
-## 2026-06-11 搜索加时间近度加权
-
-借鉴 paramecium 的 RRF + recency 思路(MIT,重写非抄)。`search_memories_hybrid` 最终排序在 RRF 分上加一个**指数衰减的近度小加分**(半衰期 30 天、权重 0.006):相关度差不多时,越近的越靠前;但加分上限 0.006 远小于强相关项的 RRF,所以明显更相关的旧记忆/日记**不会被近度盖过**。只改了 ORDER BY,签名不变,edge function 不用动。RPC 即时生效(不用等 APK)。
+---
 
 ## 🩹 Debug 日志（踩过的坑 + 修法）
 
@@ -108,21 +73,64 @@
 
 ---
 
-## 2026-06-10 桌宠可点击：戳一下随机播 24 个动画
+## 2026-06-11
+
+### 记忆系统 P1：可锁定记忆
+
+借鉴 kiwi-mem 的「lockable memories」(非抄代码,AGPL)。`memories` 加 `locked` 列(迁移 `20260611160000`,已上线);记忆库每条加 🔒 锁定/解锁开关 + 锁定指示。锁定的记忆将来不会被自动冲突消解作废(见 P2)。改 `Memory` 类型 / `MemoryRow` / `mapMemoryRow` / `MEMORY_SELECT_FIELDS` / `updateMemory` + `MemoryVaultPage`。
+
+### 核心记忆改为自动注入(不再靠搜索)
+
+之前 `memories` 只能靠 AI 主动调 `search_memory` 才读到——"想不起来搜"就等于不知道。改成:**核心记忆默认注入系统提示**(常驻档案),日记/交接信/时间轴继续按需搜。
+- `supabaseSync.buildMemorySystemSection()`:把所有记忆按 **id 排序**拼成「关于 TA 的核心记忆」块,追加进 system prompt(在 `sendMessage` 里 `await listMemories()`)。固定顺序=逐字节稳定,进 Anthropic 缓存前缀;只在记忆增删改时下条冷写一次。
+- `search_memory` 工具描述更新:核心记忆已注入、不必再搜它,本工具主要用于日记/交接信/时间轴/朋友圈 —— 少一次工具调用,反而对缓存更好(工具块会破坏缓存)。
+- 纯前端,等下次 APK 生效;部署后首条消息会冷写一次(系统前缀变了),之后稳定。
+
+### 核心记忆自动注入改为「只注入锁定的」
+
+记忆库噪音多(旧的/ChatGPT 导入的/没用的),全注入既费 token 又喂垃圾。改成**只自动注入用户锁定(🔒)的记忆**:
+- `listLockedMemories()` 只查 `locked=true`(随库变大也只拉锁定的几条);`buildMemorySystemSection` 也 filter locked。没锁任何记忆时不注入任何东西。
+- `search_memory` 工具描述更新:锁定的核心记忆已注入、不用搜;**未锁定的记忆**仍需用工具检索(日记/交接信/时间轴照旧)。
+- 用法:在记忆库把重要的记忆 🔒 一下,它们才常驻;其余的当作可搜索的归档。
+
+### 让 Claude 自己管理记忆库(锁定/解锁/修改/通览)
+
+给 Claude 两个新工具,配合"锁定=常驻注入"的架构,让它按需整理记忆:
+- `manage_memory`(action: lock / unlock / update + id):锁定重要的(→ 常驻)、解锁噪音/过时的(→ 退出常驻但仍可搜)、修正或合并某条内容(走 updateMemory,改内容会清 embedding 触发重嵌)。
+- `list_memories`(只读,limit/offset/only_unlocked):通览记忆库,整理时看有哪些、哪些已锁定。
+- **删除暂不开放**(AI 误删风险高;要做会做成可恢复软删除)。`search_memories_hybrid` 本就返回 id,所以 Claude 能精确定位某条。
+- 工具加在请求体 tools 数组(部署后首条冷写一次,之后稳定)。纯前端,等 APK。
+
+### 记忆软删除:归档表 + Claude 可 archive
+
+按用户方案做软删除(不真删,移到另一张表,可找回):
+- 新表 `memories_archive`(AI 不读/不搜/不注入)+ RPC `archive_memory(id)`(原子:复制到归档表 + 从主表删,**锁定的不归档**)+ `restore_memory(archive_id)`(移回主表、新 id 重嵌)。开放 RLS,用户可在 Supabase 后台直接看/恢复。迁移 `20260611170000`,已上线。
+- `manage_memory` 工具加 `action=archive`(走 `archive_memory` RPC);描述说明"软删除、锁定的不归档、用户能找回"。
+- 主表自然保持干净,搜索/注入不用加任何过滤。
+
+### 搜索加时间近度加权
+
+借鉴 paramecium 的 RRF + recency 思路(MIT,重写非抄)。`search_memories_hybrid` 最终排序在 RRF 分上加一个**指数衰减的近度小加分**(半衰期 30 天、权重 0.006):相关度差不多时,越近的越靠前;但加分上限 0.006 远小于强相关项的 RRF,所以明显更相关的旧记忆/日记**不会被近度盖过**。只改了 ORDER BY,签名不变,edge function 不用动。RPC 即时生效(不用等 APK)。
+
+---
+
+## 2026-06-10
+
+### 桌宠可点击：戳一下随机播 24 个动画
 
 - **分区点击**:组合组件左半(日期/经期)点 → 开 App;右半(螃蟹)点 → 随机切到 **24 个动画之一**(`setOnClickPendingIntent` 广播 → `onReceive(ACTION_POKE)` → 随机 index 存 prefs → 刷新;下次周期刷新 `onUpdate` 自动回到相位默认)。
 - **全部 24 个动画**各 40 帧(从 clawd-tank slack-emojis 抽,和 6 状态版一样顺),共 960 张,**放进独立资源目录 `android/app/src/main/res-crab/drawable-nodpi/`**(build.gradle `sourceSets.main.res.srcDirs += 'src/main/res-crab'` 挂上,仍并进 `R.drawable`),主 `res/` 不再堆几百张帧。
 - 帧用编译期 `R.drawable` 数组引用(`minifyEnabled false`,且不走 getIdentifier,资源不会被误删)。
 - 默认相位映射不变(夜→sleep、经期中→away、滤泡期→walk、排卵期→happy、黄体期→idle、无记录→rest)。**原生改动,重打 APK 生效。**
 
-## 2026-06-10 组合组件升级：6 状态 + 40 帧动画
+### 组合组件升级：6 状态 + 40 帧动画
 
 - **6 个状态各一动画**（回应"多做几个状态"）：经期中→going-away、滤泡期→crab-walking、排卵期→happy、黄体期→idle、夜里→sleeping、无记录→静止 rest。
 - **40 帧/状态**（回应"帧多一点、别短短的"）：从原 GIF 线性采样 40 帧（不足的循环补齐），比之前 16 帧顺滑很多。
 - **架构改成单 ViewFlipper 复用**：一个 40 槽 flipper，Provider 按状态 `setImageViewResource` 填充当前状态的 40 帧——避免每状态堆一组 flipper 导致几百个 View。帧用编译期 `R.drawable` 数组引用（不走 getIdentifier，资源压缩不会误删）。
 - 新增素材 `crab_away_*` / `crab_walk_*`；idle/sleep/happy 重抽到 40 帧。原经期卡 + 独立桌宠保留。**原生改动，重打 APK 生效。**
 
-## 2026-06-10 新增：经期+桌宠 2×1 组合小组件（多状态动画）
+### 新增：经期+桌宠 2×1 组合小组件（多状态动画）
 
 新增第三个桌面小组件 `ComboWidgetProvider`（2×1）：左边日期 + 🩸经期相位/天数/预测，右边会动的 Clawd 螃蟹。
 - **多状态**：夜里→睡觉、排卵期→happy、经期中→静止 base、其余→idle，按时段+相位切 ViewFlipper 可见性。
@@ -130,7 +138,7 @@
 - 日期用 `SimpleDateFormat("M月d日 EEE", Locale.CHINA)`。复用 `PeriodCalc`；`PeriodWidgetPlugin` 推数据时一并刷新三个 widget。
 - 原有经期卡 + 桌宠保留（可单独添加）。MIT 署名见 `THIRD_PARTY_NOTICES.md`。**原生改动，重打 APK 生效。**
 
-## 2026-06-10 桌宠换成 Clawd 螃蟹（真·动画精灵）
+### 桌宠换成 Clawd 螃蟹（真·动画精灵）
 
 把 emoji 桌宠换成 [clawd-tank](https://github.com/marciogranzotto/clawd-tank) 的 Clawd 螃蟹（**MIT**，© Marcio Granzotto；非官方 Anthropic 同人）。
 - 从它 `assets/slack-emojis/` 的干净角色 GIF（`clawd-idle-living` / `clawd-sleeping`）各抽 8 帧、统一铺到 128×128 透明 PNG，放 `res/drawable-nodpi/`。
@@ -138,7 +146,7 @@
 - MIT 合规：`THIRD_PARTY_NOTICES.md` 附完整 MIT 许可 + 署名 + 同人声明。
 - **原生改动，重打 APK 生效**；Java/资源仅静态 review（此环境无法编 APK，请装新包后亲测渲染/动画/切换）。
 
-## 2026-06-10 新增：emoji 桌宠小组件
+### 新增：emoji 桌宠小组件
 
 第二个桌面小组件，一只会随你状态变心情的 emoji 小宠物（独立于经期数据卡，可单独添加）：
 - 用 emoji 当宠物（无需图片素材，任意尺寸清晰）。`ViewFlipper` 双帧自动循环 → 不写动画代码也会"眨眼"。
@@ -146,7 +154,7 @@
 - 复用经期数据（`PeriodWidgetPlugin` 推的同一份 SharedPreferences）。抽了共享的 `PeriodCalc`（相位/天数计算），经期卡和桌宠都用，逻辑不再两份。
 - 原生：`PetWidgetProvider` + `PeriodCalc` + `widget_pet` 布局 + `pet_widget_info` + manifest receiver；plugin 推数据时一并刷新两个 widget。**原生改动，重打 APK 生效。**
 
-## 2026-06-10 新增：经期桌面小组件（Android 主屏 AppWidget）
+### 新增：经期桌面小组件（Android 主屏 AppWidget）
 
 第一个真·桌面小组件（不是 App 内的 widget）。长按桌面 → 添加小组件 → Nimbus → 经期，主屏直接看当前阶段 / 第几天 / 距下次几天，点一下开 App。
 
@@ -154,12 +162,12 @@
 - 数据：`useHomeWidgetData` 算出 periodMetrics 后，把 raw start/end date + 解析后的 cycleLength 推给 widget（`storage/periodWidget.ts`）。**相位/天数在 Java 里按 UTC 纯日期重算**（和 useHomeWidgetData 的时区修复一致），所以跨天不打开 App 也会随 `updatePeriodMillis`（30min）自刷。
 - **原生改动，重打 APK 才有**。装新包后：home 页加载会推一次数据；首次没数据时 widget 显示「暂无记录」。
 
-## 2026-06-10 移除 FCM + 工具审查
+### 移除 FCM + 工具审查
 
 - **移除 FCM 推送**：改用本地通知（`@capacitor/local-notifications`）后 FCM 成死代码（`PushNotifications.register()` 早已注释，listener 永不触发）。清掉 `@capacitor/push-notifications` 插件 + App.tsx 注册/接收 listener + 已弃用的 `proactive_queue` 写入 + gradle 引用。**原生改动，重打 APK 生效**。服务端 `send_proactive_push` 函数 + `fcm_tokens` 表需在 Supabase Dashboard 手删（无 MCP 删除工具）。
 - **工具审查**：12 个工具中 `log_health`（in-app tool）之前用 `.insert()`，但 `health_data.date` 无唯一约束、读取走 `.eq(date).maybeSingle()`（>1 行即报错）。当天已有数据时再调一次会造重复行、读取崩。改为按 date upsert（和自动同步 / log_health edge function 一致）。其余写库工具（add_memory/write_diary/...）正常。
 
-## 2026-06-10 全局代码审查修复
+### 全局代码审查修复
 
 并行审查全仓库后修掉的确认 bug（详见对应 Debug 日志行）：
 
