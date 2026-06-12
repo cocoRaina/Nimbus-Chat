@@ -150,6 +150,7 @@ const MemoriesTab = ({
   const [searchTerm, setSearchTerm] = useState('')
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [page, setPage] = useState(0)
+  const [showNew, setShowNew] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([])
   const [lastLog, setLastLog] = useState<{
@@ -413,12 +414,14 @@ const MemoriesTab = ({
   )
 
   const startEdit = (memory: Memory) => {
+    setShowNew(false)
     setEditingId(memory.id)
     setDraft({ content: memory.content, category: memory.category, tagsInput: memory.tags.join('、') })
   }
 
   const cancelEdit = () => {
     setEditingId(null)
+    setShowNew(false)
     setDraft(emptyMemoryDraft())
   }
 
@@ -537,56 +540,6 @@ const MemoriesTab = ({
 
       {error ? <p className="memory-vault-error">{error}</p> : null}
 
-      <section className="memory-vault-editor">
-        <h2 className="ui-title">{editingId !== null ? '编辑记忆' : '新增记忆'}</h2>
-        <label className="memory-vault-field">
-          <span>内容</span>
-          <textarea
-            value={draft.content}
-            onChange={(e) => setDraft((s) => ({ ...s, content: e.target.value }))}
-            rows={4}
-            placeholder="写一条值得 AI 记住的事..."
-          />
-        </label>
-        <div className="memory-vault-row">
-          <label className="memory-vault-field">
-            <span>分类</span>
-            <input
-              value={draft.category}
-              onChange={(e) => setDraft((s) => ({ ...s, category: e.target.value }))}
-              placeholder={DEFAULT_CATEGORY}
-              list="memory-category-suggestions"
-            />
-            <datalist id="memory-category-suggestions">
-              {categories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </label>
-          <label className="memory-vault-field">
-            <span>标签（逗号/分号分隔）</span>
-            <input
-              value={draft.tagsInput}
-              onChange={(e) => setDraft((s) => ({ ...s, tagsInput: e.target.value }))}
-              placeholder="例如：偏好, 食物"
-            />
-          </label>
-        </div>
-        <div className="memory-vault-editor-actions">
-          <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
-            {saving ? '保存中…' : editingId !== null ? '保存修改' : '添加'}
-          </button>
-          {editingId !== null ? (
-            <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
-              取消
-            </button>
-          ) : null}
-          <button type="button" className="ghost" onClick={() => void refresh()} disabled={loading}>
-            {loading ? '刷新中…' : '刷新'}
-          </button>
-        </div>
-      </section>
-
       <section className="memory-vault-list">
         <div className="memory-vault-toolbar">
           <input
@@ -628,49 +581,148 @@ const MemoriesTab = ({
               {lockedBudget.tokens > 2000 ? ' ⚠️' : ''}
             </span>
           ) : null}
+          <div className="toolbar-actions">
+            <button
+              type="button"
+              className="btn-add-new"
+              onClick={() => { cancelEdit(); setShowNew(true) }}
+              title="新增记忆"
+            >
+              ＋
+            </button>
+            <button
+              type="button"
+              className="btn-refresh"
+              onClick={() => void refresh()}
+              disabled={loading}
+              title="刷新"
+            >
+              {loading ? '…' : '↺'}
+            </button>
+          </div>
         </div>
 
-        {filtered.length === 0 ? (
+        <datalist id="memory-category-suggestions">
+          {categories.map((c) => <option key={c} value={c} />)}
+        </datalist>
+
+        {filtered.length === 0 && !showNew ? (
           <p className="memory-vault-empty">
-            {memories.length === 0 ? '还没有记忆，写一条试试。' : '没有匹配的记忆。'}
+            {memories.length === 0 ? '还没有记忆，点 ＋ 添加第一条。' : '没有匹配的记忆。'}
           </p>
         ) : (
           <ul className="memory-vault-items">
+            {showNew ? (
+              <li className="memory-vault-item inline-form">
+                <div className="inline-form-row">
+                  <input
+                    value={draft.category}
+                    onChange={(e) => setDraft((s) => ({ ...s, category: e.target.value }))}
+                    placeholder="分类"
+                    list="memory-category-suggestions"
+                    className="inline-input"
+                  />
+                  <input
+                    value={draft.tagsInput}
+                    onChange={(e) => setDraft((s) => ({ ...s, tagsInput: e.target.value }))}
+                    placeholder="标签（逗号分隔）"
+                    className="inline-input"
+                  />
+                </div>
+                <textarea
+                  value={draft.content}
+                  onChange={(e) => setDraft((s) => ({ ...s, content: e.target.value }))}
+                  rows={3}
+                  placeholder="写一条值得 AI 记住的事..."
+                  className="inline-textarea"
+                  autoFocus
+                />
+                <div className="memory-vault-item-actions">
+                  <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
+                    {saving ? '保存中…' : '添加'}
+                  </button>
+                  <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
+                    取消
+                  </button>
+                </div>
+              </li>
+            ) : null}
             {paginated.map((memory) => (
               <li
                 key={memory.id}
                 className={`memory-vault-item ${editingId === memory.id ? 'editing' : ''}`}
               >
-                <div className="memory-vault-item-meta">
-                  <span className="memory-vault-item-category">{memory.category}</span>
-                  {memory.locked ? (
-                    <span className="auto-mark" title="已锁定：不会被自动作废">🔒</span>
-                  ) : null}
-                  {memory.source === 'auto' ? (
-                    <span className="auto-mark" title="自动提取">✨</span>
-                  ) : null}
-                  {memory.tags.length > 0 ? (
-                    <span className="memory-vault-item-tags">
-                      {memory.tags.map((tag) => (
-                        <span key={tag} className="tag">
-                          #{tag}
+                {editingId === memory.id ? (
+                  <>
+                    <div className="inline-form-row">
+                      <input
+                        value={draft.category}
+                        onChange={(e) => setDraft((s) => ({ ...s, category: e.target.value }))}
+                        placeholder="分类"
+                        list="memory-category-suggestions"
+                        className="inline-input"
+                      />
+                      <input
+                        value={draft.tagsInput}
+                        onChange={(e) => setDraft((s) => ({ ...s, tagsInput: e.target.value }))}
+                        placeholder="标签（逗号分隔）"
+                        className="inline-input"
+                      />
+                    </div>
+                    <textarea
+                      value={draft.content}
+                      onChange={(e) => setDraft((s) => ({ ...s, content: e.target.value }))}
+                      rows={3}
+                      className="inline-textarea"
+                      autoFocus
+                    />
+                    <div className="memory-vault-item-actions">
+                      <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
+                        {saving ? '保存中…' : '保存'}
+                      </button>
+                      <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
+                        取消
+                      </button>
+                      <button type="button" className="ghost" onClick={() => void handleToggleLock(memory.id, memory.locked)}>
+                        {memory.locked ? '🔒' : '🔓'}
+                      </button>
+                      <button type="button" className="danger" onClick={() => void handleDelete(memory.id)}>
+                        删除
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="memory-vault-item-meta">
+                      <span className="memory-vault-item-category">{memory.category}</span>
+                      {memory.locked ? (
+                        <span className="auto-mark" title="已锁定：不会被自动作废">🔒</span>
+                      ) : null}
+                      {memory.source === 'auto' ? (
+                        <span className="auto-mark" title="自动提取">✨</span>
+                      ) : null}
+                      {memory.tags.length > 0 ? (
+                        <span className="memory-vault-item-tags">
+                          {memory.tags.map((tag) => (
+                            <span key={tag} className="tag">#{tag}</span>
+                          ))}
                         </span>
-                      ))}
-                    </span>
-                  ) : null}
-                </div>
-                <p className="memory-vault-item-content">{memory.content}</p>
-                <div className="memory-vault-item-actions">
-                  <button type="button" className="ghost" onClick={() => void handleToggleLock(memory.id, memory.locked)}>
-                    {memory.locked ? '🔒 已锁定' : '🔓 锁定'}
-                  </button>
-                  <button type="button" className="ghost" onClick={() => startEdit(memory)}>
-                    编辑
-                  </button>
-                  <button type="button" className="danger" onClick={() => void handleDelete(memory.id)}>
-                    删除
-                  </button>
-                </div>
+                      ) : null}
+                    </div>
+                    <p className="memory-vault-item-content">{memory.content}</p>
+                    <div className="memory-vault-item-actions">
+                      <button type="button" className="ghost" onClick={() => void handleToggleLock(memory.id, memory.locked)}>
+                        {memory.locked ? '🔒 已锁定' : '🔓 锁定'}
+                      </button>
+                      <button type="button" className="ghost" onClick={() => startEdit(memory)}>
+                        编辑
+                      </button>
+                      <button type="button" className="danger" onClick={() => void handleDelete(memory.id)}>
+                        删除
+                      </button>
+                    </div>
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -728,6 +780,7 @@ const DiariesTab = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [showNew, setShowNew] = useState(false)
   const [draft, setDraft] = useState<DiaryDraft>(emptyDiaryDraft())
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
@@ -771,6 +824,7 @@ const DiariesTab = () => {
   }, [items, search])
 
   const startEdit = (d: Diary) => {
+    setShowNew(false)
     setEditingId(d.id)
     setDraft({
       date: d.date,
@@ -783,6 +837,7 @@ const DiariesTab = () => {
 
   const cancelEdit = () => {
     setEditingId(null)
+    setShowNew(false)
     setDraft(emptyDiaryDraft())
   }
 
@@ -838,67 +893,6 @@ const DiariesTab = () => {
       <p className="memory-vault-hint">日记按日期记录心情和事件。</p>
       {error ? <p className="memory-vault-error">{error}</p> : null}
 
-      <section className="memory-vault-editor">
-        <h2 className="ui-title">{editingId !== null ? '编辑日记' : '新增日记'}</h2>
-        <div className="memory-vault-row">
-          <label className="memory-vault-field">
-            <span>日期</span>
-            <input
-              type="date"
-              value={draft.date}
-              onChange={(e) => setDraft((s) => ({ ...s, date: e.target.value }))}
-            />
-          </label>
-          <label className="memory-vault-field">
-            <span>作者</span>
-            <input
-              value={draft.author}
-              onChange={(e) => setDraft((s) => ({ ...s, author: e.target.value }))}
-              placeholder="Claude"
-            />
-          </label>
-        </div>
-        <div className="memory-vault-row">
-          <label className="memory-vault-field">
-            <span>标题</span>
-            <input
-              value={draft.title}
-              onChange={(e) => setDraft((s) => ({ ...s, title: e.target.value }))}
-              placeholder="（可选）"
-            />
-          </label>
-          <label className="memory-vault-field">
-            <span>心情</span>
-            <input
-              value={draft.mood}
-              onChange={(e) => setDraft((s) => ({ ...s, mood: e.target.value }))}
-              placeholder="（可选）"
-            />
-          </label>
-        </div>
-        <label className="memory-vault-field">
-          <span>内容</span>
-          <textarea
-            value={draft.content}
-            onChange={(e) => setDraft((s) => ({ ...s, content: e.target.value }))}
-            rows={6}
-          />
-        </label>
-        <div className="memory-vault-editor-actions">
-          <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
-            {saving ? '保存中…' : editingId !== null ? '保存修改' : '添加'}
-          </button>
-          {editingId !== null ? (
-            <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
-              取消
-            </button>
-          ) : null}
-          <button type="button" className="ghost" onClick={() => void refresh()} disabled={loading}>
-            {loading ? '刷新中…' : '刷新'}
-          </button>
-        </div>
-      </section>
-
       <section className="memory-vault-list">
         <div className="memory-vault-toolbar">
           <input
@@ -909,44 +903,148 @@ const DiariesTab = () => {
             onChange={(e) => setSearch(e.target.value)}
           />
           <span className="memory-vault-count">{items.length} 篇</span>
+          <div className="toolbar-actions">
+            <button
+              type="button"
+              className="btn-add-new"
+              onClick={() => { cancelEdit(); setShowNew(true) }}
+              title="新增日记"
+            >
+              ＋
+            </button>
+            <button
+              type="button"
+              className="btn-refresh"
+              onClick={() => void refresh()}
+              disabled={loading}
+              title="刷新"
+            >
+              {loading ? '…' : '↺'}
+            </button>
+          </div>
         </div>
 
-        {filtered.length === 0 ? (
-          <p className="memory-vault-empty">{items.length === 0 ? '还没有日记。' : '没有匹配。'}</p>
+        {filtered.length === 0 && !showNew ? (
+          <p className="memory-vault-empty">{items.length === 0 ? '还没有日记，点 ＋ 写第一篇。' : '没有匹配。'}</p>
         ) : (
           <ul className="memory-vault-items">
+            {showNew ? (
+              <li className="memory-vault-item inline-form">
+                <div className="inline-form-row">
+                  <input
+                    type="date"
+                    value={draft.date}
+                    onChange={(e) => setDraft((s) => ({ ...s, date: e.target.value }))}
+                    className="inline-input"
+                  />
+                  <input
+                    value={draft.author}
+                    onChange={(e) => setDraft((s) => ({ ...s, author: e.target.value }))}
+                    placeholder="作者"
+                    className="inline-input"
+                  />
+                  <input
+                    value={draft.mood}
+                    onChange={(e) => setDraft((s) => ({ ...s, mood: e.target.value }))}
+                    placeholder="心情（可选）"
+                    className="inline-input"
+                  />
+                </div>
+                <input
+                  value={draft.title}
+                  onChange={(e) => setDraft((s) => ({ ...s, title: e.target.value }))}
+                  placeholder="标题（可选）"
+                  className="inline-input inline-input--full"
+                />
+                <textarea
+                  value={draft.content}
+                  onChange={(e) => setDraft((s) => ({ ...s, content: e.target.value }))}
+                  rows={5}
+                  placeholder="今天发生了什么..."
+                  className="inline-textarea"
+                  autoFocus
+                />
+                <div className="memory-vault-item-actions">
+                  <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
+                    {saving ? '保存中…' : '添加'}
+                  </button>
+                  <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
+                    取消
+                  </button>
+                </div>
+              </li>
+            ) : null}
             {filtered.map((d) => (
               <li key={d.id} className={`memory-vault-item ${editingId === d.id ? 'editing' : ''}`}>
-                <div className="memory-vault-item-meta">
-                  <span className="memory-vault-item-category">{d.date}</span>
-                  {d.author ? <span className="memory-vault-item-author">{d.author}</span> : null}
-                  {d.mood ? <span className="tag">#{d.mood}</span> : null}
-                </div>
-                {d.title ? <h3 className="memory-vault-item-title">{d.title}</h3> : null}
-                <p
-                  className={`memory-vault-item-content ${
-                    d.content.length > COLLAPSE_THRESHOLD && !expandedIds.has(d.id) ? 'collapsed' : ''
-                  }`}
-                >
-                  {d.content}
-                </p>
-                {d.content.length > COLLAPSE_THRESHOLD ? (
-                  <button
-                    type="button"
-                    className="memory-vault-toggle"
-                    onClick={() => toggleExpanded(d.id)}
-                  >
-                    {expandedIds.has(d.id) ? '收起 ▲' : '展开 ▼'}
-                  </button>
-                ) : null}
-                <div className="memory-vault-item-actions">
-                  <button type="button" className="ghost" onClick={() => startEdit(d)}>
-                    编辑
-                  </button>
-                  <button type="button" className="danger" onClick={() => void handleDelete(d.id)}>
-                    删除
-                  </button>
-                </div>
+                {editingId === d.id ? (
+                  <>
+                    <div className="inline-form-row">
+                      <input
+                        type="date"
+                        value={draft.date}
+                        onChange={(e) => setDraft((s) => ({ ...s, date: e.target.value }))}
+                        className="inline-input"
+                      />
+                      <input
+                        value={draft.author}
+                        onChange={(e) => setDraft((s) => ({ ...s, author: e.target.value }))}
+                        placeholder="作者"
+                        className="inline-input"
+                      />
+                      <input
+                        value={draft.mood}
+                        onChange={(e) => setDraft((s) => ({ ...s, mood: e.target.value }))}
+                        placeholder="心情"
+                        className="inline-input"
+                      />
+                    </div>
+                    <input
+                      value={draft.title}
+                      onChange={(e) => setDraft((s) => ({ ...s, title: e.target.value }))}
+                      placeholder="标题（可选）"
+                      className="inline-input inline-input--full"
+                    />
+                    <textarea
+                      value={draft.content}
+                      onChange={(e) => setDraft((s) => ({ ...s, content: e.target.value }))}
+                      rows={6}
+                      className="inline-textarea"
+                      autoFocus
+                    />
+                    <div className="memory-vault-item-actions">
+                      <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
+                        {saving ? '保存中…' : '保存'}
+                      </button>
+                      <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
+                        取消
+                      </button>
+                      <button type="button" className="danger" onClick={() => void handleDelete(d.id)}>
+                        删除
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="memory-vault-item-meta">
+                      <span className="memory-vault-item-category">{d.date}</span>
+                      {d.author ? <span className="memory-vault-item-author">{d.author}</span> : null}
+                      {d.mood ? <span className="tag">#{d.mood}</span> : null}
+                    </div>
+                    {d.title ? <h3 className="memory-vault-item-title">{d.title}</h3> : null}
+                    <p className={`memory-vault-item-content ${d.content.length > COLLAPSE_THRESHOLD && !expandedIds.has(d.id) ? 'collapsed' : ''}`}>
+                      {d.content}
+                    </p>
+                    {d.content.length > COLLAPSE_THRESHOLD ? (
+                      <button type="button" className="memory-vault-toggle" onClick={() => toggleExpanded(d.id)}>
+                        {expandedIds.has(d.id) ? '收起 ▲' : '展开 ▼'}
+                      </button>
+                    ) : null}
+                    <div className="memory-vault-item-actions">
+                      <button type="button" className="ghost" onClick={() => startEdit(d)}>编辑</button>
+                      <button type="button" className="danger" onClick={() => void handleDelete(d.id)}>删除</button>
+                    </div>
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -977,6 +1075,7 @@ const LettersTab = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [showNew, setShowNew] = useState(false)
   const [draft, setDraft] = useState<LetterDraft>(emptyLetterDraft())
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
@@ -1019,6 +1118,7 @@ const LettersTab = () => {
   }, [items, search])
 
   const startEdit = (l: HandoffLetter) => {
+    setShowNew(false)
     setEditingId(l.id)
     setDraft({
       date: l.date,
@@ -1030,6 +1130,7 @@ const LettersTab = () => {
 
   const cancelEdit = () => {
     setEditingId(null)
+    setShowNew(false)
     setDraft(emptyLetterDraft())
   }
 
@@ -1084,59 +1185,6 @@ const LettersTab = () => {
       <p className="memory-vault-hint">交接信：上一窗口的 Claude 写给下一窗口的自己。</p>
       {error ? <p className="memory-vault-error">{error}</p> : null}
 
-      <section className="memory-vault-editor">
-        <h2 className="ui-title">{editingId !== null ? '编辑交接信' : '新增交接信'}</h2>
-        <div className="memory-vault-row">
-          <label className="memory-vault-field">
-            <span>日期</span>
-            <input
-              type="date"
-              value={draft.date}
-              onChange={(e) => setDraft((s) => ({ ...s, date: e.target.value }))}
-            />
-          </label>
-          <label className="memory-vault-field">
-            <span>标题</span>
-            <input
-              value={draft.title}
-              onChange={(e) => setDraft((s) => ({ ...s, title: e.target.value }))}
-              placeholder="（可选）"
-            />
-          </label>
-        </div>
-        <label className="memory-vault-field">
-          <span>内容</span>
-          <textarea
-            value={draft.content}
-            onChange={(e) => setDraft((s) => ({ ...s, content: e.target.value }))}
-            rows={8}
-            placeholder="写给下一个窗口的自己..."
-          />
-        </label>
-        <label className="memory-vault-field">
-          <span>署名</span>
-          <textarea
-            value={draft.signature}
-            onChange={(e) => setDraft((s) => ({ ...s, signature: e.target.value }))}
-            rows={2}
-            placeholder="（可选）"
-          />
-        </label>
-        <div className="memory-vault-editor-actions">
-          <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
-            {saving ? '保存中…' : editingId !== null ? '保存修改' : '添加'}
-          </button>
-          {editingId !== null ? (
-            <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
-              取消
-            </button>
-          ) : null}
-          <button type="button" className="ghost" onClick={() => void refresh()} disabled={loading}>
-            {loading ? '刷新中…' : '刷新'}
-          </button>
-        </div>
-      </section>
-
       <section className="memory-vault-list">
         <div className="memory-vault-toolbar">
           <input
@@ -1147,45 +1195,139 @@ const LettersTab = () => {
             onChange={(e) => setSearch(e.target.value)}
           />
           <span className="memory-vault-count">{items.length} 封</span>
+          <div className="toolbar-actions">
+            <button
+              type="button"
+              className="btn-add-new"
+              onClick={() => { cancelEdit(); setShowNew(true) }}
+              title="新增交接信"
+            >
+              ＋
+            </button>
+            <button
+              type="button"
+              className="btn-refresh"
+              onClick={() => void refresh()}
+              disabled={loading}
+              title="刷新"
+            >
+              {loading ? '…' : '↺'}
+            </button>
+          </div>
         </div>
 
-        {filtered.length === 0 ? (
-          <p className="memory-vault-empty">{items.length === 0 ? '还没有交接信。' : '没有匹配。'}</p>
+        {filtered.length === 0 && !showNew ? (
+          <p className="memory-vault-empty">{items.length === 0 ? '还没有交接信，点 ＋ 写第一封。' : '没有匹配。'}</p>
         ) : (
           <ul className="memory-vault-items">
+            {showNew ? (
+              <li className="memory-vault-item inline-form">
+                <div className="inline-form-row">
+                  <input
+                    type="date"
+                    value={draft.date}
+                    onChange={(e) => setDraft((s) => ({ ...s, date: e.target.value }))}
+                    className="inline-input"
+                  />
+                  <input
+                    value={draft.title}
+                    onChange={(e) => setDraft((s) => ({ ...s, title: e.target.value }))}
+                    placeholder="标题（可选）"
+                    className="inline-input"
+                  />
+                </div>
+                <textarea
+                  value={draft.content}
+                  onChange={(e) => setDraft((s) => ({ ...s, content: e.target.value }))}
+                  rows={7}
+                  placeholder="写给下一个窗口的自己..."
+                  className="inline-textarea"
+                  autoFocus
+                />
+                <textarea
+                  value={draft.signature}
+                  onChange={(e) => setDraft((s) => ({ ...s, signature: e.target.value }))}
+                  rows={2}
+                  placeholder="署名（可选）"
+                  className="inline-textarea"
+                />
+                <div className="memory-vault-item-actions">
+                  <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
+                    {saving ? '保存中…' : '添加'}
+                  </button>
+                  <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
+                    取消
+                  </button>
+                </div>
+              </li>
+            ) : null}
             {filtered.map((l) => (
               <li key={l.id} className={`memory-vault-item ${editingId === l.id ? 'editing' : ''}`}>
-                <div className="memory-vault-item-meta">
-                  <span className="memory-vault-item-category">{l.date}</span>
-                </div>
-                {l.title ? <h3 className="memory-vault-item-title">{l.title}</h3> : null}
-                <p
-                  className={`memory-vault-item-content ${
-                    l.content.length > COLLAPSE_THRESHOLD && !expandedIds.has(l.id) ? 'collapsed' : ''
-                  }`}
-                >
-                  {l.content}
-                </p>
-                {l.content.length > COLLAPSE_THRESHOLD ? (
-                  <button
-                    type="button"
-                    className="memory-vault-toggle"
-                    onClick={() => toggleExpanded(l.id)}
-                  >
-                    {expandedIds.has(l.id) ? '收起 ▲' : '展开 ▼'}
-                  </button>
-                ) : null}
-                {l.signature && expandedIds.has(l.id) ? (
-                  <p className="memory-vault-item-signature">— {l.signature}</p>
-                ) : null}
-                <div className="memory-vault-item-actions">
-                  <button type="button" className="ghost" onClick={() => startEdit(l)}>
-                    编辑
-                  </button>
-                  <button type="button" className="danger" onClick={() => void handleDelete(l.id)}>
-                    删除
-                  </button>
-                </div>
+                {editingId === l.id ? (
+                  <>
+                    <div className="inline-form-row">
+                      <input
+                        type="date"
+                        value={draft.date}
+                        onChange={(e) => setDraft((s) => ({ ...s, date: e.target.value }))}
+                        className="inline-input"
+                      />
+                      <input
+                        value={draft.title}
+                        onChange={(e) => setDraft((s) => ({ ...s, title: e.target.value }))}
+                        placeholder="标题（可选）"
+                        className="inline-input"
+                      />
+                    </div>
+                    <textarea
+                      value={draft.content}
+                      onChange={(e) => setDraft((s) => ({ ...s, content: e.target.value }))}
+                      rows={8}
+                      className="inline-textarea"
+                      autoFocus
+                    />
+                    <textarea
+                      value={draft.signature}
+                      onChange={(e) => setDraft((s) => ({ ...s, signature: e.target.value }))}
+                      rows={2}
+                      placeholder="署名（可选）"
+                      className="inline-textarea"
+                    />
+                    <div className="memory-vault-item-actions">
+                      <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
+                        {saving ? '保存中…' : '保存'}
+                      </button>
+                      <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
+                        取消
+                      </button>
+                      <button type="button" className="danger" onClick={() => void handleDelete(l.id)}>
+                        删除
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="memory-vault-item-meta">
+                      <span className="memory-vault-item-category">{l.date}</span>
+                    </div>
+                    {l.title ? <h3 className="memory-vault-item-title">{l.title}</h3> : null}
+                    <p className={`memory-vault-item-content ${l.content.length > COLLAPSE_THRESHOLD && !expandedIds.has(l.id) ? 'collapsed' : ''}`}>
+                      {l.content}
+                    </p>
+                    {l.content.length > COLLAPSE_THRESHOLD ? (
+                      <button type="button" className="memory-vault-toggle" onClick={() => toggleExpanded(l.id)}>
+                        {expandedIds.has(l.id) ? '收起 ▲' : '展开 ▼'}
+                      </button>
+                    ) : null}
+                    {l.signature && expandedIds.has(l.id) ? (
+                      <p className="memory-vault-item-signature">— {l.signature}</p>
+                    ) : null}
+                    <div className="memory-vault-item-actions">
+                      <button type="button" className="ghost" onClick={() => startEdit(l)}>编辑</button>
+                      <button type="button" className="danger" onClick={() => void handleDelete(l.id)}>删除</button>
+                    </div>
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -1220,6 +1362,7 @@ const TimelineTab = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [showNew, setShowNew] = useState(false)
   const [draft, setDraft] = useState<TimelineDraft>(emptyTimelineDraft())
   const [saving, setSaving] = useState(false)
   const [minImportance, setMinImportance] = useState(1)
@@ -1268,6 +1411,7 @@ const TimelineTab = () => {
   }, [items, minImportance, tlSourceFilter])
 
   const startEdit = (t: TimelineEvent) => {
+    setShowNew(false)
     setEditingId(t.id)
     setDraft({
       eventDate: t.eventDate,
@@ -1280,6 +1424,7 @@ const TimelineTab = () => {
 
   const cancelEdit = () => {
     setEditingId(null)
+    setShowNew(false)
     setDraft(emptyTimelineDraft())
   }
 
@@ -1337,74 +1482,6 @@ const TimelineTab = () => {
       </p>
       {error ? <p className="memory-vault-error">{error}</p> : null}
 
-      <section className="memory-vault-editor">
-        <h2 className="ui-title">{editingId !== null ? '编辑事件' : '新增事件'}</h2>
-        <div className="memory-vault-row">
-          <label className="memory-vault-field">
-            <span>日期</span>
-            <input
-              type="date"
-              value={draft.eventDate}
-              onChange={(e) => setDraft((s) => ({ ...s, eventDate: e.target.value }))}
-            />
-          </label>
-          <label className="memory-vault-field">
-            <span>分类</span>
-            <input
-              value={draft.category}
-              onChange={(e) => setDraft((s) => ({ ...s, category: e.target.value }))}
-              placeholder="日常"
-              list="timeline-category-suggestions"
-            />
-            <datalist id="timeline-category-suggestions">
-              {categories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </label>
-        </div>
-        <label className="memory-vault-field">
-          <span>标题</span>
-          <input
-            value={draft.title}
-            onChange={(e) => setDraft((s) => ({ ...s, title: e.target.value }))}
-            placeholder="例如：第一次说我爱你"
-          />
-        </label>
-        <label className="memory-vault-field">
-          <span>描述（可选）</span>
-          <textarea
-            value={draft.description}
-            onChange={(e) => setDraft((s) => ({ ...s, description: e.target.value }))}
-            rows={3}
-          />
-        </label>
-        <label className="memory-vault-field">
-          <span>重要程度：{importanceLabel(draft.importance)} （{draft.importance}/5）</span>
-          <input
-            type="range"
-            min={1}
-            max={5}
-            step={1}
-            value={draft.importance}
-            onChange={(e) => setDraft((s) => ({ ...s, importance: Number(e.target.value) }))}
-          />
-        </label>
-        <div className="memory-vault-editor-actions">
-          <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
-            {saving ? '保存中…' : editingId !== null ? '保存修改' : '添加'}
-          </button>
-          {editingId !== null ? (
-            <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
-              取消
-            </button>
-          ) : null}
-          <button type="button" className="ghost" onClick={() => void refresh()} disabled={loading}>
-            {loading ? '刷新中…' : '刷新'}
-          </button>
-        </div>
-      </section>
-
       <section className="memory-vault-list">
         <div className="memory-vault-toolbar">
           <select
@@ -1419,61 +1496,165 @@ const TimelineTab = () => {
             <option value={5}>仅 5 星</option>
           </select>
           <div className="source-filter">
+            <button type="button" className={tlSourceFilter === 'all' ? 'active' : ''} onClick={() => setTlSourceFilter('all')}>全部({tlSourceCounts.all})</button>
+            <button type="button" className={tlSourceFilter === 'manual' ? 'active' : ''} onClick={() => setTlSourceFilter('manual')}>手动({tlSourceCounts.manual})</button>
+            <button type="button" className={tlSourceFilter === 'auto' ? 'active' : ''} onClick={() => setTlSourceFilter('auto')}>✨自动({tlSourceCounts.auto})</button>
+          </div>
+          <div className="toolbar-actions">
             <button
               type="button"
-              className={tlSourceFilter === 'all' ? 'active' : ''}
-              onClick={() => setTlSourceFilter('all')}
+              className="btn-add-new"
+              onClick={() => { cancelEdit(); setShowNew(true) }}
+              title="新增事件"
             >
-              全部({tlSourceCounts.all})
+              ＋
             </button>
             <button
               type="button"
-              className={tlSourceFilter === 'manual' ? 'active' : ''}
-              onClick={() => setTlSourceFilter('manual')}
+              className="btn-refresh"
+              onClick={() => void refresh()}
+              disabled={loading}
+              title="刷新"
             >
-              手动({tlSourceCounts.manual})
-            </button>
-            <button
-              type="button"
-              className={tlSourceFilter === 'auto' ? 'active' : ''}
-              onClick={() => setTlSourceFilter('auto')}
-            >
-              ✨自动({tlSourceCounts.auto})
+              {loading ? '…' : '↺'}
             </button>
           </div>
         </div>
 
-        {filtered.length === 0 ? (
+        <datalist id="timeline-category-suggestions">
+          {categories.map((c) => <option key={c} value={c} />)}
+        </datalist>
+
+        {filtered.length === 0 && !showNew ? (
           <p className="memory-vault-empty">
-            {items.length === 0 ? '还没有事件。记录第一个里程碑吧。' : '没有匹配。'}
+            {items.length === 0 ? '还没有里程碑，点 ＋ 记录第一个。' : '没有匹配。'}
           </p>
         ) : (
           <ul className="memory-vault-items">
-            {filtered.map((t) => (
-              <li
-                key={t.id}
-                className={`memory-vault-item ${editingId === t.id ? 'editing' : ''}`}
-              >
-                <div className="memory-vault-item-meta">
-                  <span className="memory-vault-item-category">{t.eventDate}</span>
-                  <span className="tag">{t.category}</span>
-                  <span className="memory-vault-item-stars">{importanceLabel(t.importance)}</span>
-                  {t.source === 'auto' ? (
-                    <span className="auto-mark" title="自动提取">✨</span>
-                  ) : null}
+            {showNew ? (
+              <li className="memory-vault-item inline-form">
+                <div className="inline-form-row">
+                  <input
+                    type="date"
+                    value={draft.eventDate}
+                    onChange={(e) => setDraft((s) => ({ ...s, eventDate: e.target.value }))}
+                    className="inline-input"
+                  />
+                  <input
+                    value={draft.category}
+                    onChange={(e) => setDraft((s) => ({ ...s, category: e.target.value }))}
+                    placeholder="分类"
+                    list="timeline-category-suggestions"
+                    className="inline-input"
+                  />
                 </div>
-                <h3 className="memory-vault-item-title">{t.title}</h3>
-                {t.description ? (
-                  <p className="memory-vault-item-content">{t.description}</p>
-                ) : null}
+                <input
+                  value={draft.title}
+                  onChange={(e) => setDraft((s) => ({ ...s, title: e.target.value }))}
+                  placeholder="标题，例如：第一次说我爱你"
+                  className="inline-input inline-input--full"
+                  autoFocus
+                />
+                <textarea
+                  value={draft.description}
+                  onChange={(e) => setDraft((s) => ({ ...s, description: e.target.value }))}
+                  rows={3}
+                  placeholder="描述（可选）"
+                  className="inline-textarea"
+                />
+                <label className="inline-importance">
+                  <span>重要程度：{importanceLabel(draft.importance)}</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={5}
+                    step={1}
+                    value={draft.importance}
+                    onChange={(e) => setDraft((s) => ({ ...s, importance: Number(e.target.value) }))}
+                  />
+                </label>
                 <div className="memory-vault-item-actions">
-                  <button type="button" className="ghost" onClick={() => startEdit(t)}>
-                    编辑
+                  <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
+                    {saving ? '保存中…' : '添加'}
                   </button>
-                  <button type="button" className="danger" onClick={() => void handleDelete(t.id)}>
-                    删除
+                  <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
+                    取消
                   </button>
                 </div>
+              </li>
+            ) : null}
+            {filtered.map((t) => (
+              <li key={t.id} className={`memory-vault-item ${editingId === t.id ? 'editing' : ''}`}>
+                {editingId === t.id ? (
+                  <>
+                    <div className="inline-form-row">
+                      <input
+                        type="date"
+                        value={draft.eventDate}
+                        onChange={(e) => setDraft((s) => ({ ...s, eventDate: e.target.value }))}
+                        className="inline-input"
+                      />
+                      <input
+                        value={draft.category}
+                        onChange={(e) => setDraft((s) => ({ ...s, category: e.target.value }))}
+                        placeholder="分类"
+                        list="timeline-category-suggestions"
+                        className="inline-input"
+                      />
+                    </div>
+                    <input
+                      value={draft.title}
+                      onChange={(e) => setDraft((s) => ({ ...s, title: e.target.value }))}
+                      placeholder="标题"
+                      className="inline-input inline-input--full"
+                      autoFocus
+                    />
+                    <textarea
+                      value={draft.description}
+                      onChange={(e) => setDraft((s) => ({ ...s, description: e.target.value }))}
+                      rows={3}
+                      placeholder="描述（可选）"
+                      className="inline-textarea"
+                    />
+                    <label className="inline-importance">
+                      <span>重要程度：{importanceLabel(draft.importance)}</span>
+                      <input
+                        type="range"
+                        min={1}
+                        max={5}
+                        step={1}
+                        value={draft.importance}
+                        onChange={(e) => setDraft((s) => ({ ...s, importance: Number(e.target.value) }))}
+                      />
+                    </label>
+                    <div className="memory-vault-item-actions">
+                      <button type="button" className="primary" onClick={() => void handleSave()} disabled={saving}>
+                        {saving ? '保存中…' : '保存'}
+                      </button>
+                      <button type="button" className="ghost" onClick={cancelEdit} disabled={saving}>
+                        取消
+                      </button>
+                      <button type="button" className="danger" onClick={() => void handleDelete(t.id)}>
+                        删除
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="memory-vault-item-meta">
+                      <span className="memory-vault-item-category">{t.eventDate}</span>
+                      <span className="tag">{t.category}</span>
+                      <span className="memory-vault-item-stars">{importanceLabel(t.importance)}</span>
+                      {t.source === 'auto' ? <span className="auto-mark" title="自动提取">✨</span> : null}
+                    </div>
+                    <h3 className="memory-vault-item-title">{t.title}</h3>
+                    {t.description ? <p className="memory-vault-item-content">{t.description}</p> : null}
+                    <div className="memory-vault-item-actions">
+                      <button type="button" className="ghost" onClick={() => startEdit(t)}>编辑</button>
+                      <button type="button" className="danger" onClick={() => void handleDelete(t.id)}>删除</button>
+                    </div>
+                  </>
+                )}
               </li>
             ))}
           </ul>
