@@ -24,3 +24,4 @@ Nimbus Chat = 自托管的私人 AI 陪伴 App。前端 React + Vite，打包成
 - **缓存**只在原生路径有效，且要 `cache_control` + 固定 `metadata.user_id`。OR 用 1h TTL + 55min 续命 ping；金瓜瓜类 5m TTL、不 ping。细节全在 docs/caching.md。
 - **RLS 是单租户开放策略**（`USING(true)`），但 `memory_entries` 这类带 `user_id` 的表用 `auth.uid()=user_id` —— 加功能涉及 DELETE 等操作时记得**补对应 RLS 策略**，否则 PostgREST 静默返回 0 行(踩过)。
 - 改 README 前先看它现在很短（功能=一句话+链接），**长内容放 `docs/`**，别再往 README 堆。
+- **公用教程（可对外分享的通用原理文章）写到 [github.com/cocoRaina/ai-guides](https://github.com/cocoRaina/ai-guides)**，不要放在本仓库（本仓库是 fork，授权不明确）。本仓库 `docs/guides/` 只做镜像留档。
