@@ -330,6 +330,26 @@ export const TOOL_RUN_CODE = {
   },
 }
 
+export const TOOL_GET_HEALTH_STATUS = {
+  type: 'function' as const,
+  function: {
+    name: 'get_health_status',
+    description:
+      '查询用户最近的健康数据和经期状态。随时可以主动调——不需要等她提健康话题。\n\n' +
+      '**主动调用时机**：\n' +
+      '- 对话刚开始，想先了解她今天的状态\n' +
+      '- 她说累 / 没精神 / 睡得不好，但你还不知道具体数据\n' +
+      '- 聊到运动 / 饮食 / 身体 / 月经 / 要来了 等相关话题\n' +
+      '- 你想主动关心，但不确定她的身体状态\n\n' +
+      '返回：最近 7 天 health_data（睡眠时长 / 质量 / 步数 / 心率）+ 最近 3 条经期记录。',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+}
+
 // === Device state ===
 // Read-only peek at battery / charging / usage stats. Lets Claude
 // notice "你快没电了，去充一下" or "你今天刷了 6 小时手机，眼睛

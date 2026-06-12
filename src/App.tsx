@@ -89,6 +89,7 @@ import {
   TOOL_LIST_MEMORIES,
   TOOL_GARDEN_MEMORIES,
   TOOL_CHECK_MEMORY_HEALTH,
+  TOOL_GET_HEALTH_STATUS,
 } from './tools/definitions'
 import { syncStatusBarToPage } from './storage/statusBar'
 import {
@@ -1761,6 +1762,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LIST_MEMORIES,
                 TOOL_GARDEN_MEMORIES,
                 TOOL_CHECK_MEMORY_HEALTH,
+                TOOL_GET_HEALTH_STATUS,
                 TOOL_WRITE_DIARY,
                 TOOL_WRITE_LETTER,
                 TOOL_ADD_TIMELINE,
@@ -2274,6 +2276,27 @@ TOOL_SEARCH_HANDOFF,
                         reason: proText ? 'quiet_hours' : 'missing_text',
                       })
                     }
+                  } else if (tc.function.name === 'get_health_status' && supabase) {
+                    setToolStatus('🫀 查健康数据…')
+                    const [healthResult, periodResult] = await Promise.all([
+                      supabase
+                        .from('health_data')
+                        .select('date,sleep_hours,sleep_quality,heart_rate_avg,heart_rate_rest,steps,notes')
+                        .order('date', { ascending: false })
+                        .limit(7),
+                      supabase
+                        .from('period_tracking')
+                        .select('id,start_date,end_date,cycle_length,notes,created_at')
+                        .order('start_date', { ascending: false })
+                        .limit(3),
+                    ])
+                    resultText = JSON.stringify({
+                      health_data: healthResult.error ? [] : healthResult.data ?? [],
+                      period_data: periodResult.error ? [] : periodResult.data ?? [],
+                      note: (!healthResult.data?.length && !periodResult.data?.length)
+                        ? '暂无健康数据。用户可能未同步 Health Connect，或尚未记录经期。'
+                        : undefined,
+                    })
                   } else if (tc.function.name === 'get_device_state') {
                     setToolStatus('🔋 查手机状态…')
                     try {
