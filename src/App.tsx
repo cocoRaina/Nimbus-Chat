@@ -2224,7 +2224,7 @@ TOOL_SEARCH_HANDOFF,
                       })
                     }
                   } else if (tc.function.name === 'manage_memory' && supabase) {
-                    let args: { action?: string; id?: string | number; content?: string } = {}
+                    let args: { action?: string; id?: string | number; content?: string; source?: string } = {}
                     try {
                       args = JSON.parse(tc.function.arguments || '{}')
                     } catch (jsonError) {
@@ -2232,7 +2232,14 @@ TOOL_SEARCH_HANDOFF,
                     }
                     const memId = Number(args.id)
                     const action = args.action
-                    if (!Number.isFinite(memId) || !action) {
+                    if (args.source && args.source !== 'memory') {
+                      // ids aren't unique across tables — refuse to act on a
+                      // non-memory result's id (e.g. a diary/letter id) so we
+                      // never touch the wrong memories row by collision.
+                      resultText = JSON.stringify({
+                        error: `manage_memory 只能管理 source=memory 的记忆，收到 source=${args.source}`,
+                      })
+                    } else if (!Number.isFinite(memId) || !action) {
                       resultText = JSON.stringify({ error: '缺少 action 或 id' })
                     } else if (action === 'update' && !String(args.content ?? '').trim()) {
                       resultText = JSON.stringify({ error: 'update 需要 content' })

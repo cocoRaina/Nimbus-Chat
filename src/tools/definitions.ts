@@ -363,12 +363,14 @@ export const TOOL_MANAGE_MEMORY = {
       '- action=update：修正或合并这条记忆的内容（传 content，1-3 句话）。\n' +
       '- action=archive：软删除——把这条没用/过时/重复的记忆移进归档表（AI 不再看得到，但用户能在后台找回）。锁定的记忆不会被归档。\n' +
       '你可以在合适时机主动帮用户整理记忆库：把重要的锁定、把过时重复的 update/合并、把垃圾 archive。' +
+      '注意 id 来自 source=memory 的结果（search_memory 跨多张表，别拿日记/交接信的 id 来管理记忆）；' +
       '会改动内容、归档、或大批整理前，最好先跟用户确认一句。',
     parameters: {
       type: 'object',
       properties: {
         action: { type: 'string', enum: ['lock', 'unlock', 'update', 'archive'], description: '操作类型' },
         id: { type: 'string', description: '记忆 id（来自 search_memory / list_memories 中 source=memory 的结果）' },
+        source: { type: 'string', description: '这条记忆的 source，应为 "memory"；本工具只管 memory，传了别的来源会被拒绝（防止误伤同 id 的日记/交接信）' },
         content: { type: 'string', description: 'action=update 时的新内容，1-3 句话' },
       },
       required: ['action', 'id'],
