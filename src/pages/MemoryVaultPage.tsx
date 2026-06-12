@@ -370,8 +370,8 @@ const MemoriesTab = ({
               <button type="button" className={sourceFilter === 'auto' ? 'active' : ''} onClick={() => setSourceFilter('auto')}>✨自动({sourceCounts.auto})</button>
             </div>
             {lockedBudget.count > 0 ? (
-              <span className={`locked-budget${lockedBudget.tokens > 2000 ? ' locked-budget--warn' : ''}`} title="锁定记忆注入系统提示的 token 估算（中文约 2字/token）">
-                🔒 {lockedBudget.count} 条 ≈ {lockedBudget.tokens.toLocaleString()} tokens{lockedBudget.tokens > 2000 ? ' ⚠️' : ''}
+              <span className={`locked-budget${lockedBudget.tokens > 2000 ? ' locked-budget--warn' : ''}`} title={`${lockedBudget.count} 条锁定记忆，注入 system prompt 约 ${lockedBudget.tokens.toLocaleString()} tokens（中文约 2字/token）`}>
+                🔒 {lockedBudget.count} 条 ≈ {lockedBudget.tokens > 999 ? `${(lockedBudget.tokens / 1000).toFixed(1)}k` : lockedBudget.tokens} tok{lockedBudget.tokens > 2000 ? ' ⚠️' : ''}
               </span>
             ) : null}
           </div>
