@@ -37,11 +37,11 @@ LLM：**OpenRouter** 主用 + **任意中转站** 备用，可全局切换
 - 压缩 summarizer 可独立选 provider（聊天走中转，摘要走 OR 免费模型）
 
 ### 🧠 记忆系统 + 自动提取（Claude 的"灵魂"）
-向量记忆（memories / diaries / 交接信 / timeline / 朋友圈）+ 结构化数据（经期 / 健康）；每 12 轮自动提取待确认记忆。核心记忆可 🔒 **锁定→自动注入缓存前缀**（AI 常驻已知，未锁定的留作可搜索归档）；Claude 能**自管理**（`manage_memory` 锁定/解锁/合并/归档 + `list_memories` 通览）；**软删除**进归档表可在后台找回（`archive_memory` / `restore_memory`）。
+向量记忆（memories / diaries / 交接信 / timeline / 朋友圈）+ 结构化数据（经期 / 健康）；每 12 轮自动提取待确认记忆。核心记忆可 🔒 **锁定→自动注入缓存前缀**（AI 常驻已知，未锁定的留作可搜索归档）；Claude 能**自管理**（`manage_memory` 锁定/解锁/合并/归档 + `list_memories` 通览 + `garden_memories` 扫描近重复对）；**软删除**进归档表可在后台找回（`archive_memory` / `restore_memory`，归档时保留 embedding）。记忆库 UI 支持**内联编辑**（原地展开输入框）、分页（每页 20 条）、锁定 token 预算提示。
 → 详见 [docs/features/memory.md](docs/features/memory.md)
 
-### 🛠️ Claude 工具（共 14 个）
-读取（搜记忆 / 交接信 / 网页 / 通览记忆 list_memories）、写入（记忆 / 日记 / 交接信 / 时间轴 / 经期 / 健康）、记忆管理（manage_memory：锁定/解锁/修正/归档）、计算调度（代码沙盒 / 主动消息 / 设备状态）。聊天里显示为可折叠工具卡片。
+### 🛠️ Claude 工具（共 15 个）
+读取（搜记忆 / 交接信 / 网页 / 通览记忆 list_memories）、写入（记忆 / 日记 / 交接信 / 时间轴 / 经期 / 健康）、记忆管理（manage_memory：锁定/解锁/修正/归档 + **garden_memories**：向量扫描近重复对，AI 主动整理用）、计算调度（代码沙盒 / 主动消息 / 设备状态）。聊天里显示为可折叠工具卡片。
 → 详见 [docs/features/tools.md](docs/features/tools.md)
 
 ### 💰 成本优化
