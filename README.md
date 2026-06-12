@@ -18,6 +18,8 @@
 
 - [**Prompt Caching 入门（给所有人）**](docs/guides/prompt-caching.md) — 不依赖本项目的通用教程，可直接分享：原理、挑中转、两要件、怎么验证、踩坑
 - [**Prompt Caching 指南（实现 / 内部）**](docs/caching.md) — 缓存原理、各家中转对比、怎么配（金瓜瓜等）、怎么验证命中、块布局铁律、图片转文字、踩坑 FAQ
+- [**AI 长期记忆系统入门（给所有人）**](docs/guides/memory-system.md) — 通用教程，可直接分享：为什么 Claude 失忆、常驻注入 vs 按需搜索、向量检索、RRF 混合检索、记忆生命周期、去重、访问追踪、AI 自管理、最小实现代码
+- [**记忆系统（实现 / 内部）**](docs/features/memory.md) — 各表结构、混合检索实现、核心记忆生命周期、自动提取确认流程、去重逻辑、访问追踪、每日状态注入
 - [**改动记录 & Debug 日志**](docs/changelog.md) — 按日期的改动 + 踩过的坑和修法
 
 ---
