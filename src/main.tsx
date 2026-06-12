@@ -30,6 +30,11 @@ if (Capacitor.getPlatform() === 'android') {
   // Hardware back button: navigate within the app instead of exiting.
   // Only exit when there's nowhere left to go back to.
   CapacitorApp.addListener('backButton', () => {
+    // Let open overlays (sticker tray, menus) consume the back event first.
+    const ev = new CustomEvent('nimbus:backbutton', { cancelable: true })
+    window.dispatchEvent(ev)
+    if (ev.defaultPrevented) return
+
     if (window.history.length > 1) {
       window.history.back()
     } else {

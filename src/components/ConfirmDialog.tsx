@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import './ConfirmDialog.css'
 
@@ -5,6 +6,7 @@ export type ConfirmDialogProps = {
   open: boolean
   title: string
   description?: string
+  children?: ReactNode
   confirmLabel?: string
   cancelLabel?: string
   neutralLabel?: string
@@ -20,6 +22,7 @@ const ConfirmDialog = ({
   open,
   title,
   description,
+  children,
   confirmLabel = '确认',
   cancelLabel = '取消',
   neutralLabel,
@@ -39,10 +42,13 @@ const ConfirmDialog = ({
       <div className="confirm-dialog">
         <h2>{title}</h2>
         {description ? <p>{description}</p> : null}
+        {children}
         <div className="confirm-actions">
-          <button type="button" className="secondary" onClick={onCancel} disabled={cancelDisabled}>
-            {cancelLabel}
-          </button>
+          {cancelLabel ? (
+            <button type="button" className="secondary" onClick={onCancel} disabled={cancelDisabled}>
+              {cancelLabel}
+            </button>
+          ) : null}
           {neutralLabel && onNeutral ? (
             <button type="button" className="tertiary" onClick={onNeutral} disabled={neutralDisabled}>
               {neutralLabel}
