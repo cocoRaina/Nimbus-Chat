@@ -170,6 +170,15 @@ Deno.serve(async (req: Request) => {
     if (searchResult.error) {
       return jsonResponse({ error: 'RPC: ' + searchResult.error.message })
     }
+
+    // Fire-and-forget: bump access_count + last_accessed_at for returned memories.
+    const memoryIds = (searchResult.data ?? [])
+      .filter((r: { source?: string; id?: unknown }) => r.source === 'memory' && r.id != null)
+      .map((r: { id: unknown }) => r.id)
+    if (memoryIds.length > 0) {
+      void supabase.rpc('bump_memory_access', { ids: memoryIds })
+    }
+
     return jsonResponse({
       results: searchResult.data ?? [],
       period_data: periodResult.error ? [] : periodResult.data ?? [],

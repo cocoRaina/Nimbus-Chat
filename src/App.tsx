@@ -87,6 +87,7 @@ import {
   TOOL_MANAGE_MEMORY,
   TOOL_LIST_MEMORIES,
   TOOL_GARDEN_MEMORIES,
+  TOOL_CHECK_MEMORY_HEALTH,
 } from './tools/definitions'
 import { syncStatusBarToPage } from './storage/statusBar'
 import {
@@ -1713,6 +1714,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_MANAGE_MEMORY,
                 TOOL_LIST_MEMORIES,
                 TOOL_GARDEN_MEMORIES,
+                TOOL_CHECK_MEMORY_HEALTH,
                 TOOL_WRITE_DIARY,
                 TOOL_WRITE_LETTER,
                 TOOL_ADD_TIMELINE,
@@ -2337,6 +2339,44 @@ TOOL_SEARCH_HANDOFF,
                           note: (data ?? []).length === 0
                             ? '未发现相似记忆对，库里没有明显重复。'
                             : `发现 ${(data ?? []).length} 对相似记忆，建议合并或归档重复的一方。`,
+                        })
+                  } else if (tc.function.name === 'check_memory_health' && supabase) {
+                    let args: { days_inactive?: number; min_days_old?: number; max_count?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}')
+                    } catch (jsonError) {
+                      console.warn('解析 check_memory_health 失败', jsonError)
+                    }
+                    const daysInactive = Math.max(1, Math.min(365, Math.floor(Number(args.days_inactive) || 90)))
+                    const minDaysOld = Math.max(1, Math.min(365, Math.floor(Number(args.min_days_old) || 30)))
+                    const maxCount = Math.max(1, Math.min(50, Math.floor(Number(args.max_count) || 20)))
+                    setToolStatus('🏥 检查记忆健康状态…')
+                    const { data, error } = await supabase.rpc('get_stale_memories', {
+                      days_inactive: daysInactive,
+                      min_days_old: minDaysOld,
+                      max_count: maxCount,
+                    })
+                    resultText = error
+                      ? JSON.stringify({ error: error.message })
+                      : JSON.stringify({
+                          stale_memories: (data ?? []).map((r: {
+                            id: number; content: string; category: string
+                            access_count: number; last_accessed_at: string | null
+                            created_at: string; days_since_access: number
+                          }) => ({
+                            id: String(r.id),
+                            content: r.content,
+                            category: r.category,
+                            access_count: r.access_count,
+                            last_accessed_at: r.last_accessed_at,
+                            created_at: r.created_at,
+                            days_since_access: r.days_since_access,
+                          })),
+                          count: (data ?? []).length,
+                          params: { days_inactive: daysInactive, min_days_old: minDaysOld },
+                          note: (data ?? []).length === 0
+                            ? `未发现休眠记忆（标准：${daysInactive} 天未被搜索到）。记忆库状态良好。`
+                            : `发现 ${(data ?? []).length} 条休眠记忆，建议逐条判断：过时的归档，仍有效的保留。`,
                         })
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })

@@ -432,3 +432,40 @@ export const TOOL_LIST_MEMORIES = {
     },
   },
 }
+
+export const TOOL_CHECK_MEMORY_HEALTH = {
+  type: 'function' as const,
+  function: {
+    name: 'check_memory_health',
+    description:
+      '查看记忆库的健康状态：找出长时间未被搜索到、可能已过时或低价值的记忆（"休眠记忆"）。\n' +
+      '返回按最后访问时间排序的记忆列表，附 days_since_access（距上次被召回的天数）和 access_count（历史搜索命中次数）。\n\n' +
+      '**何时调用**：\n' +
+      '- 用户说「帮我整理记忆 / 清理一下 / 看看有没有过时的」\n' +
+      '- 你觉得记忆库可能积累了很多低价值条目\n' +
+      '- 定期健康维护时（比如收到用户新情况与某条旧记忆冲突）\n\n' +
+      '**拿到结果后怎么做**：\n' +
+      '- days_since_access 很大 且内容明显过时 → 用 manage_memory action=archive 归档\n' +
+      '- 内容仍然有效只是许久未触碰 → 保留，不动\n' +
+      '- 与已知的新信息冲突 → 用 manage_memory action=update 更新内容\n' +
+      '- 操作前告知用户你的计划，批量操作时先确认。',
+    parameters: {
+      type: 'object',
+      properties: {
+        days_inactive: {
+          type: 'integer',
+          description: '多少天未被搜索到才算休眠，默认 90。调小会找到更多候选',
+        },
+        min_days_old: {
+          type: 'integer',
+          description: '记忆至少多少天才纳入检查，默认 30（避免新记忆被误判）',
+        },
+        max_count: {
+          type: 'integer',
+          description: '最多返回多少条，默认 20，最多 50',
+        },
+      },
+      required: [],
+    },
+  },
+}

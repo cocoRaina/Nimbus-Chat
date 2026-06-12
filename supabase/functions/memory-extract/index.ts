@@ -398,20 +398,33 @@ Deno.serve(async (req) => {
 
     const extracted = extractionResult.items
 
-    const { data: existingRows, error: existingError } = await supabase
-      .from('memory_entries')
-      .select('content')
-      .eq('user_id', user.id)
-      .eq('is_deleted', false)
-      .in('status', ['pending', 'confirmed'])
-      .order('updated_at', { ascending: false })
-      .limit(EXISTING_RECENT_LIMIT)
+    // Fetch pending/confirmed memory_entries AND actual memories table in parallel.
+    // memory_entries: covers auto-extracted items (pending/confirmed flow).
+    // memories: covers manually added items — previously invisible to dedup.
+    const [existingEntriesResult, existingMemoriesResult] = await Promise.all([
+      supabase
+        .from('memory_entries')
+        .select('content')
+        .eq('user_id', user.id)
+        .eq('is_deleted', false)
+        .in('status', ['pending', 'confirmed'])
+        .order('updated_at', { ascending: false })
+        .limit(EXISTING_RECENT_LIMIT),
+      supabase
+        .from('memories')
+        .select('id,content')
+        .order('created_at', { ascending: false })
+        .limit(150),
+    ])
 
-    if (existingError) {
+    if (existingEntriesResult.error) {
       return jsonResponse({ error: '读取已有记忆失败' }, 500, cors)
     }
 
-    const pendingContext = (existingRows ?? [])
+    const existingRows = existingEntriesResult.data ?? []
+    const confirmedMemoryRows = (existingMemoriesResult.data ?? []) as { id: number; content: string }[]
+
+    const pendingContext = existingRows
       .map((row) => (typeof row.content === 'string' ? normalizeContent(row.content) : ''))
       .filter((content) => content.length >= MIN_MEMORY_LENGTH)
       .slice(0, PENDING_CAP)
@@ -446,13 +459,25 @@ ${JSON.stringify(mergeInput)}`,
     }
 
     const clusteredItems = clusterItems(mergedItems.items)
-    const existingTokenSets = (existingRows ?? [])
+
+    // Token sets for memory_entries dedup (pending/confirmed pipeline).
+    const entryTokenSets = existingRows
       .map((row) => (typeof row.content === 'string' ? tokenizeForSimilarity(row.content) : new Set<string>()))
       .filter((tokens) => tokens.size > 0)
+
+    // Token sets for confirmed memories table, keyed by ID for access bumping.
+    const confirmedMemoryMeta = confirmedMemoryRows
+      .map((row) => ({
+        id: row.id,
+        tokens: tokenizeForSimilarity(typeof row.content === 'string' ? row.content : ''),
+      }))
+      .filter((m) => m.tokens.size > 0)
+    const confirmedMemoryTokenSets = confirmedMemoryMeta.map((m) => m.tokens)
 
     const acceptedItems: string[] = []
     const acceptedTokenSets: Set<string>[] = []
     const seenNormalized = new Set<string>()
+    const reinforcedMemoryIds: number[] = []
     let skipped = 0
 
     for (const item of clusteredItems) {
@@ -478,7 +503,19 @@ ${JSON.stringify(mergeInput)}`,
         continue
       }
 
-      if (isSimilarToAny(candidateTokens, existingTokenSets, EXISTING_DEDUPE_THRESHOLD)) {
+      // Duplicate of a pending/confirmed memory_entry → skip.
+      if (isSimilarToAny(candidateTokens, entryTokenSets, EXISTING_DEDUPE_THRESHOLD)) {
+        skipped += 1
+        continue
+      }
+
+      // Similar to a confirmed memory in the memories table → reinforce it
+      // (bump access_count) instead of creating a new duplicate entry.
+      const matchedMemory = confirmedMemoryMeta.find((m) =>
+        calculateJaccardSimilarity(candidateTokens, m.tokens) >= EXISTING_DEDUPE_THRESHOLD,
+      )
+      if (matchedMemory) {
+        reinforcedMemoryIds.push(matchedMemory.id)
         skipped += 1
         continue
       }
@@ -491,6 +528,11 @@ ${JSON.stringify(mergeInput)}`,
       seenNormalized.add(normalizedKey)
       acceptedTokenSets.push(candidateTokens)
       acceptedItems.push(normalized)
+    }
+
+    // Reinforce matched confirmed memories (fire-and-forget, ignore errors).
+    if (reinforcedMemoryIds.length > 0) {
+      void supabase.rpc('bump_memory_access', { ids: reinforcedMemoryIds })
     }
 
     if (acceptedItems.length > 0) {
