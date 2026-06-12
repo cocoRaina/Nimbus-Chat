@@ -6,31 +6,30 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Receives ACTION_SEND intents from other apps (share sheet).
- * The intent text is captured by MainActivity and stored in a static
- * field; this plugin exposes it to JavaScript on next app foreground.
+ * The intent text is captured by MainActivity and stored in a queue;
+ * this plugin exposes it to JavaScript on next app foreground.
  */
 @CapacitorPlugin(name = "ShareReceiver")
 public class ShareReceiverPlugin extends Plugin {
-    private static volatile String pendingShareText = null;
-    private static volatile String pendingShareTitle = null;
+    private static final List<String> pendingShareTexts = new ArrayList<>();
+    private static final List<String> pendingShareTitles = new ArrayList<>();
 
-    public static void setPendingShare(String title, String text) {
-        pendingShareTitle = title;
-        pendingShareText = text;
+    public static synchronized void setPendingShare(String title, String text) {
+        pendingShareTitles.add(title != null ? title : "");
+        pendingShareTexts.add(text);
     }
 
     @PluginMethod
-    public void getPendingShare(PluginCall call) {
+    public synchronized void getPendingShare(PluginCall call) {
         JSObject ret = new JSObject();
-        String text = pendingShareText;
-        String title = pendingShareTitle;
-        if (text != null) {
-            ret.put("text", text);
-            ret.put("title", title != null ? title : "");
-            pendingShareText = null;
-            pendingShareTitle = null;
+        if (!pendingShareTexts.isEmpty()) {
+            ret.put("text", pendingShareTexts.remove(0));
+            ret.put("title", pendingShareTitles.remove(0));
         } else {
             ret.put("text", (String) null);
             ret.put("title", "");

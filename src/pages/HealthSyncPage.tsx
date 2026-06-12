@@ -222,8 +222,10 @@ const HealthSyncPage = ({ user: _user }: Props) => {
     // shouldn't still report 经期中.
     let isInPeriod: boolean
     if (periodRow.end_date) {
-      const endTime = new Date(periodRow.end_date).getTime()
-      isInPeriod = Number.isFinite(endTime) && today.getTime() <= endTime
+      const [ey, em, ed] = periodRow.end_date.split('-').map(Number)
+      const endTime = Date.UTC(ey, em - 1, ed)
+      const todayStart = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+      isInPeriod = Number.isFinite(endTime) && todayStart <= endTime
     } else {
       isInPeriod = daysSinceStart >= 0 && daysSinceStart < 7
     }

@@ -69,7 +69,7 @@ const writeCache = (snap: WeatherSnapshot) => {
   }
 }
 
-const getCoords = async (): Promise<{ lat: number; lon: number } | null> => {
+const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | null> => {
   // On Capacitor (APK), use the native Geolocation plugin so the OS
   // permission dialog actually fires + Android manifest permission is
   // respected. On web, fall back to navigator.geolocation.
@@ -78,7 +78,7 @@ const getCoords = async (): Promise<{ lat: number; lon: number } | null> => {
       const perm = await Geolocation.checkPermissions()
       if (perm.location !== 'granted') {
         const req = await Geolocation.requestPermissions()
-        if (req.location !== 'granted') return null
+        if (req.location !== 'granted') return 'denied'
       }
       const pos = await Geolocation.getCurrentPosition({
         enableHighAccuracy: false,
@@ -107,7 +107,9 @@ export const fetchCurrentWeather = async (
   const cached = readCache()
   if (cached && !cityOverride) return cached
 
-  const coords = cityOverride ?? (await getCoords())
+  const coordsOrDenied = cityOverride ?? (await getCoords())
+  if (coordsOrDenied === 'denied') return null
+  const coords = coordsOrDenied
   if (!coords) return cached ?? null
 
   try {

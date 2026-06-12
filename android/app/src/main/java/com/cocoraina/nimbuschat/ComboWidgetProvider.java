@@ -67,7 +67,7 @@ public class ComboWidgetProvider extends AppWidgetProvider {
         if (ACTION_POKE.equals(intent.getAction())) {
             int idx = new Random().nextInt(ALL.length);
             context.getSharedPreferences(PeriodCalc.PREFS, Context.MODE_PRIVATE)
-                .edit().putBoolean("poke_active", true).putInt("poke_idx", idx).apply();
+                .edit().putBoolean("poke_active", true).putInt("poke_idx", idx).commit();
             updateAll(context);
         }
     }
@@ -75,7 +75,7 @@ public class ComboWidgetProvider extends AppWidgetProvider {
     @Override
     public void onUpdate(Context context, AppWidgetManager mgr, int[] ids) {
         context.getSharedPreferences(PeriodCalc.PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean("poke_active", false).apply();
+            .edit().putBoolean("poke_active", false).commit();
         for (int id : ids) updateWidget(context, mgr, id);
     }
 

@@ -295,6 +295,12 @@ const ChatPage = ({
     return window.localStorage.getItem('syzygy-homepage-avatar')
   }, [])
   const [pendingDelete, setPendingDelete] = useState<ChatMessage | null>(null)
+  const [compressionDialog, setCompressionDialog] = useState<string | null>(null)
+  const [uploadErrorDialog, setUploadErrorDialog] = useState(false)
+  const [renameDialog, setRenameDialog] = useState(false)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [stickerImport, setStickerImport] = useState<{ dataUrl: string; base: string } | null>(null)
+  const [stickerNameDraft, setStickerNameDraft] = useState('')
   const [quoted, setQuoted] = useState<{ role: ChatMessage['role']; content: string } | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [pendingAttachments, setPendingAttachments] = useState<
@@ -319,6 +325,17 @@ const ChatPage = ({
     // Only fire when shareDraft actually changes to a new value.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shareDraft])
+  // Close sticky overlays on Android hardware back button before navigating away.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (showStickerTray) { setShowStickerTray(false); e.preventDefault(); return }
+      if (openHeaderMenu) { setOpenHeaderMenu(false); e.preventDefault(); return }
+      if (openActionsId) { setOpenActionsId(null); e.preventDefault(); return }
+      if (openAttachMenu) { setOpenAttachMenu(false); e.preventDefault(); return }
+    }
+    window.addEventListener('nimbus:backbutton', handler)
+    return () => window.removeEventListener('nimbus:backbutton', handler)
+  }, [showStickerTray, openHeaderMenu, openActionsId, openAttachMenu])
   const displayedMessages = useMemo(
     () => (messages.length > displayLimit ? messages.slice(-displayLimit) : messages),
     [messages, displayLimit],
@@ -353,7 +370,7 @@ const ChatPage = ({
     setOpenHeaderMenu(false)
     try {
       const result = await onManualCompress()
-      window.alert(result.message)
+      setCompressionDialog(result.message)
     } finally {
       setCompressing(false)
     }
@@ -379,10 +396,8 @@ const ChatPage = ({
       // [ ] 换行会弄坏 [sticker:名字] 标记（解析正则是 [^\]\n]{1,40}），名字里不能出现
       const sanitize = (s: string) => s.replace(/[[\]\n\r]/g, '').trim().slice(0, 20)
       const base = sanitize(file.name.replace(/\.[^.]+$/, '')) || '贴纸'
-      const name = sanitize(window.prompt('给这个表情起个名字（AI 也会按这个名字发）', base) || base)
-      if (!name) return
-      upsertSticker({ name, desc: '', dataUrl })
-      setStickers(getStickers())
+      setStickerNameDraft(base)
+      setStickerImport({ dataUrl, base })
     } catch {
       // ignore bad image
     }
@@ -390,7 +405,6 @@ const ChatPage = ({
 
   const handleDeleteSticker = (name: string) => {
     deleteSticker(name)
-    setStickers(getStickers())
   }
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const messagesRef = useRef<HTMLElement | null>(null)
@@ -485,7 +499,7 @@ const ChatPage = ({
       ])
     } catch (uploadError) {
       console.warn('图片上传失败', uploadError)
-      window.alert('图片上传失败，请重试')
+      setUploadErrorDialog(true)
     } finally {
       setUploading(false)
       if (fileInputRef.current) {
@@ -895,12 +909,8 @@ const ChatPage = ({
                   <button
                     type="button"
                     onClick={() => {
-                      const next = window.prompt('修改名称', assistantName)
-                      if (next == null) return
-                      const trimmed = next.trim()
-                      const final = trimmed.length > 0 ? trimmed : assistantName
-                      setAssistantName(final)
-                      setAssistantNameState(final)
+                      setRenameDraft(assistantName)
+                      setRenameDialog(true)
                       setOpenHeaderMenu(false)
                     }}
                   >
@@ -1113,7 +1123,6 @@ const ChatPage = ({
                   role="menuitem"
                   onClick={() => {
                     setOpenAttachMenu(false)
-                    setStickers(getStickers())
                     setShowStickerTray((v) => !v)
                   }}
                 >
@@ -1229,6 +1238,65 @@ const ChatPage = ({
         onCancel={() => setPendingDelete(null)}
         onConfirm={handleConfirmDelete}
       />
+      <ConfirmDialog
+        open={compressionDialog !== null}
+        title="压缩完成"
+        description={compressionDialog ?? ""}
+        confirmLabel="确定"
+        cancelLabel=""
+        onConfirm={() => setCompressionDialog(null)}
+        onCancel={() => setCompressionDialog(null)}
+      />
+      <ConfirmDialog
+        open={uploadErrorDialog}
+        title="上传失败"
+        description="图片上传失败，请重试"
+        confirmLabel="确定"
+        cancelLabel=""
+        onConfirm={() => setUploadErrorDialog(false)}
+        onCancel={() => setUploadErrorDialog(false)}
+      />
+      <ConfirmDialog
+        open={renameDialog}
+        title="修改名称"
+        confirmLabel="确认"
+        onConfirm={() => { const t = renameDraft.trim(); if (t) { setAssistantName(t); setAssistantNameState(t); } setRenameDialog(false); }}
+        onCancel={() => setRenameDialog(false)}
+      >
+        <input
+          type="text"
+          className="rename-input"
+          value={renameDraft}
+          onChange={(e) => setRenameDraft((e.target as HTMLInputElement).value)}
+          autoFocus
+        />
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={stickerImport !== null}
+        title="导入表情"
+        description="AI 也会按这个名字发送"
+        confirmLabel="确认"
+        onConfirm={() => {
+          if (!stickerImport) return
+          const t = stickerNameDraft.trim() || stickerImport.base
+          const sanitize = (s: string) => s.replace(/[[\]\n\r]/g, '').trim().slice(0, 20)
+          const name = sanitize(t)
+          if (name) {
+            upsertSticker({ name, desc: '', dataUrl: stickerImport.dataUrl })
+            setStickers(getStickers())
+          }
+          setStickerImport(null)
+        }}
+        onCancel={() => setStickerImport(null)}
+      >
+        <input
+          type="text"
+          className="rename-input"
+          value={stickerNameDraft}
+          onChange={(e) => setStickerNameDraft((e.target as HTMLInputElement).value)}
+          autoFocus
+        />
+      </ConfirmDialog>
     </div>
   )
 }

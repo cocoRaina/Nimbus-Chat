@@ -41,7 +41,7 @@ export const findSticker = (name: string): Sticker | null =>
 export const buildStickerSystemSection = (): string => {
   const all = getStickers()
   if (all.length === 0) return ''
-  const list = all.map((s) => (s.desc ? `${s.name}（${s.desc}）` : s.name)).join('、')
+  const list = all.map((s) => `\`${s.name}\`` + (s.desc ? `（${s.desc}）` : ``)).join('、')
   return `\n\n## 可用表情包\n你可以用 \`[sticker:名字]\` 发表情包（用户也会这样发给你）。可用：${list}。在合适的情绪/语气下自然地用，一次最多一个，别滥用。`
 }
 
