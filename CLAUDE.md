@@ -12,6 +12,7 @@ Nimbus Chat = 自托管的私人 AI 陪伴 App。前端 React + Vite，打包成
 
 ## 工作约定
 
+- **session 开始时先跑**：`git config user.email noreply@anthropic.com && git config user.name Claude`，否则提交显示 Unverified。
 - **改完就提交、推 `main`**（本仓库的工作流就是直接上 main）。提交署名用 `Claude <noreply@anthropic.com>`，否则 GitHub 显示 Unverified。
 - **原生改动要重打 APK 才生效**：`android/`（Java/Kotlin 插件）、`capacitor.config`、加 native 依赖 —— 这些靠 CI 出新 APK，用户装上才生效。纯前端(TS/CSS)改动也是打进 APK 的，同样要等出包；只有 **Supabase 服务端改动(RLS/迁移/Edge Function)立即生效**。
 - 验证：`npx tsc --noEmit` + `npm run build`（无法在这跑 APK / 真机，原生逻辑靠 review）。
