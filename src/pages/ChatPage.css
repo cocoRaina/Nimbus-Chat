@@ -1426,3 +1426,48 @@
   font-size: 12px;
   cursor: pointer;
 }
+
+/* ── In-app camera modal ─────────────────────────────────────────── */
+.camera-modal {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+}
+.camera-preview {
+  flex: 1;
+  width: 100%;
+  object-fit: cover;
+}
+.camera-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 48px;
+  padding: 28px 0 36px;
+  background: #000;
+}
+.camera-shutter {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: #fff;
+  border: 5px solid rgba(255,255,255,0.4);
+  outline: 3px solid #fff;
+  cursor: pointer;
+}
+.camera-close {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

@@ -507,20 +507,60 @@ const ChatPage = ({
     }
   }
 
-  // On Android the CAMERA permission is "dangerous" and must be requested at
-  // runtime even though it's declared in AndroidManifest. Calling getUserMedia
-  // is the one way to trigger that system dialog from a WebView without
-  // installing @capacitor/camera. We stop the tracks immediately — we only
-  // need the permission grant, not an actual stream.
-  const handleCameraClick = async () => {
+  // In-app camera — <input capture> is unreliable in Capacitor WebView on
+  // newer Android (the capture attribute gets ignored and the generic file
+  // picker opens instead of the camera). getUserMedia gives us a real video
+  // stream that we can render in-page, let the user frame the shot, and then
+  // capture via canvas → blob → File — no extra native plugin needed.
+  const [showCameraModal, setShowCameraModal] = useState(false)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const cameraStreamRef = useRef<MediaStream | null>(null)
+
+  const openCameraModal = async () => {
     setOpenAttachMenu(false)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-      stream.getTracks().forEach((t) => t.stop())
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      })
+      cameraStreamRef.current = stream
+      setShowCameraModal(true)
     } catch {
-      // Already granted, denied, or desktop — proceed anyway.
+      // Permission denied or no camera — fall back to file picker
+      cameraInputRef.current?.click()
     }
-    cameraInputRef.current?.click()
+  }
+
+  useEffect(() => {
+    if (showCameraModal && videoRef.current && cameraStreamRef.current) {
+      videoRef.current.srcObject = cameraStreamRef.current
+    }
+  }, [showCameraModal])
+
+  const closeCameraModal = () => {
+    cameraStreamRef.current?.getTracks().forEach((t) => t.stop())
+    cameraStreamRef.current = null
+    setShowCameraModal(false)
+  }
+
+  const capturePhoto = () => {
+    const video = videoRef.current
+    if (!video) return
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth || 1280
+    canvas.height = video.videoHeight || 720
+    canvas.getContext('2d')?.drawImage(video, 0, 0)
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return
+        const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' })
+        const dt = new DataTransfer()
+        dt.items.add(file)
+        void handleFilePick(dt.files)
+        closeCameraModal()
+      },
+      'image/jpeg',
+      0.92,
+    )
   }
 
   const removePendingAttachment = (index: number) => {
@@ -1116,7 +1156,7 @@ const ChatPage = ({
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => void handleCameraClick()}
+                  onClick={() => void openCameraModal()}
                 >
                   📷 拍照
                 </button>
@@ -1309,6 +1349,34 @@ const ChatPage = ({
           autoFocus
         />
       </ConfirmDialog>
+
+      {showCameraModal && createPortal(
+        <div className="camera-modal" onClick={closeCameraModal}>
+          <video
+            ref={videoRef}
+            className="camera-preview"
+            autoPlay
+            playsInline
+            muted
+            onClick={(e) => e.stopPropagation()}
+          />
+          <div className="camera-controls" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="camera-close"
+              aria-label="关闭"
+              onClick={closeCameraModal}
+            >✕</button>
+            <button
+              type="button"
+              className="camera-shutter"
+              aria-label="拍照"
+              onClick={capturePhoto}
+            />
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }
