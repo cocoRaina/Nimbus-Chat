@@ -403,87 +403,73 @@ export const syncHealthDataToSupabase = async (
   const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
   let firstRead = true
 
-  // Steps via the aggregate API, today-only window. A daily step count
-  // is a SUM — a record limit that truncates the list would silently
-  // undercount. queryAggregated returns the bucket total in one
-  // client.aggregate() call per bucket; the Kotlin plugin iterates
-  // buckets back-to-back with NO gap, so a 2-day window with day buckets
-  // is a 2-IPC instantaneous burst that contributed to tripping the
-  // periodic rate limit. By scoping the steps window to "from local
-  // midnight to now" with day buckets, we get exactly ONE aggregate
-  // IPC call, and the result is unambiguously today's total.
-  // Historic days are kept correct by their own day-of syncs.
+  // Steps: today AND yesterday — two independent single-day calls with
+  // a 250ms gap between them. A multi-day bucket window would have the
+  // Kotlin plugin firing buckets back-to-back with no gap (burst); two
+  // explicit single-day calls let us insert our own READ_GAP_MS gap.
   const stepsByDay: Record<string, number> = {}
-  {
-    const midnightToday = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate())
+  for (const daysAgo of [0, 1]) {
+    if (daysAgo > 0) await sleepMs(READ_GAP_MS)
+    const dayStart = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() - daysAgo)
+    const dayEnd = daysAgo === 0 ? endDate : new Date(dayStart.getTime() + 24 * 3600 * 1000)
     try {
       const agg = await Health.queryAggregated({
         dataType: 'steps',
-        startDate: midnightToday.toISOString(),
-        endDate: endDate.toISOString(),
+        startDate: dayStart.toISOString(),
+        endDate: dayEnd.toISOString(),
         bucket: 'day',
         aggregation: 'sum',
       })
-      let stepDays = 0
       for (const s of agg.samples) {
         const day = isoToLocalDate(s.startDate)
         if (!day) continue
         stepsByDay[day] = (stepsByDay[day] ?? 0) + s.value
-        stepDays += 1
       }
-      summary.perType.steps = stepDays
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      summary.errors.push(`steps: ${errMsg}`)
-      summary.perType.steps = 0
+      summary.errors.push(`steps(${daysAgo === 0 ? 'today' : 'yesterday'}): ${errMsg}`)
       if (isRateLimitErr(errMsg)) rateLimited = true
     }
-    firstRead = false
   }
+  summary.perType.steps = Object.keys(stepsByDay).length
+  firstRead = false
 
-  // Heart rate avg/min/max via the aggregate API, today-only window —
-  // same shape as steps, and for the same reason. readSamples only
-  // returns the newest ~100 samples (Capgo DEFAULT_LIMIT=100); on a watch
-  // that logs HR every few seconds that's the last few minutes, so the
-  // stored daily min/max came out far too narrow (e.g. 70–85 when the
-  // real day spans resting lows to exertion peaks) and earlier readings
-  // were dropped. queryAggregated maps to HeartRateRecord BPM_AVG/MIN/MAX,
-  // one day bucket → one IPC per metric. Historic days stay correct via
-  // their own day-of syncs. The plugin returns a single value per call,
-  // so we make one call per metric.
-  const hrToday: { avg?: number; min?: number; max?: number } = {}
-  let hrTodayDay: string | null = null
-  {
-    const midnightToday = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate())
-    const hrMetrics: Array<['average' | 'min' | 'max', 'avg' | 'min' | 'max']> = [
-      ['average', 'avg'],
-      ['min', 'min'],
-      ['max', 'max'],
-    ]
+  // Heart rate avg/min/max: today AND yesterday, each as a separate
+  // single-day queryAggregated call (same burst-avoidance reason as steps).
+  // 3 metrics × 2 days = 6 calls, each preceded by a 250ms gap.
+  const hrByDay: Record<string, { avg?: number; min?: number; max?: number }> = {}
+  const hrMetrics: Array<['average' | 'min' | 'max', 'avg' | 'min' | 'max']> = [
+    ['average', 'avg'],
+    ['min', 'min'],
+    ['max', 'max'],
+  ]
+  for (const daysAgo of [0, 1]) {
+    const dayStart = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() - daysAgo)
+    const dayEnd = daysAgo === 0 ? endDate : new Date(dayStart.getTime() + 24 * 3600 * 1000)
     for (const [aggregation, key] of hrMetrics) {
       await sleepMs(READ_GAP_MS)
       try {
         const agg = await Health.queryAggregated({
           dataType: 'heartRate',
-          startDate: midnightToday.toISOString(),
-          endDate: endDate.toISOString(),
+          startDate: dayStart.toISOString(),
+          endDate: dayEnd.toISOString(),
           bucket: 'day',
           aggregation,
         })
         for (const s of agg.samples) {
           const day = isoToLocalDate(s.startDate)
           if (!day) continue
-          hrTodayDay = day
-          hrToday[key] = s.value
+          if (!hrByDay[day]) hrByDay[day] = {}
+          hrByDay[day][key] = s.value
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
-        summary.errors.push(`heartRate(${aggregation}): ${errMsg}`)
+        summary.errors.push(`heartRate(${daysAgo === 0 ? 'today' : 'yesterday'},${aggregation}): ${errMsg}`)
         if (isRateLimitErr(errMsg)) rateLimited = true
       }
     }
-    summary.perType.heartRate = hrTodayDay ? 1 : 0
   }
+  summary.perType.heartRate = Object.keys(hrByDay).length
 
   for (const dataType of READ_SAMPLE_TYPES) {
     if (!firstRead) await sleepMs(READ_GAP_MS)
@@ -528,14 +514,12 @@ export const syncHealthDataToSupabase = async (
     }
     byDay[day].steps = Math.round(total)
   }
-  // Overlay today's aggregate heart-rate metrics. Like steps, these come
-  // from queryAggregated (not readSamples), so aggregateSamples leaves
-  // them null and this is the single source of truth for HR avg/min/max.
-  if (hrTodayDay) {
-    if (!byDay[hrTodayDay]) byDay[hrTodayDay] = { date: hrTodayDay }
-    if (hrToday.avg != null) byDay[hrTodayDay].heartRateAvg = Math.round(hrToday.avg)
-    if (hrToday.min != null) byDay[hrTodayDay].heartRateMin = Math.round(hrToday.min)
-    if (hrToday.max != null) byDay[hrTodayDay].heartRateMax = Math.round(hrToday.max)
+  // Overlay aggregate heart-rate metrics (today + yesterday).
+  for (const [hrDay, hrData] of Object.entries(hrByDay)) {
+    if (!byDay[hrDay]) byDay[hrDay] = { date: hrDay }
+    if (hrData.avg != null) byDay[hrDay].heartRateAvg = Math.round(hrData.avg)
+    if (hrData.min != null) byDay[hrDay].heartRateMin = Math.round(hrData.min)
+    if (hrData.max != null) byDay[hrDay].heartRateMax = Math.round(hrData.max)
   }
   summary.scannedDays = Object.keys(byDay).sort()
 
