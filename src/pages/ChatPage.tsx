@@ -507,17 +507,33 @@ const ChatPage = ({
     }
   }
 
-  // In-app camera — <input capture> is unreliable in Capacitor WebView on
-  // newer Android (the capture attribute gets ignored and the generic file
-  // picker opens instead of the camera). getUserMedia gives us a real video
-  // stream that we can render in-page, let the user frame the shot, and then
-  // capture via canvas → blob → File — no extra native plugin needed.
-  const [showCameraModal, setShowCameraModal] = useState(false)
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  const cameraStreamRef = useRef<MediaStream | null>(null)
-
-  const openCameraModal = async () => {
+  // Use @capacitor/camera on native (opens the real camera app via Intent),
+  // fall back to the hidden file input on web/PWA where the plugin is a no-op.
+  const openNativeCamera = async () => {
     setOpenAttachMenu(false)
+    if (Capacitor.getPlatform() === 'android') {
+      try {
+        const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera')
+        const photo = await Camera.getPhoto({
+          quality: 90,
+          allowEditing: false,
+          resultType: CameraResultType.DataUrl,
+          source: CameraSource.Camera,
+        })
+        if (!photo.dataUrl) return
+        const res = await fetch(photo.dataUrl)
+        const blob = await res.blob()
+        const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' })
+        const dt = new DataTransfer()
+        dt.items.add(file)
+        void handleFilePick(dt.files)
+        return
+      } catch {
+        // user cancelled — do nothing
+        return
+      }
+    }
+    // Web fallback: in-app camera modal via getUserMedia
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
@@ -525,10 +541,14 @@ const ChatPage = ({
       cameraStreamRef.current = stream
       setShowCameraModal(true)
     } catch {
-      // Permission denied or no camera — fall back to file picker
       cameraInputRef.current?.click()
     }
   }
+
+  // Web-only in-app camera (used as fallback when @capacitor/camera unavailable)
+  const [showCameraModal, setShowCameraModal] = useState(false)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const cameraStreamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => {
     if (showCameraModal && videoRef.current && cameraStreamRef.current) {
@@ -1156,7 +1176,7 @@ const ChatPage = ({
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => void openCameraModal()}
+                  onClick={() => void openNativeCamera()}
                 >
                   📷 拍照
                 </button>
