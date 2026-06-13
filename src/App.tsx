@@ -1715,6 +1715,13 @@ const App = () => {
 
           while (!conversationDone && iteration < MAX_TOOL_ITERATIONS) {
             iteration++
+            // Reset think-tag parser state at the start of each iteration.
+            // If the model opened <thinking> but triggered a tool call before
+            // closing the tag, isInThink would stay true and the next
+            // iteration's actual response would be swallowed into reasoning.
+            isInThink = false
+            thinkCarry = ''
+            activeCloseTag = ''
             // Mark where this iteration's text starts in the cumulative
             // assistantContent stream. When pushing this iteration's
             // assistant-with-tool-calls message into baseMessages below,
