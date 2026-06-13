@@ -412,6 +412,10 @@ export const syncHealthDataToSupabase = async (
     if (daysAgo > 0) await sleepMs(READ_GAP_MS)
     const dayStart = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() - daysAgo)
     const dayEnd = daysAgo === 0 ? endDate : new Date(dayStart.getTime() + 24 * 3600 * 1000)
+    // The bucket we asked for. Defensive: only accept samples whose day
+    // matches this — guards against the plugin emitting a spurious empty
+    // boundary bucket for the adjacent day.
+    const expectedDay = isoToLocalDate(dayStart.toISOString())
     try {
       const agg = await Health.queryAggregated({
         dataType: 'steps',
@@ -422,8 +426,8 @@ export const syncHealthDataToSupabase = async (
       })
       for (const s of agg.samples) {
         const day = isoToLocalDate(s.startDate)
-        if (!day) continue
-        stepsByDay[day] = (stepsByDay[day] ?? 0) + s.value
+        if (!day || day !== expectedDay) continue
+        stepsByDay[day] = s.value
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
@@ -446,6 +450,7 @@ export const syncHealthDataToSupabase = async (
   for (const daysAgo of [0, 1]) {
     const dayStart = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() - daysAgo)
     const dayEnd = daysAgo === 0 ? endDate : new Date(dayStart.getTime() + 24 * 3600 * 1000)
+    const expectedDay = isoToLocalDate(dayStart.toISOString())
     for (const [aggregation, key] of hrMetrics) {
       await sleepMs(READ_GAP_MS)
       try {
@@ -458,7 +463,9 @@ export const syncHealthDataToSupabase = async (
         })
         for (const s of agg.samples) {
           const day = isoToLocalDate(s.startDate)
-          if (!day) continue
+          // Only the day we asked for — never let a boundary bucket from
+          // the yesterday call overwrite today's real value (and vice versa).
+          if (!day || day !== expectedDay) continue
           if (!hrByDay[day]) hrByDay[day] = {}
           hrByDay[day][key] = s.value
         }
