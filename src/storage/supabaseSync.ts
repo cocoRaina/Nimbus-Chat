@@ -899,7 +899,7 @@ export const fetchHealthSnapshot = async (): Promise<string | null> => {
   const [healthResult, periodResult] = await Promise.all([
     supabase
       .from('health_data')
-      .select('date,sleep_hours,sleep_quality,steps,notes')
+      .select('date,sleep_hours,deep_sleep_hours,light_sleep_hours,rem_sleep_hours,sleep_quality,steps,notes')
       .order('date', { ascending: false })
       .limit(1),
     supabase
@@ -913,6 +913,9 @@ export const fetchHealthSnapshot = async (): Promise<string | null> => {
   const row = (healthResult.data ?? [])[0] as {
     date?: string
     sleep_hours?: number
+    deep_sleep_hours?: number
+    light_sleep_hours?: number
+    rem_sleep_hours?: number
     sleep_quality?: string
     steps?: number
     notes?: string
@@ -921,7 +924,12 @@ export const fetchHealthSnapshot = async (): Promise<string | null> => {
   if (row) {
     const items: string[] = []
     if (row.sleep_hours) {
-      items.push(`昨晚睡了 ${row.sleep_hours}h${row.sleep_quality ? `（${row.sleep_quality}）` : ''}`)
+      const stages: string[] = []
+      if (row.deep_sleep_hours) stages.push(`深睡 ${row.deep_sleep_hours}h`)
+      if (row.rem_sleep_hours) stages.push(`REM ${row.rem_sleep_hours}h`)
+      if (row.light_sleep_hours) stages.push(`浅睡 ${row.light_sleep_hours}h`)
+      const stageStr = stages.length > 0 ? `（${stages.join('／')}）` : row.sleep_quality ? `（${row.sleep_quality}）` : ''
+      items.push(`昨晚睡了 ${row.sleep_hours}h${stageStr}`)
     }
     if (row.steps) items.push(`步数 ${row.steps}`)
     if (row.notes) items.push(row.notes)

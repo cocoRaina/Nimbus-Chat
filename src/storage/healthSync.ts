@@ -7,6 +7,9 @@ export type HealthDayAggregate = {
   date: string // YYYY-MM-DD
   steps?: number | null
   sleepHours?: number | null
+  deepSleepHours?: number | null
+  lightSleepHours?: number | null
+  remSleepHours?: number | null
   heartRateAvg?: number | null
   heartRateMax?: number | null
   heartRateMin?: number | null
@@ -240,6 +243,9 @@ const aggregateSamples = (
     {
       steps: number
       sleepMinutes: number
+      deepSleepMinutes: number
+      lightSleepMinutes: number
+      remSleepMinutes: number
       hrSum: number
       hrCount: number
       hrMax: number | null
@@ -255,6 +261,9 @@ const aggregateSamples = (
       acc[date] = {
         steps: 0,
         sleepMinutes: 0,
+        deepSleepMinutes: 0,
+        lightSleepMinutes: 0,
+        remSleepMinutes: 0,
         hrSum: 0,
         hrCount: 0,
         hrMax: null,
@@ -279,15 +288,16 @@ const aggregateSamples = (
       }
       case 'sleep': {
         // Skip awake / inBed segments — only actual sleep counts.
-        if (
-          s.sleepState === 'awake' ||
-          s.sleepState === 'inBed'
-        ) {
-          break
-        }
+        if (s.sleepState === 'awake' || s.sleepState === 'inBed') break
         const mins = sampleDurationMinutes(s)
         if (mins > 0) {
-          bucket(endDate).sleepMinutes += mins
+          const b = bucket(endDate)
+          b.sleepMinutes += mins
+          // Track named stages separately; 'sleeping' (generic/unknown) still
+          // counts toward total but not toward any specific category.
+          if (s.sleepState === 'deep') b.deepSleepMinutes += mins
+          else if (s.sleepState === 'light') b.lightSleepMinutes += mins
+          else if (s.sleepState === 'rem') b.remSleepMinutes += mins
         }
         break
       }
@@ -324,6 +334,9 @@ const aggregateSamples = (
       date,
       steps: b.steps > 0 ? Math.round(b.steps) : null,
       sleepHours: b.sleepMinutes > 0 ? Math.round((b.sleepMinutes / 60) * 10) / 10 : null,
+      deepSleepHours: b.deepSleepMinutes > 0 ? Math.round((b.deepSleepMinutes / 60) * 10) / 10 : null,
+      lightSleepHours: b.lightSleepMinutes > 0 ? Math.round((b.lightSleepMinutes / 60) * 10) / 10 : null,
+      remSleepHours: b.remSleepMinutes > 0 ? Math.round((b.remSleepMinutes / 60) * 10) / 10 : null,
       heartRateAvg: b.hrCount > 0 ? Math.round(b.hrSum / b.hrCount) : null,
       heartRateMax: b.hrMax != null ? Math.round(b.hrMax) : null,
       heartRateMin: b.hrMin != null ? Math.round(b.hrMin) : null,
@@ -578,6 +591,9 @@ export const syncHealthDataToSupabase = async (
       const out: Record<string, unknown> = { date: row.date }
       if (row.steps != null) out.steps = row.steps
       if (row.sleepHours != null) out.sleep_hours = row.sleepHours
+      if (row.deepSleepHours != null) out.deep_sleep_hours = row.deepSleepHours
+      if (row.lightSleepHours != null) out.light_sleep_hours = row.lightSleepHours
+      if (row.remSleepHours != null) out.rem_sleep_hours = row.remSleepHours
       if (row.heartRateAvg != null) out.heart_rate_avg = row.heartRateAvg
       if (row.heartRateMax != null) out.heart_rate_max = row.heartRateMax
       if (row.heartRateMin != null) out.heart_rate_min = row.heartRateMin
