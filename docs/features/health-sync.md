@@ -21,7 +21,7 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
 - **串行 + 每个请求间隔 250~300ms**（不是并行！）—— Health Connect 的周期性速率限制是 QPS 式的，同时炸出去一串请求是最差情况；几个单页请求摊到 ~1.5s 就稳稳低于阈值。诊断工具单次单类型能读、同步炸，根因就是同步把多个请求挤在一起爆发
 - 按本地日期聚合：
   - 步数 = 聚合 API 日总和
-  - 睡眠 = 累加段时长 → 小时（按 endDate，跳过 awake/inBed）
+  - 睡眠 = 累加段时长 → 小时（按 endDate，跳过 awake/inBed）；同时按阶段分桶 `deep` / `light` / `rem` 各自累加，写进 `deep_sleep_hours` / `light_sleep_hours` / `rem_sleep_hours`。泛型 `sleeping`（无明确阶段）只计入总时长、不归入任何分段
   - 心率 = 聚合 API 全天 avg / max / min
   - 静息心率 = 当天最后一条
   - 血氧 = 算术均值，自动归一化（0.95 / 95 都视作 95%）
