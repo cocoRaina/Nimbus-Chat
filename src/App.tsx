@@ -1373,8 +1373,14 @@ const App = () => {
           currentRequestDebug = null
         }
 
-        const openTag = '<think>'
-        const closeTag = '</think>'
+        // Support both <think> (DeepSeek/QwQ) and <thinking> (some Claude-compatible routes)
+        const openTagOptions = ['<thinking>', '<think>'] as const
+        const closeTagMap: Record<string, string> = {
+          '<thinking>': '</thinking>',
+          '<think>': '</think>',
+        }
+        let activeCloseTag = ''
+
         const reasoningFields: Array<{
           key: 'reasoning' | 'thinking' | 'reasoning_content' | 'thinking_content'
           type: 'reasoning' | 'thinking'
@@ -1416,6 +1422,15 @@ const App = () => {
           return ''
         }
 
+        const findPartialOpenSuffix = (text: string): string => {
+          let best = ''
+          for (const tag of openTagOptions) {
+            const p = findPartialSuffix(text, tag)
+            if (p.length > best.length) best = p
+          }
+          return best
+        }
+
         const splitReasoningFromContent = (delta: string) => {
           let text = `${thinkCarry}${delta}`
           thinkCarry = ''
@@ -1424,6 +1439,7 @@ const App = () => {
 
           while (text.length > 0) {
             if (isInThink) {
+              const closeTag = activeCloseTag
               const closeIndex = text.indexOf(closeTag)
               if (closeIndex === -1) {
                 const partial = findPartialSuffix(text, closeTag)
@@ -1435,19 +1451,30 @@ const App = () => {
                 reasoningChunk += text.slice(0, closeIndex)
                 text = text.slice(closeIndex + closeTag.length)
                 isInThink = false
+                activeCloseTag = ''
               }
             } else {
-              const openIndex = text.indexOf(openTag)
-              if (openIndex === -1) {
-                const partial = findPartialSuffix(text, openTag)
+              // Find earliest open tag; prefer longer match when tied (openTagOptions is longer-first)
+              let earliestIndex = -1
+              let matchedOpenTag = ''
+              for (const tag of openTagOptions) {
+                const idx = text.indexOf(tag)
+                if (idx !== -1 && (earliestIndex === -1 || idx < earliestIndex)) {
+                  earliestIndex = idx
+                  matchedOpenTag = tag
+                }
+              }
+              if (earliestIndex === -1) {
+                const partial = findPartialOpenSuffix(text)
                 const cutoff = text.length - partial.length
                 contentChunk += text.slice(0, cutoff)
                 thinkCarry = partial
                 text = ''
               } else {
-                contentChunk += text.slice(0, openIndex)
-                text = text.slice(openIndex + openTag.length)
+                contentChunk += text.slice(0, earliestIndex)
+                text = text.slice(earliestIndex + matchedOpenTag.length)
                 isInThink = true
+                activeCloseTag = closeTagMap[matchedOpenTag]
               }
             }
           }
