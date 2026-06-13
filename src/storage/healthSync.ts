@@ -168,6 +168,18 @@ const PER_TYPE_WINDOW_HOURS: Record<HealthDataType, number> = {
   oxygenSaturation: 48,
 } as Record<HealthDataType, number>
 
+// Per-type readSamples limit. Most types are sparse enough that Capgo's
+// DEFAULT_LIMIT=100 (one IPC page) covers the whole window. Oxygen
+// saturation is the exception: it's an Instantaneous record logged
+// ~every 10 min, so 48h holds ~288 samples — the default 100 would
+// truncate to only the newest ~16h (and could starve yesterday of any
+// sample at all, leaving its daily mean null). The Capgo plugin's page
+// size is 500, so limit:500 stays a SINGLE IPC (no pagination burst like
+// the old limit:1500 caused) while covering the full 2-day window.
+const PER_TYPE_SAMPLE_LIMIT: Partial<Record<HealthDataType, number>> = {
+  oxygenSaturation: 500,
+}
+
 // Gap between successive Health Connect IPC calls. A full sync now fires
 // 7 calls (steps + heart-rate avg/min/max aggregates + 3 readSamples).
 // Health Connect's limiter is a refilling token bucket, so a tight burst
@@ -486,13 +498,16 @@ export const syncHealthDataToSupabase = async (
       : PER_TYPE_WINDOW_HOURS[dataType] ?? 48
     const startDate = new Date(endDate.getTime() - windowHours * 3600 * 1000)
     try {
-      // No `limit` — Capgo's DEFAULT_LIMIT=100 keeps each call to a
-      // single Health Connect IPC. See the comment on PER_TYPE_WINDOW_HOURS
-      // above for why this is the right shape.
+      // Default (no limit) keeps each call to ONE Health Connect IPC via
+      // Capgo's DEFAULT_LIMIT=100. Dense types (oxygenSaturation) get an
+      // explicit limit:500 — still one IPC (page size 500) but covers the
+      // whole window. See PER_TYPE_SAMPLE_LIMIT for why.
+      const limit = PER_TYPE_SAMPLE_LIMIT[dataType]
       const res = await Health.readSamples({
         dataType,
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
+        ...(limit ? { limit } : {}),
       })
       summary.perType[dataType] = res.samples.length
       allSamples.push(...res.samples)
