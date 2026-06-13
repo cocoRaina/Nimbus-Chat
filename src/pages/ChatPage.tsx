@@ -171,14 +171,44 @@ const MessageRow = memo(function MessageRow({
             onPointerMove={onCancelLongPress}
             onContextMenu={(event) => onContextMenuOpen(event, message.id)}
           >
-            {isFirst && reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
-            {isFirst && Array.isArray(message.meta?.tool_calls) && (message.meta.tool_calls as ToolCallRecord[]).length > 0 ? (
-              <div className="tool-calls-section">
-                {(message.meta.tool_calls as ToolCallRecord[]).map((tc, tci) => (
-                  <ToolCallCard key={tci} name={tc.name} args={tc.args} result={tc.result} duration_ms={tc.duration_ms} />
-                ))}
-              </div>
-            ) : null}
+            {isFirst && (() => {
+              const flow = message.meta?.flow
+              const toolCalls = message.meta?.tool_calls as ToolCallRecord[] | undefined
+              if (flow && flow.length > 0 && toolCalls) {
+                // Interleaved thinking + tool cards (Claude-app style)
+                return (
+                  <div className="message-flow">
+                    {flow.map((event, ei) =>
+                      event.type === 'thinking' ? (
+                        <ReasoningPanel key={ei} reasoning={event.content} />
+                      ) : (
+                        (() => {
+                          const tc = toolCalls[event.index]
+                          return tc ? (
+                            <div key={ei} className="tool-calls-section">
+                              <ToolCallCard name={tc.name} args={tc.args} result={tc.result} duration_ms={tc.duration_ms} />
+                            </div>
+                          ) : null
+                        })()
+                      )
+                    )}
+                  </div>
+                )
+              }
+              // Fallback: single reasoning panel + all tool cards
+              return (
+                <>
+                  {reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
+                  {toolCalls && toolCalls.length > 0 ? (
+                    <div className="tool-calls-section">
+                      {toolCalls.map((tc, tci) => (
+                        <ToolCallCard key={tci} name={tc.name} args={tc.args} result={tc.result} duration_ms={tc.duration_ms} />
+                      ))}
+                    </div>
+                  ) : null}
+                </>
+              )
+            })()}
             {isFirst && message.meta?.attachments && message.meta.attachments.length > 0 ? (
               <div className="message-attachments">
                 {message.meta.attachments

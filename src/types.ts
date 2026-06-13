@@ -49,6 +49,10 @@ export type ChatMessage = {
       duration_ms?: number
       timestamp?: string
     }>
+    flow?: Array<
+      | { type: 'thinking'; content: string }
+      | { type: 'tool'; index: number }
+    >
   }
   pending?: boolean
 }

@@ -1323,6 +1323,11 @@ const App = () => {
         let flushTimer: number | null = null
         let thinkCarry = ''
         let isInThink = false
+        let currentIterationReasoning = ''
+        const flowEvents: Array<
+          | { type: 'thinking'; content: string }
+          | { type: 'tool'; index: number }
+        > = []
         let lastUsage: {
           prompt_tokens?: number
           completion_tokens?: number
@@ -1490,6 +1495,7 @@ const App = () => {
           if (!text) {
             return
           }
+          currentIterationReasoning += text
           if (target === 'pending') {
             pendingReasoningDelta += text
           } else {
@@ -1516,6 +1522,9 @@ const App = () => {
           }
           if (!streaming && toolCallRecords.length > 0) {
             meta.tool_calls = toolCallRecords
+          }
+          if (!streaming && flowEvents.length > 0) {
+            meta.flow = flowEvents
           }
           return meta
         }
@@ -2051,6 +2060,13 @@ TOOL_SEARCH_HANDOFF,
               toolCallsArr.length > 0 &&
               (finishReason === 'tool_calls' || finishReason === null)
             ) {
+              // Record any thinking from this iteration before the tool calls.
+              if (currentIterationReasoning.trim()) {
+                flowEvents.push({ type: 'thinking', content: currentIterationReasoning.trim() })
+              }
+              currentIterationReasoning = ''
+              const toolIndexStart = toolCallRecords.length
+
               // Some relay gateways / Anthropic-on-the-other-side reject
               // assistant messages whose content is an empty string when
               // tool_calls is set. Per OpenAI spec content can be null —
@@ -2541,8 +2557,17 @@ TOOL_SEARCH_HANDOFF,
                 })
               }
               setToolStatus('')
+              // Record tool flow events (after toolCallRecords is populated).
+              for (let i = toolIndexStart; i < toolCallRecords.length; i++) {
+                flowEvents.push({ type: 'tool', index: i })
+              }
               // Loop back for another model turn
               continue
+            }
+            // Record any thinking from the final (non-tool) iteration.
+            if (currentIterationReasoning.trim()) {
+              flowEvents.push({ type: 'thinking', content: currentIterationReasoning.trim() })
+              currentIterationReasoning = ''
             }
             conversationDone = true
           }
