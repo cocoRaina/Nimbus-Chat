@@ -502,10 +502,25 @@ const ChatPage = ({
       setUploadErrorDialog(true)
     } finally {
       setUploading(false)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      if (cameraInputRef.current) cameraInputRef.current.value = ''
     }
+  }
+
+  // On Android the CAMERA permission is "dangerous" and must be requested at
+  // runtime even though it's declared in AndroidManifest. Calling getUserMedia
+  // is the one way to trigger that system dialog from a WebView without
+  // installing @capacitor/camera. We stop the tracks immediately — we only
+  // need the permission grant, not an actual stream.
+  const handleCameraClick = async () => {
+    setOpenAttachMenu(false)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      stream.getTracks().forEach((t) => t.stop())
+    } catch {
+      // Already granted, denied, or desktop — proceed anyway.
+    }
+    cameraInputRef.current?.click()
   }
 
   const removePendingAttachment = (index: number) => {
@@ -1101,10 +1116,7 @@ const ChatPage = ({
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => {
-                    setOpenAttachMenu(false)
-                    cameraInputRef.current?.click()
-                  }}
+                  onClick={() => void handleCameraClick()}
                 >
                   📷 拍照
                 </button>
