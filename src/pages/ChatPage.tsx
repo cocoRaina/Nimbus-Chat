@@ -783,14 +783,13 @@ const ChatPage = ({
     }
   }, [])
 
-  // Close the "+" attach popup when the user taps elsewhere — the
-  // popup is anchored to the composer button so it can't use the
-  // existing portal-menu click-outside logic.
+  // Close the "+" attach panel when the user taps outside it.
   useEffect(() => {
     if (!openAttachMenu) return
     const onClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null
-      if (target?.closest('.composer-attach-wrap')) return
+      if (target?.closest('.attach-panel')) return
+      if (target?.closest('[aria-label="附加图片"]')) return
       setOpenAttachMenu(false)
     }
     document.addEventListener('click', onClick)
@@ -1169,16 +1168,48 @@ const ChatPage = ({
           }}
         />
         {showStickerTray ? (
-          <div className="sticker-tray">
-            {stickers.map((s) => (
-              <div key={s.name} className="sticker-tray__item">
-                <button type="button" className="sticker-tray__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
-                  <img src={s.dataUrl} alt={s.name} loading="lazy" />
-                </button>
-                <button type="button" className="sticker-tray__del" aria-label="删除" onClick={() => handleDeleteSticker(s.name)}>×</button>
-              </div>
-            ))}
-            <button type="button" className="sticker-tray__add" onClick={() => stickerInputRef.current?.click()}>＋<br />导入</button>
+          <div className="sticker-panel">
+            <div className="panel-handle" />
+            <div className="sticker-panel__grid">
+              {stickers.map((s) => (
+                <div key={s.name} className="sticker-panel__item">
+                  <button type="button" className="sticker-panel__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
+                    <img src={s.dataUrl} alt={s.name} loading="lazy" />
+                  </button>
+                  <button type="button" className="sticker-panel__del" aria-label="删除" onClick={() => handleDeleteSticker(s.name)}>×</button>
+                </div>
+              ))}
+              <button type="button" className="sticker-panel__add" onClick={() => stickerInputRef.current?.click()}>
+                <span className="sticker-panel__add-icon">＋</span>
+                <span className="sticker-panel__add-label">导入</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {openAttachMenu ? (
+          <div className="attach-panel">
+            <div className="panel-handle" />
+            <div className="attach-panel__grid">
+              <button
+                type="button"
+                className="attach-panel__tile"
+                onClick={() => void openNativeCamera()}
+              >
+                <span className="attach-panel__tile-icon">📷</span>
+                <span className="attach-panel__tile-label">拍照</span>
+              </button>
+              <button
+                type="button"
+                className="attach-panel__tile"
+                onClick={() => {
+                  setOpenAttachMenu(false)
+                  fileInputRef.current?.click()
+                }}
+              >
+                <span className="attach-panel__tile-icon">🖼</span>
+                <span className="attach-panel__tile-label">从相册</span>
+              </button>
+            </div>
           </div>
         ) : null}
         {!online ? (
@@ -1191,49 +1222,16 @@ const ChatPage = ({
               Now "+" pops a small two-item sheet — 拍照 vs 从相册 —
               triggering the corresponding hidden file input. The sheet
               auto-closes on click-outside via the effect below. */}
-          <div className="composer-attach-wrap">
-            <button
-              type="button"
-              className="composer-icon-btn"
-              aria-label="附加图片"
-              title="附加图片"
-              onClick={() => setOpenAttachMenu((v) => !v)}
-              disabled={uploading}
-            >
-              <span aria-hidden="true">＋</span>
-            </button>
-            {openAttachMenu ? (
-              <div className="composer-attach-menu" role="menu">
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => void openNativeCamera()}
-                >
-                  📷 拍照
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setOpenAttachMenu(false)
-                    fileInputRef.current?.click()
-                  }}
-                >
-                  🖼 从相册
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setOpenAttachMenu(false)
-                    setShowStickerTray((v) => !v)
-                  }}
-                >
-                  🧷 表情
-                </button>
-              </div>
-            ) : null}
-          </div>
+          <button
+            type="button"
+            className={`composer-icon-btn${openAttachMenu ? ' composer-icon-btn--active' : ''}`}
+            aria-label="附加图片"
+            title="附加图片"
+            onClick={() => { setOpenAttachMenu((v) => !v); setShowStickerTray(false) }}
+            disabled={uploading}
+          >
+            <span aria-hidden="true">＋</span>
+          </button>
           <textarea
             className="composer-line-input"
             placeholder="输入你的消息"
@@ -1253,6 +1251,15 @@ const ChatPage = ({
               }
             }}
           />
+          <button
+            type="button"
+            className={`composer-icon-btn${showStickerTray ? ' composer-icon-btn--active' : ''}`}
+            aria-label="表情包"
+            title="表情包"
+            onClick={() => { setShowStickerTray((v) => !v); setOpenAttachMenu(false) }}
+          >
+            <span aria-hidden="true">🧷</span>
+          </button>
           {isStreaming ? (
             <button
               type="button"

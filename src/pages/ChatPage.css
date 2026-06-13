@@ -328,40 +328,144 @@
   background: #fff;
 }
 
-/* The "+" composer button now opens a small menu of attach options
-   above itself. Anchored to .composer-attach-wrap so it tracks the
-   button's position; pops upward because the composer sits at the
-   bottom of the viewport. */
-.composer-attach-wrap {
-  position: relative;
-  display: inline-flex;
+/* Shared bottom-panel styles (attach panel + sticker panel) */
+.panel-handle {
+  width: 36px;
+  height: 4px;
+  background: #d1d5db;
+  border-radius: 2px;
+  margin: 8px auto 4px;
+  flex-shrink: 0;
 }
-.composer-attach-menu {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
+
+/* WeChat-style attach panel */
+.attach-panel {
   background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  padding: 6px;
-  min-width: 140px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 14px 14px 0 0;
+  padding: 0 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  z-index: 100;
+  animation: panel-slide-up 0.2s ease-out both;
 }
-.composer-attach-menu button {
-  text-align: left;
-  background: transparent;
-  border: 0;
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 14px;
+.attach-panel__grid {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  padding-top: 8px;
+}
+.attach-panel__tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: #f3f4f6;
+  border: none;
+  border-radius: 12px;
+  width: 72px;
+  padding: 14px 0 10px;
   cursor: pointer;
 }
-.composer-attach-menu button:hover {
+.attach-panel__tile:active {
+  background: #e5e7eb;
+}
+.attach-panel__tile-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+.attach-panel__tile-label {
+  font-size: 12px;
+  color: #374151;
+}
+
+/* LINE-style sticker grid panel */
+.sticker-panel {
+  background: #fff;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 14px 14px 0 0;
+  padding: 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  animation: panel-slide-up 0.2s ease-out both;
+}
+.sticker-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  overflow-y: auto;
+  padding-top: 6px;
+}
+.sticker-panel__item {
+  position: relative;
+}
+.sticker-panel__send {
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 6px;
+  border: none;
+  border-radius: 12px;
   background: #f3f4f6;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sticker-panel__send:active {
+  background: #e5e7eb;
+}
+.sticker-panel__send img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.sticker-panel__del {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sticker-panel__add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  gap: 2px;
+}
+.sticker-panel__add-icon {
+  font-size: 20px;
+  color: #9ca3af;
+  line-height: 1;
+}
+.sticker-panel__add-label {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+/* Active state for composer icon buttons */
+.composer-icon-btn--active {
+  color: var(--accent, #6366f1);
+}
+
+@keyframes panel-slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
 }
 
 
@@ -1375,57 +1479,7 @@
   color: #9ca3af;
   font-size: 13px;
 }
-.sticker-tray {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 8px 10px;
-  background: #f7f7f8;
-  border-top: 1px solid rgba(15, 23, 42, 0.06);
-}
-.sticker-tray__item {
-  position: relative;
-  flex: 0 0 auto;
-}
-.sticker-tray__send {
-  width: 60px;
-  height: 60px;
-  padding: 4px;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  background: #fff;
-  cursor: pointer;
-}
-.sticker-tray__send img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.sticker-tray__del {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 18px;
-  height: 18px;
-  border: none;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-}
-.sticker-tray__add {
-  flex: 0 0 auto;
-  width: 60px;
-  height: 60px;
-  border: 1px dashed #cbd5e1;
-  border-radius: 10px;
-  background: #fff;
-  color: #6b7280;
-  font-size: 12px;
-  cursor: pointer;
-}
+/* .sticker-tray replaced by .sticker-panel above */
 
 /* ── In-app camera modal ─────────────────────────────────────────── */
 .camera-modal {
