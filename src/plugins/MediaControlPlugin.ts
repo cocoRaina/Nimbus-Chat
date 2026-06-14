@@ -20,8 +20,8 @@ export interface MediaControlPlugin {
   hasPermission(): Promise<{ granted: boolean }>
   /** Open Settings → 通知使用权 so the user can grant notification access. */
   requestPermission(): Promise<void>
-  /** Fire an ACTION_VIEW intent (e.g. orpheus://song?id=123 to open NetEase). */
-  openUrl(options: { url: string }): Promise<{ ok: boolean }>
+  /** Fire an ACTION_VIEW intent. Pass packageName to route directly to a specific app (skips browser chooser). */
+  openUrl(options: { url: string; packageName?: string }): Promise<{ ok: boolean }>
 }
 
 export const MediaControlPlugin = registerPlugin<MediaControlPlugin>('MediaControl')

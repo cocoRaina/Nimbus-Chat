@@ -112,10 +112,17 @@ public class MediaControlPlugin extends Plugin {
     }
 
     /**
-     * Fire an ACTION_VIEW intent for a URL — used by play_music to open a
-     * deep link like orpheus://song?id=123 straight into NetEase Cloud Music.
-     * Native intent rather than a JS plugin so we don't add a dependency and
-     * so custom schemes resolve through the normal Android intent system.
+     * Fire an ACTION_VIEW intent for a URL.
+     *
+     * For play_music we pass url = "https://music.163.com/song?id=xxx" and
+     * packageName = "com.netease.cloudmusic". Setting the package makes
+     * Android skip the browser chooser and route straight into NetEase;
+     * the https URL is registered as an App Link by NetEase and correctly
+     * navigates to + auto-plays the specific song.
+     *
+     * If the explicit-package launch fails (app not installed, or the
+     * URL isn't one the target app handles), we retry without the package
+     * restriction so Android falls back to the normal chooser.
      */
     @PluginMethod
     public void openUrl(PluginCall call) {
@@ -124,10 +131,20 @@ public class MediaControlPlugin extends Plugin {
             call.reject("url required");
             return;
         }
+        String packageName = call.getString("packageName", null);
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getContext().startActivity(intent);
+            if (packageName != null && !packageName.isEmpty()) {
+                intent.setPackage(packageName);
+            }
+            try {
+                getContext().startActivity(intent);
+            } catch (Exception firstErr) {
+                // Package-restricted launch failed; retry without restriction.
+                intent.setPackage(null);
+                getContext().startActivity(intent);
+            }
             JSObject ret = new JSObject();
             ret.put("ok", true);
             call.resolve(ret);

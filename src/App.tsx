@@ -2372,7 +2372,13 @@ TOOL_SEARCH_HANDOFF,
                       const song = musicData.results[0] as { id: number; name: string; artist: string; duration_seconds: number }
                       try {
                         const { MediaControlPlugin } = await import('./plugins/MediaControlPlugin')
-                        await MediaControlPlugin.openUrl({ url: `orpheus://song?id=${song.id}` })
+                        // Web App Link → NetEase intercepts this and navigates
+                        // directly to the song. Explicit package name routes
+                        // straight into the app without a browser chooser.
+                        await MediaControlPlugin.openUrl({
+                          url: `https://music.163.com/song?id=${song.id}`,
+                          packageName: 'com.netease.cloudmusic',
+                        })
                       } catch (openErr) {
                         console.warn('打开网易云失败', openErr)
                       }
