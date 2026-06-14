@@ -73,6 +73,19 @@
 
 ---
 
+## 2026-06-14
+
+### 网易云放歌 + 媒体控制（新增 2 个 APK 工具）
+
+让 API 哥能**放指定的歌** + 控制播放（工具数 17 → 19）：
+
+- **`play_music`**：新建 `supabase/functions/netease_search` Edge Function（JWT 校验，服务端带浏览器头 + `Referer` 打 `music.163.com/api/search/get`，绕 WebView CORS，返回 `{id,name,artist,duration_seconds}`）。`App.tsx` 工具分支调用后取首条结果，用 `@capacitor/app` `openUrl({url:'orpheus://song?id=xxx'})` deep link 直接拉起网易云播放。
+- **`control_media`**：新建自定义原生插件 `MediaControl`（`MediaControlPlugin.java` + `src/plugins/MediaControlPlugin.ts` 桥，`MainActivity` 注册），走 `AudioManager.dispatchMediaKeyEvent` 发媒体键（play/pause/next/previous），任意正在播放的 App 都生效。
+- 两个工具都 `Capacitor.getPlatform() !== 'web'` 平台门控（deep link / 媒体键只在 APK 有意义）。原生插件改动需重打 APK 生效。
+- **踩坑/局限**：`dispatchMediaKeyEvent` 是 deprecated API，但对发媒体键仍可靠；要读「当前在放什么歌」得上 `MediaSessionManager` + 通知监听权限，暂没做。`play_music` 只取搜索首条（网易云首条通常即最热门正确匹配），未做多结果消歧。
+
+---
+
 ## 2026-06-13
 
 ### 思考链 + 工具卡片交错显示（claude.ai 风格）

@@ -1,4 +1,4 @@
-# Claude 工具（共 17 个）
+# Claude 工具（共 19 个）
 
 每次工具调用记录在消息 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回。
 
@@ -38,3 +38,12 @@
 | `run_code` | 通过用户配的代码沙盒跑 Python/JS（需配 endpoint） |
 | `schedule_proactive_message` | 预设一条未来主动消息（1-1440 分钟 / 最长 24h；可选 `persist` 区分"普通 ping"和"叫起床这种不可取消提醒"）。仅 APK |
 | `get_device_state` | 查手机电量 / 充电 / 今日总屏幕时长 / Top 5 app 时长。不需要等用户提手机，对话开始 / 聊了 30 分钟 / 出门前主动查。APK 限定；屏幕时间需在系统设置开「使用情况访问权限」 |
+
+## 🎵 音乐 / 媒体控制（APK 限定）
+
+| 工具 | 说明 |
+|------|------|
+| `play_music` | 在网易云音乐里搜索并播放指定歌曲。`query`＝歌名+可选歌手（如"稻香 周杰伦"）。走 `netease_search` Edge Function 服务端搜（绕 WebView CORS + 浏览器头），取首条结果用 `orpheus://song?id=xxx` deep link 直接拉起网易云播放。需手机已装并登录网易云 |
+| `control_media` | 控制当前正在播放的媒体（任意 App 都生效，不限网易云）：`play` 继续 / `pause` 暂停 / `next` 下一首 / `previous` 上一首。原生走 `AudioManager.dispatchMediaKeyEvent` 发媒体键 |
+
+> 实现：搜索在 `supabase/functions/netease_search`（JWT 校验，代理 `music.163.com/api/search/get`，返回 `{id,name,artist,duration_seconds}`）；deep link 经 `@capacitor/app` `openUrl`；媒体键经自定义 `MediaControl` 原生插件（`MediaControlPlugin.java` + `src/plugins/MediaControlPlugin.ts` 桥）。
