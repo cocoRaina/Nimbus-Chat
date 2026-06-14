@@ -73,6 +73,50 @@
 
 ---
 
+## 2026-06-13
+
+### 思考链 + 工具卡片交错显示（claude.ai 风格）
+
+之前一条助手消息把所有思考挤进一个折叠面板、所有工具卡片叠在一起，看不出「先想了啥 → 调了啥工具 → 又想了啥」的真实顺序。改成按发生顺序交错：
+
+- `App.tsx` `sendMessage` 工具循环里加 `currentIterationReasoning`（每轮单独累计思考）+ `flowEvents[]`，工具分支前 push `{type:'thinking'}`、工具执行后 push `{type:'tool',index}`，最后一轮（非工具）收尾再 push 末段思考。存进 `message.meta.flow`（`types.ts` 加字段）。
+- `ChatPage` 有 `flow` 时按事件序列交错渲染「思考面板 → 工具卡 → 思考面板 → 正文」；旧消息无 `flow` 回退到原「单面板 + 卡片堆叠」。
+- 纯前端，等 APK 生效。
+
+### `<thinking>` 裸标签泄漏进正文 + 思考中途调工具吞正文
+
+两个流式解析 bug（截图里思考标签直接显示成文字、或工具后正文消失）：
+
+- **双标签**：`splitReasoningFromContent` 原本只认 `<think>`/`</think>`（DeepSeek 式），遇到 `<thinking>`/`</thinking>`（部分 Claude 兼容中转）就把整个标签当正文吐出来。改成同时识别两种开标签、各配对应闭标签，优先匹配更长的（防 `<thinking>` 被当 `<think>` 截断）。
+- **迭代重置**：模型「思考没闭合就调工具」时，`isInThink` 会卡在 `true`，下一轮工具返回后的正文整段被吞进思考面板（气泡空白）。改成每轮迭代开头强制 `isInThink=false` + 清 `thinkCarry`/`activeCloseTag`。
+
+### 微信/LINE 风格附件 + 表情面板
+
+输入栏交互重做（`ChatPage.tsx` + `.css`）：
+
+- **表情独立出来**：原来藏在 `+ → 🧷 表情` 三级菜单里，挪成输入栏专属 🧷 按钮。点开 **LINE 风格** 4 列网格面板（贴纸大图、可滚动、虚线导入格、底部滑入动画）。
+- **`+` 改微信风格**：底部白色面板（圆角顶 + 拖动把手）放 `📷 拍照 / 🖼 从相册` 两个图标格子。两个面板互斥。
+
+### 相机修复：改用 `@capacitor/camera` 原生相机
+
+APK 里点拍照只弹出文件选择器、调不起相机。根因：`<input capture="environment">` 在新版 Android WebView 被忽略、退化成普通文件选择。改成装 `@capacitor/camera` 插件，`Camera.getPhoto({source:CameraSource.Camera})` 走原生 `ACTION_IMAGE_CAPTURE` intent 直接拉起系统相机；返回 base64 → Blob → File 喂进既有 `handleFilePick`。Web 端降级为 `getUserMedia` 应用内相机模态。`file_paths.xml` 补 `external-path`。**踩坑**：首版漏了 `import { Capacitor }`，连挂 3 次 APK CI（TS2304），补上后绿。
+
+### 健康同步：睡眠深/浅/REM 分段 + 边界/截断修复
+
+- **睡眠分段**：`health_data` 加 `deep_sleep_hours`/`light_sleep_hours`/`rem_sleep_hours`（迁移 `20260613110000`）。`healthSync.ts` 聚合时按 `sleepState`（`deep`/`light`/`rem`）分桶累计，泛型 `sleeping` 只计总时长。健康快照显示 `昨晚睡了 9h（深睡 2.1h／REM 1.8h／浅睡 4.3h）`。partial-update upsert 只塞非 null 字段。
+- **血氧截断**：`oxygenSaturation` 的 `readSamples` limit 提到 500（之前默认 100 只覆盖最近几分钟，全天均值偏窄）。
+- **边界泄漏**：聚合分桶按 `endDate` 锚定，加守卫防跨日边界数据漏算。
+
+### README 手机端渲染修复
+
+GitHub Android app 看 README 卡顿、大片白条。根因是 **markdown 表格**——每个表格被塞进独立滚动容器、高度算错留巨大空隙。把全部 13 个表格转成 bullet 列表；两个宽 ASCII 块（架构图、文件树）包进 `<details>` 折叠。
+
+### CI：SessionStart hook 自动设 git 身份
+
+`.claude/hooks/session-start.sh` 每个 session 开头自动跑 `git config user.email noreply@anthropic.com && user.name Claude`，避免提交显示 Unverified。
+
+---
+
 ## 2026-06-12
 
 ### 搜索:日记/交接信改用 date 而非 created_at

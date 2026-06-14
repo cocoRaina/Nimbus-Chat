@@ -3,7 +3,9 @@
 - **Header**：左 `←` 返回首页、Claude 的圆头像（同步 `/syzygy` 朋友圈头像）、可改名称（默认"哥哥"，✏️ 修改名称写到 localStorage `nimbus_assistant_name`，主动消息通知 title 也跟着用新名字）；右 `⚙️` + `≡`（会话抽屉）
 - **`⚙️` 齿轮菜单**：🧠 思考链开关 / 🤖 **模型选择**（per-session override，选默认值=清除 override） / 📦 手动压缩对话 / ✏️ 修改名称。模型选择从输入栏挪到这里，输入栏更清爽
 - **正在输入指示器**：流式期间在 header 名称下方副标题显示「正在输入…」+ 三跳动点，不再在消息流尾巴留空气泡
-- **输入栏**：单行 `[+] [输入框 pill] [➤ 发送 / ■ 停止]`，底部是白色 footer 面板。`+` 点开浮出小菜单 `📷 拍照 / 🖼 从相册`（分别走 `<input capture="environment">` 直接相机和 `<input multiple>` 相册）。流式时变红停止。（内置 🎤 语音输入已移除——`@capacitor-community/speech-recognition` 在 Android 11+ 因缺 RecognitionService `<queries>` 静默失效，且和输入法自带语音转文字重复，改用输入法的）
+- **输入栏**：单行 `[+] [输入框 pill] [🧷 表情] [➤ 发送 / ■ 停止]`，底部是白色 footer 面板。流式时发送键变红停止。（内置 🎤 语音输入已移除——`@capacitor-community/speech-recognition` 在 Android 11+ 因缺 RecognitionService `<queries>` 静默失效，且和输入法自带语音转文字重复，改用输入法的）
+  - **`+` 附件面板（微信风格）**：点开从底部滑上的白色面板（圆角顶 + 拖动把手），两个图标格子 `📷 拍照 / 🖼 从相册`。拍照在 APK 上走 `@capacitor/camera` 原生相机插件（`CameraSource.Camera`，直接拉起系统相机 app）；Web 端降级为 `getUserMedia` 应用内相机模态。相册走 `<input multiple>`。旧的 `<input capture="environment">` 已弃用（新版 Android WebView 会忽略 capture 属性、退化成普通文件选择器）
+  - **`🧷` 表情面板（LINE 风格）**：独立按钮（不再藏在 `+` 里），点开 4 列网格、贴纸大图、可上下滚动、右下角虚线「＋导入」格；两个面板互斥（开一个自动关另一个）
 - **复制**：长按菜单「复制」走原生 `@capacitor/clipboard`（WebView 的 `navigator.clipboard` 会静默失效），带 navigator 兜底
 - **📡 离线条**：`@capacitor/network` 监听网络，断网时在输入栏上方显示黄色「📡 已离线」横条（发送照常排队，网络恢复自动重试）
 - **📳 震动反馈**：`@capacitor/haptics` 在长按菜单弹出 / 发送按钮 / 麦克风停止 时触发轻震，体感反馈用
@@ -11,11 +13,13 @@
 - **居中时间分隔**：间隔 >5 分钟才显示
 - **一条消息 = 一个气泡**：用 `[NEXT]` 显式拆成短句串
 - **懒加载**：进入只渲染最近 30 条，"加载更早" 按钮分页
-- **工具调用卡片**：每条助手消息上方显示本轮调了哪些工具，可折叠查看详情
+- **思考链 + 工具卡片交错显示（claude.ai 风格）**：`sendMessage` 在工具循环里给每次迭代单独记一段思考，按真实发生顺序存进 `message.meta.flow[]`（`{type:'thinking'}` / `{type:'tool',index}` 事件序列）。`ChatPage` 据此把「思考面板 → 工具卡片 → 思考面板 → 回复正文」交错渲染，而不是把所有思考挤成一坨、所有工具卡叠一起。没有 `flow` 的旧消息回退到原来的「单思考面板 + 工具卡片堆叠」渲染。
+  - **`<think>` / `<thinking>` 双标签解析**：`splitReasoningFromContent` 同时识别两种开标签并各自配对闭标签（DeepSeek 用 `<think>`，部分 Claude 兼容中转用 `<thinking>`），避免裸标签泄漏进正文气泡。
+  - **每轮迭代重置解析状态**：迭代开头强制 `isInThink=false`，防止模型「思考中途就调工具、没闭合标签」时把下一轮正文吞进思考面板。
 - **入场动画**：新消息从下方滑入 + 淡入（0.25s）
 - **长按菜单**：复制 / 引用 / 分享（`@capacitor/share` 调系统分享面板） / 重新生成 / 编辑 / 删除。菜单**自动翻转**：如果气泡靠近屏幕底部、菜单展开会被输入框压住，`useLayoutEffect` 量完菜单高度后改成出现在气泡**上方**；水平方向也会贴边裁剪。触摸屏下气泡 `user-select: none` + `-webkit-touch-callout: none`，长按不会触发系统蓝色选字（桌面鼠标仍可选，用 `@media (hover:none) and (pointer:coarse)` 隔离）
 - **连发（批量回复）**：composer 发送改走 `queueUserMessage`——只落用户消息 + 起 2.5 秒 debounce 定时器（`App.tsx` `BATCH_REPLY_MS`，`armBatchTimer`），期间再发就重置；定时器到了用 `sendMessage(skipUser)` 一次性生成回复，让 AI 看这一批。连发期间没流式，所以不被停止键挡。
   - **打字也推后定时器（防抢答）**：光靠"两次发送之间重置"不够——人打下一条字常常超过窗口，AI 就抢着回复、随后流式锁住输入框，导致连发不了几条。所以输入框 `onChange` 会调 `onComposerActivity`（→ `App.tsx` `notifyComposerActivity`），**只在定时器已经在跑时**重置它（平时打字不受影响），把窗口放宽到 2.5 秒，只有真正停顿才自动回复。
   - **表情包也走这条**：点贴纸 = `onSendMessage('[sticker:名字]')` = `queueUserMessage`，所以连发表情包、文字+表情混发都会批到一起。
   - **边缘情况**：窗口内切会话再发 → 先 flush 旧会话那批（立刻替它生成回复），不丢；窗口内「编辑/重新生成」→ `cancelBatchTimer()` 撤销定时器（它们自己会触发生成，不撤会双重生成）；窗口内删消息 → 只推后定时器，批里剩下的照常回；定时器到点时如有流在跑 → 推迟一个窗口再试，不抢 `streamingController` 掐断别人的流。app 在窗口内被杀 → 该批不会自动回，1 小时后 proactive nudge 兜底。
-- **表情包（`[sticker:名字]`）**：你和 AI 共用一套贴纸（`storage/stickers.ts`，压缩成小 PNG 存 localStorage）。`+ → 🧷 表情` 面板导入/发送/删除；发送即发 `[sticker:名字]` 文本，前端解析成图片（用户和 AI 都解析）。可用贴纸列表注入进聊天 system prompt（`buildStickerSystemSection`），AI 据此自己发。
+- **表情包（`[sticker:名字]`）**：你和 AI 共用一套贴纸（`storage/stickers.ts`，压缩成小 PNG 存 localStorage）。输入栏 🧷 按钮打开 LINE 风格表情面板导入/发送/删除；发送即发 `[sticker:名字]` 文本，前端解析成图片（用户和 AI 都解析）。可用贴纸列表注入进聊天 system prompt（`buildStickerSystemSection`），AI 据此自己发。
