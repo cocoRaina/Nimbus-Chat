@@ -498,3 +498,45 @@ export const TOOL_CHECK_MEMORY_HEALTH = {
     },
   },
 }
+
+export const TOOL_PLAY_MUSIC = {
+  type: 'function' as const,
+  function: {
+    name: 'play_music',
+    description:
+      '在网易云音乐里搜索并播放一首歌。会打开网易云音乐 App 直接开始播放。\n\n' +
+      '**何时调用**：用户说"放首歌 / 来首 XX / 我想听 XX / 帮我放点轻音乐"等，或你觉得当前心情/场景适合某首歌时主动提议。\n' +
+      '**注意**：需要手机已安装网易云音乐，且用户已登录。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: '歌名 + 可选歌手，例如"稻香 周杰伦"或"晴天"或"轻音乐 睡前"',
+        },
+      },
+      required: ['query'],
+    },
+  },
+}
+
+export const TOOL_CONTROL_MEDIA = {
+  type: 'function' as const,
+  function: {
+    name: 'control_media',
+    description:
+      '控制当前正在播放的媒体（任意 App 都有效，不限网易云）。\n\n' +
+      '**何时调用**：用户说"暂停 / 停一下 / 换一首 / 上一首 / 继续放"。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['play', 'pause', 'next', 'previous'],
+          description: 'play=继续播放，pause=暂停，next=下一首，previous=上一首',
+        },
+      },
+      required: ['action'],
+    },
+  },
+}

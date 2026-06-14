@@ -90,6 +90,8 @@ import {
   TOOL_GARDEN_MEMORIES,
   TOOL_CHECK_MEMORY_HEALTH,
   TOOL_GET_HEALTH_STATUS,
+  TOOL_PLAY_MUSIC,
+  TOOL_CONTROL_MEDIA,
 } from './tools/definitions'
 import { syncStatusBarToPage } from './storage/statusBar'
 import {
@@ -1812,7 +1814,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
-                ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE] : []),
+                ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA] : []),
               ]
               requestBody.tool_choice = 'auto'
             }
@@ -2356,6 +2358,38 @@ TOOL_SEARCH_HANDOFF,
                       resultText = JSON.stringify({
                         error: deviceErr instanceof Error ? deviceErr.message : String(deviceErr),
                       })
+                    }
+                  } else if (tc.function.name === 'play_music' && supabase) {
+                    let args: { query?: string } = {}
+                    try { args = JSON.parse(tc.function.arguments || '{}') } catch { /* keep {} */ }
+                    const queryLabel = (args.query ?? '').toString().trim().slice(0, 40)
+                    setToolStatus(queryLabel ? `🎵 搜歌：${queryLabel}…` : '🎵 搜歌…')
+                    const { data: musicData, error: musicErr } = await supabase.functions.invoke('netease_search', {
+                      body: { query: args.query },
+                    })
+                    if (!musicErr && Array.isArray(musicData?.results) && musicData.results.length > 0) {
+                      const song = musicData.results[0] as { id: number; name: string; artist: string; duration_seconds: number }
+                      try {
+                        const { App: CapApp } = await import('@capacitor/app')
+                        await CapApp.openUrl({ url: `orpheus://song?id=${song.id}` })
+                      } catch (openErr) {
+                        console.warn('打开网易云失败', openErr)
+                      }
+                      resultText = JSON.stringify({ status: 'playing', song: song.name, artist: song.artist, id: song.id })
+                    } else {
+                      resultText = JSON.stringify({ error: musicErr?.message ?? '没有找到这首歌' })
+                    }
+                  } else if (tc.function.name === 'control_media') {
+                    let args: { action?: string } = {}
+                    try { args = JSON.parse(tc.function.arguments || '{}') } catch { /* keep {} */ }
+                    const actionLabel: Record<string, string> = { play: '继续', pause: '暂停', next: '下一首', previous: '上一首' }
+                    setToolStatus(`⏯ ${actionLabel[args.action ?? ''] ?? args.action}…`)
+                    try {
+                      const { MediaControlPlugin } = await import('./plugins/MediaControlPlugin')
+                      await MediaControlPlugin.control({ action: args.action ?? 'pause' })
+                      resultText = JSON.stringify({ ok: true, action: args.action })
+                    } catch (mediaErr) {
+                      resultText = JSON.stringify({ error: String(mediaErr) })
                     }
                   } else if (tc.function.name === 'manage_memory' && supabase) {
                     let args: { action?: string; id?: string | number; content?: string; source?: string } = {}
