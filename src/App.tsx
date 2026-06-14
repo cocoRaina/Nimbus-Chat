@@ -2372,15 +2372,13 @@ TOOL_SEARCH_HANDOFF,
                       const song = musicData.results[0] as { id: number; name: string; artist: string; duration_seconds: number }
                       try {
                         const { MediaControlPlugin } = await import('./plugins/MediaControlPlugin')
-                        // orpheus:// is NetEase's custom scheme — confirmed to open the app.
-                        // setPackage forces Android to route directly there (no chooser dialog).
-                        // After 1.5 s the song page has loaded; send a play key to start playback.
+                        // Correct format confirmed: path-style ID + ?autoplay=1.
+                        // Without autoplay=1 the app only navigates to the song
+                        // page but never starts playing.
                         await MediaControlPlugin.openUrl({
-                          url: `orpheus://song?id=${song.id}`,
+                          url: `orpheus://song/${song.id}/?autoplay=1`,
                           packageName: 'com.netease.cloudmusic',
                         })
-                        await new Promise(r => setTimeout(r, 1500))
-                        await MediaControlPlugin.control({ action: 'play' })
                       } catch (openErr) {
                         console.warn('打开网易云失败', openErr)
                       }
