@@ -1129,8 +1129,18 @@ const App = () => {
       } catch (memErr) {
         console.warn('注入核心记忆失败', memErr)
       }
+      // When tools are available, remind the model that tools are REAL
+      // actions. In deep roleplay the model sometimes narrates "好，我设置好提醒了"
+      // without ever emitting the schedule_proactive_message tool call, so
+      // nothing actually gets scheduled (confirmed in prod: assistant turns
+      // claiming a reminder was set with no tool_call in meta). This nudge
+      // is part of the stable cached prefix.
+      const willHaveTools = isToolCapableModel(effectiveModel) && Boolean(supabase)
+      const toolActionReminder = willHaveTools
+        ? '\n\n【工具 = 真实动作，必须真调用】当你打算"待会提醒她 / 晚点联系她 / 叫她起床 / 到点喊她"时，必须真的调用 schedule_proactive_message 工具，拿到 ok 才算数。只在回复里说"我设置好了 / 待会提醒你"却没调用工具，是无效的——不会真的发出任何提醒，她也收不到。放歌、记录健康/经期等同理：先真的调用对应工具，再用你的语气说话。'
+        : ''
       const systemPrompt =
-        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection()
+        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + toolActionReminder
       const isFirstMessageInSession = !messagesRef.current.some(
         (message) =>
           message.sessionId === sessionId &&
