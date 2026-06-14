@@ -79,10 +79,19 @@
 
 让 API 哥能**放指定的歌** + 控制播放（工具数 17 → 19）：
 
-- **`play_music`**：新建 `supabase/functions/netease_search` Edge Function（JWT 校验，服务端带浏览器头 + `Referer` 打 `music.163.com/api/search/get`，绕 WebView CORS，返回 `{id,name,artist,duration_seconds}`）。`App.tsx` 工具分支调用后取首条结果，用 `@capacitor/app` `openUrl({url:'orpheus://song?id=xxx'})` deep link 直接拉起网易云播放。
+- **`play_music`**：新建 `supabase/functions/netease_search` Edge Function（JWT 校验，服务端带浏览器头 + `Referer` 打 `music.163.com/api/search/get`，绕 WebView CORS，返回 `{id,name,artist,duration_seconds}`）。`App.tsx` 工具分支调用后取首条结果，用 `orpheus://song?id=xxx` deep link 直接拉起网易云播放。
 - **`control_media`**：新建自定义原生插件 `MediaControl`（`MediaControlPlugin.java` + `src/plugins/MediaControlPlugin.ts` 桥，`MainActivity` 注册），走 `AudioManager.dispatchMediaKeyEvent` 发媒体键（play/pause/next/previous），任意正在播放的 App 都生效。
 - 两个工具都 `Capacitor.getPlatform() !== 'web'` 平台门控（deep link / 媒体键只在 APK 有意义）。原生插件改动需重打 APK 生效。
-- **踩坑/局限**：`dispatchMediaKeyEvent` 是 deprecated API，但对发媒体键仍可靠；要读「当前在放什么歌」得上 `MediaSessionManager` + 通知监听权限，暂没做。`play_music` 只取搜索首条（网易云首条通常即最热门正确匹配），未做多结果消歧。
+- **局限**：`play_music` 只取搜索首条（网易云首条通常即最热门正确匹配），未做多结果消歧。
+
+### 读「现在在放什么歌」+ 精准媒体控制 + 修 deep link bug
+
+接着把「读当前播放」补上（工具数 19 → 20），顺手升级了控制精度：
+
+- **`get_now_playing`**（新工具）：读当前正在播的歌名/歌手/专辑/进度/来源 App。原生走 `MediaSessionManager.getActiveSessions()` → `MediaController.getMetadata()/getPlaybackState()`，优先挑处于 `STATE_PLAYING` 的会话。
+- **通知使用权**：`getActiveSessions()` 要求调用方是「已启用的通知监听器」。新建空壳 `NowPlayingListener extends NotificationListenerService`（`AndroidManifest` 注册，`BIND_NOTIFICATION_LISTENER_SERVICE` + `exported=false`）——**不读任何通知**，纯当权限开关。`MediaControlPlugin` 加 `hasPermission()` / `requestPermission()`（开 `Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS`）；权限检查读 `Settings.Secure.enabled_notification_listeners`。`get_now_playing` 工具发现没权限时自动弹设置页 + 回 `NO_PERMISSION` 让 AI 引导用户。
+- **`control_media` 升级**：有通知使用权时改走 `MediaController.getTransportControls()` 精准控制那个正在播的会话（比广播全局媒体键可靠）；没权限时仍降级 `dispatchMediaKeyEvent`。
+- **🩹 修 `play_music` deep link bug**：上一条记录里 `play_music` 用了 `@capacitor/app` 的 `App.openUrl()` —— **该 API 在 `@capacitor/app` v8 不存在**（`AppPlugin` 无此方法），`tsc -b` 报 TS2339，等于上次根本没过 `npm run build`，装上 APK 也只会静默失败。改成给 `MediaControl` 原生插件加 `openUrl()`（发 `ACTION_VIEW` Intent），App.tsx 改用 `MediaControlPlugin.openUrl()`。教训：**原生相关改动 commit 前必须真跑 `npm run build`**（不只是 `tsc --noEmit`，两者用的 tsconfig 不同）。
 
 ---
 

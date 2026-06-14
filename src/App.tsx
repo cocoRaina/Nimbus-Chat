@@ -92,6 +92,7 @@ import {
   TOOL_GET_HEALTH_STATUS,
   TOOL_PLAY_MUSIC,
   TOOL_CONTROL_MEDIA,
+  TOOL_GET_NOW_PLAYING,
 } from './tools/definitions'
 import { syncStatusBarToPage } from './storage/statusBar'
 import {
@@ -1814,7 +1815,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
-                ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA] : []),
+                ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
             }
@@ -2370,8 +2371,8 @@ TOOL_SEARCH_HANDOFF,
                     if (!musicErr && Array.isArray(musicData?.results) && musicData.results.length > 0) {
                       const song = musicData.results[0] as { id: number; name: string; artist: string; duration_seconds: number }
                       try {
-                        const { App: CapApp } = await import('@capacitor/app')
-                        await CapApp.openUrl({ url: `orpheus://song?id=${song.id}` })
+                        const { MediaControlPlugin } = await import('./plugins/MediaControlPlugin')
+                        await MediaControlPlugin.openUrl({ url: `orpheus://song?id=${song.id}` })
                       } catch (openErr) {
                         console.warn('打开网易云失败', openErr)
                       }
@@ -2390,6 +2391,26 @@ TOOL_SEARCH_HANDOFF,
                       resultText = JSON.stringify({ ok: true, action: args.action })
                     } catch (mediaErr) {
                       resultText = JSON.stringify({ error: String(mediaErr) })
+                    }
+                  } else if (tc.function.name === 'get_now_playing') {
+                    setToolStatus('🎧 看看在放什么…')
+                    try {
+                      const { MediaControlPlugin } = await import('./plugins/MediaControlPlugin')
+                      const perm = await MediaControlPlugin.hasPermission()
+                      if (!perm.granted) {
+                        // Pop the settings page so the user can flip the toggle,
+                        // and tell Claude to guide them rather than silently fail.
+                        try { await MediaControlPlugin.requestPermission() } catch { /* ignore */ }
+                        resultText = JSON.stringify({
+                          error: 'NO_PERMISSION',
+                          hint: '需要用户在「设置 → 通知使用权」里给 Nimbus 打勾，已自动弹出设置页，请引导用户开启后重试',
+                        })
+                      } else {
+                        const np = await MediaControlPlugin.getNowPlaying()
+                        resultText = JSON.stringify(np)
+                      }
+                    } catch (npErr) {
+                      resultText = JSON.stringify({ error: String(npErr) })
                     }
                   } else if (tc.function.name === 'manage_memory' && supabase) {
                     let args: { action?: string; id?: string | number; content?: string; source?: string } = {}

@@ -1,4 +1,4 @@
-# Claude 工具（共 19 个）
+# Claude 工具（共 20 个）
 
 每次工具调用记录在消息 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回。
 
@@ -44,6 +44,10 @@
 | 工具 | 说明 |
 |------|------|
 | `play_music` | 在网易云音乐里搜索并播放指定歌曲。`query`＝歌名+可选歌手（如"稻香 周杰伦"）。走 `netease_search` Edge Function 服务端搜（绕 WebView CORS + 浏览器头），取首条结果用 `orpheus://song?id=xxx` deep link 直接拉起网易云播放。需手机已装并登录网易云 |
-| `control_media` | 控制当前正在播放的媒体（任意 App 都生效，不限网易云）：`play` 继续 / `pause` 暂停 / `next` 下一首 / `previous` 上一首。原生走 `AudioManager.dispatchMediaKeyEvent` 发媒体键 |
+| `control_media` | 控制当前正在播放的媒体（任意 App 都生效，不限网易云）：`play` 继续 / `pause` 暂停 / `next` 下一首 / `previous` 上一首。**有通知使用权时**走 `MediaController.getTransportControls()` 精准控制那个正在播的会话；**没权限时**降级广播全局媒体键（`AudioManager.dispatchMediaKeyEvent`），仍可用 |
+| `get_now_playing` | 读取当前正在播放的歌（任意音乐 App）：歌名 / 歌手 / 专辑 / 是否在播 / 进度 / 来源 App。**需通知使用权**（`MediaSessionManager.getActiveSessions`）：没授权返回 `NO_PERMISSION` 并自动弹出「设置 → 通知使用权」，AI 引导用户打勾后重试 |
 
-> 实现：搜索在 `supabase/functions/netease_search`（JWT 校验，代理 `music.163.com/api/search/get`，返回 `{id,name,artist,duration_seconds}`）；deep link 经 `@capacitor/app` `openUrl`；媒体键经自定义 `MediaControl` 原生插件（`MediaControlPlugin.java` + `src/plugins/MediaControlPlugin.ts` 桥）。
+> **实现**
+> - 搜索：`supabase/functions/netease_search`（JWT 校验，代理 `music.163.com/api/search/get`，返回 `{id,name,artist,duration_seconds}`）
+> - deep link / 媒体控制 / 读当前歌：自定义 `MediaControl` 原生插件（`MediaControlPlugin.java` + `src/plugins/MediaControlPlugin.ts` 桥）。`openUrl` 发 `ACTION_VIEW` Intent 拉起网易云；`control`/`getNowPlaying`/`hasPermission`/`requestPermission` 处理媒体会话
+> - **通知使用权**：靠空壳 `NotificationListenerService`（`NowPlayingListener.java`）——我们不读任何通知，它只是 Android 要求的「已启用监听器」开关，开了 `getActiveSessions()` 才肯返回别家 App 的媒体会话。用户在「设置 → 通知使用权」一次性打勾（和屏幕时间那个特殊权限同套路）

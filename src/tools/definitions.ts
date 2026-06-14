@@ -540,3 +540,18 @@ export const TOOL_CONTROL_MEDIA = {
     },
   },
 }
+
+export const TOOL_GET_NOW_PLAYING = {
+  type: 'function' as const,
+  function: {
+    name: 'get_now_playing',
+    description:
+      '查看手机当前正在播放的歌曲（任意音乐 App：网易云 / QQ音乐 / Spotify 等）。返回歌名、歌手、专辑、是否在播、进度。\n\n' +
+      '**何时调用**：用户问"我在听什么 / 这首歌叫啥 / 现在放的是谁的歌"，或你想接着用户正在听的歌聊点什么时主动看一眼。\n' +
+      '**注意**：首次使用需用户在「设置 → 通知使用权」里给 Nimbus 授权。返回 `NO_PERMISSION` 时说明还没授权（已自动弹出设置页），温柔引导用户去打开那个开关即可。',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+  },
+}
