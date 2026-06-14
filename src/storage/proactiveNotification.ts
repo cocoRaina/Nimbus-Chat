@@ -25,6 +25,7 @@ export type PendingProactive = {
   text: string
   fireAt: number // epoch ms
   persist?: boolean
+  queueId?: string // proactive_queue row id — used for server-side claim logic
 }
 
 const writeStorage = (key: string, entry: PendingProactive) => {

@@ -35,6 +35,7 @@ import {
   fetchHealthSnapshot,
   fetchRemoteMessages,
   fetchRemoteSessions,
+  fetchSessionRecentMessages,
   listLockedMemories,
   renameRemoteSession,
   updateMemory,
@@ -435,10 +436,16 @@ const App = () => {
   // the same time. Without this, a single foreground event can trigger
   // three parallel nudge sends.
   const proactiveNudgePendingRef = useRef(false)
+  // Merges any server-dispatched messages for the current session into
+  // local state. Set later via useEffect; ref avoids stale closure.
+  const refreshCurrentSessionRef = useRef<(sessionId: string) => Promise<void>>(
+    async () => undefined,
+  )
+  const refreshingSessionRef = useRef(false)
   // Inserts a pre-generated proactive message into the session as an
   // assistant turn. Set later, called via ref for same declaration reason.
   const insertPendingProactiveRef = useRef<
-    (entry: { sessionId: string; text: string; fireAt: number; persist?: boolean }) => Promise<void>
+    (entry: { sessionId: string; text: string; fireAt: number; persist?: boolean; queueId?: string }) => Promise<void>
   >(async () => undefined)
   // Keepalive: stash a snapshot of the last successful request body so we
   // can ping it ~55 min later (just before 1h cache TTL expires) with
@@ -785,8 +792,16 @@ const App = () => {
           clearPersistProactive()
           void insertPendingProactiveRef.current(persistPending)
         }
+        // Refresh current session messages: picks up any messages the server
+        // dispatched (proactive_dispatch cron) while the app was closed.
+        const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
+        if (hashMatch && !refreshingSessionRef.current) {
+          refreshingSessionRef.current = true
+          void refreshCurrentSessionRef.current(hashMatch[1]).finally(() => {
+            refreshingSessionRef.current = false
+          })
+        }
         if (!transientPending && !persistPending) {
-          const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
           if (hashMatch && !proactiveNudgePendingRef.current) {
             proactiveNudgePendingRef.current = true
             void maybeSendProactiveRef.current(hashMatch[1]).finally(() => {
@@ -2335,7 +2350,30 @@ TOOL_SEARCH_HANDOFF,
                     if (proText && shouldScheduleProactive(delayMin * 60 * 1000)) {
                       const delayMs = delayMin * 60 * 1000
                       const fireAt = Date.now() + delayMs
-                      savePendingProactive({ sessionId, text: proText, fireAt, persist })
+                      // Build entry; try to register in proactive_queue for
+                      // server-side dispatch (so message lands in Supabase at
+                      // fire time even if app stays closed).
+                      const proEntry: import('./storage/proactiveNotification').PendingProactive = {
+                        sessionId,
+                        text: proText,
+                        fireAt,
+                        persist,
+                      }
+                      if (supabase && user) {
+                        const { data: qRow } = await supabase
+                          .from('proactive_queue')
+                          .insert({
+                            user_id: user.id,
+                            session_id: sessionId,
+                            text: proText,
+                            fire_at: new Date(fireAt).toISOString(),
+                            persist,
+                          })
+                          .select('id')
+                          .single()
+                        if (qRow?.id) proEntry.queueId = qRow.id as string
+                      }
+                      savePendingProactive(proEntry)
                       void scheduleProactiveNotification(proText, delayMs, { persist })
                       setToolStatus(
                         persist
@@ -3192,13 +3230,33 @@ TOOL_SEARCH_HANDOFF,
         else clearPendingProactive()
         return
       }
+      // If this entry was registered in proactive_queue, try to claim it.
+      // The server-side cron (proactive_dispatch) may have already set
+      // sent=true and inserted the message — in that case refreshCurrentSessionRef
+      // will pick it up and we skip the client-side insert to avoid duplicates.
+      if (entry.queueId) {
+        const { data: claimed } = await supabase
+          .from('proactive_queue')
+          .update({ sent: true })
+          .eq('id', entry.queueId)
+          .eq('sent', false)
+          .select('id')
+          .maybeSingle()
+        if (!claimed) {
+          // Server already dispatched — message is in Supabase; refresh will show it
+          void refreshCurrentSessionRef.current(entry.sessionId)
+          return
+        }
+      }
       // Prefer the chat the user is currently looking at; fall back to the
       // session that generated the pending message.
       const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
       const targetSessionId = hashMatch?.[1] ?? entry.sessionId
       try {
         const clientId = createClientId()
-        const clientCreatedAt = new Date().toISOString()
+        // Use the scheduled fire time as the display timestamp so the message
+        // appears at the intended time, not when the user happened to open the app.
+        const clientCreatedAt = new Date(entry.fireAt).toISOString()
         const { message: saved, updatedAt } = await addRemoteMessage(
           targetSessionId,
           user.id,
@@ -3219,6 +3277,22 @@ TOOL_SEARCH_HANDOFF,
         if (entry.persist) clearPersistProactive()
         else clearPendingProactive()
       }
+    }
+  }, [applySnapshot, user])
+
+  // Merges server-dispatched messages for a session into local state.
+  // Called on foreground to pick up messages the proactive_dispatch cron
+  // inserted while the app was closed.
+  useEffect(() => {
+    refreshCurrentSessionRef.current = async (sessionId: string) => {
+      if (!user) return
+      const fresh = await fetchSessionRecentMessages(sessionId, 20)
+      if (!fresh.length) return
+      const existingIds = new Set(messagesRef.current.map((m) => m.id))
+      const trulyNew = fresh.filter((m) => !existingIds.has(m.id))
+      if (!trulyNew.length) return
+      const merged = sortMessages([...messagesRef.current, ...trulyNew])
+      applySnapshot(sessionsRef.current, merged)
     }
   }, [applySnapshot, user])
 
