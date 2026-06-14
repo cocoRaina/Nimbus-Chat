@@ -430,6 +430,11 @@ const App = () => {
   const maybeSendProactiveRef = useRef<(sessionId: string) => Promise<void>>(
     async () => undefined,
   )
+  // Guards against triple-fire: visibilitychange + appStateChange +
+  // localNotificationActionPerformed all call handleVisibilityChange at
+  // the same time. Without this, a single foreground event can trigger
+  // three parallel nudge sends.
+  const proactiveNudgePendingRef = useRef(false)
   // Inserts a pre-generated proactive message into the session as an
   // assistant turn. Set later, called via ref for same declaration reason.
   const insertPendingProactiveRef = useRef<
@@ -765,18 +770,28 @@ const App = () => {
         // transient and persist buckets — the persist alarm (wake-up
         // etc.) lives in its own storage and would be invisible if we
         // only read the transient one.
+        // Clear storage immediately (sync) before the async insert so that
+        // the other event sources that also call handleVisibilityChange
+        // (appStateChange + localNotificationActionPerformed fire at the
+        // same time as visibilitychange) don't re-read the same entry and
+        // insert duplicate messages.
         const transientPending = readPendingProactive()
         if (transientPending && Date.now() >= transientPending.fireAt) {
+          clearPendingProactive()
           void insertPendingProactiveRef.current(transientPending)
         }
         const persistPending = readPersistProactive()
         if (persistPending && Date.now() >= persistPending.fireAt) {
+          clearPersistProactive()
           void insertPendingProactiveRef.current(persistPending)
         }
         if (!transientPending && !persistPending) {
           const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
-          if (hashMatch) {
-            void maybeSendProactiveRef.current(hashMatch[1])
+          if (hashMatch && !proactiveNudgePendingRef.current) {
+            proactiveNudgePendingRef.current = true
+            void maybeSendProactiveRef.current(hashMatch[1]).finally(() => {
+              proactiveNudgePendingRef.current = false
+            })
           }
         }
       }
