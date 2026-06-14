@@ -107,6 +107,19 @@ deep link 格式踩了三个坑，逐一记录：
 
 ---
 
+### 主动消息：服务端兜底派发 + 三连修
+
+主动消息原来只在「用户打开 app」时才插入，三个坑一起修（详见 [features/proactive.md](features/proactive.md)）：
+
+1. **🩹 连发三条**：`visibilitychange` + Capacitor `appStateChange` + `localNotificationActionPerformed` 三个事件在前台/点通知时**同时**触发同一个 `handleVisibilityChange`，各自同步读到同一条 pending 就各插一遍（`clearPendingProactive` 在异步 `finally` 里太晚）。修：读到 pending **立即同步清 localStorage**，后两次调用读不到；1h nudge 加 `proactiveNudgePendingRef` 防并发。
+2. **🩹 时间戳错**：插入用 `new Date()`（你点进去的时刻），不是计划时间。修：`client_created_at` 改用 `entry.fireAt`，气泡显示「本该发出的时间」。
+3. **新增服务端派发**：建 `proactive_queue` 表 + `proactive_dispatch` Edge Function（pg_cron `*/5`），到点扫未发的行写进 `messages`——**app 关着也照写**，不再依赖你点通知。客户端/服务端靠 `UPDATE … WHERE sent=false` 原子抢占防重；前台回 app 调 `fetchSessionRecentMessages` 拉最近 20 条把离线期间服务端写的消息立刻合并显示。
+4. **🩹 persist 一致性**：发新消息时本地只清 transient（`clearPendingProactive`），但服务端 delete 原本 `.eq('sent',false)` 会连 persist（叫醒闹钟）一起删 → 本地 persist 还在、DB 行没了 → persist 本地触发时拿 `queueId` claim 失败误判「服务端已发」→ 消息丢。修：delete 加 `.eq('persist', false)`，persist 在本地和 DB 都保留。
+
+> 旧 FCM 推送方案（`send_proactive_push` 函数 + 旧 `proactive_queue` 表 + `fcm_tokens`）此前已彻底移除；现在的 `proactive_queue` 是新建的，用途是服务端**写库派发**，非远程推送。`docs/features/proactive.md` 同步重写。
+
+---
+
 ## 2026-06-13
 
 ### 思考链 + 工具卡片交错显示（claude.ai 风格）

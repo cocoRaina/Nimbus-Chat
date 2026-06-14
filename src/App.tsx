@@ -1752,9 +1752,17 @@ const App = () => {
           cancelKeepalive()
           void cancelProactiveNotification()
           clearPendingProactive()
-          // Cancel any unsent server-side proactive pushes too.
+          // Cancel any unsent server-side proactive pushes too — but only
+          // the transient ones, matching clearPendingProactive above. Persist
+          // entries (wake-up alarms etc.) must survive a chat reply, both in
+          // localStorage and in the server queue, so we scope by persist=false.
           if (supabase && user) {
-            void supabase.from('proactive_queue').delete().eq('user_id', user.id).eq('sent', false)
+            void supabase
+              .from('proactive_queue')
+              .delete()
+              .eq('user_id', user.id)
+              .eq('sent', false)
+              .eq('persist', false)
           }
           lastChunkAtRef.current = Date.now()
           setIsStreaming(true)
