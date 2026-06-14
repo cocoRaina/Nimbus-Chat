@@ -84,7 +84,19 @@
 - 两个工具都 `Capacitor.getPlatform() !== 'web'` 平台门控（deep link / 媒体键只在 APK 有意义）。原生插件改动需重打 APK 生效。
 - **局限**：`play_music` 只取搜索首条（网易云首条通常即最热门正确匹配），未做多结果消歧。
 
-### 读「现在在放什么歌」+ 精准媒体控制 + 修 deep link bug
+### 🩹 play_music deep link 三连修（最终确认可用）
+
+deep link 格式踩了三个坑，逐一记录：
+
+1. **`orpheus://song?id=SONGID`（query string 格式）** → 打开 app 但停在首页，没导航到歌曲。原因：网易云只识别 path 格式。
+2. **`https://music.163.com/song?id=SONGID` + `setPackage("com.netease.cloudmusic")`** → 打开了浏览器网页版（顶部「立即体验」条，底部「打开」按钮）。原因：网易云没有把 `music.163.com` 注册为 Android App Link，`setPackage` 失效后降级到浏览器。
+3. **`orpheus://song/SONGID/?autoplay=1`（path 格式 + autoplay 参数）** ✅ → 直接打开 app 并播放指定歌曲。
+
+正确格式出处：NFC 音乐卡片社区（多人写 `orpheus://song/{id}/?autoplay=1` 进 NTAG213 芯片做「碰一下播歌」），可信度高。`?autoplay=1` 是关键——没有这个只会跳到歌曲详情页但不播放。
+
+**教训**：**纯前端(TS/CSS)改动也打进 APK，同样要装新包才生效**，只有 Edge Function 改动不需要重装——每次说「不用装 APK」都要先想想是不是 Edge Function。
+
+---+ 精准媒体控制 + 修 deep link bug
 
 接着把「读当前播放」补上（工具数 19 → 20），顺手升级了控制精度：
 
