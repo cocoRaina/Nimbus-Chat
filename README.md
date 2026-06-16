@@ -114,7 +114,7 @@ Claude 能给你**放指定的歌**：`play_music` 走 `netease_search` Edge Fun
 → 详见 [docs/features/tools.md](docs/features/tools.md)
 
 ### 🫀 健康同步（Health Connect → health_data）
-自动从手机健康数据拉今天+昨天的步数 / 睡眠（含深/浅/REM 分段）/ 心率 / 静息心率 / 血氧，写进 `health_data` 给 Claude。仅 APK，走 `@capgo/capacitor-health`（read-only）。
+自动从手机健康数据拉近三天的步数 / 睡眠（含深/浅/REM 分段）/ 心率 / 静息心率 / 血氧，写进 `health_data` 给 Claude。仅 APK，走 `@capgo/capacitor-health`（read-only）。睡眠分段来自每个 session 的 `stages[]` 数组，而非父 session 的 `sleepState`。
 → 详见 [docs/features/health-sync.md](docs/features/health-sync.md)
 
 ### 🏠 主页 widget 系统（App 内）

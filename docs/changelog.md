@@ -43,6 +43,8 @@
 | 症状 | 触发条件 | 修法 |
 |---|---|---|
 | 诊断工具单类型能读、整体同步却一直限速(只有睡眠或步数能上) | 同步把 5 类一起读,且 steps/HR 的 `limit:1500` 触发 capgo 插件分页(pageSize 500 → 每类 3 个背靠背请求) → 合计 ~9 个请求挤在一两秒内爆发,撞 Health Connect **周期性(QPS式)速率限制**。诊断只点一个类型、无 limit→默认 100→单请求、手动点击间隔几秒,所以从不触发 | ① steps 改聚合 API(`queryAggregated` sum/day,精确日总和不分页);② 其余 4 类 limit≤500=单页单请求;③ **串行 + 每请求间隔 300ms**(替换掉一度尝试的 `Promise.allSettled` 并行 —— 并行炸串请求对 QPS 限制是最差解);④ 不再 break,各类型 try/catch 续跑 |
+| 深/浅/REM 分段永远 null（总睡眠时长正常） | Health Connect 里明明有分段（截图可见 `1h 11m deep sleep` 等），但 Capgo 每个睡眠 session 只返回**一个** `HealthSample`，父 session 的 `sleepState` 是泛型 `sleeping`，分段藏在该样本的 `stages[]` 数组里。`aggregateSamples` 只读了 `s.sleepState`，于是分段累加恒为 0 → 写 null | `case 'sleep'` 改成：`hasStageData && stages.length>0` 时遍历 `s.stages[]`，按 `stage.stage`（`deep`/`light`/`rem`）累加 `stage.durationMinutes`；无 stage 数据的设备回退到 session 级 `sleepState`（`storage/healthSync.ts`）|
+| 步数/心率近 3 天里第 3 天永远 null | steps & HR 聚合只查今天+昨天 2 天，但 sleep/血氧走 48-72h `readSamples` 窗口，于是同一天同步后第 3 天有睡眠没步数/心率 | steps 与 HR 的 `queryAggregated` 循环从 `[0,1]` 扩到 `[0,1,2]`（各请求仍间隔 250ms 防限速）|
 | 心率显示 `62-62（单次）`，实际有上百条样本 | `dedupeSamples` 只按 `platformId` 去重，Health Connect 心率系列里几百个样本共享 parent record 的 metadata.id | dedupe key 加上 `startDate + value`（`storage/healthSync.ts`）|
 | 经期组件总是显示「经期中」 | `period_tracking` 排序只按 `start_date DESC`，相同日期排序不稳定，老 row 还在；且 `end_date is null` 时 phase 默认是「经期中」 | 排序加 `created_at DESC` tiebreaker；phase 改 7 天 fallback（`isInPeriod = end_date ? today <= end : daysSinceStart < 7`）|
 | 屏幕时间显示 `com.tencent.mm` 而不是「微信」 | Android 11+ package visibility 限制，`PackageManager.getApplicationLabel` 拿不到他 app 信息 | `AndroidManifest.xml` 加 `QUERY_ALL_PACKAGES` + `tools:ignore` |

@@ -15,13 +15,13 @@ Health Connect 是 Android 14+ 系统级（13- 需装 Google 的 Health Connect 
 
 ## 同步规则（`src/storage/healthSync.ts`）
 
-- **步数走聚合 API**（`queryAggregated` sum + day bucket，锚定本地午夜）—— 日步数是「总和」，被 record limit 截断就会少算（均值类截断只是偏向近期、可接受，总和不行）。聚合一次返回每个日历日的精确总和，不分页翻几千条分钟级记录
-- **心率 avg/min/max 也走聚合 API**（`queryAggregated` average/min/max，映射 Health Connect 的 BPM_AVG/MIN/MAX）—— `readSamples` 默认 limit=100 只覆盖最近几分钟，全天 min/max 会严重偏窄
+- **步数走聚合 API**（`queryAggregated` sum + day bucket，锚定本地午夜）—— 日步数是「总和」，被 record limit 截断就会少算（均值类截断只是偏向近期、可接受，总和不行）。聚合一次返回每个日历日的精确总和，不分页翻几千条分钟级记录。**今天 + 昨天 + 前天三个独立单日请求**（各间隔 250ms），从前的 2 天窗口会让第 3 天的步数永远是 null
+- **心率 avg/min/max 也走聚合 API**（`queryAggregated` average/min/max，映射 Health Connect 的 BPM_AVG/MIN/MAX）—— `readSamples` 默认 limit=100 只覆盖最近几分钟，全天 min/max 会严重偏窄。同样覆盖**三天**（3 指标 × 3 天 = 9 个单日请求）
 - 其余几类走 `readSamples`，**每类 limit ≤ 500 = 恰好一页 = 一个请求**：睡眠 / 静息心率 / 血氧
 - **串行 + 每个请求间隔 250~300ms**（不是并行！）—— Health Connect 的周期性速率限制是 QPS 式的，同时炸出去一串请求是最差情况；几个单页请求摊到 ~1.5s 就稳稳低于阈值。诊断工具单次单类型能读、同步炸，根因就是同步把多个请求挤在一起爆发
 - 按本地日期聚合：
   - 步数 = 聚合 API 日总和
-  - 睡眠 = 累加段时长 → 小时（按 endDate，跳过 awake/inBed）；同时按阶段分桶 `deep` / `light` / `rem` 各自累加，写进 `deep_sleep_hours` / `light_sleep_hours` / `rem_sleep_hours`。泛型 `sleeping`（无明确阶段）只计入总时长、不归入任何分段
+  - 睡眠 = **从每个 session 的 `stages[]` 数组**累加段时长 → 小时（按 endDate，跳过 awake/inBed）；按阶段分桶 `deep` / `light` / `rem` 各自累加，写进 `deep_sleep_hours` / `light_sleep_hours` / `rem_sleep_hours`。⚠️ 坑：Capgo 每个睡眠 session 只返回**一个** `HealthSample`，父 session 的 `sleepState` 是泛型 `sleeping`，真正的深/浅/REM 分段藏在该样本的 `stages[]`（`hasStageData=true` 时）里 —— 早期只读 `sleepState` 导致分段永远是 null。没有 `stages` 数据的设备回退到 session 级 `sleepState`
   - 心率 = 聚合 API 全天 avg / max / min
   - 静息心率 = 当天最后一条
   - 血氧 = 算术均值，自动归一化（0.95 / 95 都视作 95%）
