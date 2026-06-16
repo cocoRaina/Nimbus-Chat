@@ -2,135 +2,6 @@ import { Capacitor } from '@capacitor/core'
 import { Health, type HealthDataType, type HealthSample } from '@capgo/capacitor-health'
 import { supabase } from '../supabase/client'
 
-// ---------------------------------------------------------------------------
-// health_daily table — flexible aggregation format
-// ---------------------------------------------------------------------------
-// Canonical response shape from Health Connect aggregation calls.
-// Field names match the raw Health Connect Android SDK output:
-//   period_start / period_end (not start_time / end_time — common trip-up)
-//   values[] array (not a top-level field — another trip-up)
-export type HealthAggregationBucket = {
-  period_start: string // ISO 8601 with timezone, e.g. "2026-06-09T00:00+08:00"
-  period_end: string
-  unit: string
-  values: Array<{
-    aggregation_type: 'sum' | 'average' | 'min' | 'max' | 'duration' | string
-    value: number
-  }>
-}
-
-export type HealthAggregationResponse = {
-  record_type: string // e.g. "StepsRecord", "HeartRateRecord", "SleepSessionRecord"
-  aggregations: HealthAggregationBucket[]
-}
-
-// Write one or more Health Connect aggregation responses into health_daily.
-// Uses ON CONFLICT DO UPDATE so re-syncing the same day just refreshes values.
-// Only non-null aggregation_type values that match known columns are written.
-export const writeHealthAggregatesToSupabase = async (
-  responses: HealthAggregationResponse[],
-): Promise<{ upserted: number; errors: string[] }> => {
-  const errors: string[] = []
-  if (!supabase) return { upserted: 0, errors: ['no-supabase-client'] }
-
-  const rows: Record<string, unknown>[] = []
-
-  for (const response of responses) {
-    for (const bucket of response.aggregations) {
-      // period_start determines the calendar day (local date via slice).
-      const date = bucket.period_start.slice(0, 10)
-      const row: Record<string, unknown> = {
-        record_type: response.record_type,
-        date,
-        unit: bucket.unit,
-        synced_at: new Date().toISOString(),
-      }
-      for (const v of bucket.values) {
-        // Only write known numeric aggregation types.
-        if (['sum', 'average', 'min', 'max', 'duration'].includes(v.aggregation_type)) {
-          row[v.aggregation_type] = v.value
-        }
-      }
-      rows.push(row)
-    }
-  }
-
-  if (rows.length === 0) return { upserted: 0, errors }
-
-  const { error } = await supabase
-    .from('health_daily')
-    .upsert(rows, { onConflict: 'record_type,date' })
-
-  if (error) errors.push(`upsert: ${error.message}`)
-  return { upserted: error ? 0 : rows.length, errors }
-}
-
-// ---------------------------------------------------------------------------
-// sleep_stages table — raw sleep segment records
-// ---------------------------------------------------------------------------
-// One record per sleep segment from a Health Connect raw/page query.
-// The native query returns this format (not the aggregate format above):
-//   { start_time, end_time, unit: "minutes", value: "9 (Deep)" }
-// Pagination: loop while has_more_records=true, passing page_token each time.
-export type SleepStageRecord = {
-  start_time: string // ISO 8601 with timezone
-  end_time: string
-  unit: string
-  value: string // e.g. "9 (Deep)", "45 (Light)", "120 (REM)", "3 (Awake)"
-}
-
-// Parses "9 (Deep)" → { duration: 9, stage: "Deep" }.
-// Returns null if the format doesn't match (defensive — skip malformed rows).
-const parseSleepValue = (raw: string): { duration: number; stage: string } | null => {
-  const m = /^(\d+(?:\.\d+)?)\s*\(([^)]+)\)$/.exec(raw.trim())
-  if (!m) return null
-  return { duration: Number(m[1]), stage: m[2].trim() }
-}
-
-// Write raw sleep stage records into sleep_stages.
-// Caller is responsible for pagination (loop while has_more_records=true,
-// passing page_token to each native query call before invoking this function
-// with the batch, OR accumulate all pages then call once — both work).
-export const writeSleepStagesToSupabase = async (
-  records: SleepStageRecord[],
-): Promise<{ upserted: number; skipped: number; errors: string[] }> => {
-  const errors: string[] = []
-  if (!supabase) return { upserted: 0, skipped: 0, errors: ['no-supabase-client'] }
-
-  const rows: Array<{
-    start_time: string
-    end_time: string
-    duration: number
-    stage: string
-    synced_at: string
-  }> = []
-  let skipped = 0
-
-  for (const rec of records) {
-    const parsed = parseSleepValue(rec.value)
-    if (!parsed) {
-      skipped++
-      continue
-    }
-    rows.push({
-      start_time: rec.start_time,
-      end_time: rec.end_time,
-      duration: parsed.duration,
-      stage: parsed.stage,
-      synced_at: new Date().toISOString(),
-    })
-  }
-
-  if (rows.length === 0) return { upserted: 0, skipped, errors }
-
-  const { error } = await supabase
-    .from('sleep_stages')
-    .upsert(rows, { onConflict: 'start_time,stage' })
-
-  if (error) errors.push(`upsert: ${error.message}`)
-  return { upserted: error ? 0 : rows.length, skipped, errors }
-}
-
 // Per-day aggregate row mirroring the health_data table.
 export type HealthDayAggregate = {
   date: string // YYYY-MM-DD
@@ -745,6 +616,57 @@ export const syncHealthDataToSupabase = async (
       return summary
     }
     summary.upsertedDates = rowsToUpsert.map((r) => r.date as string)
+  }
+
+  // Write health_daily — one row per (record_type, date), built from the
+  // same byDay data already merged into health_data above.
+  const hdNow = new Date().toISOString()
+  const healthDailyRows: Record<string, unknown>[] = []
+  for (const row of Object.values(byDay)) {
+    const d = row.date
+    if (row.steps != null)
+      healthDailyRows.push({ record_type: 'StepsRecord', date: d, sum: row.steps, unit: 'count', synced_at: hdNow })
+    if (row.sleepHours != null)
+      healthDailyRows.push({ record_type: 'SleepSessionRecord', date: d, duration: Math.round(row.sleepHours * 60), unit: 'minutes', synced_at: hdNow })
+    if (row.heartRateAvg != null || row.heartRateMin != null || row.heartRateMax != null) {
+      const hrRow: Record<string, unknown> = { record_type: 'HeartRateRecord', date: d, unit: 'bpm', synced_at: hdNow }
+      if (row.heartRateAvg != null) hrRow.average = row.heartRateAvg
+      if (row.heartRateMin != null) hrRow.min = row.heartRateMin
+      if (row.heartRateMax != null) hrRow.max = row.heartRateMax
+      healthDailyRows.push(hrRow)
+    }
+    if (row.heartRateRest != null)
+      healthDailyRows.push({ record_type: 'RestingHeartRateRecord', date: d, average: row.heartRateRest, unit: 'bpm', synced_at: hdNow })
+    if (row.oxygenSaturationAvg != null)
+      healthDailyRows.push({ record_type: 'OxygenSaturationRecord', date: d, average: row.oxygenSaturationAvg, unit: 'percent', synced_at: hdNow })
+  }
+  if (healthDailyRows.length > 0) {
+    const { error: hdError } = await supabase
+      .from('health_daily')
+      .upsert(healthDailyRows, { onConflict: 'record_type,date' })
+    if (hdError) summary.errors.push(`health_daily: ${hdError.message}`)
+  }
+
+  // Write sleep_stages — one row per raw sleep segment from this sync window.
+  const stageNameMap: Record<string, string> = {
+    deep: 'Deep', light: 'Light', rem: 'REM',
+    awake: 'Awake', inBed: 'InBed', sleeping: 'Sleeping',
+  }
+  const sleepStageRows = dedupedSamples
+    .filter((s) => s.dataType === 'sleep' && s.sleepState != null)
+    .map((s) => ({
+      start_time: s.startDate,
+      end_time: s.endDate,
+      duration: sampleDurationMinutes(s),
+      stage: stageNameMap[s.sleepState!] ?? s.sleepState!,
+      synced_at: hdNow,
+    }))
+    .filter((r) => r.duration > 0)
+  if (sleepStageRows.length > 0) {
+    const { error: ssError } = await supabase
+      .from('sleep_stages')
+      .upsert(sleepStageRows, { onConflict: 'start_time,stage' })
+    if (ssError) summary.errors.push(`sleep_stages: ${ssError.message}`)
   }
 
   // If anything tripped a skippedReason (rate-limited, throttled,
