@@ -287,17 +287,29 @@ const aggregateSamples = (
         break
       }
       case 'sleep': {
-        // Skip awake / inBed segments — only actual sleep counts.
-        if (s.sleepState === 'awake' || s.sleepState === 'inBed') break
-        const mins = sampleDurationMinutes(s)
-        if (mins > 0) {
-          const b = bucket(endDate)
-          b.sleepMinutes += mins
-          // Track named stages separately; 'sleeping' (generic/unknown) still
-          // counts toward total but not toward any specific category.
-          if (s.sleepState === 'deep') b.deepSleepMinutes += mins
-          else if (s.sleepState === 'light') b.lightSleepMinutes += mins
-          else if (s.sleepState === 'rem') b.remSleepMinutes += mins
+        const b = bucket(endDate)
+        if (s.hasStageData && s.stages && s.stages.length > 0) {
+          // Capgo returns one HealthSample per sleep session with all stages
+          // nested inside s.stages. Iterate those for precise breakdowns.
+          for (const stage of s.stages) {
+            if (stage.stage === 'awake' || stage.stage === 'inBed') continue
+            const stageMins = stage.durationMinutes
+            if (stageMins <= 0) continue
+            b.sleepMinutes += stageMins
+            if (stage.stage === 'deep') b.deepSleepMinutes += stageMins
+            else if (stage.stage === 'light') b.lightSleepMinutes += stageMins
+            else if (stage.stage === 'rem') b.remSleepMinutes += stageMins
+          }
+        } else {
+          // No stage data — fall back to session-level duration.
+          if (s.sleepState === 'awake' || s.sleepState === 'inBed') break
+          const mins = sampleDurationMinutes(s)
+          if (mins > 0) {
+            b.sleepMinutes += mins
+            if (s.sleepState === 'deep') b.deepSleepMinutes += mins
+            else if (s.sleepState === 'light') b.lightSleepMinutes += mins
+            else if (s.sleepState === 'rem') b.remSleepMinutes += mins
+          }
         }
         break
       }
