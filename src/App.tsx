@@ -324,9 +324,22 @@ const applyClaudeCaching = (
   }
   if (hasToolBlocksAfterLastUser) {
     if (firstSystemIdx === -1) return messages
-    return messages.map((msg, idx) =>
-      idx === firstSystemIdx ? markSystemMessageForCaching(msg, marker) : msg,
-    )
+    // Mark BP1 (system) + the last user message.
+    // The cache prefix ends at the user message — before any tool blocks —
+    // so it IS reusable by the next turn's BP4 walk-up (within the 20-block
+    // window per Anthropic docs). We deliberately skip marking the
+    // tool_result itself: that would extend the cache prefix to include
+    // transient tool blocks that won't appear at the start of any future
+    // request, wasting 2× write cost for zero future reads.
+    const toolIterTargets = new Set<number>()
+    if (firstSystemIdx >= 0) toolIterTargets.add(firstSystemIdx)
+    if (lastUserIdx >= 0) toolIterTargets.add(lastUserIdx)
+    return messages.map((msg, idx) => {
+      if (!toolIterTargets.has(idx)) return msg
+      if (msg.role === 'user') return markUserMessageForCaching(msg, marker)
+      if (msg.role === 'system') return markSystemMessageForCaching(msg, marker)
+      return msg
+    })
   }
   if (userIndices.length === 0 && firstSystemIdx === -1) return messages
   const targets = new Set<number>(userIndices)
