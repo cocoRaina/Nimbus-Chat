@@ -618,57 +618,6 @@ export const syncHealthDataToSupabase = async (
     summary.upsertedDates = rowsToUpsert.map((r) => r.date as string)
   }
 
-  // Write health_daily — one row per (record_type, date), built from the
-  // same byDay data already merged into health_data above.
-  const hdNow = new Date().toISOString()
-  const healthDailyRows: Record<string, unknown>[] = []
-  for (const row of Object.values(byDay)) {
-    const d = row.date
-    if (row.steps != null)
-      healthDailyRows.push({ record_type: 'StepsRecord', date: d, sum: row.steps, unit: 'count', synced_at: hdNow })
-    if (row.sleepHours != null)
-      healthDailyRows.push({ record_type: 'SleepSessionRecord', date: d, duration: Math.round(row.sleepHours * 60), unit: 'minutes', synced_at: hdNow })
-    if (row.heartRateAvg != null || row.heartRateMin != null || row.heartRateMax != null) {
-      const hrRow: Record<string, unknown> = { record_type: 'HeartRateRecord', date: d, unit: 'bpm', synced_at: hdNow }
-      if (row.heartRateAvg != null) hrRow.average = row.heartRateAvg
-      if (row.heartRateMin != null) hrRow.min = row.heartRateMin
-      if (row.heartRateMax != null) hrRow.max = row.heartRateMax
-      healthDailyRows.push(hrRow)
-    }
-    if (row.heartRateRest != null)
-      healthDailyRows.push({ record_type: 'RestingHeartRateRecord', date: d, average: row.heartRateRest, unit: 'bpm', synced_at: hdNow })
-    if (row.oxygenSaturationAvg != null)
-      healthDailyRows.push({ record_type: 'OxygenSaturationRecord', date: d, average: row.oxygenSaturationAvg, unit: 'percent', synced_at: hdNow })
-  }
-  if (healthDailyRows.length > 0) {
-    const { error: hdError } = await supabase
-      .from('health_daily')
-      .upsert(healthDailyRows, { onConflict: 'record_type,date' })
-    if (hdError) summary.errors.push(`health_daily: ${hdError.message}`)
-  }
-
-  // Write sleep_stages — one row per raw sleep segment from this sync window.
-  const stageNameMap: Record<string, string> = {
-    deep: 'Deep', light: 'Light', rem: 'REM',
-    awake: 'Awake', inBed: 'InBed', sleeping: 'Sleeping',
-  }
-  const sleepStageRows = dedupedSamples
-    .filter((s) => s.dataType === 'sleep' && s.sleepState != null)
-    .map((s) => ({
-      start_time: s.startDate,
-      end_time: s.endDate,
-      duration: sampleDurationMinutes(s),
-      stage: stageNameMap[s.sleepState!] ?? s.sleepState!,
-      synced_at: hdNow,
-    }))
-    .filter((r) => r.duration > 0)
-  if (sleepStageRows.length > 0) {
-    const { error: ssError } = await supabase
-      .from('sleep_stages')
-      .upsert(sleepStageRows, { onConflict: 'start_time,stage' })
-    if (ssError) summary.errors.push(`sleep_stages: ${ssError.message}`)
-  }
-
   // If anything tripped a skippedReason (rate-limited, throttled,
   // unavailable, etc.) the sync isn't really "successful" even if no
   // exception bubbled up — and crucially, we shouldn't pin the
