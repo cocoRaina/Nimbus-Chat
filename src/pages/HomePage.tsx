@@ -964,23 +964,19 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
 
   return (
     <main
-      className={`home-page app-shell ${isSettingsPage ? "home-page--settings" : ""}`}
+      className={`home-page app-shell ${isSettingsPage ? "home-page--settings" : ""}${backgroundImageUrl ? " home-page--has-bg" : ""}`}
       style={
         {
           "--icon-tile-bg": iconTileBackground,
+          ...(backgroundImageUrl
+            ? { backgroundImage: `url(${backgroundImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
+            : {}),
         } as CSSProperties
       }
     >
       <div
-        className={`phone-shell ${isSettingsPage ? "phone-shell--settings" : ""}${backgroundImageUrl ? " phone-shell--has-bg" : ""}`}
+        className={`phone-shell ${isSettingsPage ? "phone-shell--settings" : ""}`}
       >
-        {backgroundImageUrl ? (
-          <div
-            className="phone-shell__bg"
-            aria-hidden="true"
-            style={{ backgroundImage: `url(${backgroundImageUrl})` }}
-          />
-        ) : null}
         <div className="phone-shell__mask" aria-hidden="true" />
         <div className="phone-shell__content">
           <div className="home-page__header app-shell__header">
