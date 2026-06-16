@@ -199,8 +199,15 @@
 
 .memory-vault-toolbar {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-actions {
+  display: flex;
   gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .toolbar-row1 {
@@ -236,9 +243,14 @@
 }
 
 .memory-vault-count {
-  font-size: 0.88rem;
-  color: #64748B;
+  font-size: 0.8rem;
+  color: #1E40AF;
   white-space: nowrap;
+  background: #DBEAFE;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 .memory-vault-empty {
@@ -684,11 +696,11 @@
 }
 
 .btn-add-new {
-  background: var(--accent, #6366F1);
+  background: linear-gradient(180deg, #60A5FA, #2563EB);
   color: white;
   border: none;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   font-size: 1.2rem;
   line-height: 1;
@@ -698,6 +710,7 @@
   justify-content: center;
   flex-shrink: 0;
   transition: opacity 0.15s;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
 }
 
 .btn-add-new:hover {
