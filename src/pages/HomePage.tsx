@@ -1123,6 +1123,22 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   >
                     {showEmptySlots ? "隐藏空位" : "显示空位"}
                   </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => bgFileInputRef.current?.click()}
+                  >
+                    {backgroundImageUrl ? "换背景" : "＋ 背景"}
+                  </button>
+                  {backgroundImageUrl ? (
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => void handleRemoveBgImage()}
+                    >
+                      移除背景
+                    </button>
+                  ) : null}
                 </div>
                 <label className="ghost widget-shortcut-picker">
                   ＋ 应用 / 组件
