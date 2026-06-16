@@ -91,7 +91,8 @@ Nimbus 现状:`anthropic.ts` 把 OpenAI 风格的 `body.user` 映射成 `metadat
 Nimbus 的做法(`applyClaudeCaching`):
 - **BP1**:第一条 system(人设 + 工具 schema),最稳的垫底锚点。
 - **BP4(rolling)**:挂在**倒数第二条 user 消息**上,把全部历史纳入缓存边界。挂倒数第二条而非最后一条,因为最后一条是本轮新输入、每次都不同。
-- **工具迭代**:若最后一条 user 之后还有 tool 块,只挂 BP1(避免给"永不会被读"的工具前缀写一份大缓存)。
+- **工具迭代**:若最后一条 user 之后还有 tool 块,挂 **BP1 + 最后一条 user 消息**(=本轮 HEAD,它就是上一次请求已写过的缓存前缀的末端)。**故意不标 tool_result 本身**——那段前缀含工具块、下一轮读不到,写了纯浪费 2× 写入费。
+  - ⚠️ **2026-06 修正(重要省钱)**:早期工具迭代**只标 BP1**,理由是"BP4 在带 tool 的请求里 walk-up 静默 miss"。但据 Anthropic 文档,`cache_control` **可以放 tool_result**,且 walk-up 有 **20 个内容块**的回溯窗口——Nimbus 每轮工具调用通常只 1~2 个 tool 块,远在窗口内,稳定命中。只标 BP1 的旧行为导致 **BP1↔最后一条 user 之间的几万 token 历史在每次工具调用时全价重读**(`search_memory` 几乎每轮触发 → 长会话哗哗烧钱)。修正后:标到最后一条 user(在 tool 块之前),缓存前缀止于 user 消息,正好是上一轮 HEAD 写过的那份,这次是 **0.1× 读命中**而非全价。
 
 通用铁律:
 1. **易变内容不要进缓存前缀**。Nimbus 的时间戳是**按每条消息创建时刻烙死**的(`[当前时间] …` 写进当时那条 user 消息),历史逐字节不变,不会每轮把"现在几点"塞进前缀。
@@ -136,10 +137,13 @@ OR 的 1h TTL 缓存,在静默时会过期。Nimbus 在一次成功的 Claude-on
   - **BP1**:打在系统提示词的 text block 上 —— 几乎永不变的基础上下文,任何上层 miss 都能 walk-up 到这里兜底
   - **BP4**:倒数第二条 user message —— 上一轮的 HEAD,新一轮请求过来 walk-up 命中
   - **HEAD**:最新一条 user message —— 写入新缓存
-  - **工具迭代特例**:请求里最后一条 user message 之后有 `tool_use`/`tool_result` 时,**只标 BP1,不标 HEAD/BP4**(避免写入 ~77k token 的新缓存 —— Anthropic 后端在带 tool block 的请求里 walk-up 不稳定,写了也没人读,2x 写入价等于纯烧钱)
+  - **工具迭代特例(2026-06 修正)**:请求里最后一条 user message 之后有 `tool_use`/`tool_result` 时,标 **BP1 + 最后一条 user message**(=本轮 HEAD,缓存前缀止于它、在 tool 块之前)。**不标 tool_result 块本身**。
+    - 旧行为(已废):只标 BP1。当时担心标 HEAD/BP4 会写入含 tool 块的 ~77k 新缓存。**但那是误判**——标"最后一条 user"的前缀**不含**其后的 tool 块,且它正是上一轮 HEAD 已写过的缓存,这次是读命中不是写。旧行为的真实代价:BP1↔最后一条 user 之间的几万 token 历史每次工具调用全价重读(`search_memory` 几乎每轮触发 → 长会话烧钱主因)。
+    - 依据:Anthropic 文档明确 `cache_control` 可放 `tool_result`,walk-up 回溯窗口 **20 个内容块**;Nimbus 每轮工具调用只 1~2 块,稳定命中。
 - **`metadata.user_id` 后端粘性**:`anthropic.ts` 把用户 ID 塞到 Anthropic 原生 `metadata.user_id`,Anthropic 用它做后端节点路由 —— 同用户的请求落到同一节点,缓存读写在同一处
 - **聊天接力刷新**:命中 cache 自动续 TTL 不要钱(Anthropic 官方:"refreshed at no additional cost")。只要 1h 内继续聊,缓存一直热着。这是主要的省钱机制
 - **`tool_choice` 翻译完整**:`anthropic.ts` 把 OpenAI 的 `tool_choice: 'none'/'auto'/'any'/'required'/{type:'function',function:{name}}` 统一翻成 Anthropic 的 `{type:...}` 形式。**之前没翻译这字段**,导致 MAX_TOOL_ITERATIONS 的收尾调用为了阻止模型继续调工具只能 `delete body.tools`,而 `tools` 是 cache key 的一部分,每次工具循环爆顶都触发 ~50k 全量冷写 ($0.15)。修完之后:保留 tools 用 tool_choice='none' 阻止调用,cache 完整命中
 - **Keepalive ping(已停)**:历史上做过三层(客户端 timer + 进页面 pre-warm + 服务端 pg_cron 每 5min),目的是覆盖 >1h 长 gap 后的早晨第一条冷写。**但中转 relay 中间层会把 `stream:true` 和 `stream:false` 当成不同请求路由(推测)**,服务端 cron 的非流 ping 在 Anthropic 那边永远找不到聊天写下的缓存分片,每次冷写 ~50k 反而**净浪费 ~$5/天**。Code 留着但 `pg_cron` job 已 `cron.alter_job(active:=false)` 关掉。要重启:`cron.alter_job(JOB_ID, active:=true)`。日均代价:1-3 次自然冷写 = $0.20-0.50,比 ping 便宜
-- **对话压缩**:历史超阈值时自动用 summarizer 模型摘要,节省 token。**工具迭代特例**:模型支持工具时阈值自动收紧到 35%(=Claude 上下文 7万 token,默认 65%=13万),因为 Anthropic 服务端在带 tool block 的请求里 walk-up 不命中,~62k 历史每次以 $15/M 重读 → 提前压缩成 ~20k 上下文,工具迭代成本从 ~$1.18 降到 ~$0.06(降 95%)
+- **对话压缩**:历史超阈值时自动用 summarizer 模型摘要,节省 token。**工具迭代特例**:模型支持工具时阈值自动收紧到 35%(=Claude 上下文 7万 token,默认 65%=13万),提前压缩成 ~20k 上下文减小绝对体量。
+  - ⚠️ 这条收紧的原始理由是"walk-up 在带 tool 的请求里不命中、~62k 历史每次全价重读";**2026-06 缓存修正后该前提已部分失效**(工具迭代现在能命中历史缓存)。压缩仍有价值(缩小绝对 token、降冷写成本),但 35% 这个激进阈值可能已偏保守,后续可重测放宽。代码本身未随本次修正改动。
 - 默认 summarizer = **DeepSeek-V3.1**(`deepseek/deepseek-chat-v3.1`),比 GPT-4o-mini 中文摘要质量更稳,OR 自带 prompt cache 后实际成本更低。设置可单独选 summarizer 的 provider 和 model

@@ -26,7 +26,8 @@
 | 400 — tool_result 挂到 assistant 消息上 | 连续 tool role coalesce 时没看上一条 role | 只在 `last.role === 'user' && Array.isArray(last.content)` 时 push 进去 |
 | Failed to fetch on OR /messages | Capacitor WebView CORS preflight 拒绝 Anthropic-only header(`anthropic-version`、`anthropic-dangerous-direct-browser-access`、`x-api-key`)| OR 走 `/messages` 时只发 `Authorization: Bearer` + `Content-Type`,其他 header 全 strip(直连 Anthropic + 中转才发完整套) |
 | OR /messages 4xx model 不识别 | `anthropic.ts` 默认砍 `anthropic/` 前缀(直连 Anthropic 要求),但 OR 用这个前缀做上游路由 | `keepModelSlug` 选项控制:OR 调用时传 `true` 保留 slug,中转保持 `false` 砍掉 |
-| 工具迭代 cached_tokens = 0(但 chat 2 还命中)| Anthropic 服务端在请求里有 `tool_use`/`tool_result` block 时,HEAD 和 BP4 cache 都 miss(只有 BP1 walk-up 还工作)。同时如果还留 HEAD marker,会写一份 ~77k token 的"没人读"的新缓存白烧 \$2 | 结构性检测:最后一条 user message 之后有 tool block 时,**只标 BP1**,不标 HEAD/BP4 |
+| 工具迭代 cached_tokens = 0(但 chat 2 还命中)| Anthropic 服务端在请求里有 `tool_use`/`tool_result` block 时,HEAD 和 BP4 cache 都 miss(只有 BP1 walk-up 还工作)。同时如果还留 HEAD marker,会写一份 ~77k token 的"没人读"的新缓存白烧 \$2 | ~~结构性检测:最后一条 user message 之后有 tool block 时,**只标 BP1**,不标 HEAD/BP4~~ **（已被下一条修正,见 ↓）** |
+| 工具迭代历史全价重读、钱哗哗烧(2026-06)| 上一条的"只标 BP1"修法**矫枉过正**:它让 BP1↔最后一条 user 之间的几万 token 历史在**每次**工具调用时全价重读。`search_memory` 几乎每轮触发 → 长会话里"写日记/写信/查记忆"等带工具的轮次主导账单。复查 Anthropic 文档发现:`cache_control` **可放 tool_result**,walk-up 回溯窗口 **20 个内容块**,而 Nimbus 每轮工具调用只 1~2 块、稳定命中。旧顾虑(标 HEAD 会写含 tool 块的大缓存)是误判——标"最后一条 user"的前缀**不含**其后 tool 块,且正是上一轮 HEAD 已写过的缓存,本轮是读命中不是写 | 工具迭代时标 **BP1 + 最后一条 user message**(在 tool 块之前),**不标 tool_result 本身**。历史回到 0.1× 读命中。详见 [caching.md §7](caching.md) |
 | MAX_TOOL_ITERATIONS 收尾每次冷写 ~$0.15 | `App.tsx` 收尾(`tool_choice='none'` 那段)用 `delete body.tools` 阻止模型继续调工具,但 `tools` 是 Anthropic cache key 的一部分,删了之后整段前缀字节不匹配 → 全量冷写 ~50k。**根本原因**是 `convertOpenAiRequestToAnthropic` 没翻译 `tool_choice` 字段,silent 丢掉,删 tools 是当时唯一阻止调用的方式 | converter 加 `tool_choice` 翻译(`'none'/'auto'/'any'` → `{type:...}`,`'required'` → `{type:'any'}`,`{type:'function',function:{name}}` → `{type:'tool',name}`);收尾保留 `tools`,只用 `tool_choice:'none'` 阻止调用。cache 命中,收尾从 $0.15 降到 $0.015 |
 | 中转保活 ping 永远冷写 ~$0.22 | `cache_keepalive` Edge Function 用 `stream:false` 发非流 ping,推测 relay 把 stream:true(聊天)和 stream:false(ping)路由到不同后端节点,Anthropic 那边落在不同缓存分片。Anthropic 官方文档说 stream 字段不进 cache key,但 relay 黑盒拗不过。验证字节稳定性(tools 顺序硬编码 / system 静态 / 时间戳每条消息固化 / 图像 base64 确定性)都 OK,根本不是字节问题 | 停掉 `pg_cron` job(`cron.alter_job(id, active:=false)`)。聊天本身的接力缓存(Anthropic 命中自动续 1h,免费)足够覆盖大部分场景;只接受 >1h gap 后的偶发冷写($0.20-0.50/天) |
 | 长按菜单永远在气泡下方,屏幕底部时被输入框压住 | `startLongPress` / `handleContextMenuOpen` 写死 `top: rect.bottom + 4`,不看视窗剩余空间 | 加 `useLayoutEffect`:菜单 portal 渲染后量 `offsetHeight`,如果 `rect.bottom + menuH > viewportH - 8`,翻到 `rect.top - menuH - 4`;水平也夹一遍。layout effect 同步在 paint 前跑,无闪烁 |
@@ -74,6 +75,21 @@
 | 55min cache 续命 ping 一直在跑但 cache 命中率没涨 | 续命 body 同时踩了三个坑：① `max_tokens: 0` Anthropic 不收，adapter 兜底成 4096 → 续命变成全量生成；② `delete pingBody.tools` —— tools 是 cache 前缀的一部分，删了 cache key 就不一样，续命的 ping 跟原 conversation 不是同一个 cache entry；③ `reasoning` 还在 snapshot 里，配合 thinking 把 max_tokens 顶到 budget+1024 ≈ 9024 | `App.tsx:scheduleKeepalive` 改成 `max_tokens: 1`、保留 `tools`、`delete pingBody.reasoning` + `tool_choice` + `usage`。`/usage` 页能看见 cache hit % 持续上涨 = 续命真的在 work |
 
 ---
+
+## 2026-06-16
+
+### 缓存：工具迭代恢复历史命中（省钱·重要）
+
+工具调用轮次（写日记/写信/查记忆等）此前**只标 BP1**，导致 BP1↔最后一条 user 之间的几万 token 历史每次工具调用全价重读——`search_memory` 几乎每轮触发，长会话里这是账单主因。复查 Anthropic 文档确认 `cache_control` 可放 `tool_result`、walk-up 回溯窗口 20 块（Nimbus 每轮仅 1~2 块稳定命中），修正为工具迭代时标 **BP1 + 最后一条 user message**（在 tool 块之前，正是上一轮 HEAD 写过的前缀，本轮读命中）。`applyClaudeCaching` in `App.tsx`。详见 [caching.md §7](caching.md)。
+
+### 主页重设计：冰蓝配色 + 背景图 + 去框
+
+- **去掉时钟**，主页直接从打卡卡片开始，顶部只留一行小日期。
+- **背景图上传**：编辑模式工具栏「＋ 背景 / 换背景 / 移除背景」，存 IndexedDB（`backgroundImageKey` 进 `HomeSettingsState`），挂在 `<main>` 的 inline `backgroundImage` 上铺满全页。踩坑：`.home-page--has-bg { background: none !important }` 的 `!important` 优先级高于 inline style，把上传的图强制盖成 none → 删掉该规则才生效。
+- **去掉 phone-shell 框**：`border-radius:0` + `box-shadow:none`，`__mask` 直接 `display:none`，内容浮在背景上。
+- **冰蓝配色**替换之前的灰 slate：BG `#F4F8FC`、SURFACE `#DEEAF5`、MUTED `#C5D6EC`、ACCENT `#98B5D8`、STRONG `#789EC8`、TEXT `#586878`；数字渐变与打卡按钮改蓝；glass-card 改白色磨砂在蓝雾底上提升层次。
+- **图标网格 4 列 → 3 列**：9 个图标正好 3×3，无孤儿行。
+- **清理 Together 卡片**：移除卡内重复日期 + ❤️天数 pill（与大数字重复）。
 
 ## 2026-06-14
 
