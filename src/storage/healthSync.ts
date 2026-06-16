@@ -2,6 +2,69 @@ import { Capacitor } from '@capacitor/core'
 import { Health, type HealthDataType, type HealthSample } from '@capgo/capacitor-health'
 import { supabase } from '../supabase/client'
 
+// ---------------------------------------------------------------------------
+// health_daily table — flexible aggregation format
+// ---------------------------------------------------------------------------
+// Canonical response shape from Health Connect aggregation calls.
+// Field names match the raw Health Connect Android SDK output:
+//   period_start / period_end (not start_time / end_time — common trip-up)
+//   values[] array (not a top-level field — another trip-up)
+export type HealthAggregationBucket = {
+  period_start: string // ISO 8601 with timezone, e.g. "2026-06-09T00:00+08:00"
+  period_end: string
+  unit: string
+  values: Array<{
+    aggregation_type: 'sum' | 'average' | 'min' | 'max' | 'duration' | string
+    value: number
+  }>
+}
+
+export type HealthAggregationResponse = {
+  record_type: string // e.g. "StepsRecord", "HeartRateRecord", "SleepSessionRecord"
+  aggregations: HealthAggregationBucket[]
+}
+
+// Write one or more Health Connect aggregation responses into health_daily.
+// Uses ON CONFLICT DO UPDATE so re-syncing the same day just refreshes values.
+// Only non-null aggregation_type values that match known columns are written.
+export const writeHealthAggregatesToSupabase = async (
+  responses: HealthAggregationResponse[],
+): Promise<{ upserted: number; errors: string[] }> => {
+  const errors: string[] = []
+  if (!supabase) return { upserted: 0, errors: ['no-supabase-client'] }
+
+  const rows: Record<string, unknown>[] = []
+
+  for (const response of responses) {
+    for (const bucket of response.aggregations) {
+      // period_start determines the calendar day (local date via slice).
+      const date = bucket.period_start.slice(0, 10)
+      const row: Record<string, unknown> = {
+        record_type: response.record_type,
+        date,
+        unit: bucket.unit,
+        synced_at: new Date().toISOString(),
+      }
+      for (const v of bucket.values) {
+        // Only write known numeric aggregation types.
+        if (['sum', 'average', 'min', 'max', 'duration'].includes(v.aggregation_type)) {
+          row[v.aggregation_type] = v.value
+        }
+      }
+      rows.push(row)
+    }
+  }
+
+  if (rows.length === 0) return { upserted: 0, errors }
+
+  const { error } = await supabase
+    .from('health_daily')
+    .upsert(rows, { onConflict: 'record_type,date' })
+
+  if (error) errors.push(`upsert: ${error.message}`)
+  return { upserted: error ? 0 : rows.length, errors }
+}
+
 // Per-day aggregate row mirroring the health_data table.
 export type HealthDayAggregate = {
   date: string // YYYY-MM-DD
@@ -428,12 +491,15 @@ export const syncHealthDataToSupabase = async (
   const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
   let firstRead = true
 
-  // Steps: today AND yesterday — two independent single-day calls with
-  // a 250ms gap between them. A multi-day bucket window would have the
-  // Kotlin plugin firing buckets back-to-back with no gap (burst); two
-  // explicit single-day calls let us insert our own READ_GAP_MS gap.
+  // Steps: today, yesterday, AND the day before yesterday — three independent
+  // single-day calls with a 250ms gap each. Extended from 2 to 3 days so
+  // that older dates don't stay permanently null: sleep/HR data arrives via
+  // readSamples with a 48-72h window, but steps & HR aggregates were capped
+  // at 2 days, leaving day-3 with no steps or HR mean/max even after a
+  // successful sync that day. 3 calls × 250ms = 750ms added to total sync
+  // time; acceptable given the sync runs in the background.
   const stepsByDay: Record<string, number> = {}
-  for (const daysAgo of [0, 1]) {
+  for (const daysAgo of [0, 1, 2]) {
     if (daysAgo > 0) await sleepMs(READ_GAP_MS)
     const dayStart = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() - daysAgo)
     const dayEnd = daysAgo === 0 ? endDate : new Date(dayStart.getTime() + 24 * 3600 * 1000)
@@ -465,14 +531,15 @@ export const syncHealthDataToSupabase = async (
 
   // Heart rate avg/min/max: today AND yesterday, each as a separate
   // single-day queryAggregated call (same burst-avoidance reason as steps).
-  // 3 metrics × 2 days = 6 calls, each preceded by a 250ms gap.
+  // 3 metrics × 3 days = 9 calls, each preceded by a 250ms gap.
+  // Extended from 2→3 days to match the steps window and cover day-before-yesterday.
   const hrByDay: Record<string, { avg?: number; min?: number; max?: number }> = {}
   const hrMetrics: Array<['average' | 'min' | 'max', 'avg' | 'min' | 'max']> = [
     ['average', 'avg'],
     ['min', 'min'],
     ['max', 'max'],
   ]
-  for (const daysAgo of [0, 1]) {
+  for (const daysAgo of [0, 1, 2]) {
     const dayStart = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() - daysAgo)
     const dayEnd = daysAgo === 0 ? endDate : new Date(dayStart.getTime() + 24 * 3600 * 1000)
     const expectedDay = isoToLocalDate(dayStart.toISOString())
