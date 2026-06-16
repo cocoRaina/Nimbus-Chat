@@ -61,10 +61,7 @@
   background-image: none !important;
 }
 
-.home-page--has-bg {
-  /* gradient overridden by inline backgroundImage on the main element */
-  background: none !important;
-}
+/* .home-page--has-bg: inline backgroundImage style already overrides the gradient */
 
 .phone-shell__content {
   padding: 1.1rem clamp(22px, 5vw, 28px);
