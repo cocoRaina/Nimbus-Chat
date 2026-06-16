@@ -284,17 +284,25 @@ const applyClaudeCaching = (
       userIndices.push(i)
     }
   }
-  // Tool-iteration shortcut: if there are tool_use / tool_result blocks
-  // *after* the last user message, only mark BP1. The HEAD/BP4 markers
-  // would cause Anthropic to *write* a fresh cache for the full 77k+
-  // token prefix that includes the tool result blocks — and that cache
-  // will never be read, because the next user turn moves HEAD to a
-  // brand-new position and the tool-iteration prefix isn't the start
-  // of any future request. Empirically on the user's 92k-token session
-  // this saved $1.15/iteration (was writing ~77k tokens at 2x
-  // cache-write pricing for no future benefit). We still read BP1
-  // (~15k system+tools) on the iteration — that part is shared with
-  // every other request and the read is essentially free.
+  // Tool-iteration handling: if there are tool_use / tool_result blocks
+  // *after* the last user message, mark BP1 (system) + the last user
+  // message — see the branch below for the full rationale.
+  //
+  // HISTORY (why this used to be "only mark BP1"): an earlier version
+  // stripped tool iterations down to BP1 only, after observing
+  // cached_tokens=0 + a wasteful ~77k cache write on tool turns. The
+  // conclusion at the time ("Anthropic doesn't cache during tool use,
+  // so marking HEAD just burns a 2x write") was an OVER-correction: it
+  // conflated "mark the last user message" (whose prefix ends BEFORE
+  // the tool blocks) with "mark a position that pulls the tool blocks
+  // into the cached prefix" (which is what actually caused the $2
+  // waste). Marking the last user message reuses the prefix already
+  // written when that message was HEAD — a read, not a write. Per
+  // Anthropic docs (cache_control is valid on tool_result; walk-up has
+  // a 20-block window; our MAX_TOOL_ITERATIONS=4 stays well under it)
+  // the history cache hits cleanly. The old behavior silently re-read
+  // tens of thousands of history tokens at full price on every tool
+  // turn (search_memory fires almost every turn → main cost sink).
   //
   // Detection is structural — we look for tool_use / tool_result in
   // messages after the last user message — not based on a caller-
