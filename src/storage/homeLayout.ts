@@ -78,6 +78,7 @@ export type HomeSettingsState = {
   iconTileBgColor?: string
   iconTileBgOpacity?: number
   appIconConfigs?: Record<string, AppIconConfig>
+  backgroundImageKey?: string
 }
 
 const HOME_SETTINGS_STORAGE_KEY = 'nibble_ui_prefs_v1'
@@ -370,6 +371,7 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
       iconTileBgColor: parsed.iconTileBgColor,
       iconTileBgOpacity: parsed.iconTileBgOpacity,
       appIconConfigs: normalizedIconConfigs,
+      backgroundImageKey: typeof parsed.backgroundImageKey === 'string' ? parsed.backgroundImageKey : undefined,
     }
   } catch (error) {
     console.warn('解析 Home 配置失败', error)

@@ -9,6 +9,7 @@ import {
 import type { User } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
 import {
+  createImageKey,
   loadHomeSettings,
   loadImageDataUrl,
   removeImageData,
@@ -226,7 +227,10 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   );
   const [appIconConfigs, setAppIconConfigs] = useState<AppIconState>({});
   const [editingIconId, setEditingIconId] = useState(DEFAULT_ICON_ORDER[0]);
+  const [backgroundImageKey, setBackgroundImageKey] = useState<string | undefined>(undefined);
+  const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const bgFileInputRef = useRef<HTMLInputElement | null>(null);
   // Set of YYYY-MM-DD strings the user has checked in within the
   // current week. Used to render the 7-dot row + decide whether the
   // quick-checkin button should look "done" or "ready".
@@ -439,16 +443,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       setCheckinBusy(false);
     }
   }, [checkinBusy, todayChecked, todayDate, user]);
-  const timeLabel = useMemo(
-    () =>
-      now.toLocaleTimeString("en-GB", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }),
-    [now],
-  );
-
   // MAX_WIDGETS is enforced per page. Page 0 includes the core check-in
   // widget in its count; later pages only count decorative widgets.
   const decoratedWidgetCount = useMemo(
@@ -570,8 +564,19 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       ),
     ) as AppIconState;
     setAppIconConfigs(nextIconConfigs);
+    setBackgroundImageKey(cached.backgroundImageKey);
     setPrefsReady(true);
   }, [defaultAppIconConfigs]);
+
+  useEffect(() => {
+    if (!backgroundImageKey) {
+      setBackgroundImageUrl(undefined);
+      return;
+    }
+    void loadImageDataUrl(backgroundImageKey).then((url) => {
+      setBackgroundImageUrl(url ?? undefined);
+    });
+  }, [backgroundImageKey]);
 
   useEffect(() => {
     if (!prefsReady) {
@@ -587,9 +592,11 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       iconTileBgColor,
       iconTileBgOpacity,
       appIconConfigs,
+      backgroundImageKey,
     });
   }, [
     appIconConfigs,
+    backgroundImageKey,
     checkinSize,
     togetherSince,
     iconOrder,
@@ -866,6 +873,28 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     setAppIconConfigs((prev) => ({ ...prev, [iconId]: fallback }));
   };
 
+  const handleBgImageSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl(file);
+    const key = createImageKey();
+    await saveImageDataUrl(dataUrl, key);
+    if (backgroundImageKey) {
+      await removeImageData(backgroundImageKey);
+    }
+    setBackgroundImageKey(key);
+    setBackgroundImageUrl(dataUrl);
+    if (event.target) event.target.value = "";
+  };
+
+  const handleRemoveBgImage = async () => {
+    if (backgroundImageKey) {
+      await removeImageData(backgroundImageKey);
+    }
+    setBackgroundImageKey(undefined);
+    setBackgroundImageUrl(undefined);
+  };
+
   const iconTileBackground = useMemo(() => {
     const { r, g, b } = hexToRgb(iconTileBgColor);
     return `rgba(${r}, ${g}, ${b}, ${iconTileBgOpacity})`;
@@ -943,8 +972,15 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       }
     >
       <div
-        className={`phone-shell ${isSettingsPage ? "phone-shell--settings" : ""}`}
+        className={`phone-shell ${isSettingsPage ? "phone-shell--settings" : ""}${backgroundImageUrl ? " phone-shell--has-bg" : ""}`}
       >
+        {backgroundImageUrl ? (
+          <div
+            className="phone-shell__bg"
+            aria-hidden="true"
+            style={{ backgroundImage: `url(${backgroundImageUrl})` }}
+          />
+        ) : null}
         <div className="phone-shell__mask" aria-hidden="true" />
         <div className="phone-shell__content">
           <div className="home-page__header app-shell__header">
@@ -1010,8 +1046,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   >
                     {editMode ? "完成" : "编辑"}
                   </button>
-                  <h1 className="ui-title ui-numeric home-clock-title">{timeLabel}</h1>
-                  <p>{dateLabel}</p>
+                  <p className="home-date-label">{dateLabel}</p>
                   {editMode ? (
                     <div
                       className="home-mode-toggle"
@@ -1123,6 +1158,13 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   hidden
                   onChange={(event) => void handleImageSelected(event)}
                 />
+                <input
+                  ref={bgFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(event) => void handleBgImageSelected(event)}
+                />
               </section>
             ) : null}
 
@@ -1133,6 +1175,25 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
             {showSettingsPanel && isSettingsPage ? (
               <section className="glass-card appearance-toolbar">
                 <h2 className="ui-title">外观</h2>
+                <div className="background-controls">
+                  <span>主页背景</span>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => bgFileInputRef.current?.click()}
+                  >
+                    {backgroundImageUrl ? "更换背景" : "上传背景"}
+                  </button>
+                  {backgroundImageUrl ? (
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => void handleRemoveBgImage()}
+                    >
+                      移除
+                    </button>
+                  ) : null}
+                </div>
                 <label>
                   图标底色
                   <input
@@ -1369,16 +1430,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                                 <article
                                   className={`together-inner ${item.size === "2x1" ? "together-wide" : ""}`}
                                 >
-                                  <div className="together-header">
-                                    <span className="together-date">
-                                      {dateLabel}
-                                    </span>
-                                    {togetherElapsed ? (
-                                      <span className="together-days-pill">
-                                        ❤️ {togetherElapsed.days} 天
-                                      </span>
-                                    ) : null}
-                                  </div>
                                   {togetherElapsed ? (
                                     <div className="together-counter-stack">
                                       <div className="together-counter-headline">

@@ -47,8 +47,18 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 32px rgba(88, 104, 120, 0.12);
   overflow: visible;
+}
+
+.phone-shell__bg {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
 }
 
 .phone-shell__mask {
@@ -56,12 +66,12 @@
   inset: 0;
   border-radius: inherit;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  border: none;
   background: transparent !important;
   background-image: none !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
-  z-index: 0;
+  z-index: 1;
 }
 
 .phone-shell__mask::before,
@@ -70,13 +80,21 @@
   background-image: none !important;
 }
 
+.phone-shell--has-bg {
+  box-shadow: 0 12px 40px rgba(88, 104, 120, 0.2);
+}
+
+.phone-shell--has-bg .phone-shell__content {
+  background: transparent;
+}
+
 .phone-shell__content {
   padding: 1.1rem clamp(22px, 5vw, 28px);
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
   position: relative;
-  z-index: 1;
+  z-index: 2;
   overflow: visible;
 }
 
@@ -99,33 +117,41 @@
   background: transparent;
   border-radius: 999px;
   padding: 0.3rem 0.85rem;
-  color: #334155;
+  color: #586878;
 }
 
 .home-mode-toggle button.active {
-  background: rgba(15, 23, 42, 0.1);
-  color: #0f172a;
+  background: rgba(120, 158, 200, 0.15);
+  color: #3D5570;
 }
 
 .home-header h1 {
   margin: 0;
   font-size: 3.5rem;
   line-height: 1;
-  color: #0f172a;
+  color: #2A3D52;
 }
 
 .home-header p {
   margin: 0.25rem 0 0;
-  color: rgba(15, 23, 42, 0.72);
+  color: #789EC8;
+}
+
+.home-date-label {
+  margin: 0.15rem 0 0;
+  color: #789EC8;
+  font-size: 0.92rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .edit-button {
   position: absolute;
   top: 0;
   right: 0;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  background: rgba(255, 255, 255, 0.28);
-  color: #0f172a;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  background: rgba(222, 234, 245, 0.45);
+  color: #586878;
   border-radius: 999px;
   padding: 0.32rem 0.75rem;
 }
@@ -138,17 +164,17 @@
 .home-notice {
   margin: 0;
   text-align: center;
-  color: #334155;
+  color: #586878;
   font-size: 0.9rem;
 }
 
 .home-page .glass-card {
   border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(197, 214, 236, 0.65);
+  background: rgba(222, 234, 245, 0.52);
   box-shadow:
-    0 8px 24px rgba(15, 23, 42, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    0 8px 24px rgba(88, 104, 120, 0.08),
+    inset 0 1px 0 rgba(244, 248, 252, 0.8);
   backdrop-filter: blur(20px);
 }
 
@@ -173,13 +199,13 @@
 
 .widget-toolbar-label {
   font-weight: 700;
-  color: #334155;
+  color: #3D5570;
   font-size: 0.95rem;
 }
 
 .widget-toolbar-count {
   font-weight: 700;
-  color: #64748B;
+  color: #98B5D8;
   font-variant-numeric: tabular-nums;
   font-size: 0.9rem;
 }
@@ -188,7 +214,7 @@
   flex: 1;
   height: 6px;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
+  background: rgba(152, 181, 216, 0.18);
   overflow: hidden;
 }
 
@@ -196,7 +222,7 @@
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #94A3B8, #475569);
+  background: linear-gradient(90deg, #C5D6EC, #789EC8);
   transition: width 0.2s ease;
 }
 
@@ -221,9 +247,9 @@
   cursor: pointer;
   font-size: 0.88rem;
   font-weight: 600;
-  color: #64748B;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.55);
+  color: #586878;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  background: rgba(222, 234, 245, 0.6);
   border-radius: 999px;
   padding: 0.36rem 0.8rem;
 }
@@ -252,7 +278,7 @@
 .icon-editor-toolbar h2 {
   margin: 0;
   font-size: 0.95rem;
-  color: #0f172a;
+  color: #2A3D52;
 }
 
 .appearance-toolbar label,
@@ -260,7 +286,7 @@
   display: grid;
   gap: 0.35rem;
   font-size: 0.85rem;
-  color: #334155;
+  color: #586878;
 }
 
 .appearance-toolbar input[type="color"],
@@ -280,7 +306,7 @@
 
 .background-controls span {
   font-size: 0.85rem;
-  color: #334155;
+  color: #586878;
 }
 
 .widget-list-panel {
@@ -292,7 +318,7 @@
 .widget-list-panel h2 {
   margin: 0;
   font-size: 0.95rem;
-  color: #0f172a;
+  color: #2A3D52;
 }
 
 .widget-list {
@@ -309,13 +335,13 @@
   gap: 0.5rem;
   padding: 0.45rem 0.55rem;
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.045);
+  background: rgba(152, 181, 216, 0.1);
 }
 
 .widget-list-label {
   flex: 1;
   font-size: 0.88rem;
-  color: #0f172a;
+  color: #3D5570;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -325,8 +351,8 @@
   font-size: 0.85rem;
   padding: 0.2rem 0.4rem;
   border-radius: 8px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: #ffffff;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  background: rgba(244, 248, 252, 0.95);
 }
 
 .widget-list-delete {
@@ -348,10 +374,10 @@
 
 .widget-grid {
   display: grid;
-  /* 4 columns so app shortcut icons line up four to a row.
+  /* 3 columns so 9 app shortcut icons fill a clean 3×3 grid.
      Wide widgets (2x1 — checkin / content widgets) span the full
      row via .widget-card-wide. */
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.55rem 0.45rem;
   align-content: start;
   overflow: visible;
@@ -388,20 +414,20 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.14);
+  background: rgba(152, 181, 216, 0.3);
   cursor: pointer;
   transition: background 0.18s ease, transform 0.18s ease;
 }
 
 .widget-page-dots span.is-active {
-  background: #334155;
+  background: #789EC8;
   transform: scale(1.2);
 }
 
 .widget-page-add {
-  border: 1px dashed rgba(15, 23, 42, 0.3);
+  border: 1px dashed rgba(152, 181, 216, 0.5);
   background: transparent;
-  color: #64748B;
+  color: #98B5D8;
   border-radius: 50%;
   width: 22px;
   height: 22px;
@@ -432,8 +458,8 @@
 }
 
 .widget-card-wide {
-  /* Span the full row in the 4-col grid. */
-  grid-column: span 4;
+  /* Span the full row in the 3-col grid. */
+  grid-column: span 3;
 }
 
 .home-page .glass-card.spacer-card {
@@ -455,13 +481,13 @@
   align-items: center;
   gap: 0.25rem;
   font-size: 0.78rem;
-  color: #334155;
+  color: #586878;
 }
 
 .widget-controls select {
   border-radius: 999px;
-  border: 1px solid rgba(15, 23, 42, 0.2);
-  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  background: rgba(244, 248, 252, 0.9);
   padding: 0.1rem 0.45rem;
   font-size: 16px;
 }
@@ -485,7 +511,7 @@
   border: none;
   background: transparent;
   cursor: pointer;
-  color: #0f172a;
+  color: #2A3D52;
   text-align: center;
   font-family: inherit;
 }
@@ -501,8 +527,8 @@
   aspect-ratio: 1 / 1;
   border-radius: 18px;
   background: var(--icon-tile-bg);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  box-shadow: 0 2px 8px rgba(88, 104, 120, 0.08);
   font-size: clamp(1.3rem, 4.5vw, 1.7rem);
   overflow: hidden;
   line-height: 1;
@@ -511,7 +537,7 @@
 .shortcut-label {
   font-size: clamp(0.7rem, 2vw, 0.78rem);
   font-weight: 500;
-  color: #475569;
+  color: #586878;
   letter-spacing: 0.01em;
   text-align: center;
   white-space: nowrap;
@@ -551,7 +577,7 @@
   background: transparent;
   cursor: pointer;
   border-radius: inherit;
-  color: #0f172a;
+  color: #2A3D52;
   text-align: left;
   font-family: inherit;
 }
@@ -570,13 +596,13 @@
   gap: 4px;
   font-size: 0.7rem;
   font-weight: 700;
-  color: #64748B;
+  color: #98B5D8;
   letter-spacing: 0.02em;
 }
 
 .content-widget__empty {
   font-size: 0.78rem;
-  color: #94A3B8;
+  color: #C5D6EC;
   font-style: italic;
   align-self: center;
   margin-top: auto;
@@ -600,7 +626,7 @@
   font-size: 1.4rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  background: linear-gradient(180deg, #475569, #1f2937);
+  background: linear-gradient(180deg, #789EC8, #3A6A9F);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -610,12 +636,12 @@
 .content-widget__hero span {
   font-size: 0.78rem;
   font-weight: 600;
-  color: #64748B;
+  color: #98B5D8;
 }
 
 .content-widget__sub {
   font-size: 0.72rem;
-  color: #64748B;
+  color: #98B5D8;
   font-weight: 500;
 }
 
@@ -633,14 +659,14 @@
 
 .content-widget__grid .label {
   font-size: 0.62rem;
-  color: #64748B;
+  color: #98B5D8;
   letter-spacing: 0.02em;
 }
 
 .content-widget__grid .value {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #64748B;
+  color: #586878;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
@@ -666,7 +692,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 0.7rem;
-  color: #475569;
+  color: #586878;
 }
 
 .content-widget__top-list li :first-child {
@@ -678,7 +704,7 @@
 
 .content-widget__top-list li :last-child {
   font-weight: 600;
-  color: #64748B;
+  color: #98B5D8;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -703,10 +729,10 @@
 .spacer-editor {
   min-height: 60px;
   border-radius: 14px;
-  border: 1px dashed rgba(51, 65, 85, 0.35);
+  border: 1px dashed rgba(152, 181, 216, 0.45);
   display: grid;
   place-items: center;
-  color: #64748b;
+  color: #98B5D8;
   font-size: 0.82rem;
 }
 
@@ -738,7 +764,7 @@
 
 .together-date {
   font-size: 0.92rem;
-  color: #475569;
+  color: #98B5D8;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -752,7 +778,7 @@
   align-items: baseline;
   gap: 0.35rem;
   flex-wrap: wrap;
-  color: #334155;
+  color: #586878;
 }
 
 .together-counter strong {
@@ -760,7 +786,7 @@
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  background: linear-gradient(180deg, #475569, #1f2937);
+  background: linear-gradient(180deg, #789EC8, #3A6A9F);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -769,13 +795,13 @@
 .together-counter-unit {
   font-size: 1rem;
   font-weight: 700;
-  color: #64748B;
+  color: #98B5D8;
 }
 
 .together-counter-time {
   margin-left: auto;
   font-size: 0.92rem;
-  color: #64748B;
+  color: #98B5D8;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
 }
@@ -798,7 +824,7 @@
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  background: linear-gradient(180deg, #475569, #1f2937);
+  background: linear-gradient(180deg, #789EC8, #3A6A9F);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -807,19 +833,19 @@
 .together-counter-wide .together-counter-main span {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #64748B;
+  color: #98B5D8;
 }
 
 .together-counter-wide .together-counter-sub {
   font-size: 1.05rem;
-  color: #64748B;
+  color: #98B5D8;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
 }
 
 .together-empty {
   font-size: 0.85rem;
-  color: #94A3B8;
+  color: #C5D6EC;
   font-style: italic;
 }
 
@@ -828,15 +854,15 @@
   flex-direction: column;
   gap: 4px;
   font-size: 0.75rem;
-  color: #64748B;
+  color: #98B5D8;
 }
 
 .together-input input {
-  border: 1px solid rgba(15, 23, 42, 0.15);
+  border: 1px solid rgba(197, 214, 236, 0.7);
   border-radius: 10px;
   padding: 6px 8px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #0f172a;
+  background: rgba(244, 248, 252, 0.92);
+  color: #2A3D52;
   font-size: 0.85rem;
   font-family: inherit;
 }
@@ -849,8 +875,8 @@
 }
 
 .together-days-pill {
-  background: rgba(15, 23, 42, 0.07);
-  color: #64748B;
+  background: rgba(152, 181, 216, 0.15);
+  color: #98B5D8;
   font-weight: 600;
   font-size: 0.78rem;
   padding: 3px 10px;
@@ -876,7 +902,7 @@
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  background: linear-gradient(180deg, #475569, #1f2937);
+  background: linear-gradient(180deg, #789EC8, #3A6A9F);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -885,13 +911,13 @@
 .together-counter-headline span {
   font-size: 0.85rem;
   font-weight: 700;
-  color: #64748B;
+  color: #98B5D8;
   letter-spacing: 0.03em;
 }
 
 .together-counter-sub {
   font-size: 0.85rem;
-  color: #64748B;
+  color: #98B5D8;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
 }
@@ -917,8 +943,8 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 1.5px solid rgba(15, 23, 42, 0.15);
-  background: rgba(255, 255, 255, 0.6);
+  border: 1.5px solid rgba(197, 214, 236, 0.6);
+  background: rgba(244, 248, 252, 0.7);
   color: transparent;
   display: flex;
   align-items: center;
@@ -930,23 +956,23 @@
 }
 
 .together-week-cell.is-checked .together-week-dot {
-  background: #475569;
-  border-color: #475569;
+  background: #789EC8;
+  border-color: #789EC8;
   color: white;
 }
 
 .together-week-cell.is-today .together-week-dot {
-  box-shadow: 0 0 0 2px rgba(51, 65, 85, 0.25);
+  box-shadow: 0 0 0 2px rgba(120, 158, 200, 0.3);
 }
 
 .together-week-label {
   font-size: 0.6rem;
-  color: #64748B;
+  color: #98B5D8;
   letter-spacing: 0.02em;
 }
 
 .together-week-cell.is-today .together-week-label {
-  color: #64748B;
+  color: #789EC8;
   font-weight: 700;
 }
 
@@ -955,8 +981,8 @@
   border: none;
   border-radius: 999px;
   padding: 8px 12px;
-  background: rgba(30, 41, 59, 0.82);
-  color: #f8fafc;
+  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  color: #ffffff;
   font-weight: 600;
   font-size: 0.85rem;
   letter-spacing: 0.02em;
@@ -978,13 +1004,17 @@
 }
 
 .together-checkin-btn.is-done {
-  background: rgba(15, 23, 42, 0.06);
-  color: #94A3B8;
+  background: rgba(197, 214, 236, 0.3);
+  color: #C5D6EC;
 }
 
 /* Wide cards have more vertical room — let everything breathe. */
 .together-wide .together-counter-headline strong {
   font-size: clamp(2.4rem, 8vw, 3.6rem);
+  background: linear-gradient(180deg, #789EC8, #3A6A9F);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .together-wide .together-week-dot {
