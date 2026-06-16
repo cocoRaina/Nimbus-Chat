@@ -65,6 +65,72 @@ export const writeHealthAggregatesToSupabase = async (
   return { upserted: error ? 0 : rows.length, errors }
 }
 
+// ---------------------------------------------------------------------------
+// sleep_stages table — raw sleep segment records
+// ---------------------------------------------------------------------------
+// One record per sleep segment from a Health Connect raw/page query.
+// The native query returns this format (not the aggregate format above):
+//   { start_time, end_time, unit: "minutes", value: "9 (Deep)" }
+// Pagination: loop while has_more_records=true, passing page_token each time.
+export type SleepStageRecord = {
+  start_time: string // ISO 8601 with timezone
+  end_time: string
+  unit: string
+  value: string // e.g. "9 (Deep)", "45 (Light)", "120 (REM)", "3 (Awake)"
+}
+
+// Parses "9 (Deep)" → { duration: 9, stage: "Deep" }.
+// Returns null if the format doesn't match (defensive — skip malformed rows).
+const parseSleepValue = (raw: string): { duration: number; stage: string } | null => {
+  const m = /^(\d+(?:\.\d+)?)\s*\(([^)]+)\)$/.exec(raw.trim())
+  if (!m) return null
+  return { duration: Number(m[1]), stage: m[2].trim() }
+}
+
+// Write raw sleep stage records into sleep_stages.
+// Caller is responsible for pagination (loop while has_more_records=true,
+// passing page_token to each native query call before invoking this function
+// with the batch, OR accumulate all pages then call once — both work).
+export const writeSleepStagesToSupabase = async (
+  records: SleepStageRecord[],
+): Promise<{ upserted: number; skipped: number; errors: string[] }> => {
+  const errors: string[] = []
+  if (!supabase) return { upserted: 0, skipped: 0, errors: ['no-supabase-client'] }
+
+  const rows: Array<{
+    start_time: string
+    end_time: string
+    duration: number
+    stage: string
+    synced_at: string
+  }> = []
+  let skipped = 0
+
+  for (const rec of records) {
+    const parsed = parseSleepValue(rec.value)
+    if (!parsed) {
+      skipped++
+      continue
+    }
+    rows.push({
+      start_time: rec.start_time,
+      end_time: rec.end_time,
+      duration: parsed.duration,
+      stage: parsed.stage,
+      synced_at: new Date().toISOString(),
+    })
+  }
+
+  if (rows.length === 0) return { upserted: 0, skipped, errors }
+
+  const { error } = await supabase
+    .from('sleep_stages')
+    .upsert(rows, { onConflict: 'start_time,stage' })
+
+  if (error) errors.push(`upsert: ${error.message}`)
+  return { upserted: error ? 0 : rows.length, skipped, errors }
+}
+
 // Per-day aggregate row mirroring the health_data table.
 export type HealthDayAggregate = {
   date: string // YYYY-MM-DD
