@@ -30,6 +30,29 @@ const pickStyle = (hex: string): Style => {
   return lum > 0.6 ? Style.Dark : Style.Light
 }
 
+// Toggle the Android status bar between "overlay" (transparent, WebView
+// draws edge-to-edge behind it) and "inset" (its own solid-color band at
+// the top). Home page uses overlay so the full-bleed background image
+// reaches the very top of the screen; every other page keeps a solid bar
+// that matches its header. Headers carry padding-top: env(safe-area-inset-top)
+// so their content never hides under the notification icons in overlay mode.
+export const setStatusBarOverlay = (overlay: boolean) => {
+  if (Capacitor.getPlatform() !== 'android') return
+  requestAnimationFrame(() => {
+    try {
+      void StatusBar.setOverlaysWebView({ overlay })
+      if (overlay) {
+        // Fully transparent so the background image shows through.
+        void StatusBar.setBackgroundColor({ color: '#00000000' })
+        // Home bg is light → dark icons stay legible.
+        void StatusBar.setStyle({ style: Style.Dark })
+      }
+    } catch {
+      // Best effort.
+    }
+  })
+}
+
 export const syncStatusBarToColor = (color: string) => {
   if (Capacitor.getPlatform() !== 'android') return
   requestAnimationFrame(() => {

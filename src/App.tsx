@@ -95,7 +95,7 @@ import {
   TOOL_CONTROL_MEDIA,
   TOOL_GET_NOW_PLAYING,
 } from './tools/definitions'
-import { syncStatusBarToAccent, syncStatusBarToColor, syncStatusBarToPage } from './storage/statusBar'
+import { setStatusBarOverlay, syncStatusBarToAccent, syncStatusBarToColor } from './storage/statusBar'
 import {
   cancelProactiveNotification,
   clearPendingProactive,
@@ -655,15 +655,20 @@ const App = () => {
     const p = location.pathname
     if (p.startsWith('/chat/')) {
       // Chat header: var(--accent) #DBEAFE
+      setStatusBarOverlay(false)
       syncStatusBarToAccent()
     } else if (p.startsWith('/memory') || p.startsWith('/usage')) {
       // These pages have a dotted gradient header starting at #F8FAFC
+      setStatusBarOverlay(false)
       syncStatusBarToColor('#F8FAFC')
     } else if (p.startsWith('/settings')) {
       // Settings header is white
+      setStatusBarOverlay(false)
       syncStatusBarToColor('#FFFFFF')
     } else {
-      syncStatusBarToPage()
+      // Home has a full-bleed background image — overlay the status bar so
+      // the image reaches the very top of the screen (truly full screen).
+      setStatusBarOverlay(true)
     }
   }, [location.pathname])
 

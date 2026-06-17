@@ -57,6 +57,14 @@
   overflow: visible;
 }
 
+/* Center the whole content group vertically so short home screens split
+   their spare space top/bottom instead of pooling it all at the bottom.
+   min-height:100dvh means tall content (edit mode) just grows past the
+   viewport and scrolls — centering only kicks in when there's free space. */
+.home-page:not(.home-page--settings) .phone-shell {
+  justify-content: center;
+}
+
 .phone-shell__mask {
   display: none;
 }
