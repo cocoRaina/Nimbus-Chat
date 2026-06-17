@@ -8,11 +8,11 @@
 // user's typical 88K-token prompt). With this, a single ~$0.13 read
 // keeps it alive instead. See README "💰 成本优化" for the full story.
 //
-// No quiet hours — an earlier version gated this to 08:00–23:00 to skip
-// "useless" night pings. But the 4h ACTIVE_WINDOW_MS already stops pings
-// once a user goes idle, so removing the hour gate doesn't pay for the
-// dead-of-night case; it pays for the user-who-chats-at-1am case, where
-// the previous gate was costing a cold-write per session.
+// Quiet hours: 00:00–08:00 Beijing time (CST/UTC+8). No pings during this
+// window — the user is asleep, and the 1h TTL will have expired before they
+// wake. Their first morning message sets last_chat_at; the next 5-min cron
+// tick (after 08:00) picks it up and sends the warm-up ping instead of
+// paying a cold-write on the second message.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
@@ -60,6 +60,20 @@ const validateRouting = (row: KeepaliveRow): { baseUrl: string; authStyle: 'bear
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { status: 200 })
+  }
+
+  // Quiet hours: 00:00–08:00 Beijing time (UTC+8). During this window no
+  // one is chatting, so ACTIVE_WINDOW_MS already means "no eligible rows"
+  // — but we skip early anyway to avoid waking Deno workers 12×/h for zero
+  // pings. Pings resume automatically after the user's first morning message
+  // updates last_chat_at and the next cron tick fires after 08:00.
+  const nowBeijing = new Date(Date.now() + 8 * 60 * 60 * 1000)
+  const beijingHour = nowBeijing.getUTCHours()
+  if (beijingHour >= 0 && beijingHour < 8) {
+    return new Response(
+      JSON.stringify({ total: 0, pinged: 0, cooled: 0, failed: 0, quiet_hours: true }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
   }
 
   const supabase = createClient(
