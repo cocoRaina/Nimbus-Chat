@@ -20,34 +20,34 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 // last_chat_at (real activity), NOT last_ping_at — otherwise pings would
 // self-perpetuate forever.
 //
-// History: 4h → 24h → 90min → 3h. 24h was meant to keep the cache warm
-// overnight for the "chat last evening, chat tomorrow morning" pattern. But
-// two things killed that rationale:
-//   1. The 00:00–08:00 quiet-hours gate (below) now blocks every night ping
-//      anyway, so the cache dies overnight regardless of how big this window
-//      is — the 24h "keep it warm till morning" benefit was already moot.
-//   2. Worse, a 24h window made the 08:00 cron tick speculatively re-warm
-//      off YESTERDAY's chat — a ~¥1.32 cold write fired before the user even
-//      woke up (cache long expired, so the ping WRITES instead of reads),
-//      then often expired again before the real morning message. Pure waste.
-// The window makes pings follow real chatting: gated on last_chat_at, it
-// resumes only after a fresh chat (including the morning's first message,
-// which restarts the chain) and stops this many minutes after you go idle.
-// The morning's first message pays one unavoidable cold write (cache died
-// overnight) — that rides on a message you wanted to send anyway — and every
-// later message in the session stays cheap.
+// History: 4h → 24h → 90min → 3h → today-gate+16h.
 //
-// Why 3h (not 90min): the window must comfortably exceed the 50min ping
-// cooldown so at least one keepalive ping chains off each chat — 90min did
-// that. But 90min meant a >90min lull (lunch, a long meeting, an afternoon
-// out) let the cache die → ¥1.32 cold write on return. The breakeven for
-// extending the window is cheap: one extra speculative ping if you DON'T come
-// back costs ¥0.07; bridging the gap if you DO saves ¥1.32 — so extending
-// pays off whenever the odds of returning exceed ~5%. 3h covers the common
-// "back in a couple hours" pattern (post-lunch, errands) at a worst-case cost
-// of ~2 extra ¥0.07 pings when you've genuinely left. Bounded so it still
-// can't speculatively re-warm a half-day-old chat the way 24h did.
-const ACTIVE_WINDOW_MS = 3 * 60 * 60 * 1000
+// The "today-gate" design (current):
+//   Ping if and only if last_chat_at is BOTH (a) from today's waking hours
+//   (after 08:00 Beijing) AND (b) within ACTIVE_WINDOW_MS. This gives us
+//   "ping all waking day after first chat, reset every morning":
+//
+//   • First morning message cold-writes (cache died overnight in quiet hours)
+//     and sets last_chat_at → pings begin immediately after.
+//   • Every subsequent chat extends last_chat_at → window slides forward;
+//     pings automatically follow each conversation.
+//   • At midnight quiet hours kill further pings; cache expires ~1h later.
+//   • Next morning at 08:00: last_chat_at is from YESTERDAY → today-gate
+//     rejects it → no speculative 08:00 cold-write ping. Only the user's
+//     first real message can restart the chain.
+//
+// Why not a simple large window without the today-gate:
+//   A window of >8h would let the 08:00 cron see yesterday-evening's
+//   last_chat_at as "still active" and fire a speculative ping that
+//   cold-writes (cache long dead). This was the exact 24h-window bug.
+//   The today-gate makes window size irrelevant for the morning boundary —
+//   set it large enough to cover the full waking day.
+//
+// ACTIVE_WINDOW_MS only matters intra-day: it must be large enough that
+// a chat at any point in the waking day keeps pings going until midnight.
+// 16h (08:00 + 16h = 00:00 next day) is the exact waking-day length and
+// is naturally capped by quiet hours + the next-morning today-gate.
+const ACTIVE_WINDOW_MS = 16 * 60 * 60 * 1000
 // Slightly less than 55min so a 5-min cron tick won't accidentally
 // skip a slot due to scheduling drift.
 const PING_COOLDOWN_MS = 50 * 60 * 1000
@@ -102,7 +102,16 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
-  const activeSince = new Date(Date.now() - ACTIVE_WINDOW_MS).toISOString()
+  // Today-gate: only ping rows whose last_chat_at is from TODAY's waking
+  // hours (after 08:00 Beijing = 00:00 UTC). This prevents the 08:00 cron
+  // from speculatively re-warming off yesterday-evening's last_chat_at —
+  // which would cold-write (cache long expired) before the user even wakes.
+  // Beijing 08:00 = UTC 00:00, so "today's waking start" is simply today's
+  // UTC midnight.
+  const todayWakingStartMs = new Date(nowBeijing).setUTCHours(0, 0, 0, 0)
+  const activeSince = new Date(
+    Math.max(Date.now() - ACTIVE_WINDOW_MS, todayWakingStartMs),
+  ).toISOString()
   const { data, error } = await supabase
     .from('cache_keepalive_state')
     .select(
