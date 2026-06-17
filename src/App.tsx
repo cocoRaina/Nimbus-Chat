@@ -95,7 +95,7 @@ import {
   TOOL_CONTROL_MEDIA,
   TOOL_GET_NOW_PLAYING,
 } from './tools/definitions'
-import { syncStatusBarToAccent, syncStatusBarToPage } from './storage/statusBar'
+import { syncStatusBarToAccent, syncStatusBarToColor, syncStatusBarToPage } from './storage/statusBar'
 import {
   cancelProactiveNotification,
   clearPendingProactive,
@@ -650,18 +650,18 @@ const App = () => {
     })
   }, [])
 
-  // Status bar chameleons to current page background on route change.
-  // Chat, memory, usage, and settings pages all use --accent headers,
-  // so set the status bar to match and appear as one unified bar.
+  // Status bar color matches each page's header background.
   useEffect(() => {
     const p = location.pathname
-    if (
-      p.startsWith('/chat/') ||
-      p.startsWith('/memory') ||
-      p.startsWith('/usage') ||
-      p.startsWith('/settings')
-    ) {
+    if (p.startsWith('/chat/')) {
+      // Chat header: var(--accent) #DBEAFE
       syncStatusBarToAccent()
+    } else if (p.startsWith('/memory') || p.startsWith('/usage')) {
+      // These pages have a dotted gradient header starting at #F8FAFC
+      syncStatusBarToColor('#F8FAFC')
+    } else if (p.startsWith('/settings')) {
+      // Settings header is white
+      syncStatusBarToColor('#FFFFFF')
     } else {
       syncStatusBarToPage()
     }

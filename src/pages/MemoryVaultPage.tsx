@@ -369,12 +369,14 @@ const MemoriesTab = ({
               <button type="button" className={sourceFilter === 'manual' ? 'active' : ''} onClick={() => setSourceFilter('manual')}>手动({sourceCounts.manual})</button>
               <button type="button" className={sourceFilter === 'auto' ? 'active' : ''} onClick={() => setSourceFilter('auto')}>✨自动({sourceCounts.auto})</button>
             </div>
-            {lockedBudget.count > 0 ? (
+          </div>
+          {lockedBudget.count > 0 ? (
+            <div className="toolbar-row3">
               <span className={`locked-budget${lockedBudget.tokens > 2000 ? ' locked-budget--warn' : ''}`} title={`${lockedBudget.count} 条锁定记忆，注入 system prompt 约 ${lockedBudget.tokens.toLocaleString()} tokens（中文约 2字/token）`}>
                 🔒 {lockedBudget.count} 条 ≈ {lockedBudget.tokens > 999 ? `${(lockedBudget.tokens / 1000).toFixed(1)}k` : lockedBudget.tokens} tok{lockedBudget.tokens > 2000 ? ' ⚠️' : ''}
               </span>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
 
         <datalist id="memory-category-suggestions">

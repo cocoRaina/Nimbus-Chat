@@ -692,9 +692,9 @@
   width: 100%;
 }
 
-/* locked-budget pushed to the right in row2 */
-.toolbar-row2 .locked-budget {
-  margin-left: auto;
+.toolbar-row3 {
+  display: flex;
+  align-items: center;
 }
 
 .btn-add-new {
