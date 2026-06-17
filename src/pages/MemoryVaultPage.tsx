@@ -883,22 +883,24 @@ const TimelineTab = () => {
 
       <section className="memory-vault-list">
         <div className="memory-vault-toolbar">
-          <input className="memory-vault-search" type="search" placeholder="搜索标题 / 描述 / 分类" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <select className="memory-vault-filter" value={minImportance} onChange={(e) => setMinImportance(Number(e.target.value))}>
-            <option value={1}>≥ 1 星</option>
-            <option value={2}>≥ 2 星</option>
-            <option value={3}>≥ 3 星</option>
-            <option value={4}>≥ 4 星</option>
-            <option value={5}>仅 5 星</option>
-          </select>
-          <div className="source-filter">
-            <button type="button" className={tlSourceFilter === 'all' ? 'active' : ''} onClick={() => setTlSourceFilter('all')}>全部({tlSourceCounts.all})</button>
-            <button type="button" className={tlSourceFilter === 'manual' ? 'active' : ''} onClick={() => setTlSourceFilter('manual')}>手动({tlSourceCounts.manual})</button>
-            <button type="button" className={tlSourceFilter === 'auto' ? 'active' : ''} onClick={() => setTlSourceFilter('auto')}>✨自动({tlSourceCounts.auto})</button>
-          </div>
-          <div className="toolbar-actions">
+          <div className="toolbar-row1">
+            <input className="memory-vault-search" type="search" placeholder="搜索标题 / 描述 / 分类" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <select className="memory-vault-filter" value={minImportance} onChange={(e) => setMinImportance(Number(e.target.value))}>
+              <option value={1}>≥ 1 星</option>
+              <option value={2}>≥ 2 星</option>
+              <option value={3}>≥ 3 星</option>
+              <option value={4}>≥ 4 星</option>
+              <option value={5}>仅 5 星</option>
+            </select>
             <button type="button" className="btn-add-new" onClick={() => { cancelEdit(); setShowNew(true) }} title="新增事件">＋</button>
             <button type="button" className="btn-refresh" onClick={() => void refresh()} disabled={loading} title="刷新">{loading ? '…' : '↺'}</button>
+          </div>
+          <div className="toolbar-row2">
+            <div className="source-filter">
+              <button type="button" className={tlSourceFilter === 'all' ? 'active' : ''} onClick={() => setTlSourceFilter('all')}>全部({tlSourceCounts.all})</button>
+              <button type="button" className={tlSourceFilter === 'manual' ? 'active' : ''} onClick={() => setTlSourceFilter('manual')}>手动({tlSourceCounts.manual})</button>
+              <button type="button" className={tlSourceFilter === 'auto' ? 'active' : ''} onClick={() => setTlSourceFilter('auto')}>✨自动({tlSourceCounts.auto})</button>
+            </div>
           </div>
         </div>
 

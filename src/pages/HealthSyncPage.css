@@ -12,6 +12,7 @@
   align-items: center;
   gap: 12px;
   padding: 8px 4px 12px;
+  background: var(--accent);
 }
 
 .page-header-bar h1 {

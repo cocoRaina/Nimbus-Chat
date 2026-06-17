@@ -651,10 +651,16 @@ const App = () => {
   }, [])
 
   // Status bar chameleons to current page background on route change.
-  // Chat pages use --accent (matches the sticky chat header) so the
-  // status bar and header appear as one unified bar.
+  // Chat, memory, usage, and settings pages all use --accent headers,
+  // so set the status bar to match and appear as one unified bar.
   useEffect(() => {
-    if (location.pathname.startsWith('/chat/')) {
+    const p = location.pathname
+    if (
+      p.startsWith('/chat/') ||
+      p.startsWith('/memory') ||
+      p.startsWith('/usage') ||
+      p.startsWith('/settings')
+    ) {
       syncStatusBarToAccent()
     } else {
       syncStatusBarToPage()

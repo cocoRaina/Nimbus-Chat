@@ -21,6 +21,7 @@
   align-items: center;
   gap: 12px;
   padding: 8px 4px 12px;
+  background: var(--accent);
 }
 
 .page-header-bar h1 {
@@ -199,7 +200,8 @@
 
 .memory-vault-toolbar {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
 }
 
@@ -481,7 +483,7 @@
 .source-filter {
   display: flex;
   gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .source-filter button {
@@ -497,9 +499,10 @@
 }
 
 .source-filter button.active {
-  background: linear-gradient(180deg, #60A5FA, #2563EB);
-  color: #fff;
-  border-color: #2563EB;
+  background: #DBEAFE;
+  color: #1E40AF;
+  border-color: #93C5FD;
+  font-weight: 700;
 }
 
 /* ── Pending entries card ── */
