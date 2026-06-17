@@ -865,8 +865,16 @@ const App = () => {
       'localNotificationActionPerformed',
       () => handleVisibilityChange(),
     )
+    // Cold-start trigger: on Android, appStateChange(isActive:true) and
+    // visibilitychange both fire before auth resolves, so the listeners above
+    // always miss the initial foreground event. setTimeout(0) defers until
+    // after all effects in this render cycle have run (including
+    // insertPendingProactiveRef and refreshCurrentSessionRef), so refs are
+    // ready to handle any pending localStorage proactives.
+    const coldStartId = window.setTimeout(() => handleVisibilityChange(), 0)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.clearTimeout(coldStartId)
       void appStateSubPromise.then((s) => s.remove())
       void notifSubPromise.then((s) => s.remove())
     }
