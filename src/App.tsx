@@ -95,7 +95,7 @@ import {
   TOOL_CONTROL_MEDIA,
   TOOL_GET_NOW_PLAYING,
 } from './tools/definitions'
-import { syncStatusBarToPage } from './storage/statusBar'
+import { syncStatusBarToAccent, syncStatusBarToPage } from './storage/statusBar'
 import {
   cancelProactiveNotification,
   clearPendingProactive,
@@ -650,9 +650,15 @@ const App = () => {
     })
   }, [])
 
-  // Status bar chameleons to current page's --page-bg whenever route changes
+  // Status bar chameleons to current page background on route change.
+  // Chat pages use --accent (matches the sticky chat header) so the
+  // status bar and header appear as one unified bar.
   useEffect(() => {
-    syncStatusBarToPage()
+    if (location.pathname.startsWith('/chat/')) {
+      syncStatusBarToAccent()
+    } else {
+      syncStatusBarToPage()
+    }
   }, [location.pathname])
 
   // Warm the weather cache on mount and refresh hourly. Each user message

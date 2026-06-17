@@ -30,6 +30,25 @@ const pickStyle = (hex: string): Style => {
   return lum > 0.6 ? Style.Dark : Style.Light
 }
 
+// Use this on the chat route so the status bar matches the chat header (--accent)
+// instead of --page-bg, keeping them visually unified.
+export const syncStatusBarToAccent = () => {
+  if (Capacitor.getPlatform() !== 'android') return
+  if (typeof window === 'undefined' || typeof document === 'undefined') return
+  requestAnimationFrame(() => {
+    try {
+      const raw =
+        getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() ||
+        '#DBEAFE'
+      const hex = cssToHex(raw)
+      void StatusBar.setBackgroundColor({ color: hex })
+      void StatusBar.setStyle({ style: pickStyle(hex) })
+    } catch {
+      // Best effort.
+    }
+  })
+}
+
 export const syncStatusBarToPage = () => {
   if (Capacitor.getPlatform() !== 'android') return
   if (typeof window === 'undefined' || typeof document === 'undefined') return
