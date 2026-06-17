@@ -137,7 +137,20 @@ Deno.serve(async (req) => {
   const usageReport: Array<Record<string, unknown>> = []
 
   for (const row of rows) {
-    if (row.last_ping_at && new Date(row.last_ping_at).getTime() > cooldownCutoffMs) {
+    // Cooldown gate on the LAST CACHE TOUCH — whichever is later, the last
+    // ping OR the last real chat. Both equally warm the cache (each is a
+    // request to the relay that reads/writes the same prompt-cache entry), so
+    // a recent chat makes a ping redundant: the chat already kept it warm.
+    // Gating on last_ping_at alone (the old behaviour) fired a wasteful
+    // ¥0.07 ping every 50min even mid-conversation — and one ~5min after the
+    // morning's first chat (last_ping_at was null → no gate). Using
+    // max(last_ping_at, last_chat_at) suppresses those: the ping now only
+    // fires to bridge a genuine ≥50min lull in chatting, never on top of it.
+    // Correctness: every touch resets this 50min timer and 50min < the 60min
+    // cache TTL, so the cache still never expires inside an active window.
+    const lastPingMs = row.last_ping_at ? new Date(row.last_ping_at).getTime() : 0
+    const lastTouchMs = Math.max(lastPingMs, new Date(row.last_chat_at).getTime())
+    if (lastTouchMs > cooldownCutoffMs) {
       cooled++
       continue
     }
