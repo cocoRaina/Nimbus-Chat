@@ -16,17 +16,29 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
-// How long after a user's last successful chat we keep pinging. Was 4h
-// — assumed if you haven't chatted in 4h you've gone idle. But that
-// killed the cache around 03:00 when you'd chatted at 23:00, and your
-// 08:00 morning chat paid a $0.18 cold write because pings had stopped
-// at 03:00 and Anthropic's 1h TTL ran out by 04:00. 24h covers the
-// "chatted last evening, will chat tomorrow morning" pattern that the
-// user actually has. Cost trade-off: ~$0.06/night extra pings vs
-// $0.18/morning saved cold writes → net positive ~$0.12/day. Worst
-// case (away for a week): ~$0.42 wasted pings before the row falls
-// out — bearable.
-const ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000
+// How long after a user's last successful CHAT we keep pinging. Gated on
+// last_chat_at (real activity), NOT last_ping_at — otherwise pings would
+// self-perpetuate forever.
+//
+// History: 4h → 24h → 90min. 24h was meant to keep the cache warm overnight
+// for the "chat last evening, chat tomorrow morning" pattern. But two things
+// killed that rationale:
+//   1. The 00:00–08:00 quiet-hours gate (below) now blocks every night ping
+//      anyway, so the cache dies overnight regardless of how big this window
+//      is — the 24h "keep it warm till morning" benefit was already moot.
+//   2. Worse, a 24h window made the 08:00 cron tick speculatively re-warm
+//      off YESTERDAY's chat — a ~¥1.32 cold write fired before the user even
+//      woke up (cache long expired, so the ping WRITES instead of reads),
+//      then often expired again before the real morning message. Pure waste.
+// 90min makes pings follow real chatting: they resume only after a fresh
+// chat (including the morning's first message, which restarts the chain) and
+// stop ~90min after you go idle. The morning's first message pays one
+// unavoidable cold write (cache died overnight) — that rides on a message
+// you wanted to send anyway — and every later message in the session stays
+// cheap. Matches the user's "don't ping when I'm not chatting; start again
+// after my first morning message" intent. 90min comfortably exceeds the
+// 50min ping cooldown so at least one keepalive ping chains off each chat.
+const ACTIVE_WINDOW_MS = 90 * 60 * 1000
 // Slightly less than 55min so a 5-min cron tick won't accidentally
 // skip a slot due to scheduling drift.
 const PING_COOLDOWN_MS = 50 * 60 * 1000
@@ -112,22 +124,31 @@ Deno.serve(async (req) => {
       continue
     }
 
-    // Build the minimal ping. The body in row.body is now Anthropic-
-    // native shape (App.tsx converts via convertOpenAiRequestToAnthropic
-    // before upserting) so we can POST it straight to OR's /messages
-    // endpoint. Five overrides keep the ping cheap + valid:
-    //   1. max_tokens: 1   — Anthropic min; without it we'd inherit the
-    //      9024-token cap the chat used.
-    //   2. stream: false   — we don't need SSE for a 1-token ping.
-    //   3. drop `thinking` — extended thinking requires max_tokens >
-    //      thinking.budget_tokens (~8000), which conflicts with our
-    //      max_tokens:1 and 400s. Earlier worry: dropping thinking would
-    //      change the cache key so only BP1 (system+tools) hits and the
-    //      deeper history falls out. MEASURED 2026-06-17 against the
-    //      msuicode relay (金瓜瓜): a thinking-less ping read cache_read=
-    //      65909 / cache_create=0 / input=3 on a ~66k prompt — i.e. the
-    //      FULL history hit, not just BP1. So dropping thinking is safe
-    //      here; the whole prefix stays warm for ~0.1× read price.
+    // Build the ping. The body in row.body is Anthropic-native shape (App.tsx
+    // converts via convertOpenAiRequestToAnthropic before upserting) so we POST
+    // it straight to the relay's /messages endpoint. Overrides:
+    //   1. stream: false   — no SSE needed; proven cache-key-neutral (a
+    //      non-stream ping reads a streamed chat's cache: both hit 65931).
+    //   2. KEEP `thinking` exactly as the chat sent it — this is the whole
+    //      ballgame. MEASURED 2026-06-17 against 金瓜瓜: a thinking-FUL chat
+    //      caches at cache_read=65931; a thinking-LESS ping caches at 65909 —
+    //      a DISJOINT entry. So a thinking-less ping warms a copy the real
+    //      (thinking-ful) chat never reads → the chat still cold-writes every
+    //      morning while the ping looked "successful" reading its own private
+    //      lineage. (The earlier "dropping thinking is safe, reads 65909" note
+    //      was this exact false positive — one ping reading another ping.)
+    //      Keeping thinking → the ping reads 65931, the SAME bytes the chat
+    //      wrote, so it genuinely keeps the chat's cache warm.
+    //   3. max_tokens = thinking.budget_tokens + 1 — extended thinking requires
+    //      max_tokens > budget. The budget is a CEILING not a target: the model
+    //      emits ~26 output tokens for this trivial continuation, so the ping is
+    //      ~¥0.07 (≈ a pure cache read), not the ¥0.30+ a full budget would
+    //      cost. max_tokens is cache-key-neutral (2001 vs 3024 both read 65931)
+    //      so shrinking it only caps worst-case output, never the hit. The
+    //      budget VALUE, however, IS part of the cache key (budget 1024 vs 2000
+    //      cold-wrote in testing) so we must reuse the chat's budget verbatim —
+    //      never normalize it. No-thinking rows (older Claude / thinking off):
+    //      max_tokens: 1.
     //   4. keep `tools` + `system` + `messages` + `metadata` + `provider`
     //      + `model` — they're all part of the cache prefix key.
     //   5. drop OpenAI-specific leftovers (usage, tool_choice) just in
@@ -161,13 +182,23 @@ Deno.serve(async (req) => {
 
     const pingBody: Record<string, unknown> = {
       ...row.body,
-      max_tokens: 1,
       stream: false,
     }
-    delete pingBody.thinking
     delete pingBody.reasoning
     delete pingBody.tool_choice
     delete pingBody.usage
+    // Keep `thinking`; size max_tokens to satisfy extended thinking's
+    // max_tokens > budget_tokens rule while capping output. Adaptive thinking
+    // (Opus 4.7+, `{type:'adaptive'}` with no budget_tokens) has no budget
+    // floor — leave its stored max_tokens as-is. No thinking → minimal ping.
+    const thinking = pingBody.thinking as
+      | { type?: string; budget_tokens?: number }
+      | undefined
+    if (thinking && typeof thinking.budget_tokens === 'number') {
+      pingBody.max_tokens = thinking.budget_tokens + 1
+    } else if (!thinking) {
+      pingBody.max_tokens = 1
+    }
 
     // Route to the same upstream the chat used. OR → bearer + fixed
     // base_url; msuicode-style relay → x-api-key + that relay's base_url.
@@ -218,15 +249,17 @@ Deno.serve(async (req) => {
             usage.cache_creation_input_tokens ??
             0
           const input = usage.input_tokens ?? 0
+          const output = usage.output_tokens ?? 0
           usageReport.push({
             user_id: row.user_id,
             provider: row.provider,
             input_tokens: input,
+            output_tokens: output,
             cache_read: cacheRead,
             cache_create: cacheCreate1h,
           })
           console.log(
-            `keepalive ok user=${row.user_id} provider=${row.provider} input=${input} cache_read=${cacheRead} cache_create=${cacheCreate1h}`,
+            `keepalive ok user=${row.user_id} provider=${row.provider} input=${input} output=${output} cache_read=${cacheRead} cache_create=${cacheCreate1h}`,
           )
         } catch (parseErr) {
           console.warn(`keepalive ok user=${row.user_id} (couldn't parse usage)`, parseErr)

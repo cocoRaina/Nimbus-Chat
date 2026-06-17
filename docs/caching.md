@@ -114,21 +114,25 @@ Nimbus 的做法(`applyClaudeCaching`):
 
 ## 9. 续命 ping(OpenRouter + 金瓜瓜 1h 档)
 
-1h TTL 的缓存在静默时会过期。续命 ping 用一条极小请求(`max_tokens:1`、去掉 `thinking`、不写历史)把缓存**读**一次,刷新 TTL 防过期——冷写一次 ~¥1.5,保活一次 ~¥0.1,差十几倍所以值得。
+1h TTL 的缓存在静默时会过期。续命 ping 用一条极小请求把缓存**读**一次,刷新 TTL 防过期——冷写一次 ~¥1.32,保活一次 ~¥0.07,差近 20 倍所以值得。
 
 **两条腿,缺一不可:**
 
 1. **客户端 timer**(`App.tsx`):一次成功对话后约 55 分钟发一条 ping。App 在前台/未被杀时有效。
-2. **服务端 pg_cron**(`cache_keepalive` Edge Function,每 5min,`*/5 * * * *`,jobid=3):覆盖**手机把 App 杀后台**的情况——客户端 timer 那时已经死了。每条聊天会把当时的原生请求体(连同 key + 路由)存进 `cache_keepalive_state` 表,cron 扫"24h 内聊过的行",对 ≥50min 没 ping 过的发一条。这是真正的「常驻服务器」,不用买 VPS。
+2. **服务端 pg_cron**(`cache_keepalive` Edge Function,每 5min,`*/5 * * * *`,jobid=3):覆盖**手机把 App 杀后台**的情况——客户端 timer 那时已经死了。每条聊天会把当时的原生请求体(连同 key + 路由)存进 `cache_keepalive_state` 表,cron 扫"90min 内聊过的行",对 ≥50min 没 ping 过的发一条。这是真正的「常驻服务器」,不用买 VPS。
+
+**⚠️ ping 必须和真实聊天「同形」,否则刷的是另一份缓存(2026-06-17 实测踩坑)**:金瓜瓜/Anthropic 把**带 thinking** 和**不带 thinking** 的请求当成**两条独立缓存链**。实测同一段 ~66k 历史:带 thinking 的真实聊天缓存在 `cache_read=65931`,去掉 thinking 的 ping 缓存在 `65909`——**互不相通**。所以早期那版「`max_tokens:1` + 删掉 thinking」的 ping 看似成功(读到 65909),其实读的是**它自己上一条 ping** 留下的私有副本,真实聊天(带 thinking)**永远读不到**,该冷写还是冷写。证据:一条带 thinking 的真实聊天命中后 13 分钟,那版 ping 仍然**冷写**了整段 65909。
+  - **修法**:ping **保留 thinking**(连 `budget_tokens` 都要和聊天一字不差——budget 1024 vs 2000 也会分裂成两条链),`max_tokens` 设成 `budget+1`(extended thinking 要求 `max_tokens > budget`;budget 是**上限不是目标**,模型实际只吐 ~17–26 token,所以 ping 仍 ~¥0.07)。`stream` 实测**不影响**缓存键(非流 ping 能读流式聊天的缓存,都命中 65931),所以 ping 用 `stream:false` 省事。
+  - **`stream` 路由那套旧说法是误判**:曾以为 relay 把 stream/非 stream 路由到不同节点导致 ping 不命中,实测证伪——非流 ping 照样读到流式聊天的 65931。真凶是 thinking。
 
 **触发条件**(`App.tsx`,2026-06-17 修正):凡是走了原生 `/v1/messages` 的 Claude 对话都存体保活,即
 `isClaudeModel && (provider==='openrouter' || providerFormat==='anthropic')`。
-旧代码写死 `activeProvider==='openrouter'`,导致**金瓜瓜用户的请求体从不入表**,服务端永远没数据可 ping——这是过去服务端保活"不生效"的真因之一。
+旧代码写死 `activeProvider==='openrouter'`,导致**金瓜瓜用户的请求体从不入表**,服务端没数据可 ping——这是服务端保活对金瓜瓜"不生效"的另一个真因。
 
 **安静时段 00:00–08:00(北京时间)不 ping**(Edge Function 顶部早返回 `quiet_hours:true`):睡觉时缓存过期就让它过期,夜里 ping 纯浪费。早上**第一条消息**会冷写一次(无法避免,这是关安静时段的代价),但它会更新 `last_chat_at`,8 点后下一个 cron tick 就把这条新缓存 ping 热,**之后**整天的消息都命中。所以——**ping 不"写"缓存,写是早上第一条真实消息干的;ping 只是之后一路读着保温**。
 
 - 金瓜瓜默认配成 **1h TTL**(6.11 改),所以和 OR 一样吃这套保活;若回到 5m 档则**不该 ping**(55 分钟救不回 5 分钟缓存,连续聊自然命中即可)。
-- 服务端走 Deno `fetch`,**不是 pg_net**:pg_net(libcurl)对金瓜瓜有 HTTP/2 framing 不兼容(`Stream error in the HTTP/2 framing layer`),用它测会全挂——但那是测试工具的锅,生产路径(Edge Function→Deno fetch)实测满命中 `cache_read=65909 / cache_create=0`。
+- 服务端走 Deno `fetch`,**不是 pg_net**:pg_net(libcurl)对金瓜瓜有 HTTP/2 framing 不兼容(`Stream error in the HTTP/2 framing layer`),用它测会全挂——但那是测试工具的锅,生产路径(Edge Function→Deno fetch)实测满命中 `cache_read=65931 / cache_create=0 / output≈17`。
 
 ---
 
@@ -154,9 +158,11 @@ Nimbus 的做法(`applyClaudeCaching`):
 - **`metadata.user_id` 后端粘性**:`anthropic.ts` 把用户 ID 塞到 Anthropic 原生 `metadata.user_id`,Anthropic 用它做后端节点路由 —— 同用户的请求落到同一节点,缓存读写在同一处
 - **聊天接力刷新**:命中 cache 自动续 TTL 不要钱(Anthropic 官方:"refreshed at no additional cost")。只要 1h 内继续聊,缓存一直热着。这是主要的省钱机制
 - **`tool_choice` 翻译完整**:`anthropic.ts` 把 OpenAI 的 `tool_choice: 'none'/'auto'/'any'/'required'/{type:'function',function:{name}}` 统一翻成 Anthropic 的 `{type:...}` 形式。**之前没翻译这字段**,导致 MAX_TOOL_ITERATIONS 的收尾调用为了阻止模型继续调工具只能 `delete body.tools`,而 `tools` 是 cache key 的一部分,每次工具循环爆顶都触发 ~50k 全量冷写 ($0.15)。修完之后:保留 tools 用 tool_choice='none' 阻止调用,cache 完整命中
-- **Keepalive ping(已重启,2026-06-17)**:客户端 timer + 进页面 pre-warm + 服务端 pg_cron 每 5min 三层,覆盖 >1h 长 gap 后的早晨第一条冷写。
-  - ~~曾以为失效原因是"relay 把 `stream:true`/`false` 当不同路由"~~——**已证伪**。真因有二:① `App.tsx` 写死只给 OpenRouter 存请求体,金瓜瓜用户的服务端表是空的、无数据可 ping;② 用 pg_net 测时 libcurl 对金瓜瓜有 HTTP/2 framing bug,误判成"ping 不命中"。生产路径(Edge Function 的 Deno `fetch`)实测**满命中**:`cache_read=65909 / cache_create=0 / input=3`,~66k 历史整段读回,不是只命中 BP1。
-  - 现状:`pg_cron` job(jobid=3,`*/5 * * * *`)已 `cron.alter_job(active:=true)`;触发门改成 `format==='anthropic'` 覆盖金瓜瓜;加了 00:00–08:00(北京)安静时段。详见 §9。停掉用 `cron.alter_job(3, active:=false)`。
+- **Keepalive ping(已重启 + 修对,2026-06-17)**:客户端 timer + 进页面 pre-warm + 服务端 pg_cron 每 5min 三层,覆盖长 gap 后的早晨第一条冷写。本次修了**三个**叠加的坑:
+  - ① **触发门**:`App.tsx` 写死只给 OpenRouter 存请求体 → 金瓜瓜用户服务端表为空、无数据可 ping。改成 `isClaudeModel && (provider==='openrouter' || format==='anthropic')`。
+  - ② **ping 同形**(最关键):旧 ping 删掉 `thinking` + `max_tokens:1`,结果**刷的是另一条缓存链**——带 thinking 的真实聊天缓存在 `cache_read=65931`,不带 thinking 的 ping 在 `65909`,两者**互不相通**。所谓"满命中 65909"是 ping 读自己上一条 ping 的**假阳性**;真实聊天该冷写还是冷写(实测:warm 聊天后 13min,旧 ping 仍冷写 65909)。修法:**保留 thinking + 原样 budget**,`max_tokens=budget+1`(模型实际只吐 ~17 token,ping 仍 ~¥0.07)。验证:生产 ping 现读 `cache_read=65931 / cache_create=0`,和真实聊天同一条链。详见 §9。
+  - ③ **stream 路由旧说法证伪**:非流 ping 实测能读流式聊天的 65931,stream 不影响缓存键。(另:pg_net/libcurl 对金瓜瓜有 HTTP/2 framing bug,只是测试工具的锅,生产 Deno `fetch` 无此问题。)
+  - 现状:`pg_cron` job(jobid=3,`*/5 * * * *`)已 `cron.alter_job(active:=true)`;活跃窗口 24h→90min(只跟随真实聊天);加了 00:00–08:00(北京)安静时段。停掉用 `cron.alter_job(3, active:=false)`。
 - **对话压缩**:历史超阈值时自动用 summarizer 模型摘要,节省 token。**工具迭代特例**:模型支持工具时阈值自动收紧到 35%(=Claude 上下文 7万 token,默认 65%=13万),提前压缩成 ~20k 上下文减小绝对体量。
   - ⚠️ 这条收紧的原始理由是"walk-up 在带 tool 的请求里不命中、~62k 历史每次全价重读";**2026-06 缓存修正后该前提已部分失效**(工具迭代现在能命中历史缓存)。压缩仍有价值(缩小绝对 token、降冷写成本),但 35% 这个激进阈值可能已偏保守,后续可重测放宽。代码本身未随本次修正改动。
 - 默认 summarizer = **DeepSeek-V3.1**(`deepseek/deepseek-chat-v3.1`),比 GPT-4o-mini 中文摘要质量更稳,OR 自带 prompt cache 后实际成本更低。设置可单独选 summarizer 的 provider 和 model
