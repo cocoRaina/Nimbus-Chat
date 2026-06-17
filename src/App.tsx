@@ -95,7 +95,7 @@ import {
   TOOL_CONTROL_MEDIA,
   TOOL_GET_NOW_PLAYING,
 } from './tools/definitions'
-import { setStatusBarOverlay, syncStatusBarToAccent, syncStatusBarToColor } from './storage/statusBar'
+import { syncStatusBarToAccent, syncStatusBarToColor } from './storage/statusBar'
 import {
   cancelProactiveNotification,
   clearPendingProactive,
@@ -654,21 +654,15 @@ const App = () => {
   useEffect(() => {
     const p = location.pathname
     if (p.startsWith('/chat/')) {
-      // Chat header: var(--accent) #DBEAFE
-      setStatusBarOverlay(false)
       syncStatusBarToAccent()
     } else if (p.startsWith('/memory') || p.startsWith('/usage')) {
-      // These pages have a dotted gradient header starting at #F8FAFC
-      setStatusBarOverlay(false)
       syncStatusBarToColor('#F8FAFC')
     } else if (p.startsWith('/settings')) {
-      // Settings header is white
-      setStatusBarOverlay(false)
       syncStatusBarToColor('#FFFFFF')
     } else {
-      // Home has a full-bleed background image — overlay the status bar so
-      // the image reaches the very top of the screen (truly full screen).
-      setStatusBarOverlay(true)
+      // Home gradient starts at #F4F8FC — match the bar to that color so
+      // the status bar blends seamlessly into the top of the background.
+      syncStatusBarToColor('#F4F8FC')
     }
   }, [location.pathname])
 
