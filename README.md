@@ -422,6 +422,7 @@ android/app/src/main/res-crab/drawable-nodpi/   # Clawd 螃蟹精灵帧（24 动
 ## 已知限制 / 未做
 
 - **早晨第一条仍冷写** — 安静时段（00:00–08:00 北京）不 ping，缓存夜里过期；早上第一条消息会冷写一次（~¥1.5），之后服务端 ping 接管保温，全天命中。这是「夜里不 ping 省钱」的有意取舍，见 [caching.md §9](docs/caching.md)
+- **离开超过 3h 回来也冷写一次** — 保活活跃窗是 3h（从最后一条聊天算起，每聊一句顺延）；连续 3h+ 没消息后窗口过期、缓存随后死掉，回来第一条冷写 ¥1.32。3h 内来回穿插聊天则全程热读不冷写。窗口大小是「多撑省冷写」vs「空烧 ¥0.07 ping」的权衡，见 [caching.md §9](docs/caching.md)
 - **单租户 RLS** — 工具表用开放策略，只适合一个账号自用
 - **iOS** — 通知 / 状态栏 / 硬件返回键都有 Android-only 守卫，未测试 iOS
 - **原生 dialog** — 绝大部分已用 `ConfirmDialog` 替换；偶有遗漏页面仍用 `window.confirm`

@@ -20,9 +20,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 // last_chat_at (real activity), NOT last_ping_at — otherwise pings would
 // self-perpetuate forever.
 //
-// History: 4h → 24h → 90min. 24h was meant to keep the cache warm overnight
-// for the "chat last evening, chat tomorrow morning" pattern. But two things
-// killed that rationale:
+// History: 4h → 24h → 90min → 3h. 24h was meant to keep the cache warm
+// overnight for the "chat last evening, chat tomorrow morning" pattern. But
+// two things killed that rationale:
 //   1. The 00:00–08:00 quiet-hours gate (below) now blocks every night ping
 //      anyway, so the cache dies overnight regardless of how big this window
 //      is — the 24h "keep it warm till morning" benefit was already moot.
@@ -30,15 +30,24 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 //      off YESTERDAY's chat — a ~¥1.32 cold write fired before the user even
 //      woke up (cache long expired, so the ping WRITES instead of reads),
 //      then often expired again before the real morning message. Pure waste.
-// 90min makes pings follow real chatting: they resume only after a fresh
-// chat (including the morning's first message, which restarts the chain) and
-// stop ~90min after you go idle. The morning's first message pays one
-// unavoidable cold write (cache died overnight) — that rides on a message
-// you wanted to send anyway — and every later message in the session stays
-// cheap. Matches the user's "don't ping when I'm not chatting; start again
-// after my first morning message" intent. 90min comfortably exceeds the
-// 50min ping cooldown so at least one keepalive ping chains off each chat.
-const ACTIVE_WINDOW_MS = 90 * 60 * 1000
+// The window makes pings follow real chatting: gated on last_chat_at, it
+// resumes only after a fresh chat (including the morning's first message,
+// which restarts the chain) and stops this many minutes after you go idle.
+// The morning's first message pays one unavoidable cold write (cache died
+// overnight) — that rides on a message you wanted to send anyway — and every
+// later message in the session stays cheap.
+//
+// Why 3h (not 90min): the window must comfortably exceed the 50min ping
+// cooldown so at least one keepalive ping chains off each chat — 90min did
+// that. But 90min meant a >90min lull (lunch, a long meeting, an afternoon
+// out) let the cache die → ¥1.32 cold write on return. The breakeven for
+// extending the window is cheap: one extra speculative ping if you DON'T come
+// back costs ¥0.07; bridging the gap if you DO saves ¥1.32 — so extending
+// pays off whenever the odds of returning exceed ~5%. 3h covers the common
+// "back in a couple hours" pattern (post-lunch, errands) at a worst-case cost
+// of ~2 extra ¥0.07 pings when you've genuinely left. Bounded so it still
+// can't speculatively re-warm a half-day-old chat the way 24h did.
+const ACTIVE_WINDOW_MS = 3 * 60 * 60 * 1000
 // Slightly less than 55min so a 5-min cron tick won't accidentally
 // skip a slot due to scheduling drift.
 const PING_COOLDOWN_MS = 50 * 60 * 1000

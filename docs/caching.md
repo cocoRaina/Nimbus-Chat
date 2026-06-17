@@ -119,7 +119,8 @@ Nimbus 的做法(`applyClaudeCaching`):
 **两条腿,缺一不可:**
 
 1. **客户端 timer**(`App.tsx`):一次成功对话后约 55 分钟发一条 ping。App 在前台/未被杀时有效。
-2. **服务端 pg_cron**(`cache_keepalive` Edge Function,每 5min,`*/5 * * * *`,jobid=3):覆盖**手机把 App 杀后台**的情况——客户端 timer 那时已经死了。每条聊天会把当时的原生请求体(连同 key + 路由)存进 `cache_keepalive_state` 表,cron 扫"90min 内聊过的行",对 ≥50min 没 ping 过的发一条。这是真正的「常驻服务器」,不用买 VPS。
+2. **服务端 pg_cron**(`cache_keepalive` Edge Function,每 5min,`*/5 * * * *`,jobid=3):覆盖**手机把 App 杀后台**的情况——客户端 timer 那时已经死了。每条聊天会把当时的原生请求体(连同 key + 路由)存进 `cache_keepalive_state` 表,cron 扫"**3h** 内聊过的行",对 ≥50min 没 ping 过的发一条。这是真正的「常驻服务器」,不用买 VPS。
+   - **活跃窗为什么是 3h**:窗口从「最后一条聊天」算起,每聊一句就顺延,所以只要大约每 3h 内有动静,缓存就一直续、全程热读。窗口必须 > 50min 冷却(保证每条聊天至少链上一个 ping);90min 太短,午饭/开会/出门一个多小时回来就冷写 ¥1.32。延长窗口的盈亏比很划算:多撑一个 ping 周期,没回来白烧 ¥0.07,回来了省 ¥1.32——**回来概率 >5% 就值**。3h 覆盖「俩小时后回来接着聊」的常见场景,代价是真离开时多打 ~2 个 ¥0.07 ping。仍有上界,不会像旧的 24h 那样拿半天前的聊天去空烧(早晨冷写坑)。
 
 **⚠️ ping 必须和真实聊天「同形」,否则刷的是另一份缓存(2026-06-17 实测踩坑)**:金瓜瓜/Anthropic 把**带 thinking** 和**不带 thinking** 的请求当成**两条独立缓存链**。实测同一段 ~66k 历史:带 thinking 的真实聊天缓存在 `cache_read=65931`,去掉 thinking 的 ping 缓存在 `65909`——**互不相通**。所以早期那版「`max_tokens:1` + 删掉 thinking」的 ping 看似成功(读到 65909),其实读的是**它自己上一条 ping** 留下的私有副本,真实聊天(带 thinking)**永远读不到**,该冷写还是冷写。证据:一条带 thinking 的真实聊天命中后 13 分钟,那版 ping 仍然**冷写**了整段 65909。
   - **修法**:ping **保留 thinking**(连 `budget_tokens` 都要和聊天一字不差——budget 1024 vs 2000 也会分裂成两条链),`max_tokens` 设成 `budget+1`(extended thinking 要求 `max_tokens > budget`;budget 是**上限不是目标**,模型实际只吐 ~17–26 token,所以 ping 仍 ~¥0.07)。`stream` 实测**不影响**缓存键(非流 ping 能读流式聊天的缓存,都命中 65931),所以 ping 用 `stream:false` 省事。
@@ -162,7 +163,7 @@ Nimbus 的做法(`applyClaudeCaching`):
   - ① **触发门**:`App.tsx` 写死只给 OpenRouter 存请求体 → 金瓜瓜用户服务端表为空、无数据可 ping。改成 `isClaudeModel && (provider==='openrouter' || format==='anthropic')`。
   - ② **ping 同形**(最关键):旧 ping 删掉 `thinking` + `max_tokens:1`,结果**刷的是另一条缓存链**——带 thinking 的真实聊天缓存在 `cache_read=65931`,不带 thinking 的 ping 在 `65909`,两者**互不相通**。所谓"满命中 65909"是 ping 读自己上一条 ping 的**假阳性**;真实聊天该冷写还是冷写(实测:warm 聊天后 13min,旧 ping 仍冷写 65909)。修法:**保留 thinking + 原样 budget**,`max_tokens=budget+1`(模型实际只吐 ~17 token,ping 仍 ~¥0.07)。验证:生产 ping 现读 `cache_read=65931 / cache_create=0`,和真实聊天同一条链。详见 §9。
   - ③ **stream 路由旧说法证伪**:非流 ping 实测能读流式聊天的 65931,stream 不影响缓存键。(另:pg_net/libcurl 对金瓜瓜有 HTTP/2 framing bug,只是测试工具的锅,生产 Deno `fetch` 无此问题。)
-  - 现状:`pg_cron` job(jobid=3,`*/5 * * * *`)已 `cron.alter_job(active:=true)`;活跃窗口 24h→90min(只跟随真实聊天);加了 00:00–08:00(北京)安静时段。停掉用 `cron.alter_job(3, active:=false)`。
+  - 现状:`pg_cron` job(jobid=3,`*/5 * * * *`)已 `cron.alter_job(active:=true)`;活跃窗口 24h→90min→3h(只跟随真实聊天,每聊一句顺延);加了 00:00–08:00(北京)安静时段。停掉用 `cron.alter_job(3, active:=false)`。
 - **对话压缩**:历史超阈值时自动用 summarizer 模型摘要,节省 token。**工具迭代特例**:模型支持工具时阈值自动收紧到 35%(=Claude 上下文 7万 token,默认 65%=13万),提前压缩成 ~20k 上下文减小绝对体量。
   - ⚠️ 这条收紧的原始理由是"walk-up 在带 tool 的请求里不命中、~62k 历史每次全价重读";**2026-06 缓存修正后该前提已部分失效**(工具迭代现在能命中历史缓存)。压缩仍有价值(缩小绝对 token、降冷写成本),但 35% 这个激进阈值可能已偏保守,后续可重测放宽。代码本身未随本次修正改动。
 - 默认 summarizer = **DeepSeek-V3.1**(`deepseek/deepseek-chat-v3.1`),比 GPT-4o-mini 中文摘要质量更稳,OR 自带 prompt cache 后实际成本更低。设置可单独选 summarizer 的 provider 和 model
