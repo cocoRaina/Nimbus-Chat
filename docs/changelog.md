@@ -76,6 +76,31 @@
 
 ---
 
+## 2026-06-17
+
+### 主动消息：冷启动首次前台丢失（修）
+
+清掉通知后冷启动 App，主动消息不弹。根因：Android 冷启动时 Capacitor `appStateChange(isActive:true)` 在 React auth 解析完、`visibilitychange` 监听器注册**之前**就 fire 了，于是首次进前台的那次检查永远被错过。修：监听器注册后用 `window.setTimeout(handleVisibilityChange, 0)` 补跑一次（等所有 effect 落地后），cleanup 里 `clearTimeout`。`App.tsx`。
+
+### 状态栏：每页颜色与各自 header 底色统一
+
+之前状态栏只有一个固定色，和各页 header 对不上。`storage/statusBar.ts` 加 `syncStatusBarToColor(hex)`、`syncStatusBarToAccent()`（读 `--accent`），`App.tsx` 按路由切：聊天=`--accent` #DBEAFE、记忆库/用量=#F8FAFC、设置=#FFFFFF、首页=#F4F8FC（渐变顶色，无缝融进背景）。
+
+- **踩坑**：一度想给首页用 `setOverlaysWebView({overlay:true})` 让背景图顶到状态栏下做「真全屏」，但在路由间来回切 overlay 会让其他页短暂进 overlay 态、内容被摄像头挖孔挡住。最终放弃 overlay，改用「首页状态栏=渐变顶色」纯色融合，安全区零改动。
+- ⚠️ 没动 header 底色，只改状态栏（上次误改 header 背景被骂过，已 revert）。
+
+### 首页布局：全屏 + 垂直居中
+
+- 删掉 `.home-page` 的 `padding:1rem`（之前让背景像描了一圈边，不全屏）。
+- `.phone-shell` 改 `min-height:100dvh` 撑满视口，消掉底部那块空白渐变。
+- `.home-page:not(.--settings) .phone-shell { justify-content:center }`：内容不够一屏时上下留白均分（用户选的「整体垂直居中」）；`min-height` 而非定高，编辑模式内容超屏照常滚动不裁切。设置态布局不受影响。
+
+### 记忆库 toolbar 三行 + 设置改名
+
+- `source-filter` 按钮（全部/手动/自动）溢出成多行 → toolbar 改 `flex-direction:column`、`source-filter` 加 `flex-wrap:nowrap`；active 态改浅蓝 #DBEAFE。
+- 锁定预算 🔒 单独挪到 `toolbar-row3`，防止和筛选挤一行溢出。
+- 设置页标题「API设置」→「设置」。
+
 ## 2026-06-16
 
 ### 缓存：工具迭代恢复历史命中（省钱·重要）
