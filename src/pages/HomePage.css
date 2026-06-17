@@ -1,10 +1,8 @@
 .home-page {
   transition: none;
   --icon-tile-bg: rgba(255, 255, 255, 0.72);
-  padding: 1rem;
   align-items: center;
   background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
-  /* Scroll at top level so content takes natural height (no forced empty space) */
   height: auto;
   min-height: 100dvh;
   overflow-y: auto;
@@ -49,7 +47,7 @@
 
 .phone-shell {
   width: min(420px, 100%);
-  height: auto;
+  min-height: 100dvh;
   margin: 0 auto;
   border-radius: 0;
   display: flex;
