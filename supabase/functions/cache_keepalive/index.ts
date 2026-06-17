@@ -87,6 +87,10 @@ Deno.serve(async (req) => {
   let pinged = 0
   let cooled = 0
   let failed = 0
+  // Surface per-ping usage in the HTTP response too (not just console.log),
+  // so callers can read cache_read/cache_create without scraping function
+  // stdout — which Supabase's log API doesn't reliably expose.
+  const usageReport: Array<Record<string, unknown>> = []
 
   for (const row of rows) {
     if (row.last_ping_at && new Date(row.last_ping_at).getTime() > cooldownCutoffMs) {
@@ -103,15 +107,13 @@ Deno.serve(async (req) => {
     //   2. stream: false   — we don't need SSE for a 1-token ping.
     //   3. drop `thinking` — extended thinking requires max_tokens >
     //      thinking.budget_tokens (~8000), which conflicts with our
-    //      max_tokens:1 and 400s. Trade-off: this changes the request
-    //      shape vs the actual chat (which sends thinking enabled), so
-    //      Anthropic's cache key for the ping doesn't match HEAD/BP4
-    //      exactly — but BP1 (system+tools, marked separately on the
-    //      system block) still hits since its prefix doesn't depend on
-    //      thinking config. Net effect: ping refreshes BP1's TTL and
-    //      provides the "system+tools always warm" benefit; the deeper
-    //      conversation prefix still naturally falls out of cache at
-    //      the 1h TTL boundary if the user doesn't chat for an hour.
+    //      max_tokens:1 and 400s. Earlier worry: dropping thinking would
+    //      change the cache key so only BP1 (system+tools) hits and the
+    //      deeper history falls out. MEASURED 2026-06-17 against the
+    //      msuicode relay (金瓜瓜): a thinking-less ping read cache_read=
+    //      65909 / cache_create=0 / input=3 on a ~66k prompt — i.e. the
+    //      FULL history hit, not just BP1. So dropping thinking is safe
+    //      here; the whole prefix stays warm for ~0.1× read price.
     //   4. keep `tools` + `system` + `messages` + `metadata` + `provider`
     //      + `model` — they're all part of the cache prefix key.
     //   5. drop OpenAI-specific leftovers (usage, tool_choice) just in
@@ -202,6 +204,13 @@ Deno.serve(async (req) => {
             usage.cache_creation_input_tokens ??
             0
           const input = usage.input_tokens ?? 0
+          usageReport.push({
+            user_id: row.user_id,
+            provider: row.provider,
+            input_tokens: input,
+            cache_read: cacheRead,
+            cache_create: cacheCreate1h,
+          })
           console.log(
             `keepalive ok user=${row.user_id} provider=${row.provider} input=${input} cache_read=${cacheRead} cache_create=${cacheCreate1h}`,
           )
@@ -237,6 +246,7 @@ Deno.serve(async (req) => {
       pinged,
       cooled,
       failed,
+      usage: usageReport,
     }),
     { headers: { 'Content-Type': 'application/json' } },
   )
