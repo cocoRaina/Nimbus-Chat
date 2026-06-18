@@ -281,6 +281,20 @@ Deno.serve(async (req) => {
             0
           const input = usage.input_tokens ?? 0
           const output = usage.output_tokens ?? 0
+          // Body fingerprint: message count + last-3 role sequence + last
+          // message content prefix. Used to diagnose cold-write mysteries:
+          // grep logs for "keepalive ok" before/after a cold write and
+          // compare msg_count + tail — a divergence means the ping body
+          // drifted from what the real chat sent.
+          const pingMsgs = Array.isArray(pingBody.messages) ? pingBody.messages as Array<{role:string;content:unknown}> : []
+          const msgCount = pingMsgs.length
+          const tail = pingMsgs.slice(-3).map((m) => m.role).join(',')
+          const lastContent = pingMsgs[pingMsgs.length - 1]?.content
+          const lastSnippet = typeof lastContent === 'string'
+            ? lastContent.slice(0, 40).replace(/\n/g, '↵')
+            : Array.isArray(lastContent)
+              ? JSON.stringify(lastContent[0]).slice(0, 40)
+              : ''
           usageReport.push({
             user_id: row.user_id,
             provider: row.provider,
@@ -290,7 +304,7 @@ Deno.serve(async (req) => {
             cache_create: cacheCreate1h,
           })
           console.log(
-            `keepalive ok user=${row.user_id} provider=${row.provider} input=${input} output=${output} cache_read=${cacheRead} cache_create=${cacheCreate1h}`,
+            `keepalive ok user=${row.user_id} provider=${row.provider} input=${input} output=${output} cache_read=${cacheRead} cache_create=${cacheCreate1h} msgs=${msgCount} tail=${tail} last=${lastSnippet}`,
           )
         } catch (parseErr) {
           console.warn(`keepalive ok user=${row.user_id} (couldn't parse usage)`, parseErr)
