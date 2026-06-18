@@ -1917,15 +1917,25 @@ TOOL_SEARCH_HANDOFF,
               ]
               requestBody.tool_choice = 'auto'
             }
-            // Extended thinking is only worth the cost on the opening turn
-            // (where the model decides strategy) and the final text reply.
-            // Tool iterations 2-4 are just the model scanning a tool result
-            // and deciding which function to call next — 8000 thinking tokens
-            // per iteration at completion rates (~$0.12/iteration) for that
-            // is pure waste. The "笨笨的" symptom (OR silently dropping
-            // thinking when max_tokens is too low) is also avoided on those
-            // iterations since we skip the whole reasoning block.
-            if (reasoningEnabled && isClaudeModel(effectiveModel) && iteration === 1) {
+            // Keep thinking ON for ALL iterations (not just iteration 1).
+            //
+            // Why: thinking ON vs OFF shifts the Anthropic cache key by exactly
+            // 22 tokens (measured 2026-06-17: thinking-ON chat = 65931,
+            // thinking-OFF ping = 65909 — disjoint entries). Iteration 2+
+            // with thinking OFF therefore ALWAYS cold-writes its own separate
+            // chain (~¥1.43 per tool exchange) instead of reading iteration 1's
+            // cache. Keeping thinking ON for all iterations makes the cache key
+            // identical across the tool loop: iteration 2+ reads from iteration
+            // 1's cache (¥0.01 cache-read) + outputs ≤ budget thinking tokens.
+            //
+            // Cost: 2000-token budget for a "look at tool result, decide what
+            // to do next" turn is a ceiling, not a target. The model typically
+            // emits far fewer thinking tokens for these simple continuations
+            // (~100–400). Even at worst case (2000 tokens) the per-iteration
+            // cost (~¥0.10) is far below the cold-write cost (~¥1.43) it
+            // replaces. Quality also improves: intermediate tool-decision turns
+            // and the final reply both now get extended reasoning.
+            if (reasoningEnabled && isClaudeModel(effectiveModel)) {
               const thinkingBudget = 2000
               requestBody.reasoning = { max_tokens: thinkingBudget }
               const currentMaxTokens =
