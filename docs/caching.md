@@ -93,6 +93,7 @@ Nimbus 的做法(`applyClaudeCaching`):
 - **BP4(rolling)**:挂在**倒数第二条 user 消息**上,把全部历史纳入缓存边界。挂倒数第二条而非最后一条,因为最后一条是本轮新输入、每次都不同。
 - **工具迭代**:若最后一条 user 之后还有 tool 块,挂 **BP1 + 最后一条 user 消息**(=本轮 HEAD,它就是上一次请求已写过的缓存前缀的末端)。**故意不标 tool_result 本身**——那段前缀含工具块、下一轮读不到,写了纯浪费 2× 写入费。
   - ⚠️ **2026-06 修正(重要省钱)**:早期工具迭代**只标 BP1**,理由是"BP4 在带 tool 的请求里 walk-up 静默 miss"。但据 Anthropic 文档,`cache_control` **可以放 tool_result**,且 walk-up 有 **20 个内容块**的回溯窗口——Nimbus 每轮工具调用通常只 1~2 个 tool 块,远在窗口内,稳定命中。只标 BP1 的旧行为导致 **BP1↔最后一条 user 之间的几万 token 历史在每次工具调用时全价重读**(`search_memory` 几乎每轮触发 → 长会话哗哗烧钱)。修正后:标到最后一条 user(在 tool 块之前),缓存前缀止于 user 消息,正好是上一轮 HEAD 写过的那份,这次是 **0.1× 读命中**而非全价。
+  - ⚠️ **2026-06-18 修正(工具迭代零额外冷写)**:`thinking` 参数**本身是缓存键的一部分**——开/关让缓存前缀差 **22 token**(实测两组工具冷写对 `61265/61243`、`67780/67758` 差值都恰好 22,与 §9 ping 实测的 `65931/65909=22` 同源)。早期为省 thinking 输出,**只在迭代 1 开 thinking、迭代 2+ 关**,结果迭代 2 落到另一条缓存链,每次工具调用第 2 次迭代必冷写一次(~¥1.43)。修法:**所有迭代统一开 thinking**(budget 一字不差),迭代 2+ 改读迭代 1 缓存。⚠️ 连带坑:工具选择轮(迭代 2~3)把 `max_tokens` cap 到 512,而 extended thinking 要求 `max_tokens > budget`(2000),512<2000 会 400 或被 OR **静默丢 thinking**(又退回不一致、白修)——故 thinking 开启时 cap 提到 `budget+512`。
 
 通用铁律:
 1. **易变内容不要进缓存前缀**。Nimbus 的时间戳是**按每条消息创建时刻烙死**的(`[当前时间] …` 写进当时那条 user 消息),历史逐字节不变,不会每轮把"现在几点"塞进前缀。
@@ -166,6 +167,7 @@ Nimbus 的做法(`applyClaudeCaching`):
   - ② **ping 同形**(最关键):旧 ping 删掉 `thinking` + `max_tokens:1`,结果**刷的是另一条缓存链**——带 thinking 的真实聊天缓存在 `cache_read=65931`,不带 thinking 的 ping 在 `65909`,两者**互不相通**。所谓"满命中 65909"是 ping 读自己上一条 ping 的**假阳性**;真实聊天该冷写还是冷写(实测:warm 聊天后 13min,旧 ping 仍冷写 65909)。修法:**保留 thinking + 原样 budget**,`max_tokens=budget+1`(模型实际只吐 ~17 token,ping 仍 ~¥0.07)。验证:生产 ping 现读 `cache_read=65931 / cache_create=0`,和真实聊天同一条链。详见 §9。
   - ③ **stream 路由旧说法证伪**:非流 ping 实测能读流式聊天的 65931,stream 不影响缓存键。(另:pg_net/libcurl 对金瓜瓜有 HTTP/2 framing bug,只是测试工具的锅,生产 Deno `fetch` 无此问题。)
   - 现状:`pg_cron` job(jobid=3,`*/5 * * * *`)已 `cron.alter_job(active:=true)`;活跃窗口 24h→90min→3h(只跟随真实聊天,每聊一句顺延);加了 00:00–08:00(北京)安静时段。停掉用 `cron.alter_job(3, active:=false)`。
+- **Keepalive 存对缓存链(2026-06-18)**:工具调用后,`App.tsx` 拿来存服务端 ping 快照的 `lastSentBody` 是**最后一次迭代**(tool 模式、messages 末尾带 `tool_use`/`tool_result`)的请求体,而普通聊天读的是另一条链 → ping 一直刷 tool 链、普通链照样过期 → 工具调用后隔 >1h 再聊必冷写(实测 18:11、23:39)。修法:快照改存**第一次迭代** `firstIterBody`(普通模式、HEAD 在当前 user、无 tool 块),正是后续普通消息 walk-up 命中的那条。配合上面「所有迭代统一 thinking」(§7),工具调用后整条链都热。
 - **对话压缩**:历史超阈值时自动用 summarizer 模型摘要,节省 token。**工具迭代特例**:模型支持工具时阈值自动收紧到 35%(=Claude 上下文 7万 token,默认 65%=13万),提前压缩成 ~20k 上下文减小绝对体量。
   - ⚠️ 这条收紧的原始理由是"walk-up 在带 tool 的请求里不命中、~62k 历史每次全价重读";**2026-06 缓存修正后该前提已部分失效**(工具迭代现在能命中历史缓存)。压缩仍有价值(缩小绝对 token、降冷写成本),但 35% 这个激进阈值可能已偏保守,后续可重测放宽。代码本身未随本次修正改动。
 - 默认 summarizer = **DeepSeek-V3.1**(`deepseek/deepseek-chat-v3.1`),比 GPT-4o-mini 中文摘要质量更稳,OR 自带 prompt cache 后实际成本更低。设置可单独选 summarizer 的 provider 和 model
