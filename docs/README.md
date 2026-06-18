@@ -7,6 +7,7 @@
 | 文档 | 内容 |
 |---|---|
 | [caching.md](caching.md) | **Prompt Caching 指南(内部)**：原理、各家中转对比、怎么配、验证命中、块布局铁律、图片转文字、FAQ、附 Nimbus 成本优化实现 |
+| [anthropic-api-notes.md](anthropic-api-notes.md) | **Anthropic API 踩坑笔记**：extended thinking + tool use 的 thinking block 回传、signature_delta 流事件、cache key 包含 thinking 参数、max_tokens 要求、历次冷写修复记录——**遇到 Anthropic 诡异行为先查这里** |
 | [guides/prompt-caching.md](guides/prompt-caching.md) | **Prompt Caching 入门(对外)**：不依赖本项目的通用教程，可直接分享 |
 | [changelog.md](changelog.md) | 按日期的改动记录 + Debug 日志(踩过的坑 + 修法) |
 
