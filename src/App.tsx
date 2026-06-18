@@ -1935,12 +1935,13 @@ TOOL_SEARCH_HANDOFF,
             // cost (~¥0.10) is far below the cold-write cost (~¥1.43) it
             // replaces. Quality also improves: intermediate tool-decision turns
             // and the final reply both now get extended reasoning.
-            if (reasoningEnabled && isClaudeModel(effectiveModel)) {
-              const thinkingBudget = 2000
-              requestBody.reasoning = { max_tokens: thinkingBudget }
+            const toolThinkingBudget = 2000
+            const thinkingActive = reasoningEnabled && isClaudeModel(effectiveModel)
+            if (thinkingActive) {
+              requestBody.reasoning = { max_tokens: toolThinkingBudget }
               const currentMaxTokens =
                 typeof requestBody.max_tokens === 'number' ? requestBody.max_tokens : 0
-              requestBody.max_tokens = Math.max(currentMaxTokens, thinkingBudget + 1024)
+              requestBody.max_tokens = Math.max(currentMaxTokens, toolThinkingBudget + 1024)
               delete requestBody.temperature
               delete requestBody.top_p
             } else if (reasoningEnabled && activeSettings.chatHighReasoningEnabled && iteration === 1) {
@@ -1951,10 +1952,19 @@ TOOL_SEARCH_HANDOFF,
             // function-call JSON blob — cap tokens to avoid verbose preambles.
             // Iteration 4 keeps full tokens (last loop pass, likely final reply).
             // The force-final-text path below always restores paramsSnapshot.max_tokens.
+            //
+            // When thinking is active the cap MUST stay above the thinking
+            // budget: extended thinking requires max_tokens > budget_tokens.
+            // Capping to 512 with a 2000-token budget would 400 the request —
+            // or make OR silently drop thinking, which flips the cache key back
+            // to thinking-off and re-introduces the exact cold write the
+            // all-iterations-thinking fix above just removed. So cap to
+            // budget + 512 when thinking is on.
             if (iteration > 1 && iteration < MAX_TOOL_ITERATIONS) {
+              const outputCap = thinkingActive ? toolThinkingBudget + 512 : 512
               requestBody.max_tokens = Math.min(
-                typeof requestBody.max_tokens === 'number' ? requestBody.max_tokens : 512,
-                512,
+                typeof requestBody.max_tokens === 'number' ? requestBody.max_tokens : outputCap,
+                outputCap,
               )
             }
 
