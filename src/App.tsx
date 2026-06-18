@@ -1998,6 +1998,7 @@ TOOL_SEARCH_HANDOFF,
             const isEventStream = contentType.includes('text/event-stream')
 
             const accumulatedToolCalls = new Map<number, StreamingToolCall>()
+            const iterationThinkingBlocks: Array<{ thinking: string; signature: string }> = []
             let finishReason: string | null = null
 
             if (!isEventStream) {
@@ -2117,6 +2118,17 @@ TOOL_SEARCH_HANDOFF,
                       appendReasoningDelta(explicitReasoning, 'reasoning')
                       scheduleFlush()
                     }
+                    // Capture completed Anthropic thinking blocks (content + signature).
+                    // These arrive as a synthetic chunk emitted by translateAnthropicStream
+                    // on content_block_stop. Stash them so we can include them verbatim in
+                    // the next iteration's assistant history message, keeping the Anthropic
+                    // cache key stable across the tool-use loop.
+                    if (deltaPayload?.thinking_block && typeof deltaPayload.thinking_block === 'object') {
+                      const tb = deltaPayload.thinking_block as { thinking?: string; signature?: string }
+                      if (typeof tb.thinking === 'string' && typeof tb.signature === 'string') {
+                        iterationThinkingBlocks.push({ thinking: tb.thinking, signature: tb.signature })
+                      }
+                    }
                     const deltaReasoning = collectReasoningFromObject(
                       deltaPayload as Record<string, unknown>,
                     )
@@ -2200,6 +2212,7 @@ TOOL_SEARCH_HANDOFF,
                 role: 'assistant',
                 content: iterationText.length > 0 ? iterationText : null,
                 tool_calls: toolCallsArr,
+                ...(iterationThinkingBlocks.length > 0 ? { thinking_blocks: iterationThinkingBlocks } : {}),
               })
               for (const tc of toolCallsArr) {
                 let resultText: string

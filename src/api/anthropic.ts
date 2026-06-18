@@ -7,6 +7,7 @@ type OpenAiMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content:
     | string
+    | null
     | Array<{
         type: string
         text?: string
@@ -20,6 +21,11 @@ type OpenAiMessage = {
     type: 'function'
     function: { name: string; arguments: string }
   }>
+  // Anthropic thinking blocks from a prior assistant turn. Must be preserved
+  // verbatim (content + signature) across multi-turn tool-use conversations
+  // so Anthropic can verify the integrity of the thinking block and reuse the
+  // same cache entry. Dropping them forces a cold write on every tool iteration.
+  thinking_blocks?: Array<{ thinking: string; signature: string }>
 }
 
 type OpenAiTool = {
@@ -58,6 +64,7 @@ type AnthropicContentBlock =
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown>; cache_control?: CacheControl }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; cache_control?: CacheControl }
   | { type: 'image'; source: { type: 'base64' | 'url'; media_type?: string; data?: string; url?: string }; cache_control?: CacheControl }
+  | { type: 'thinking'; thinking: string; signature: string }
 
 type AnthropicMessage = {
   role: 'user' | 'assistant'
@@ -117,6 +124,7 @@ const fetchImageAsBase64 = async (
 const flattenContent = async (
   content: OpenAiMessage['content'],
 ): Promise<string | AnthropicContentBlock[]> => {
+  if (content === null) return ''
   if (typeof content === 'string') return content
   const blocks: AnthropicContentBlock[] = []
   for (const part of content) {
@@ -241,6 +249,14 @@ export const convertOpenAiRequestToAnthropic = async (
     }
     if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
       const blocks: AnthropicContentBlock[] = []
+      // Anthropic requires thinking blocks to appear before text/tool_use and
+      // be preserved verbatim (content + signature) to keep the cache key
+      // stable across multi-turn tool-use conversations.
+      if (msg.thinking_blocks) {
+        for (const tb of msg.thinking_blocks) {
+          blocks.push({ type: 'thinking', thinking: tb.thinking, signature: tb.signature })
+        }
+      }
       const text = typeof msg.content === 'string' ? msg.content : ''
       if (text.trim()) blocks.push({ type: 'text', text })
       for (const tc of msg.tool_calls) {
@@ -495,6 +511,11 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
   const toolUseMeta = new Map<number, { id: string; name: string }>()
   const toolUseOrder = new Map<number, number>()  // anthropic block index → OpenAI tool_call index
   let toolUseCounter = 0
+  // Accumulate thinking block content + signature so we can emit a single
+  // synthetic thinking_block chunk when the block closes. The signature
+  // arrives in a separate signature_delta event after all thinking_delta events.
+  const thinkingContent = new Map<number, string>()
+  const thinkingSignature = new Map<number, string>()
   let buffer = ''
   // Usage accumulators — Anthropic splits input_tokens / cache_read /
   // cache_creation across message_start, then final output_tokens in
@@ -609,15 +630,19 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
               }
             } else if (eventType === 'content_block_delta') {
               const idx = parsed.index as number
-              const delta = parsed.delta as { type: string; text?: string; thinking?: string; partial_json?: string }
+              const delta = parsed.delta as { type: string; text?: string; thinking?: string; signature?: string; partial_json?: string }
               if (delta.type === 'text_delta' && delta.text) {
                 controller.enqueue(encoder.encode(buildOpenAiChunk({ content: delta.text })))
               } else if (delta.type === 'thinking_delta' && delta.thinking) {
+                // Accumulate for the thinking_block synthetic chunk emitted on content_block_stop.
+                thinkingContent.set(idx, (thinkingContent.get(idx) ?? '') + delta.thinking)
                 controller.enqueue(
                   encoder.encode(
                     buildOpenAiChunk({ reasoning: delta.thinking, reasoning_text: delta.thinking }),
                   ),
                 )
+              } else if (delta.type === 'signature_delta' && delta.signature) {
+                thinkingSignature.set(idx, delta.signature)
               } else if (delta.type === 'input_json_delta' && delta.partial_json !== undefined) {
                 const orderIdx = toolUseOrder.get(idx) ?? 0
                 controller.enqueue(
@@ -630,6 +655,20 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
                         },
                       ],
                     }),
+                  ),
+                )
+              }
+            } else if (eventType === 'content_block_stop') {
+              const idx = parsed.index as number
+              if (blockTypes.get(idx) === 'thinking') {
+                // Emit the complete thinking block (content + signature) as a
+                // single synthetic chunk so App.tsx can stash it verbatim for
+                // the next request's assistant-history message.
+                const thinking = thinkingContent.get(idx) ?? ''
+                const signature = thinkingSignature.get(idx) ?? ''
+                controller.enqueue(
+                  encoder.encode(
+                    buildOpenAiChunk({ thinking_block: { thinking, signature } }),
                   ),
                 )
               }
