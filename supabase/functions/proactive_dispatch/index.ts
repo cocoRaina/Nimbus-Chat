@@ -85,6 +85,14 @@ Deno.serve(async (req: Request) => {
     // Update cache_keepalive_state so the next keepalive ping includes this
     // proactive message in body.messages. Without this, the user's next real
     // chat would have a longer message list than the stored ping body → cold write.
+    //
+    // Do NOT update last_chat_at here. The dispatch is server activity, not
+    // user activity. Touching last_chat_at resets the keepalive cooldown to
+    // dispatch time, which can suppress the next scheduled ping (e.g. a
+    // 23:55 ping after a 23:43 dispatch) and cause the cache to expire
+    // earlier than it would have. It also makes the today-gate pass for
+    // morning dispatches, triggering a cold-write ping before the user
+    // has even opened the app — costing ¥1.32 unnecessarily.
     const { data: ksRow } = await supabase
       .from('cache_keepalive_state')
       .select('body')
@@ -97,7 +105,7 @@ Deno.serve(async (req: Request) => {
       messages.push({ role: 'assistant', content: entry.text })
       await supabase
         .from('cache_keepalive_state')
-        .update({ body: { ...body, messages }, last_chat_at: now })
+        .update({ body: { ...body, messages } })
         .eq('user_id', entry.user_id)
     }
 
