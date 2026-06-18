@@ -1809,9 +1809,19 @@ const App = () => {
 
           let iteration = 0
           let conversationDone = false
-          // Captured on every iteration so we can snapshot the final-iteration
-          // body for keepalive after success.
+          // lastSentBody: updated every iteration (needed for the finalBody
+          // fallback when max iterations are hit).
           let lastSentBody: Record<string, unknown> | null = null
+          // firstIterBody: captured on iteration 1 only, used as the keepalive
+          // snapshot. Iteration 1 is a normal-mode request (messages end with
+          // the current user turn, no tool_use/tool_result in history). This is
+          // exactly the cache chain that subsequent normal-mode messages read
+          // from (BP4 at user@current). Later iterations include tool_use +
+          // tool_result blocks that build a *different* cache chain (22 tokens
+          // shorter) — keeping that chain warm is useless because normal-mode
+          // requests never read it. Using firstIterBody fixes the cold writes
+          // that occurred after every tool-call exchange.
+          let firstIterBody: Record<string, unknown> | null = null
 
           while (!conversationDone && iteration < MAX_TOOL_ITERATIONS) {
             iteration++
@@ -1950,6 +1960,7 @@ TOOL_SEARCH_HANDOFF,
             }
 
             lastSentBody = requestBody
+            if (iteration === 1) firstIterBody = requestBody
             console.log(
               `[cache-debug] req iter=${iteration} msgs=${cachedMessages.length} markers=${debugBreakpoints.filter((b) => b.cache_control).length} ` +
               `bps=${debugBreakpoints.filter((b) => b.cache_control).map((b) => `${b.role}[${b.idx}]`).join(',')} ` +
@@ -2902,8 +2913,13 @@ TOOL_SEARCH_HANDOFF,
             isClaudeModel(effectiveModel) &&
             (activeProvider === 'openrouter' ||
               getProviderConfig(activeProvider).format === 'anthropic')
-          if (lastSentBody && usesNativeCache) {
-            keepaliveBodyRef.current = lastSentBody
+          // Use the first-iteration body for keepalive (normal-mode chain,
+          // HEAD at user@current). Later tool iterations create a different
+          // cache chain (tool_use+tool_result in messages) that normal-mode
+          // requests never read — keeping it warm is wasted spend.
+          const keepaliveBody = firstIterBody ?? lastSentBody
+          if (keepaliveBody && usesNativeCache) {
+            keepaliveBodyRef.current = keepaliveBody
             // A successful chat IS a cache refresh — mark it so the
             // pre-warm path on chat-page entry knows the cache is hot
             // and skips the redundant ping.
@@ -2942,7 +2958,7 @@ TOOL_SEARCH_HANDOFF,
                 void (async () => {
                   try {
                     const anthropicBody = await convertOpenAiRequestToAnthropic(
-                      lastSentBody as Parameters<typeof convertOpenAiRequestToAnthropic>[0],
+                      keepaliveBody as Parameters<typeof convertOpenAiRequestToAnthropic>[0],
                       { keepModelSlug: isOR },
                     )
                     const { error } = await supabase
