@@ -146,6 +146,7 @@ Nimbus 的做法(`applyClaudeCaching`):
 - **思考链选了却不出来**:多半是中转格式为 OpenAI 兼容(请求没走原生 `/v1/messages`),或模型非 Claude 且没开全局「高触发 Thinking」。切「Anthropic 兼容」即可。
 - **控制台写"风铃草无缓存"**:指不做 OAI 模拟缓存;原生 `cache_control` 照样命中(已被实测 99% 验证)。
 - **空回**:多见于便宜的号池/逆向渠道上游吐空;也可能是非原生格式没解析出内容。求稳上官方直连档(金色铃兰 / OR)。
+- **工具调用后每次冷写(¥1.5 / iter)**:根因是 Anthropic 要求 thinking block 必须连同 `signature` 原样回传。iter1 用了思考链 + 工具调用,iter2 的 assistant 历史里如果丢掉 thinking block,Anthropic 就认为是不同的消息序列,cache key 对不上、必冷写。修法:流里捕获 `signature_delta` 事件,`content_block_stop` 时发一个合成 `thinking_block:{thinking,signature}` chunk;App 存起来加进 `baseMessages.push`;`convertOpenAiRequestToAnthropic` 把它转成 Anthropic 的 `{type:'thinking', thinking, signature}` block 放在 tool_use 之前。(2026-06-18 修,`anthropic.ts` + `App.tsx`)
 
 ---
 
