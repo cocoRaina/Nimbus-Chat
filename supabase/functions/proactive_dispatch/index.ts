@@ -6,6 +6,8 @@
 //   2. For each, UPDATE SET sent = true WHERE sent = false (atomic claim)
 //   3. If claim succeeded, INSERT into messages with client_created_at = fire_at
 //   4. Touch sessions.updated_at so the client sees a change on next refresh
+//   5. Update cache_keepalive_state to include the proactive message in body,
+//      so the next keepalive ping uses the correct (up-to-date) cache key.
 //
 // Claim logic (UPDATE WHERE sent=false) makes client + server race safe:
 // whichever side wins the UPDATE, the other finds sent=true and skips.
@@ -79,6 +81,25 @@ Deno.serve(async (req: Request) => {
       .from('sessions')
       .update({ updated_at: now })
       .eq('id', entry.session_id)
+
+    // Update cache_keepalive_state so the next keepalive ping includes this
+    // proactive message in body.messages. Without this, the user's next real
+    // chat would have a longer message list than the stored ping body → cold write.
+    const { data: ksRow } = await supabase
+      .from('cache_keepalive_state')
+      .select('body')
+      .eq('user_id', entry.user_id)
+      .maybeSingle()
+
+    if (ksRow?.body) {
+      const body = ksRow.body as Record<string, unknown>
+      const messages = Array.isArray(body.messages) ? [...body.messages] : []
+      messages.push({ role: 'assistant', content: entry.text })
+      await supabase
+        .from('cache_keepalive_state')
+        .update({ body: { ...body, messages }, last_chat_at: now })
+        .eq('user_id', entry.user_id)
+    }
 
     dispatched++
   }
