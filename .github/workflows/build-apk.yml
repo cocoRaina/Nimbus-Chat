@@ -3,12 +3,19 @@ name: Build Android APK
 # Builds a release APK every time you push to main (or tag with v*).
 # Signed with a stable keystore from secrets so re-installs are treated
 # as upgrades (data preserved, no re-login).
+#
+# Release strategy:
+#   main push → overwrites the "latest" pre-release (easy download, no tag needed)
+#   v* tag    → creates a versioned stable release
 
 on:
   push:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create / update GitHub Releases
 
 jobs:
   build:
@@ -182,7 +189,19 @@ jobs:
           path: out/nimbus-chat-*.apk
           if-no-files-found: error
 
-      - name: Create / update GitHub release
+      - name: Update rolling "latest" release (main push)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          prerelease: true
+          files: out/nimbus-chat-*.apk
+          body: |
+            每次推 main 自动更新，不是正式版。
+            直接下载 APK 覆盖安装即可，数据不会丢。
+
+      - name: Create versioned release (v* tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
