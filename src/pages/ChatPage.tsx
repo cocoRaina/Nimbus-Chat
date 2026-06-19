@@ -27,7 +27,7 @@ import {
   fileToStickerDataUrl,
 } from '../storage/stickers'
 import ReasoningPanel from '../components/ReasoningPanel'
-import ToolCallCard from '../components/ToolCallCard'
+import { ToolCallGroup, groupToolCalls } from '../components/ToolCallCard'
 import type { ToolCallRecord } from '../components/ToolCallCard'
 import './ChatPage.css'
 
@@ -175,34 +175,48 @@ const MessageRow = memo(function MessageRow({
               const flow = message.meta?.flow
               const toolCalls = message.meta?.tool_calls as ToolCallRecord[] | undefined
               if (flow && flow.length > 0 && toolCalls) {
-                // Interleaved thinking + tool cards (Claude-app style)
+                // Interleaved thinking + tool cards (Claude-app style).
+                // Group consecutive same-name tool events into one card.
+                type GroupedEvent =
+                  | { type: 'thinking'; content: string; key: number }
+                  | { type: 'tool_group'; calls: ToolCallRecord[]; key: number }
+                const groupedFlow: GroupedEvent[] = []
+                for (const [ei, event] of flow.entries()) {
+                  if (event.type === 'thinking') {
+                    groupedFlow.push({ type: 'thinking', content: event.content, key: ei })
+                  } else {
+                    const tc = toolCalls[event.index]
+                    if (!tc) continue
+                    const last = groupedFlow[groupedFlow.length - 1]
+                    if (last && last.type === 'tool_group' && last.calls[0].name === tc.name) {
+                      last.calls.push(tc)
+                    } else {
+                      groupedFlow.push({ type: 'tool_group', calls: [tc], key: ei })
+                    }
+                  }
+                }
                 return (
                   <div className="message-flow">
-                    {flow.map((event, ei) =>
+                    {groupedFlow.map((event) =>
                       event.type === 'thinking' ? (
-                        <ReasoningPanel key={ei} reasoning={event.content} />
+                        <ReasoningPanel key={event.key} reasoning={event.content} />
                       ) : (
-                        (() => {
-                          const tc = toolCalls[event.index]
-                          return tc ? (
-                            <div key={ei} className="tool-calls-section">
-                              <ToolCallCard name={tc.name} args={tc.args} result={tc.result} duration_ms={tc.duration_ms} />
-                            </div>
-                          ) : null
-                        })()
+                        <div key={event.key} className="tool-calls-section">
+                          <ToolCallGroup calls={event.calls} />
+                        </div>
                       )
                     )}
                   </div>
                 )
               }
-              // Fallback: single reasoning panel + all tool cards
+              // Fallback: single reasoning panel + all tool cards (grouped)
               return (
                 <>
                   {reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
                   {toolCalls && toolCalls.length > 0 ? (
                     <div className="tool-calls-section">
-                      {toolCalls.map((tc, tci) => (
-                        <ToolCallCard key={tci} name={tc.name} args={tc.args} result={tc.result} duration_ms={tc.duration_ms} />
+                      {groupToolCalls(toolCalls).map((group, gi) => (
+                        <ToolCallGroup key={gi} calls={group} />
                       ))}
                     </div>
                   ) : null}

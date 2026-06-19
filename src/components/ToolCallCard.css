@@ -80,3 +80,20 @@
   max-height: 200px;
   overflow-y: auto;
 }
+
+/* Group body: tighter padding, no extra border */
+.tool-group-body {
+  padding: 6px 8px 8px;
+}
+
+/* Nested cards inside a group: reduced margin + slightly subdued look */
+.tool-call-card--nested {
+  margin: 3px 0;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.tool-count {
+  font-style: normal !important;
+  font-weight: 600;
+  color: var(--text-subtle, #6b7280);
+}

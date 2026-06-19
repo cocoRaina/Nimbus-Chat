@@ -64,12 +64,14 @@ function formatResult(result: unknown): string {
   return JSON.stringify(result, null, 2)
 }
 
-const ToolCallCard = memo(function ToolCallCard({ name, args, result, duration_ms }: ToolCallRecord) {
+const ToolCallCard = memo(function ToolCallCard({
+  name, args, result, duration_ms, nested,
+}: ToolCallRecord & { nested?: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const preview = extractPreview(name, (args ?? {}) as Record<string, unknown>)
 
   return (
-    <div className="tool-call-card">
+    <div className={nested ? 'tool-call-card tool-call-card--nested' : 'tool-call-card'}>
       <button
         type="button"
         className="tool-call-header"
@@ -97,5 +99,57 @@ const ToolCallCard = memo(function ToolCallCard({ name, args, result, duration_m
   )
 })
 
+// Groups consecutive same-name tool calls into one collapsible card.
+const ToolCallGroup = memo(function ToolCallGroup({ calls }: { calls: ToolCallRecord[] }) {
+  const [expanded, setExpanded] = useState(false)
+
+  if (calls.length === 1) {
+    return <ToolCallCard {...calls[0]} />
+  }
+
+  const { name } = calls[0]
+  const icon = TOOL_ICONS[name] ?? '🔧'
+  const label = TOOL_LABELS[name] ?? name
+  const totalMs = calls.reduce((s, c) => s + (c.duration_ms ?? 0), 0)
+
+  return (
+    <div className="tool-call-card">
+      <button
+        type="button"
+        className="tool-call-header"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span className="tool-icon">{icon}</span>
+        <span className="tool-label">{label}</span>
+        <span className="tool-preview tool-count">×{calls.length}</span>
+        {totalMs ? <span className="tool-duration">{totalMs}ms</span> : null}
+        <span className="tool-chevron">{expanded ? '▾' : '▸'}</span>
+      </button>
+      {expanded ? (
+        <div className="tool-call-body tool-group-body">
+          {calls.map((tc, i) => (
+            <ToolCallCard key={i} {...tc} nested />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+})
+
+// Groups consecutive same-name calls from a flat array.
+function groupToolCalls(calls: ToolCallRecord[]): ToolCallRecord[][] {
+  const groups: ToolCallRecord[][] = []
+  for (const call of calls) {
+    const last = groups[groups.length - 1]
+    if (last && last[0].name === call.name) {
+      last.push(call)
+    } else {
+      groups.push([call])
+    }
+  }
+  return groups
+}
+
 export default ToolCallCard
+export { ToolCallGroup, groupToolCalls }
 export type { ToolCallRecord }
