@@ -1998,7 +1998,10 @@ TOOL_SEARCH_HANDOFF,
             const isEventStream = contentType.includes('text/event-stream')
 
             const accumulatedToolCalls = new Map<number, StreamingToolCall>()
-            const iterationThinkingBlocks: Array<{ thinking: string; signature: string }> = []
+            const iterationThinkingBlocks: Array<
+              | { type: 'thinking'; thinking: string; signature: string }
+              | { type: 'redacted_thinking'; data: string }
+            > = []
             let finishReason: string | null = null
 
             if (!isEventStream) {
@@ -2118,15 +2121,17 @@ TOOL_SEARCH_HANDOFF,
                       appendReasoningDelta(explicitReasoning, 'reasoning')
                       scheduleFlush()
                     }
-                    // Capture completed Anthropic thinking blocks (content + signature).
-                    // These arrive as a synthetic chunk emitted by translateAnthropicStream
-                    // on content_block_stop. Stash them so we can include them verbatim in
-                    // the next iteration's assistant history message, keeping the Anthropic
-                    // cache key stable across the tool-use loop.
+                    // Capture completed Anthropic thinking blocks emitted by
+                    // translateAnthropicStream on content_block_stop. Both
+                    // thinking (readable) and redacted_thinking (encrypted) must
+                    // be stashed and sent back verbatim in iter2's assistant
+                    // history to keep the Anthropic cache key stable.
                     if (deltaPayload?.thinking_block && typeof deltaPayload.thinking_block === 'object') {
-                      const tb = deltaPayload.thinking_block as { thinking?: string; signature?: string }
-                      if (typeof tb.thinking === 'string' && typeof tb.signature === 'string') {
-                        iterationThinkingBlocks.push({ thinking: tb.thinking, signature: tb.signature })
+                      const tb = deltaPayload.thinking_block as { type?: string; thinking?: string; signature?: string; data?: string }
+                      if (tb.type === 'thinking' && typeof tb.thinking === 'string' && typeof tb.signature === 'string') {
+                        iterationThinkingBlocks.push({ type: 'thinking', thinking: tb.thinking, signature: tb.signature })
+                      } else if (tb.type === 'redacted_thinking' && typeof tb.data === 'string') {
+                        iterationThinkingBlocks.push({ type: 'redacted_thinking', data: tb.data })
                       }
                     }
                     const deltaReasoning = collectReasoningFromObject(

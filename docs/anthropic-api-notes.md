@@ -36,7 +36,7 @@ tool_use block
 
 `signature` 是服务端对这段推理内容的加密签名，作用是防止客户端篡改 thinking 内容再发回。**不能伪造、不能省略、必须原样**。
 
-**redacted_thinking block** 也必须回传（模型有时会把部分推理加密隐藏，这时 `type=redacted_thinking`，只有 `data` 字段没有可读文字）。
+**redacted_thinking block** 也必须回传（模型有时会把部分推理加密隐藏，这时 `type=redacted_thinking`，只有 `data` 字段没有可读文字）。**流式里 redacted_thinking 和普通 thinking 的差别**：普通 thinking 通过 `thinking_delta` + `signature_delta` 逐步到达；redacted_thinking **没有 delta 事件**，完整的 `data` 字段直接在 `content_block_start` 事件的 `content_block` 对象里，到 `content_block_stop` 时直接用即可。
 
 ---
 

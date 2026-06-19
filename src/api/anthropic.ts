@@ -22,10 +22,14 @@ type OpenAiMessage = {
     function: { name: string; arguments: string }
   }>
   // Anthropic thinking blocks from a prior assistant turn. Must be preserved
-  // verbatim (content + signature) across multi-turn tool-use conversations
-  // so Anthropic can verify the integrity of the thinking block and reuse the
-  // same cache entry. Dropping them forces a cold write on every tool iteration.
-  thinking_blocks?: Array<{ thinking: string; signature: string }>
+  // verbatim across multi-turn tool-use conversations. Two variants:
+  //   thinking       → human-readable, has thinking+signature
+  //   redacted_thinking → Anthropic-encrypted, only has data; must also be
+  //                       sent back verbatim or the API 400s / cold-writes.
+  thinking_blocks?: Array<
+    | { type: 'thinking'; thinking: string; signature: string }
+    | { type: 'redacted_thinking'; data: string }
+  >
 }
 
 type OpenAiTool = {
@@ -65,6 +69,7 @@ type AnthropicContentBlock =
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; cache_control?: CacheControl }
   | { type: 'image'; source: { type: 'base64' | 'url'; media_type?: string; data?: string; url?: string }; cache_control?: CacheControl }
   | { type: 'thinking'; thinking: string; signature: string }
+  | { type: 'redacted_thinking'; data: string }
 
 type AnthropicMessage = {
   role: 'user' | 'assistant'
@@ -250,11 +255,16 @@ export const convertOpenAiRequestToAnthropic = async (
     if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
       const blocks: AnthropicContentBlock[] = []
       // Anthropic requires thinking blocks to appear before text/tool_use and
-      // be preserved verbatim (content + signature) to keep the cache key
-      // stable across multi-turn tool-use conversations.
+      // be preserved verbatim to keep the cache key stable across multi-turn
+      // tool-use conversations. Both thinking and redacted_thinking must be
+      // included — omitting either causes a 400 or cold write.
       if (msg.thinking_blocks) {
         for (const tb of msg.thinking_blocks) {
-          blocks.push({ type: 'thinking', thinking: tb.thinking, signature: tb.signature })
+          if (tb.type === 'thinking') {
+            blocks.push({ type: 'thinking', thinking: tb.thinking, signature: tb.signature })
+          } else if (tb.type === 'redacted_thinking') {
+            blocks.push({ type: 'redacted_thinking', data: tb.data })
+          }
         }
       }
       const text = typeof msg.content === 'string' ? msg.content : ''
@@ -516,6 +526,9 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
   // arrives in a separate signature_delta event after all thinking_delta events.
   const thinkingContent = new Map<number, string>()
   const thinkingSignature = new Map<number, string>()
+  // redacted_thinking blocks arrive fully formed in content_block_start (no
+  // deltas); store the data field here so content_block_stop can emit it.
+  const redactedThinkingData = new Map<number, string>()
   let buffer = ''
   // Usage accumulators — Anthropic splits input_tokens / cache_read /
   // cache_creation across message_start, then final output_tokens in
@@ -607,9 +620,13 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
 
             if (eventType === 'content_block_start') {
               const idx = parsed.index as number
-              const block = parsed.content_block as { type: string; id?: string; name?: string }
+              const block = parsed.content_block as { type: string; id?: string; name?: string; data?: string }
               blockTypes.set(idx, block.type)
-              if (block.type === 'tool_use') {
+              if (block.type === 'redacted_thinking' && block.data) {
+                // redacted_thinking blocks carry their full encrypted payload
+                // in the start event itself — there are no delta events for them.
+                redactedThinkingData.set(idx, block.data)
+              } else if (block.type === 'tool_use') {
                 const orderIdx = toolUseCounter++
                 toolUseOrder.set(idx, orderIdx)
                 toolUseMeta.set(idx, { id: block.id ?? '', name: block.name ?? '' })
@@ -660,7 +677,8 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
               }
             } else if (eventType === 'content_block_stop') {
               const idx = parsed.index as number
-              if (blockTypes.get(idx) === 'thinking') {
+              const bType = blockTypes.get(idx)
+              if (bType === 'thinking') {
                 // Emit the complete thinking block (content + signature) as a
                 // single synthetic chunk so App.tsx can stash it verbatim for
                 // the next request's assistant-history message.
@@ -668,7 +686,16 @@ export const translateAnthropicStream = (anthropicResponse: Response): Response 
                 const signature = thinkingSignature.get(idx) ?? ''
                 controller.enqueue(
                   encoder.encode(
-                    buildOpenAiChunk({ thinking_block: { thinking, signature } }),
+                    buildOpenAiChunk({ thinking_block: { type: 'thinking', thinking, signature } }),
+                  ),
+                )
+              } else if (bType === 'redacted_thinking') {
+                // Redacted blocks must also be sent back verbatim or Anthropic
+                // will 400 / cold-write a new cache entry.
+                const data = redactedThinkingData.get(idx) ?? ''
+                controller.enqueue(
+                  encoder.encode(
+                    buildOpenAiChunk({ thinking_block: { type: 'redacted_thinking', data } }),
                   ),
                 )
               }
