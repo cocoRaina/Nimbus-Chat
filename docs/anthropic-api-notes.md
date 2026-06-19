@@ -178,8 +178,104 @@ Ping 请求如果和聊天请求有任何不同（thinking 参数、budget_token
 
 ---
 
+## 11. Prompt Caching：渲染顺序决定 cache key 结构
+
+Anthropic 的渲染顺序固定为：**`tools → system → messages`**
+
+这意味着：
+- 改了 tools（工具定义）→ 整个 cache 全失效（tools 在最前面）
+- 改了 system → messages 的 cache 失效，但不影响 tools 的 cache
+- 改了 message content → 只影响该 breakpoint 之后的内容
+
+实践意义：**不要在对话中途改工具定义或切换模型**，会让整条缓存链崩掉。
+
+---
+
+## 12. Prompt Caching：5分钟 vs 1小时 TTL 的成本差异
+
+```json
+{"type": "ephemeral"}           // 5分钟 TTL，写入成本 1.25×
+{"type": "ephemeral", "ttl": "1h"}  // 1小时 TTL，写入成本 2×
+```
+
+| TTL | 写入成本 | 读取成本 | 回本所需请求数 |
+|---|---|---|---|
+| 5分钟 | 1.25× | 0.1× | 2次 |
+| 1小时 | 2× | 0.1× | 3次 |
+
+Nimbus 用的是 1小时 TTL（对话间隔一般超过 5 分钟），写入贵但更值。
+
+---
+
+## 13. Prompt Caching：各模型最小可缓存 token 数
+
+低于这个阈值不会写缓存（静默跳过，没有报错）：
+
+| 模型 | 最小 token 数 |
+|---|---|
+| Opus 4.8 / 4.7 / 4.6 / 4.5，Haiku 4.5 | **4096** |
+| Fable 5，Sonnet 4.6，Haiku 3.5 / 3 | **2048** |
+| Sonnet 4.5 / 4.1 / 4，Sonnet 3.7 | **1024** |
+
+Nimbus 的前缀（人设 + 工具 schema）远超 4096，没问题。但如果有人想在短对话或简单 system prompt 上用缓存，要注意这个阈值。
+
+---
+
+## 14. Prompt Caching：20块回溯窗口
+
+每个 `cache_control` breakpoint 最多向前查 **20 个 content block**，超过就查不到。
+
+Nimbus 每轮工具调用只产生 1~2 个块，完全在窗口内。但如果一次性用很多工具、或者历史消息块数很多，可能踩到这个限制。
+
+---
+
+## 15. Prompt Caching：并发请求的陷阱
+
+**同时发出的两个完全相同的请求，都会付全价。**
+
+原因：cache entry 只有在第一个请求的响应**开始流式返回**之后才可被读取。两个并发请求都在对方的 cache 写好之前就发出去了，所以各自独立冷写。
+
+---
+
+## 16. Prompt Caching：Silent Invalidators（常见静默失效原因）
+
+| 模式 | 问题 |
+|---|---|
+| system prompt 里插入 `Date.now()` / 时间戳 | 每次请求 prefix 都不同 |
+| 早期内容里用随机 UUID | 每次请求都是新的 prefix |
+| JSON 序列化没有固定 key 顺序 | 非确定性序列化，prefix 随机变 |
+| 把 session/user ID 插值进 system | 每个用户都是独立 prefix，互不命中 |
+| 按条件拼接 system 段落 | 每种 flag 组合都是不同 prefix |
+| 工具定义按用户不同而变 | tools 在渲染顺序最前，影响一切 |
+
+Nimbus 的时间戳是烙在每条 user 消息里（`message.meta`），不在 system prompt 里，所以没踩这个坑。
+
+---
+
+## 17. Prompt Caching：max_tokens=0 预热技巧
+
+发一条 `max_tokens: 0` 的请求可以**只写缓存不付输出费**：
+
+```python
+client.messages.create(
+    model="claude-opus-4-8",
+    max_tokens=0,
+    system=[{"type": "text", "text": SYSTEM_PROMPT,
+             "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
+    messages=[{"role": "user", "content": "warmup"}],
+)
+```
+
+适合：用户打开 app 时预热、服务启动时预热大型 system prompt。
+不适合：流量连续（缓存本来就热着）、prefix 很小、或 prefix 每次都变。
+
+Nimbus 现在用 keepalive ping 续命，不用这个技巧，但以后如果想做「打开 app 立即预热」可以用。
+
+---
+
 ## 参考来源
 
+- Anthropic Skills repo：`skills/claude-api/shared/prompt-caching.md`（渲染顺序、TTL 成本、最小 token 阈值、20块窗口、并发陷阱、silent invalidators、max_tokens=0 预热）
 - Anthropic Cookbook：`extended_thinking/extended_thinking_with_tool_use.ipynb`
 - Anthropic Python SDK types：`SignatureDelta`、`ThinkingDelta`、`RedactedThinkingBlock`、`RedactedThinkingBlockParam`、`ThinkingBlockParam`、`RawContentBlockDelta`（union：TextDelta / InputJSONDelta / CitationsDelta / ThinkingDelta / SignatureDelta）
 - Anthropic Python SDK streaming：`_messages.py` `accumulate_event()` — signature 是直接赋值（`content.signature = delta.signature`），不是累积
