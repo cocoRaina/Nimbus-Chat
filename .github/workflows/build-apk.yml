@@ -171,6 +171,8 @@ jobs:
           DEBUG_APK=android/app/build/outputs/apk/debug/app-debug.apk
           if [ -f "$RELEASE_APK" ]; then
             cp "$RELEASE_APK" "out/nimbus-chat-${SUFFIX}.apk"
+            # Fixed name for the rolling latest release (overwritten each time)
+            cp "$RELEASE_APK" "out/nimbus-chat-latest.apk"
           elif [ -f "$UNSIGNED_APK" ]; then
             echo "::warning::Release APK is unsigned — re-installs won't preserve data. Check keystore secrets."
             cp "$UNSIGNED_APK" "out/nimbus-chat-${SUFFIX}-unsigned.apk"
@@ -196,7 +198,7 @@ jobs:
           tag_name: latest
           name: Latest Build
           prerelease: true
-          files: out/nimbus-chat-*.apk
+          files: out/nimbus-chat-latest.apk
           body: |
             每次推 main 自动更新，不是正式版。
             直接下载 APK 覆盖安装即可，数据不会丢。
