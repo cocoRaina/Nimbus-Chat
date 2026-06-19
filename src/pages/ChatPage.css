@@ -328,6 +328,13 @@
   background: #fff;
 }
 
+/* Transparent backdrop — closes any open bottom panel on tap outside */
+.panel-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
 /* Shared bottom-panel styles (attach panel + sticker panel) */
 .panel-handle {
   width: 36px;
@@ -340,6 +347,8 @@
 
 /* WeChat-style attach panel */
 .attach-panel {
+  position: relative;
+  z-index: 11;
   background: #fff;
   border-top: 1px solid rgba(15, 23, 42, 0.06);
   border-radius: 14px 14px 0 0;
@@ -380,6 +389,8 @@
 
 /* LINE-style sticker grid panel */
 .sticker-panel {
+  position: relative;
+  z-index: 11;
   background: #fff;
   border-top: 1px solid rgba(15, 23, 42, 0.06);
   border-radius: 14px 14px 0 0;

@@ -797,19 +797,6 @@ const ChatPage = ({
     }
   }, [])
 
-  // Close the "+" attach panel when the user taps outside it.
-  useEffect(() => {
-    if (!openAttachMenu) return
-    const onClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null
-      if (target?.closest('.attach-panel')) return
-      if (target?.closest('[aria-label="附加图片"]')) return
-      setOpenAttachMenu(false)
-    }
-    document.addEventListener('click', onClick)
-    return () => document.removeEventListener('click', onClick)
-  }, [openAttachMenu])
-
   // Network status banner. getStatus is one-shot (boot value); listener
   // covers transitions. We treat any connected:true as online, even
   // captive-portal'd wifi, because the only thing we use this for is
@@ -1181,6 +1168,12 @@ const ChatPage = ({
             event.target.value = ''
           }}
         />
+        {(showStickerTray || openAttachMenu) ? (
+          <div
+            className="panel-backdrop"
+            onClick={() => { setShowStickerTray(false); setOpenAttachMenu(false) }}
+          />
+        ) : null}
         {showStickerTray ? (
           <div className="sticker-panel">
             <div className="panel-handle" />
