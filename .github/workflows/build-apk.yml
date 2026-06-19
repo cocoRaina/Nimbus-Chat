@@ -191,6 +191,22 @@ jobs:
           path: out/nimbus-chat-*.apk
           if-no-files-found: error
 
+      - name: Delete old timestamped assets from "latest" release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE=$(curl -sf -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" || echo "{}")
+          echo "$RELEASE" \
+            | jq -r '.assets[]? | select(.name != "nimbus-chat-latest.apk") | .id' \
+            | while read asset_id; do
+                curl -s -X DELETE \
+                  -H "Authorization: token $GH_TOKEN" \
+                  "https://api.github.com/repos/${{ github.repository }}/releases/assets/$asset_id"
+                echo "Deleted old asset $asset_id"
+              done
+
       - name: Update rolling "latest" release (main push)
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
