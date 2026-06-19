@@ -42,16 +42,23 @@ tool_use block
 
 ## 2. Streaming 里的 thinking block：SSE 事件顺序
 
-一个 thinking block 在流里分三类事件到达：
+**普通 thinking block**（可读）：
 
 | 事件 | 字段 | 说明 |
 |---|---|---|
 | `content_block_start` | `content_block.type = "thinking"` | 宣告这个 block 是 thinking |
-| `content_block_delta` (多次) | `delta.type = "thinking_delta"`, `delta.thinking` | 逐块推理文字 |
-| `content_block_delta` (一次) | `delta.type = "signature_delta"`, `delta.signature` | 签名，单独一个事件，在所有 `thinking_delta` 之后 |
-| `content_block_stop` | `index` | block 结束 |
+| `content_block_delta` (多次) | `delta.type = "thinking_delta"`, `delta.thinking` | 逐块推理文字，需累积 |
+| `content_block_delta` (一次) | `delta.type = "signature_delta"`, `delta.signature` | 签名，单独一个事件，在所有 `thinking_delta` 之后，**直接赋值不是追加** |
+| `content_block_stop` | `index` | block 结束，此时拼出完整块 |
 
-**关键**：`signature` 不是随 `thinking_delta` 一起来的，而是在最后一个单独的 `signature_delta` 事件里。很多自己写流式解析的代码只处理了 `thinking_delta` 而忘了 `signature_delta`，导致 signature 丢失。
+**redacted_thinking block**（加密）：
+
+| 事件 | 字段 | 说明 |
+|---|---|---|
+| `content_block_start` | `content_block.type = "redacted_thinking"`, `content_block.data = "..."` | **完整 data 就在这里**，没有后续 delta |
+| `content_block_stop` | `index` | block 结束，直接取 start 时存的 data |
+
+**关键**：`signature` 不是随 `thinking_delta` 一起来的，而是在最后一个单独的 `signature_delta` 事件里。很多自己写流式解析的代码只处理了 `thinking_delta` 而忘了 `signature_delta`，导致 signature 丢失。redacted_thinking 同理——只有一个 start 事件，没有 delta，很容易漏掉。
 
 **正确的流式捕获逻辑**（伪代码）：
 
@@ -165,14 +172,16 @@ Ping 请求如果和聊天请求有任何不同（thinking 参数、budget_token
 | 2026-06-mid | iter2+ 没有开 thinking → 22 token cache key 分裂 | 所有迭代统一设 `reasoning: {max_tokens: 2000}` |
 | 2026-06-mid | 工具迭代 max_tokens cap=512，thinking budget=2000 → 中转静默删 thinking | cap 改为 `budget_tokens + 512` |
 | 2026-06-18 | iter2 的 assistant 历史缺 thinking block + signature → Anthropic 认为不同序列、冷写 | 流里捕获 `signature_delta`，`content_block_stop` 时打包，`baseMessages.push` 带上，`convertOpenAiRequestToAnthropic` 转成 `{type:'thinking', thinking, signature}` 放 tool_use 之前 |
+| 2026-06-19 | redacted_thinking block 完全漏掉（content_block_start 的 data 没捕获，content_block_stop 只判断 type==='thinking'）→ 触发时 400 或冷写 | content_block_start 捕获 data；content_block_stop 对 redacted_thinking 也发合成 chunk；App.tsx 和转换层同步处理 union 类型 |
 
-经过上述四个修复，工具调用触发的冷写从 ~¥1.5/次 降到 ~¥0.01（缓存命中）。
+经过上述五个修复，工具调用触发的冷写从 ~¥1.5/次 降到 ~¥0.01（缓存命中）。redacted_thinking 属于低频边缘情况，但不修是定时炸弹。
 
 ---
 
 ## 参考来源
 
 - Anthropic Cookbook：`extended_thinking/extended_thinking_with_tool_use.ipynb`
-- Anthropic Python SDK types：`SignatureDelta`、`ThinkingDelta`、`ContentBlockStopEvent`
+- Anthropic Python SDK types：`SignatureDelta`、`ThinkingDelta`、`RedactedThinkingBlock`、`RedactedThinkingBlockParam`、`ThinkingBlockParam`、`RawContentBlockDelta`（union：TextDelta / InputJSONDelta / CitationsDelta / ThinkingDelta / SignatureDelta）
+- Anthropic Python SDK streaming：`_messages.py` `accumulate_event()` — signature 是直接赋值（`content.signature = delta.signature`），不是累积
 - Nimbus 实测日志（2026-06-17，对比流 65931 / 非流 65909 差 22 token）
 - 本仓库 `docs/caching.md`（详细缓存配置）、`docs/changelog.md`（改动历史）
