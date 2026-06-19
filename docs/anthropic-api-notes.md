@@ -273,9 +273,86 @@ Nimbus 现在用 keepalive ping 续命，不用这个技巧，但以后如果想
 
 ---
 
+## 18. 模型版本破坏性变更（重要！升级前必看）
+
+来源：`skills/claude-api/shared/model-migration.md`
+
+### temperature / top_p / top_k：Opus 4.7+ 直接 400
+
+这三个参数在 **Opus 4.7 及以上版本**被完全移除，发了会直接 400，没有降级处理：
+
+```
+// 这三个在 4.7+ 必须删掉
+delete requestBody.temperature
+delete requestBody.top_p
+delete requestBody.top_k
+```
+
+**Nimbus 现状**：thinking 开启时已经 `delete temperature / top_p`，但如果用户**关闭 thinking 同时使用 4.7+ 模型**，这两个参数还是会被发出去 → 400。需要按模型版本判断是否删除，而不是只在 thinking 开启时删。
+
+### extended thinking：budget_tokens 格式在新模型已废弃
+
+| 模型 | thinking 格式 |
+|---|---|
+| Opus 4.5 及以下 | `{type:'enabled', budget_tokens: N}` |
+| Opus 4.6 / Sonnet 4.6 | 迁移期，推荐改用 adaptive |
+| Opus 4.7+ | 只接受 `{type:'adaptive'}` + `output_config:{effort:'...'}`，发 budget_tokens 会 400 |
+| **Fable 5** | **thinking 永远开着，不能发任何 thinking 配置**，发了会 400 |
+
+### Fable 5：新分词器，token 数多约 30%
+
+Fable 5 用了全新 tokenizer，同样的文字比之前的模型多 ~30% token。成本估算、阈值判断要重新校准。
+
+### assistant prefill 在 Opus 4.6 / Sonnet 4.6 上不支持
+
+发带 prefill 的 assistant 消息会返回 400。Nimbus 目前没用这个功能，暂时不影响。
+
+---
+
+## 19. 错误码速查
+
+来源：`skills/claude-api/shared/error-codes.md`
+
+| 状态码 | 类型 | 可重试 | 常见原因 |
+|---|---|---|---|
+| 400 | Invalid request | 否 | 参数格式错误、roles 没有交替、发了被移除的参数（temperature on 4.7+）|
+| 401 | Authentication | 否 | API key 缺失或格式错误 |
+| 403 | Permission | 否 | 权限不足 |
+| 404 | Not found | 否 | 端点或模型 ID 错误 |
+| 413 | Too large | 否 | 请求体超过大小限制 |
+| 429 | Rate limited | **是** | 请求频率超限，看 `retry-after` header |
+| 500 | Server error | **是** | 服务端问题 |
+| 529 | Overloaded | **是** | 临时容量问题 |
+
+400 的常见「roles 交替」报错：`messages: roles must alternate between "user" and "assistant"`——Nimbus 遇到过，是空 assistant 消息没被过滤掉导致的。
+
+---
+
+## 20. Token 计数：不要用 tiktoken
+
+来源：`skills/claude-api/shared/token-counting.md`
+
+`tiktoken` 等 OpenAI 工具会**低估 Claude 的 token 数 15–20%**，代码和非英文内容误差更大。
+
+正确做法是调官方接口：`POST /v1/messages/count_tokens`。
+
+Nimbus 目前用 OpenRouter 返回的 `usage` 字段来记账，那是实际计费数，没有这个问题。但如果以后想做「预估上下文大小」的功能，记得用官方接口而不是 tiktoken。
+
+---
+
+## 21. Agent 设计：对缓存友好的模式
+
+来源：`skills/claude-api/shared/agent-design.md`
+
+- **往 messages 里追加 system 块**（而不是修改 system prompt）可以保住已有的缓存前缀——这就是文档里提到的 `MidConversationSystemBlockParam`（需要 beta header）
+- **tool search 模式**：按需加载工具 schema 而不是一次性全塞进去，避免 tools 变化导致缓存失效
+- **programmatic tool calling**：让模型一次写好脚本批量调用工具，减少来回 round-trip，中间结果在沙盒里过滤后再进上下文
+
+---
+
 ## 参考来源
 
-- Anthropic Skills repo：`skills/claude-api/shared/prompt-caching.md`（渲染顺序、TTL 成本、最小 token 阈值、20块窗口、并发陷阱、silent invalidators、max_tokens=0 预热）
+- Anthropic Skills repo `skills/claude-api/shared/`：`prompt-caching.md`、`model-migration.md`、`models.md`、`error-codes.md`、`token-counting.md`、`agent-design.md`
 - Anthropic Cookbook：`extended_thinking/extended_thinking_with_tool_use.ipynb`
 - Anthropic Python SDK types：`SignatureDelta`、`ThinkingDelta`、`RedactedThinkingBlock`、`RedactedThinkingBlockParam`、`ThinkingBlockParam`、`RawContentBlockDelta`（union：TextDelta / InputJSONDelta / CitationsDelta / ThinkingDelta / SignatureDelta）
 - Anthropic Python SDK streaming：`_messages.py` `accumulate_event()` — signature 是直接赋值（`content.signature = delta.signature`），不是累积
