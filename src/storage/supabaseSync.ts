@@ -219,12 +219,16 @@ export const fetchRemoteMessages = async (userId: string): Promise<ChatMessage[]
   if (!supabase) {
     return []
   }
+  // Fetch most recent messages first so the PostgREST 1000-row default limit
+  // always covers the user's active sessions (not the oldest archived ones).
+  // applySnapshot / mergeMessages re-sorts ascending; localStorage fills in
+  // older messages that fall outside this window.
   const { data, error } = await supabase
     .from('messages')
     .select('id,session_id,user_id,role,content,created_at,client_id,client_created_at,meta')
     .eq('user_id', userId)
-    .order('client_created_at', { ascending: true })
-    .order('created_at', { ascending: true })
+    .order('client_created_at', { ascending: false })
+    .order('created_at', { ascending: false })
   if (error) {
     throw error
   }
