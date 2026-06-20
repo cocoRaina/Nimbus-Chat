@@ -1,8 +1,13 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { status: 200 })
+    return new Response('ok', { status: 200, headers: corsHeaders })
   }
 
   const supabase = createClient(
@@ -18,7 +23,7 @@ Deno.serve(async (req: Request) => {
   if (authError || !user) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
 
@@ -32,25 +37,20 @@ Deno.serve(async (req: Request) => {
     .select('name, url, pack')
     .eq('user_id', user.id)
 
-  if (pack) {
-    q = q.eq('pack', pack)
-  }
-
-  if (query) {
-    q = q.ilike('name', `%${query}%`)
-  }
+  if (pack) q = q.eq('pack', pack)
+  if (query) q = q.ilike('name', `%${query}%`)
 
   const { data, error } = await q.limit(count)
 
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
 
   return new Response(
     JSON.stringify({ stickers: data ?? [] }),
-    { headers: { 'Content-Type': 'application/json' } },
+    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
   )
 })
