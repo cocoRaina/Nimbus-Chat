@@ -80,6 +80,29 @@
 
 ---
 
+## 2026-06-20
+
+### 搜索：交接信 / 日记近期内容搜不到（修）
+
+- **根因 1**：6/16–6/19 的日记和 6/19 交接信 embedding 缺失（auto_embed 在旧 SiliconFlow key 删掉期间静默失败），手动补嵌入。
+- **根因 2**：`search_letters` 纯相似度排序，新信频繁输给旧信；`search_memories_hybrid` 时间权重系数 0.006 太小，近期内容排不上来。
+- **修**：`search_letters` 改为 60% 相似度 + 40% 新鲜度排序；`search_memories_hybrid` 时间系数从 0.006 → 0.05；`search_handoff` Edge Function 加 `days`/`after` 过滤参数，AI 可以指定"只搜最近 N 天"。
+- **踩坑**：`search_letters` 加 `filter_after` 参数时用 `CREATE OR REPLACE`，因签名变化产生两个重载，PostgREST 调用歧义报 non-2xx → `search_handoff` 整个挂掉。删掉旧的三参数重载修复。
+
+### 消息加载：新窗口只显示几条消息（修）
+
+`fetchRemoteMessages` 按 `client_created_at ASC` 排序、不加 limit，PostgREST 默认 1000 行上限截断后只返回**最老的 1000 条**。用户有 3641 条消息，今天新开窗口的消息完全不在里面，只有 `refreshCurrentSession`（limit=20）补回来一点。改为 `DESC` 排序，保证最近的 1000 条优先加载；localStorage 兜底老历史。
+
+### 主动消息：用户回复后服务端 cron 仍然投递（修）
+
+客户端 `cancelProactiveNotification()` 的 DELETE 是 fire-and-forget，网络抖动时静默失败，`proactive_dispatch` cron 到点照样插消息。在 claim 行之后、insert 之前加一条查询：`session` 里 `fire_at` 之后有 `role='user'` 的消息则跳过。不依赖客户端 DELETE 成功，从服务端兜底。
+
+### 缓存：发图片后下一条消息冷写（修）
+
+图片在 HEAD 时被缓存进前缀（含 base64 bytes），下一轮图片替换成文字描述后前缀不匹配 → 全量冷写（~31k token，≈¥1.3）。`applyClaudeCaching` 检测 HEAD 是否含 `image_url`/`image` block，有则跳过对 HEAD 的标记，只保留 BP1 + BP4。下一轮图片变文字后服务端 walk-up 到前一个 BP4，只写一小段扩展（≈几百 token，≈¥0.02）。
+
+---
+
 ## 2026-06-17
 
 ### 主动消息：冷启动首次前台丢失（修）
