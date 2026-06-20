@@ -3801,6 +3801,7 @@ TOOL_SEARCH_HANDOFF,
                 onChatPageEnter={prewarmKeepaliveIfStale}
                 user={user}
                 toolStatus={toolStatus}
+                remoteStickerPacks={remoteStickerPacks}
               />
             </RequireAuth>
           }
@@ -3995,6 +3996,7 @@ const ChatRoute = ({
   onChatPageEnter,
   user,
   toolStatus,
+  remoteStickerPacks,
 }: {
   sessions: ChatSession[]
   messages: ChatMessage[]
@@ -4030,6 +4032,7 @@ const ChatRoute = ({
   onChatPageEnter: () => void
   user: User | null
   toolStatus: string
+  remoteStickerPacks: RemotePackMap
 }) => {
   const { sessionId } = useParams()
   const navigate = useNavigate()
