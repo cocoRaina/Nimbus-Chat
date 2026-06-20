@@ -14,7 +14,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
-const IDLE_THRESHOLD_MS = 30 * 60 * 1000
+const IDLE_THRESHOLD_MS = 60 * 60 * 1000
 const COOLDOWN_AFTER_SEND_MS = 2 * 60 * 60 * 1000
 const COOLDOWN_AFTER_SKIP_MS = 30 * 60 * 1000
 const ALLOWED_AUTH_STYLES = new Set(['bearer', 'x-api-key'])
@@ -191,12 +191,11 @@ Deno.serve(async (req: Request) => {
       // 00:00-08:00 CST (UTC+8) — don't disturb during sleep hours
       spontaneous = 'nighttime'
     } else {
-      // Find the most recent user message across all sessions for this user
+      // Find the most recent message (user or assistant) across all sessions for this user
       const { data: lastUserMsg } = await supabase
         .from('messages')
         .select('created_at, session_id')
         .eq('user_id', user_id)
-        .eq('role', 'user')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
@@ -247,7 +246,7 @@ Deno.serve(async (req: Request) => {
             const idleMinutes = Math.round(idleMs / 60000)
             const spontaneousSystem =
               systemPrompt +
-              `\n\n---\n你现在处于"主动触达"模式。用户已经 ${idleMinutes} 分钟没有发消息了。` +
+              `\n\n---\n你现在处于"主动触达"模式。对话已经沉默了 ${idleMinutes} 分钟（包括你自己发的消息）。` +
               `\n请根据上面的对话历史，决定是否要主动发一条消息给用户。` +
               `\n- 如果你觉得合适，直接输出你想发送的消息内容（简短自然，像朋友一样）。` +
               `\n- 如果你觉得不需要打扰，只输出 NO_SEND（不要输出其他任何内容）。` +
