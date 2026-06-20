@@ -223,12 +223,15 @@ export const fetchRemoteMessages = async (userId: string): Promise<ChatMessage[]
   // always covers the user's active sessions (not the oldest archived ones).
   // applySnapshot / mergeMessages re-sorts ascending; localStorage fills in
   // older messages that fall outside this window.
+  // Limit to recent 300 messages to avoid slow loads on large histories.
+  // localStorage covers older messages; this window focuses on the active window.
   const { data, error } = await supabase
     .from('messages')
     .select('id,session_id,user_id,role,content,created_at,client_id,client_created_at,meta')
     .eq('user_id', userId)
     .order('client_created_at', { ascending: false })
     .order('created_at', { ascending: false })
+    .limit(300)
   if (error) {
     throw error
   }
