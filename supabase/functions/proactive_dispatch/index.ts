@@ -28,7 +28,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: entries, error: fetchError } = await supabase
     .from('proactive_queue')
-    .select('id, user_id, session_id, text, fire_at')
+    .select('id, user_id, session_id, text, fire_at, persist, created_at')
     .lte('fire_at', now)
     .eq('sent', false)
 
@@ -58,16 +58,22 @@ Deno.serve(async (req: Request) => {
     }
 
     const fireAt = entry.fire_at as string
+    const persist = entry.persist as boolean
 
-    // If the user has sent a message in this session since fire_at, the
-    // client already cancelled the proactive (or tried to). Skip the insert
-    // so we don't surface a message the user has already moved past.
+    // For non-persist reminders: if the user was active at any point after
+    // this proactive was SCHEDULED, they're already past the context that
+    // triggered it — skip delivery. (fire_at is in the future relative to
+    // scheduling, so checking created_at catches activity between schedule
+    // and fire_at that the fire_at check would miss.)
+    // For persist alarms (wake-up, etc.): only skip if user replied AFTER
+    // fire_at — the alarm should still ring even if they chatted before bed.
+    const activityCutoff = persist ? fireAt : (entry.created_at as string)
     const { data: userReplied } = await supabase
       .from('messages')
       .select('id')
       .eq('session_id', entry.session_id)
       .eq('role', 'user')
-      .gt('created_at', fireAt)
+      .gt('created_at', activityCutoff)
       .limit(1)
       .maybeSingle()
 
