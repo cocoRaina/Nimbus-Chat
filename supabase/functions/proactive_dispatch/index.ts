@@ -119,7 +119,9 @@ Deno.serve(async (req: Request) => {
     if (ksRow?.body) {
       const body = ksRow.body as Record<string, unknown>
       const messages = Array.isArray(body.messages) ? [...body.messages] : []
-      messages.push({ role: 'assistant', content: entry.text })
+      // keepalive body is Anthropic-native: content must be an array of blocks,
+      // not a plain string, or the cache key won't match the real chat's format.
+      messages.push({ role: 'assistant', content: [{ type: 'text', text: entry.text }] })
       await supabase
         .from('cache_keepalive_state')
         .update({ body: { ...body, messages } })
