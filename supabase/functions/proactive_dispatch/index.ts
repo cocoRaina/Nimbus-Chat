@@ -148,6 +148,12 @@ Deno.serve(async (req: Request) => {
 
   let spontaneous: string = 'skipped'
 
+  // Don't send spontaneous if a scheduled proactive just fired this run —
+  // two messages arriving simultaneously would be jarring.
+  if (dispatched > 0) {
+    spontaneous = 'scheduled_sent'
+  } else {
+
   // We need a user to work with. Use the first user found in cache_keepalive_state
   // that has API config (this function is called per-project, single-user assumed).
   const { data: ksConfig } = await supabase
@@ -346,6 +352,8 @@ Deno.serve(async (req: Request) => {
       }
     }
   }
+
+  } // end spontaneous else block
 
   return new Response(JSON.stringify({ dispatched, raced, now, spontaneous }), {
     headers: { 'Content-Type': 'application/json' },
