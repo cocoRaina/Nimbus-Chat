@@ -402,8 +402,8 @@
 }
 .sticker-panel__tabs {
   display: flex;
-  gap: 6px;
-  padding: 6px 12px 4px;
+  gap: 8px;
+  padding: 8px 12px 6px;
   overflow-x: auto;
   scrollbar-width: none;
   border-bottom: 1px solid rgba(15, 23, 42, 0.06);
@@ -411,11 +411,11 @@
 .sticker-panel__tabs::-webkit-scrollbar { display: none; }
 .sticker-panel__tab {
   flex-shrink: 0;
-  padding: 4px 10px;
+  padding: 7px 16px;
   border-radius: 20px;
   border: 1px solid rgba(15, 23, 42, 0.12);
   background: transparent;
-  font-size: 12px;
+  font-size: 14px;
   color: #6b7280;
   cursor: pointer;
   white-space: nowrap;
