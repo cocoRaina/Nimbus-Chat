@@ -226,15 +226,6 @@ Deno.serve(async (req: Request) => {
           if ((pendingCount ?? 0) > 0) {
             spontaneous = 'pending_exists'
           } else {
-            // Get user's system prompt
-            const { data: settingsRow } = await supabase
-              .from('user_settings')
-              .select('system_prompt')
-              .eq('user_id', user_id)
-              .maybeSingle()
-
-            const systemPrompt = (settingsRow?.system_prompt as string | null) ?? ''
-
             // Get last 20 messages from the most recent session
             const { data: recentMsgs } = await supabase
               .from('messages')
@@ -264,15 +255,38 @@ Deno.serve(async (req: Request) => {
             }
             const contextMessages = [...history, triggerTurn]
 
-            // Build spontaneous system prompt
+            // Build system: reuse the cached BP1 blocks from keepalive body so the
+            // cache_control hit carries over (keepalive fires at T=55min, wake-up at
+            // T=60min → cache is always warm). Append a non-cached block for the
+            // spontaneous-mode instructions (volatile: idle minutes changes every run).
+            // Fall back to querying user_settings if the keepalive body is absent.
             const idleMinutes = Math.round(idleMs / 60000)
-            const spontaneousSystem =
-              systemPrompt +
-              `\n\n---\n你现在处于"主动触达"模式。对话已经沉默了 ${idleMinutes} 分钟（包括你自己发的消息）。` +
-              `\n请根据上面的对话历史，决定是否要主动发一条消息给用户。` +
-              `\n- 如果你觉得合适，直接输出你想发送的消息内容（简短自然，像朋友一样）。` +
-              `\n- 如果你觉得不需要打扰，只输出 NO_SEND（不要输出其他任何内容）。` +
-              `\n不要解释你的决定。`
+            const spontaneousBlock = {
+              type: 'text',
+              text:
+                `\n\n---\n你现在处于"主动触达"模式。对话已经沉默了 ${idleMinutes} 分钟（包括你自己发的消息）。` +
+                `\n请根据上面的对话历史，决定是否要主动发一条消息给用户。` +
+                `\n- 如果你觉得合适，直接输出你想发送的消息内容（简短自然，像朋友一样）。` +
+                `\n- 如果你觉得不需要打扰，只输出 NO_SEND（不要输出其他任何内容）。` +
+                `\n不要解释你的决定。`,
+            }
+
+            const ksBodySystem = (ksConfig.body as Record<string, unknown> | null)?.system
+            let spontaneousSystem: unknown
+            if (Array.isArray(ksBodySystem) && ksBodySystem.length > 0) {
+              // Happy path: spread cached BP1 blocks (cache_control intact) then
+              // append the non-cached spontaneous block.
+              spontaneousSystem = [...ksBodySystem, spontaneousBlock]
+            } else {
+              // Fallback: no cached body yet (first run / cold start).
+              const { data: settingsRow } = await supabase
+                .from('user_settings')
+                .select('system_prompt')
+                .eq('user_id', user_id)
+                .maybeSingle()
+              const systemPrompt = (settingsRow?.system_prompt as string | null) ?? ''
+              spontaneousSystem = systemPrompt + spontaneousBlock.text
+            }
 
             const requestBody = {
               model: model,
