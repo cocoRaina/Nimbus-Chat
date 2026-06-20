@@ -82,6 +82,30 @@
 
 ## 2026-06-20
 
+### 自发主动消息：命中 BP1 缓存 + 今日门（改）
+
+`proactive_dispatch` 的"叫醒"调用(自发主动消息)两处优化:
+
+1. **命中缓存**:原来重新从 `user_settings.system_prompt` 拼纯文本 system,全价计费。改为复用 `cache_keepalive_state.body.system`(已带 `cache_control` 的 BP1 块),后面追加一个**不带缓存**的自发指令块(沉默分钟数等易变内容)。保活每 55min 续命、自发在静默 1h 后触发,缓存必热,命中率接近 100%,Opus 下每次省约 20%。首次冷启动(`body.system` 为空)回退到 `user_settings` 查询。
+2. **今日门**:和 `cache_keepalive` 同款逻辑——只有当天 08:00(北京)后有过用户消息才触发自发。`lastUserMsg.created_at < todayWakingStartMs` 则 `spontaneous='not_active_today'`,不调 API。防止昨晚最后一条消息导致清晨被自动叫醒,也确保不会拿隔夜状态触发计费。
+
+### 自发主动消息本地通知:WorkManager 后台轮询(新)
+
+app 关着时,自发主动消息(服务端 `proactive_dispatch` 随机时刻写库)没法像定时消息那样预排本地 alarm。新增原生 **WorkManager** 周期任务(~15min)轮询 `poll_proactive` Edge Function,有新 `provider='spontaneous'` 消息就弹本地通知。不依赖 FCM/HMS,华为等无 GMS 机型也能用。`ProactivePollPlugin.java`(配置/取消 PeriodicWorkRequest)+ `ProactivePollWorker.java`(POST + 通知 + `since` 指针推进)+ `ProactivePoll.ts`(TS 桥)。**原生改动,重打 APK 生效。**
+
+**踩坑:WorkManager `ListenableFuture` 编译失败(两条 classpath 不一致)**
+
+`ProactivePollWorker extends Worker`,`Worker` 基类签名引用 Guava 的 `com.google.common.util.concurrent.ListenableFuture`,但这个类在两条 classpath 上状态矛盾,绕了三次才修对:
+
+| 尝试 | 结果 |
+|---|---|
+| 加 `androidx.concurrent:concurrent-futures` | ❌ 那是 AndroidX 的库,根本不含 Guava 的 `ListenableFuture` |
+| 加 `implementation "com.google.guava:listenablefuture:1.0"` | ❌ 传递依赖拉了 `listenablefuture:9999.0-empty-to-avoid-conflict-with-guava`(空 jar,版本号故意巨大),Gradle 按版本号选了空 jar,类还是缺 |
+| `configurations.all { force "...:1.0" }` 全局强制 | ❌ 编译过了,但运行 classpath 上某 Capacitor 插件**早已传递完整 guava-31.1-android**(自带该类),force 1.0 把它也塞进运行时 → 重复类,dex(CheckDuplicateClasses)失败 |
+| **只在 `*CompileClasspath` force 1.0** | ✅ 编译 classpath 补上缺的类、运行 classpath 不动(guava 独家提供),两边都干净 |
+
+根因是**编译 classpath 只看得到空占位 jar、运行 classpath 有完整 guava**,所以必须只补编译侧、不碰运行侧。`android/app/build.gradle`。
+
 ### 搜索：交接信 / 日记近期内容搜不到（修）
 
 - **根因 1**：6/16–6/19 的日记和 6/19 交接信 embedding 缺失（auto_embed 在旧 SiliconFlow key 删掉期间静默失败），手动补嵌入。

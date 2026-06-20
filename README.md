@@ -338,6 +338,7 @@ DB 函数:
 - `@capacitor/network` — 离线条状态监听
 - `@capacitor/camera` — 附件面板 📷 拍照 / 🖼 相册
 - **自定义 `MediaControl` plugin** — `play_music` 发 `ACTION_VIEW` Intent 拉起网易云 deep link；`control_media` / `get_now_playing` 走媒体会话（有通知使用权时 `MediaController` 精准控制 + 读元数据，无权限时降级 `AudioManager.dispatchMediaKeyEvent`）。配套空壳 `NotificationListenerService`（`NowPlayingListener`）做通知使用权开关
+- **自定义 `ProactivePoll` plugin** — `androidx.work:work-runtime` 周期任务（~15min）轮询 `poll_proactive`，自发主动消息有新内容就弹本地通知，不依赖 FCM/HMS。注意 `build.gradle` 只在 `*CompileClasspath` force `listenablefuture:1.0`（编译侧缺类，运行侧已有完整 guava，全局 force 会撞重复类，见 [changelog](docs/changelog.md)）
 
 ---
 
