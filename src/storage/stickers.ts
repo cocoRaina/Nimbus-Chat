@@ -72,10 +72,10 @@ export const findSticker = (name: string): Sticker | null => {
 // Replaces the old per-sticker name list — AI calls search_stickers instead.
 export const buildStickerSystemSection = (): string =>
   '\n\n## 表情包\n' +
-  '你可以发表情包（图片）。用法：先调用 `search_stickers` 工具搜索合适的表情包，' +
-  '拿到名字后用 `[sticker:名字]` 嵌入消息里。比如搜 query="开心" 得到 [{name:"嘿嘿",...}]，' +
-  '就可以在消息里写 `[sticker:嘿嘿]`。用户发给你的表情包也是这个格式。' +
-  '在合适的情绪/语气下自然地用，不要每条都用。'
+  '你可以发表情包（图片）。用法：先调用 `search_stickers` 工具，再用 `[sticker:名字]` 嵌入消息。\n' +
+  '**重要**：贴纸名字是中文情感短语，不是图片内容描述。搜索时要用**情绪/语气关键词**，不要用"猫""动物"这类视觉词。\n' +
+  '例：思念 → query="想你"；撒娇 → query="宝宝"；生气 → query="坏"；困惑 → query="懵"；冷漠 → query="不理"。\n' +
+  '搜到结果后，把名字**原样**写进 `[sticker:名字]`，名字一个字都不能改。合适的情绪下自然地用，不要每条都用。'
 
 // ── Compress an imported image to a small PNG data URL ───────────────────────
 export const fileToStickerDataUrl = (file: File, max = 256): Promise<string> =>
