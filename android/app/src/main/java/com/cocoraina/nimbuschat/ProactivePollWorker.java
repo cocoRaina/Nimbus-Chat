@@ -98,19 +98,25 @@ public class ProactivePollWorker extends Worker {
                 ensureChannel(ctx);
                 String persona = prefs.getString("persona", "");
                 if (persona.isEmpty()) persona = "AI";
-                String latest = since;
                 for (int i = 0; i < messages.length(); i++) {
-                    JSONObject m = messages.getJSONObject(i);
-                    String text = m.optString("text", "");
-                    String createdAt = m.optString("created_at", "");
+                    String text = messages.getJSONObject(i).optString("text", "");
                     if (!text.isEmpty()) {
                         showNotification(ctx, NOTIF_ID_BASE + i, persona, text);
                     }
-                    if (createdAt.compareTo(latest) > 0) latest = createdAt;
                 }
-                // Advance the pointer past the newest message we just notified
-                // about so the next cycle doesn't re-notify the same ones.
-                prefs.edit().putString("since", latest).apply();
+                // Advance the pointer past the newest message so the next cycle
+                // doesn't re-notify. The Edge Function orders ascending, so the
+                // LAST element is newest — take it directly. (Do NOT string-
+                // compare against `since`: it's JS toISOString format `...Z`
+                // while created_at is Postgres `...+00:00`, so a lexical compare
+                // is wrong and would leave the pointer un-advanced → duplicate
+                // notifications every cycle.) The next query uses `.gt`, so the
+                // strictly-greater filter excludes this exact message.
+                String newest = messages.getJSONObject(messages.length() - 1)
+                        .optString("created_at", "");
+                if (!newest.isEmpty()) {
+                    prefs.edit().putString("since", newest).apply();
+                }
             }
             return Result.success();
         } catch (Exception e) {
