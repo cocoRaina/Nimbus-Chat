@@ -10,7 +10,7 @@
 //   - Triggers when: last msg was scheduled proactive →30min idle / otherwise →1h idle
 //   - Calls user's real model (Anthropic-native) with recent conversation context
 //   - AI returns either a message to send or "NO_SEND"
-//   - Cooldown: 2h after sending, 30min after NO_SEND
+//   - Cooldown: 2h after sending, 30min after NO_SEND / error
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
@@ -243,12 +243,26 @@ Deno.serve(async (req: Request) => {
               .order('created_at', { ascending: false })
               .limit(20)
 
-            const contextMessages = (recentMsgs ?? [])
+            const history = (recentMsgs ?? [])
               .reverse()
               .map((m) => ({
                 role: m.role as 'user' | 'assistant',
                 content: [{ type: 'text', text: String(m.content ?? '').slice(0, 800) }],
               }))
+            // Anthropic requires the FIRST message to be role 'user'. The 20-msg
+            // window can begin on an assistant turn (mid-conversation cut, or a
+            // prior proactive/spontaneous message) → 400. Drop leading assistant
+            // turns so the array always starts with user.
+            while (history.length > 0 && history[0].role !== 'user') history.shift()
+            // Append a synthetic user turn so the array ENDS on user. The normal
+            // idle case ends with the AI's last reply (assistant); without this,
+            // Claude would "continue" that reply instead of writing a fresh
+            // standalone message.
+            const triggerTurn = {
+              role: 'user' as const,
+              content: [{ type: 'text', text: '（系统：现在请你按上面的指示，决定是否主动给我发一条消息。）' }],
+            }
+            const contextMessages = [...history, triggerTurn]
 
             // Build spontaneous system prompt
             const idleMinutes = Math.round(idleMs / 60000)
@@ -264,9 +278,7 @@ Deno.serve(async (req: Request) => {
               model: model,
               max_tokens: 512,
               system: spontaneousSystem,
-              messages: contextMessages.length > 0
-                ? contextMessages
-                : [{ role: 'user', content: [{ type: 'text', text: '（对话开始）' }] }],
+              messages: contextMessages,
             }
 
             // Build auth headers matching the Anthropic-native path used by keepalive
@@ -291,6 +303,12 @@ Deno.serve(async (req: Request) => {
               if (!resp.ok) {
                 const errText = await resp.text().catch(() => '')
                 console.warn('spontaneous: API error', resp.status, errText.slice(0, 200))
+                // Back off on failure (e.g. credit exhausted / rate limit) so we
+                // don't re-hit a broken API every 5-min cron tick.
+                await supabase
+                  .from('cache_keepalive_state')
+                  .update({ proactive_ai_cooldown_until: new Date(Date.now() + COOLDOWN_AFTER_SKIP_MS).toISOString() })
+                  .eq('user_id', user_id)
                 spontaneous = 'api_error'
               } else {
                 const respJson = await resp.json() as {
@@ -352,6 +370,11 @@ Deno.serve(async (req: Request) => {
               }
             } catch (e) {
               console.warn('spontaneous: fetch error', String(e).slice(0, 200))
+              // Back off on network failure too, same rationale as api_error.
+              await supabase
+                .from('cache_keepalive_state')
+                .update({ proactive_ai_cooldown_until: new Date(Date.now() + COOLDOWN_AFTER_SKIP_MS).toISOString() })
+                .eq('user_id', user_id)
               spontaneous = 'fetch_error'
             }
           }
