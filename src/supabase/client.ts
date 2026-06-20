@@ -55,6 +55,10 @@ const refreshSupabaseClient = () => {
 
 export const hasSupabaseConfig = () => currentResolved.source !== 'none'
 
+// Resolved URL + anon key (local override or env), for native plugins that
+// need to talk to Supabase directly (e.g. the ProactivePoll WorkManager job).
+export const getSupabaseConfig = (): SupabaseLocalConfig | null => currentResolved.config
+
 export const getSupabaseConfigSource = () => currentResolved.source
 
 export const setLocalSupabaseConfig = (config: SupabaseLocalConfig) => {

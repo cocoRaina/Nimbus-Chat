@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ShareReceiverPlugin.class);
         registerPlugin(PeriodWidgetPlugin.class);
         registerPlugin(MediaControlPlugin.class);
+        registerPlugin(ProactivePollPlugin.class);
         super.onCreate(savedInstanceState);
         handleShareIntent(getIntent());
     }

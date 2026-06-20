@@ -43,7 +43,9 @@ import {
   updateRemoteSessionOverride,
   updateRemoteSessionReasoningOverride,
 } from './storage/supabaseSync'
-import { hasSupabaseConfig, subscribeSupabaseConfigChange, supabase } from './supabase/client'
+import { getSupabaseConfig, hasSupabaseConfig, subscribeSupabaseConfigChange, supabase } from './supabase/client'
+import { configureProactivePoll, markProactiveSeen } from './plugins/ProactivePoll'
+import { getAssistantName } from './storage/assistantPersona'
 import './App.css'
 // Heavy routes are code-split — only the active route's chunk loads.
 // Keep AuthPage and ChatPage statically imported (they're hit immediately).
@@ -678,6 +680,22 @@ const App = () => {
       })
   }, [supabase, user])
 
+  // Schedule the native WorkManager poll that surfaces server-written
+  // spontaneous proactive messages as local notifications when the app is
+  // closed (no push service needed — works on GMS-less phones). No-op on web /
+  // when the plugin is unavailable.
+  useEffect(() => {
+    if (!user) return
+    const cfg = getSupabaseConfig()
+    if (!cfg) return
+    void configureProactivePoll({
+      supabaseUrl: cfg.url,
+      anonKey: cfg.anonKey,
+      userId: user.id,
+      persona: getAssistantName(),
+    })
+  }, [user])
+
   useEffect(() => {
     return subscribeSupabaseConfigChange(() => {
       setSupabaseConfigured(hasSupabaseConfig())
@@ -825,6 +843,9 @@ const App = () => {
         void refreshRemoteSessions()
         // Cancel notification while user is in the app (no in-app popup).
         void cancelProactiveNotification()
+        // Advance the background-poll pointer so spontaneous messages the user
+        // is now seeing in-app aren't re-surfaced as notifications.
+        void markProactiveSeen()
         // Pull whatever's new in Health Connect → health_data.
         // Throttled to 30min inside; no-op on web.
         void maybeAutoSyncHealth()
