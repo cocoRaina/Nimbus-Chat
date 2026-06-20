@@ -397,7 +397,7 @@
   padding: 0 12px 12px;
   display: flex;
   flex-direction: column;
-  max-height: 260px;
+  max-height: 340px;
   animation: panel-slide-up 0.2s ease-out both;
 }
 .sticker-panel__tabs {
@@ -427,7 +427,7 @@
 }
 .sticker-panel__grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   overflow-y: auto;
   padding-top: 6px;
