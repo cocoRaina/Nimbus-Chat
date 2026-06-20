@@ -70,12 +70,31 @@ export const findSticker = (name: string): Sticker | null => {
 
 // ── Static system-prompt section for sticker tool usage ─────────────────────
 // Replaces the old per-sticker name list — AI calls search_stickers instead.
-export const buildStickerSystemSection = (): string =>
-  '\n\n## 表情包\n' +
-  '你可以发表情包（图片）。用法：先调用 `search_stickers` 工具，再用 `[sticker:名字]` 嵌入消息。\n' +
-  '**重要**：贴纸名字是中文情感短语，不是图片内容描述。搜索时要用**情绪/语气关键词**，不要用"猫""动物"这类视觉词。\n' +
-  '例：思念 → query="想你"；撒娇 → query="宝宝"；生气 → query="坏"；困惑 → query="懵"；冷漠 → query="不理"。\n' +
-  '搜到结果后，把名字**原样**写进 `[sticker:名字]`，名字一个字都不能改。合适的情绪下自然地用，不要每条都用。'
+export const buildStickerSystemSection = (): string => {
+  const lines: string[] = []
+
+  // Local stickers (我的)
+  const local = getStickers()
+  if (local.length > 0) {
+    lines.push(`我的：${local.map((s) => s.name).join(' / ')}`)
+  }
+
+  // Remote stickers grouped by pack
+  for (const [pack, entries] of _remotePacks) {
+    lines.push(`${pack}：${entries.map((e) => e.name).join(' / ')}`)
+  }
+
+  const listSection = lines.length > 0
+    ? `\n可用贴纸（按包分组）：\n${lines.map((l) => `- ${l}`).join('\n')}`
+    : ''
+
+  return (
+    '\n\n## 表情包\n' +
+    `你可以发表情包。直接用 \`[sticker:名字]\` 嵌入消息，名字从下方列表原样复制，一字不差。${listSection}\n` +
+    '如果想先缩小范围，可调用 `search_stickers` 工具按关键词搜索（贴纸名是情感短语，搜"想你""懵""坏"等词而非"猫"）。' +
+    '在合适的情绪下自然地用，不要每条都用。'
+  )
+}
 
 // ── Compress an imported image to a small PNG data URL ───────────────────────
 export const fileToStickerDataUrl = (file: File, max = 256): Promise<string> =>
