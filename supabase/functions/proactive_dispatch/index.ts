@@ -7,14 +7,15 @@
 //   3. If claimed: INSERT message, touch session, update keepalive body
 //
 // Spontaneous flow (new, runs after scheduled):
-//   - Only triggers when: user idle >30min, no pending proactives, not in cooldown
+//   - Triggers when: AI sent last msg →30min idle / user sent last →1h idle
 //   - Calls user's real model (Anthropic-native) with recent conversation context
 //   - AI returns either a message to send or "NO_SEND"
 //   - Cooldown: 2h after sending, 30min after NO_SEND
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
-const IDLE_THRESHOLD_MS = 60 * 60 * 1000
+const IDLE_THRESHOLD_USER_MS = 60 * 60 * 1000   // user sent last → 1h
+const IDLE_THRESHOLD_AI_MS  = 30 * 60 * 1000   // AI sent last (no reply) → 30min
 const COOLDOWN_AFTER_SEND_MS = 2 * 60 * 60 * 1000
 const COOLDOWN_AFTER_SKIP_MS = 30 * 60 * 1000
 const ALLOWED_AUTH_STYLES = new Set(['bearer', 'x-api-key'])
@@ -194,7 +195,7 @@ Deno.serve(async (req: Request) => {
       // Find the most recent message (user or assistant) across all sessions for this user
       const { data: lastUserMsg } = await supabase
         .from('messages')
-        .select('created_at, session_id')
+        .select('created_at, session_id, role')
         .eq('user_id', user_id)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -204,8 +205,13 @@ Deno.serve(async (req: Request) => {
         spontaneous = 'no_messages'
       } else {
         const idleMs = Date.now() - new Date(lastUserMsg.created_at as string).getTime()
+        // If AI spoke last (user hasn't replied), be more eager: 30min.
+        // If user spoke last (AI already replied), wait a full hour.
+        const idleThreshold = (lastUserMsg.role === 'assistant')
+          ? IDLE_THRESHOLD_AI_MS
+          : IDLE_THRESHOLD_USER_MS
 
-        if (idleMs < IDLE_THRESHOLD_MS) {
+        if (idleMs < idleThreshold) {
           spontaneous = 'active'
         } else {
           // Check no pending scheduled proactives (don't double-send)
