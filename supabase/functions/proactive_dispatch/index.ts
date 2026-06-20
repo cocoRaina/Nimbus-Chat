@@ -59,6 +59,23 @@ Deno.serve(async (req: Request) => {
 
     const fireAt = entry.fire_at as string
 
+    // If the user has sent a message in this session since fire_at, the
+    // client already cancelled the proactive (or tried to). Skip the insert
+    // so we don't surface a message the user has already moved past.
+    const { data: userReplied } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('session_id', entry.session_id)
+      .eq('role', 'user')
+      .gt('created_at', fireAt)
+      .limit(1)
+      .maybeSingle()
+
+    if (userReplied) {
+      raced++
+      continue
+    }
+
     const { error: msgError } = await supabase.from('messages').insert({
       session_id: entry.session_id,
       user_id: entry.user_id,
