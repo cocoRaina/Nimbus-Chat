@@ -1196,7 +1196,7 @@ const ChatPage = ({
                   className={`sticker-panel__tab${activeStickerPack === pack ? ' sticker-panel__tab--active' : ''}`}
                   onClick={() => setActiveStickerPack(pack)}
                 >
-                  {pack.replace(/表情包by雪梨$/, '').replace(/by雪梨$/, '').replace(/表情包$/, '').replace(/ $/, '') || pack}
+                  {pack}
                 </button>
               ))}
             </div>
