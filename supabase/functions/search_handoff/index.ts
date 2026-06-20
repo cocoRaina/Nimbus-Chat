@@ -26,7 +26,7 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') {
     return jsonResponse({ error: 'method not allowed' }, 405)
   }
-  let payload: { query?: string; count?: number }
+  let payload: { query?: string; count?: number; days?: number; after?: string }
   try {
     payload = await req.json()
   } catch (_) {
@@ -37,6 +37,12 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'query required' }, 400)
   }
   const count = Math.max(1, Math.min(20, Math.floor(Number(payload.count ?? 5)) || 5))
+  let filterAfter: string | null = null
+  if (typeof payload.days === 'number' && payload.days > 0) {
+    filterAfter = new Date(Date.now() - payload.days * 86400000).toISOString()
+  } else if (typeof payload.after === 'string' && payload.after.trim().length > 0) {
+    filterAfter = payload.after.trim()
+  }
 
   if (!SILICONFLOW_API_KEY) {
     return jsonResponse({ error: 'SILICONFLOW_API_KEY not configured' }, 500)
@@ -82,6 +88,7 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await supabase.rpc('search_letters', {
       query_embedding: queryEmbedding,
       match_count: count,
+      ...(filterAfter ? { filter_after: filterAfter } : {}),
     })
     if (error) {
       return jsonResponse({ error: error.message }, 500)

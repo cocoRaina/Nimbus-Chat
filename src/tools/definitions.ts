@@ -174,7 +174,8 @@ export const TOOL_SEARCH_HANDOFF = {
     description:
       '专门搜索交接信（handoff letters）。交接信是上一窗口的你写给下一窗口的你的信，比一般日记/记忆更重要、更长。' +
       '当用户问到「上次/上个月/几个月前/上一封信/交接/搭家/工作哥哥/某次重要决定」之类涉及窗口交接的话题时调用。' +
-      '不要用 search_memory 搜交接信——那个工具混在记忆和日记里搜，长文很容易被挤出结果。',
+      '不要用 search_memory 搜交接信——那个工具混在记忆和日记里搜，长文很容易被挤出结果。\n\n' +
+      '找最新的信时加 days:30 确保近期的排在前面；找特定时间段的信用 after。',
     parameters: {
       type: 'object',
       properties: {
@@ -185,6 +186,14 @@ export const TOOL_SEARCH_HANDOFF = {
         count: {
           type: 'integer',
           description: '返回多少封信，1-20，默认 5',
+        },
+        days: {
+          type: 'integer',
+          description: '只搜最近 N 天的信（可选）。找最新交接信时用 days:30',
+        },
+        after: {
+          type: 'string',
+          description: '只搜这个日期之后的信，ISO 格式如 2026-06-01（可选）',
         },
       },
       required: ['query'],
