@@ -453,7 +453,7 @@ const App = () => {
   const [user, setUser] = useState<User | null>(null)
   const [authReady, setAuthReady] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [remoteStickerPacks, setRemoteStickerPacks] = useState<RemotePackMap>(new Map())
+  const [remoteStickerPacks, setRemoteStickerPacks] = useState<RemotePackMap>(() => getRemotePacks())
   const [isStreaming, setIsStreaming] = useState(false)
   const [toolStatus, setToolStatus] = useState('')
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null)

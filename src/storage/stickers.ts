@@ -39,21 +39,55 @@ export const upsertSticker = (s: Sticker) => {
 export const deleteSticker = (name: string) => write(getStickers().filter((x) => x.name !== name))
 
 // ── Remote sticker cache (populated from Supabase on app start) ─────────────
+// Persisted to localStorage so the in-memory maps can be seeded SYNCHRONOUSLY
+// at module load — before the async Supabase fetch resolves. This matters for
+// prompt-cache stability: buildStickerSystemSection() is baked into the BP1
+// system block. If the list were empty on the first message of a session and
+// then populated on the second, BP1's content would change and cold-write
+// twice (~¥1.5 each). Seeding from localStorage keeps the list stable from the
+// very first message (after the app has loaded stickers at least once).
 
-let _remoteByName: Map<string, { url: string; pack: string }> = new Map()
-let _remotePacks: RemotePackMap = new Map()
+const REMOTE_KEY = 'nimbus_stickers_remote_v1'
 
-export const setRemoteStickerCache = (
-  stickers: Array<{ name: string; url: string; pack: string }>,
-) => {
-  _remoteByName = new Map(stickers.map((s) => [s.name, { url: s.url, pack: s.pack }]))
+const buildMaps = (stickers: Array<{ name: string; url: string; pack: string }>) => {
+  const byName = new Map(stickers.map((s) => [s.name, { url: s.url, pack: s.pack }]))
   const packs = new Map<string, RemoteStickerEntry[]>()
   for (const s of stickers) {
     const arr = packs.get(s.pack) ?? []
     arr.push({ name: s.name, url: s.url })
     packs.set(s.pack, arr)
   }
+  return { byName, packs }
+}
+
+const readRemoteCache = (): Array<{ name: string; url: string; pack: string }> => {
+  if (typeof window === 'undefined') return []
+  try {
+    const arr = JSON.parse(window.localStorage.getItem(REMOTE_KEY) ?? '[]')
+    return Array.isArray(arr) ? arr.filter((s) => s && s.name && s.url && s.pack) : []
+  } catch {
+    return []
+  }
+}
+
+// Seed synchronously from localStorage at module load.
+const _seed = buildMaps(readRemoteCache())
+let _remoteByName: Map<string, { url: string; pack: string }> = _seed.byName
+let _remotePacks: RemotePackMap = _seed.packs
+
+export const setRemoteStickerCache = (
+  stickers: Array<{ name: string; url: string; pack: string }>,
+) => {
+  const { byName, packs } = buildMaps(stickers)
+  _remoteByName = byName
   _remotePacks = packs
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(REMOTE_KEY, JSON.stringify(stickers))
+    } catch {
+      // quota — list is small, but degrade gracefully
+    }
+  }
 }
 
 export const getRemotePacks = (): RemotePackMap => _remotePacks
