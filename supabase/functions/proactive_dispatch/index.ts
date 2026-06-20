@@ -181,6 +181,9 @@ Deno.serve(async (req: Request) => {
       spontaneous = 'bad_routing'
     } else if (proactive_ai_cooldown_until && new Date(proactive_ai_cooldown_until) > new Date()) {
       spontaneous = 'cooldown'
+    } else if (((new Date().getUTCHours() + 8) % 24) < 8) {
+      // 00:00-08:00 CST (UTC+8) — don't disturb during sleep hours
+      spontaneous = 'nighttime'
     } else {
       // Find the most recent user message across all sessions for this user
       const { data: lastUserMsg } = await supabase
