@@ -101,6 +101,20 @@
 
 图片在 HEAD 时被缓存进前缀（含 base64 bytes），下一轮图片替换成文字描述后前缀不匹配 → 全量冷写（~31k token，≈¥1.3）。`applyClaudeCaching` 检测 HEAD 是否含 `image_url`/`image` block，有则跳过对 HEAD 的标记，只保留 BP1 + BP4。下一轮图片变文字后服务端 walk-up 到前一个 BP4，只写一小段扩展（≈几百 token，≈¥0.02）。
 
+### 消息加载：加了 limit(300) 防慢加载（改）
+
+`fetchRemoteMessages` 只改排序方向不加 limit，PostgREST 仍默认返回 1000 行（用户现有 3654 条），每次新窗口都下载 ~800KB JSON，手机网络下体验差。加 `.limit(300)` 使初始加载约 240KB；localStorage 存着老历史，300 条已覆盖约 2.5 天的对话窗口。
+
+### 主动消息：发到 keepalive body 格式错误（修）
+
+`proactive_dispatch` 往 `cache_keepalive_state.body` 追加主动消息时用了字符串格式 `{ content: 'text' }`，而 keepalive body 是 Anthropic 原生格式，assistant 消息 content 必须是 `[{ type: 'text', text: '...' }]` 数组。格式不一致导致 cache key 不匹配，主动消息发出后下次真实请求的那段前缀 miss，多写一段缓存。已改为数组格式。
+
+### 主动消息：调度后用户活跃仍触发（修）
+
+`proactive_dispatch` 的"用户已回复"检查用 `created_at > fire_at`（火点之后有没有消息），但 fire_at 是未来时刻，用户在调度后、fire_at 前的活跃完全绕过检查 → 已经过时的提醒照常发出。例：12:32 AI 调度 55min 后的 1:27pm 提醒，用户 12:46 和 12:47 继续发消息，检查没命中，1:27pm 提醒仍发出。
+
+修：对 `persist=false` 的普通提醒，截止时间改为 `created_at`（调度时刻）：调度后有任何用户消息就跳过。对 `persist=true` 的闹钟，保留 fire_at 截止（睡前聊天不应取消早起闹钟）。
+
 ---
 
 ## 2026-06-17
