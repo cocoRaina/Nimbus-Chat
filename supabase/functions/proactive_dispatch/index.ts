@@ -213,7 +213,17 @@ Deno.serve(async (req: Request) => {
           ? IDLE_THRESHOLD_AFTER_SCH_MS
           : IDLE_THRESHOLD_MS
 
-        if (idleMs < idleThreshold) {
+        // Today-gate: mirrors cache_keepalive — only fire spontaneous if the
+        // user has sent at least one message today (after 08:00 Beijing = UTC 00:00).
+        // Prevents the AI from reaching out based on yesterday's last message
+        // before the user has even woken up and started their day.
+        const nowBeijingMs = Date.now() + 8 * 60 * 60 * 1000
+        const todayWakingStartMs = new Date(nowBeijingMs).setUTCHours(0, 0, 0, 0)
+        const lastMsgMs = new Date(lastUserMsg.created_at as string).getTime()
+
+        if (lastMsgMs < todayWakingStartMs) {
+          spontaneous = 'not_active_today'
+        } else if (idleMs < idleThreshold) {
           spontaneous = 'active'
         } else {
           // Check no pending scheduled proactives (don't double-send)
