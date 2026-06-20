@@ -350,7 +350,20 @@ const applyClaudeCaching = (
     })
   }
   if (userIndices.length === 0 && firstSystemIdx === -1) return messages
-  const targets = new Set<number>(userIndices)
+  // HEAD = last user message (userIndices[0]). If HEAD contains an image block,
+  // skip caching it: the image bytes will be replaced by a text caption on the
+  // very next turn, invalidating the cached prefix and forcing a full cold write.
+  // By leaving HEAD un-cached, the next turn's BP4 walk-up finds the previous
+  // BP4 still in cache and only needs to write a small extension (caption text +
+  // new HEAD), instead of rewriting the entire ~31k token context.
+  const headIdx = userIndices[0] ?? -1
+  const headHasImage =
+    headIdx >= 0 &&
+    Array.isArray(messages[headIdx]?.content) &&
+    (messages[headIdx].content as Array<{ type?: string }>).some(
+      (b) => b?.type === 'image_url' || b?.type === 'image',
+    )
+  const targets = new Set<number>(headHasImage ? userIndices.slice(1) : userIndices)
   if (firstSystemIdx >= 0) targets.add(firstSystemIdx)
   return messages.map((msg, idx) => {
     if (!targets.has(idx)) return msg
