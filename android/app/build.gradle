@@ -67,28 +67,29 @@ dependencies {
     // proactive messages → raises a LOCAL notification with no push service
     // (FCM/HMS), so it works on GMS-less phones (Huawei etc.).
     implementation "androidx.work:work-runtime:2.9.1"
-    // WorkManager's Worker base class references Guava's ListenableFuture, so
-    // our Java subclass needs that class on the compile classpath. The real
-    // interface lives in this tiny (interface-only) artifact. NOTE: a force()
-    // below is required — without it Gradle picks the empty 9999.0 placeholder
-    // jar that a transitive dep pulls in, and the class goes missing again.
-    implementation "com.google.guava:listenablefuture:1.0"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
 }
 
-configurations.all {
-    resolutionStrategy {
-        // A transitive dep (via WorkManager) requests Guava's special
-        // `listenablefuture:9999.0-empty-to-avoid-conflict-with-guava` — an
-        // EMPTY jar with a deliberately huge version so it wins conflict
-        // resolution and defers to full Guava (which we don't bundle). Result:
-        // com.google.common.util.concurrent.ListenableFuture is absent and the
-        // ProactivePollWorker (a Worker subclass) fails to compile. Force the
-        // real interface-only 1.0 artifact so the class is actually present.
-        force "com.google.guava:listenablefuture:1.0"
+// ListenableFuture lives on two different classpaths here and they disagree:
+//
+//   • COMPILE classpath: only the empty placeholder
+//     `listenablefuture:9999.0-empty-to-avoid-conflict-with-guava` is visible
+//     (pulled transitively via WorkManager). Its huge version wins conflict
+//     resolution but the jar has NO classes, so our Worker subclass
+//     (ProactivePollWorker) can't see ListenableFuture → javac fails.
+//   • RUNTIME classpath: a Capacitor plugin already drags in full
+//     guava-31.1-android, which DOES contain ListenableFuture.
+//
+// So we only need to patch the COMPILE side: force the real interface-only
+// 1.0 artifact there. We must NOT touch the runtime side — adding 1.0 there
+// too would duplicate the class against full Guava and fail dexing
+// (CheckDuplicateClasses). Scope the force to *CompileClasspath only.
+configurations.configureEach { cfg ->
+    if (cfg.name.toLowerCase().endsWith("compileclasspath")) {
+        cfg.resolutionStrategy.force "com.google.guava:listenablefuture:1.0"
     }
 }
 
