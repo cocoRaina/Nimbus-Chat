@@ -67,7 +67,11 @@ dependencies {
     // proactive messages → raises a LOCAL notification with no push service
     // (FCM/HMS), so it works on GMS-less phones (Huawei etc.).
     implementation "androidx.work:work-runtime:2.9.1"
-    implementation "androidx.concurrent:concurrent-futures:1.2.0"
+    // WorkManager's Worker base class references ListenableFuture from Guava,
+    // but work-runtime doesn't expose it on the compile classpath for Java
+    // consumers. Adding the interface-only stub makes javac happy without
+    // pulling in all of Guava.
+    implementation "com.google.guava:listenablefuture:1.0"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
