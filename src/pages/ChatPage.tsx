@@ -20,6 +20,8 @@ import MarkdownRenderer from '../components/MarkdownRenderer'
 import VoiceBubble from '../components/VoiceBubble'
 import {
   type Sticker,
+  type RemotePackMap,
+  type RemoteStickerEntry,
   getStickers,
   findSticker,
   upsertSticker,
@@ -62,6 +64,7 @@ export type ChatPageProps = {
   onManualCompress: () => Promise<{ ok: boolean; message: string }>
   user: User | null
   toolStatus?: string
+  remoteStickerPacks?: RemotePackMap
   shareDraft?: string
   onConsumeShare?: () => void
 }
@@ -308,6 +311,7 @@ const ChatPage = ({
   onSelectReasoning,
   onManualCompress,
   toolStatus,
+  remoteStickerPacks,
   shareDraft,
   onConsumeShare,
 }: ChatPageProps) => {
@@ -324,6 +328,7 @@ const ChatPage = ({
   // the small popup that appears above the button.
   const [openAttachMenu, setOpenAttachMenu] = useState(false)
   const [showStickerTray, setShowStickerTray] = useState(false)
+  const [activeStickerPack, setActiveStickerPack] = useState<string>('我的')
   const [stickers, setStickers] = useState<Sticker[]>(() => getStickers())
   // Read once on mount; the chat header reflects this for the title +
   // the proactive notification title. Renaming via the settings menu
@@ -1177,19 +1182,50 @@ const ChatPage = ({
         {showStickerTray ? (
           <div className="sticker-panel">
             <div className="panel-handle" />
-            <div className="sticker-panel__grid">
-              {stickers.map((s) => (
-                <div key={s.name} className="sticker-panel__item">
-                  <button type="button" className="sticker-panel__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
-                    <img src={s.dataUrl} alt={s.name} loading="lazy" />
-                  </button>
-                  <button type="button" className="sticker-panel__del" aria-label="删除" onClick={() => handleDeleteSticker(s.name)}>×</button>
-                </div>
+            {/* Pack tabs */}
+            <div className="sticker-panel__tabs">
+              <button
+                type="button"
+                className={`sticker-panel__tab${activeStickerPack === '我的' ? ' sticker-panel__tab--active' : ''}`}
+                onClick={() => setActiveStickerPack('我的')}
+              >我的</button>
+              {remoteStickerPacks && Array.from(remoteStickerPacks.keys()).map((pack) => (
+                <button
+                  key={pack}
+                  type="button"
+                  className={`sticker-panel__tab${activeStickerPack === pack ? ' sticker-panel__tab--active' : ''}`}
+                  onClick={() => setActiveStickerPack(pack)}
+                >
+                  {pack.replace(/表情包by雪梨$/, '').replace(/by雪梨$/, '').replace(/表情包$/, '').replace(/ $/, '') || pack}
+                </button>
               ))}
-              <button type="button" className="sticker-panel__add" onClick={() => stickerInputRef.current?.click()}>
-                <span className="sticker-panel__add-icon">＋</span>
-                <span className="sticker-panel__add-label">导入</span>
-              </button>
+            </div>
+            {/* Sticker grid */}
+            <div className="sticker-panel__grid">
+              {activeStickerPack === '我的' ? (
+                <>
+                  {stickers.map((s) => (
+                    <div key={s.name} className="sticker-panel__item">
+                      <button type="button" className="sticker-panel__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
+                        <img src={s.dataUrl} alt={s.name} loading="lazy" />
+                      </button>
+                      <button type="button" className="sticker-panel__del" aria-label="删除" onClick={() => handleDeleteSticker(s.name)}>×</button>
+                    </div>
+                  ))}
+                  <button type="button" className="sticker-panel__add" onClick={() => stickerInputRef.current?.click()}>
+                    <span className="sticker-panel__add-icon">＋</span>
+                    <span className="sticker-panel__add-label">导入</span>
+                  </button>
+                </>
+              ) : (
+                (remoteStickerPacks?.get(activeStickerPack) ?? []).map((s: RemoteStickerEntry) => (
+                  <div key={s.name} className="sticker-panel__item">
+                    <button type="button" className="sticker-panel__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
+                      <img src={s.url} alt={s.name} loading="lazy" />
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         ) : null}

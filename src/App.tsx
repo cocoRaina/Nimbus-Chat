@@ -67,7 +67,12 @@ import { fetchOpenRouter } from './api/openrouter'
 import { convertOpenAiRequestToAnthropic } from './api/anthropic'
 import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './storage/apiProvider'
 import { ensureImageCaption, getImageCaption } from './storage/imageCaptions'
-import { buildStickerSystemSection } from './storage/stickers'
+import {
+  buildStickerSystemSection,
+  setRemoteStickerCache,
+  getRemotePacks,
+  type RemotePackMap,
+} from './storage/stickers'
 import { recordUsage } from './storage/usageStats'
 import { maybeAutoSyncHealth, syncHealthDataToSupabase } from './storage/healthSync'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
@@ -94,6 +99,7 @@ import {
   TOOL_PLAY_MUSIC,
   TOOL_CONTROL_MEDIA,
   TOOL_GET_NOW_PLAYING,
+  TOOL_SEARCH_STICKERS,
 } from './tools/definitions'
 import { syncStatusBarToAccent, syncStatusBarToColor } from './storage/statusBar'
 import {
@@ -447,6 +453,7 @@ const App = () => {
   const [user, setUser] = useState<User | null>(null)
   const [authReady, setAuthReady] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [remoteStickerPacks, setRemoteStickerPacks] = useState<RemotePackMap>(new Map())
   const [isStreaming, setIsStreaming] = useState(false)
   const [toolStatus, setToolStatus] = useState('')
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null)
@@ -656,6 +663,20 @@ const App = () => {
       setSyncing(false)
     }
   }, [applySnapshot, user])
+
+  useEffect(() => {
+    if (!supabase || !user) return
+    void supabase
+      .from('stickers')
+      .select('name, url, pack')
+      .eq('user_id', user.id)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          setRemoteStickerCache(data as Array<{ name: string; url: string; pack: string }>)
+          setRemoteStickerPacks(getRemotePacks())
+        }
+      })
+  }, [supabase, user])
 
   useEffect(() => {
     return subscribeSupabaseConfigChange(() => {
@@ -1926,6 +1947,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
+                ...(supabase ? [TOOL_SEARCH_STICKERS] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
@@ -2313,6 +2335,20 @@ TOOL_SEARCH_HANDOFF,
                         query: args.query,
                         max_results: args.max_results,
                       },
+                    })
+                    resultText = error
+                      ? JSON.stringify({ error: error.message ?? String(error) })
+                      : JSON.stringify(data ?? {})
+                  } else if (tc.function.name === 'search_stickers' && supabase) {
+                    let args: { query?: string; count?: number; pack?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 search_stickers 参数失败', jsonError)
+                    }
+                    setToolStatus(`🖼 正在搜索表情包：${(args.query ?? '').slice(0, 20)}…`)
+                    const { data, error } = await supabase.functions.invoke('search_stickers', {
+                      body: { query: args.query, count: args.count, pack: args.pack },
                     })
                     resultText = error
                       ? JSON.stringify({ error: error.message ?? String(error) })
@@ -4143,6 +4179,7 @@ const ChatRoute = ({
         onManualCompress={() => onManualCompress(activeSession.id)}
         user={user}
         toolStatus={toolStatus}
+        remoteStickerPacks={remoteStickerPacks}
         shareDraft={shareDraftRef.current ?? undefined}
         onConsumeShare={() => {
           shareDraftRef.current = null

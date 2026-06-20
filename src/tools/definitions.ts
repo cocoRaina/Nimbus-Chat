@@ -550,6 +550,40 @@ export const TOOL_CONTROL_MEDIA = {
   },
 }
 
+export const TOOL_SEARCH_STICKERS = {
+  type: 'function' as const,
+  function: {
+    name: 'search_stickers',
+    description:
+      '在表情包库里按关键词搜索可用的表情包，返回匹配的贴纸名字和图片URL。\n\n' +
+      '**使用流程**：\n' +
+      '1. 调用本工具搜索（如 query="开心" 或 query="撒娇"）\n' +
+      '2. 从返回的 stickers 列表里选一个合适的 name\n' +
+      '3. 在消息里写 `[sticker:那个name]`，前端会渲染成图片\n\n' +
+      '**何时调用**：当你判断此刻发一个表情包比文字更有意思时——开心、撒娇、吃饭、生气、困了等场景。\n' +
+      '不要每条消息都用，自然就好。一次只发一个。\n\n' +
+      '可以通过 pack 参数限定只搜某个包（包名来自之前搜索结果里的 pack 字段）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: '搜索关键词，用情绪/场景描述，如"开心""撒娇""吃饭""困""生气""思念"',
+        },
+        count: {
+          type: 'integer',
+          description: '返回多少个结果，1-20，默认 8',
+        },
+        pack: {
+          type: 'string',
+          description: '可选，限定只搜某个表情包合集（如"一二布布88个表情包by雪梨"）',
+        },
+      },
+      required: ['query'],
+    },
+  },
+}
+
 export const TOOL_GET_NOW_PLAYING = {
   type: 'function' as const,
   function: {

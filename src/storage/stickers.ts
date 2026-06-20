@@ -1,11 +1,15 @@
-// Shared sticker set — both the user and the AI send stickers by NAME via the
-// `[sticker:名字]` marker (rendered to the image). Images are compressed to a
-// small PNG data URL and kept in localStorage; the AI is told the available
-// names (see buildStickerSystemSection) so it can pick one.
+// Shared sticker set — user and AI both send stickers by NAME via `[sticker:名字]`.
+// Local stickers (manually imported): compressed PNG data URLs in localStorage.
+// Remote stickers (Supabase pack): remote URLs loaded on app start, grouped by pack.
+// AI uses the search_stickers tool to find names; does NOT get a full list in the prompt.
 
 export type Sticker = { name: string; desc: string; dataUrl: string }
+export type RemoteStickerEntry = { name: string; url: string }
+export type RemotePackMap = Map<string, RemoteStickerEntry[]>
 
 const KEY = 'nimbus_stickers_v1'
+
+// ── Local stickers (localStorage) ──────────────────────────────────────────
 
 export const getStickers = (): Sticker[] => {
   if (typeof window === 'undefined') return []
@@ -34,18 +38,46 @@ export const upsertSticker = (s: Sticker) => {
 
 export const deleteSticker = (name: string) => write(getStickers().filter((x) => x.name !== name))
 
-export const findSticker = (name: string): Sticker | null =>
-  getStickers().find((x) => x.name === name) ?? null
+// ── Remote sticker cache (populated from Supabase on app start) ─────────────
 
-// Injected into the chat system prompt so the AI knows which stickers exist.
-export const buildStickerSystemSection = (): string => {
-  const all = getStickers()
-  if (all.length === 0) return ''
-  const list = all.map((s) => `\`${s.name}\`` + (s.desc ? `（${s.desc}）` : ``)).join('、')
-  return `\n\n## 可用表情包\n你可以用 \`[sticker:名字]\` 发表情包（用户也会这样发给你）。可用：${list}。在合适的情绪/语气下自然地用，一次最多一个，别滥用。`
+let _remoteByName: Map<string, { url: string; pack: string }> = new Map()
+let _remotePacks: RemotePackMap = new Map()
+
+export const setRemoteStickerCache = (
+  stickers: Array<{ name: string; url: string; pack: string }>,
+) => {
+  _remoteByName = new Map(stickers.map((s) => [s.name, { url: s.url, pack: s.pack }]))
+  const packs = new Map<string, RemoteStickerEntry[]>()
+  for (const s of stickers) {
+    const arr = packs.get(s.pack) ?? []
+    arr.push({ name: s.name, url: s.url })
+    packs.set(s.pack, arr)
+  }
+  _remotePacks = packs
 }
 
-// Compress an imported image to a small PNG data URL (keeps transparency).
+export const getRemotePacks = (): RemotePackMap => _remotePacks
+
+// ── Unified lookup (local first, then remote) ────────────────────────────────
+
+export const findSticker = (name: string): Sticker | null => {
+  const local = getStickers().find((x) => x.name === name)
+  if (local) return local
+  const remote = _remoteByName.get(name)
+  if (remote) return { name, desc: '', dataUrl: remote.url }
+  return null
+}
+
+// ── Static system-prompt section for sticker tool usage ─────────────────────
+// Replaces the old per-sticker name list — AI calls search_stickers instead.
+export const buildStickerSystemSection = (): string =>
+  '\n\n## 表情包\n' +
+  '你可以发表情包（图片）。用法：先调用 `search_stickers` 工具搜索合适的表情包，' +
+  '拿到名字后用 `[sticker:名字]` 嵌入消息里。比如搜 query="开心" 得到 [{name:"嘿嘿",...}]，' +
+  '就可以在消息里写 `[sticker:嘿嘿]`。用户发给你的表情包也是这个格式。' +
+  '在合适的情绪/语气下自然地用，不要每条都用。'
+
+// ── Compress an imported image to a small PNG data URL ───────────────────────
 export const fileToStickerDataUrl = (file: File, max = 256): Promise<string> =>
   new Promise((resolve, reject) => {
     const img = new Image()

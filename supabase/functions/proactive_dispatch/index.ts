@@ -1,18 +1,23 @@
-// proactive_dispatch — server-side delivery of AI-scheduled proactive messages.
-// Called by pg_cron every 5 minutes (same cadence as cache_keepalive).
+// proactive_dispatch — server-side delivery of AI-scheduled proactive messages
+// + spontaneous AI-initiated messages when user is idle.
 //
-// Flow:
-//   1. Select all proactive_queue rows where fire_at <= now AND sent = false
-//   2. For each, UPDATE SET sent = true WHERE sent = false (atomic claim)
-//   3. If claim succeeded, INSERT into messages with client_created_at = fire_at
-//   4. Touch sessions.updated_at so the client sees a change on next refresh
-//   5. Update cache_keepalive_state to include the proactive message in body,
-//      so the next keepalive ping uses the correct (up-to-date) cache key.
+// Scheduled flow (unchanged):
+//   1. Select proactive_queue rows where fire_at <= now AND sent = false
+//   2. Atomic claim via UPDATE SET sent=true WHERE sent=false
+//   3. If claimed: INSERT message, touch session, update keepalive body
 //
-// Claim logic (UPDATE WHERE sent=false) makes client + server race safe:
-// whichever side wins the UPDATE, the other finds sent=true and skips.
+// Spontaneous flow (new, runs after scheduled):
+//   - Only triggers when: user idle >30min, no pending proactives, not in cooldown
+//   - Calls user's real model (Anthropic-native) with recent conversation context
+//   - AI returns either a message to send or "NO_SEND"
+//   - Cooldown: 2h after sending, 30min after NO_SEND
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
+
+const IDLE_THRESHOLD_MS = 30 * 60 * 1000
+const COOLDOWN_AFTER_SEND_MS = 2 * 60 * 60 * 1000
+const COOLDOWN_AFTER_SKIP_MS = 30 * 60 * 1000
+const ALLOWED_AUTH_STYLES = new Set(['bearer', 'x-api-key'])
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -137,7 +142,209 @@ Deno.serve(async (req: Request) => {
     dispatched++
   }
 
-  return new Response(JSON.stringify({ dispatched, raced, now }), {
+  // ── Spontaneous AI-initiated messages ──────────────────────────────────────
+  // After dispatching all scheduled messages, check if conditions are met to
+  // ask the AI to spontaneously reach out to the user.
+
+  let spontaneous: string = 'skipped'
+
+  // We need a user to work with. Use the first user found in cache_keepalive_state
+  // that has API config (this function is called per-project, single-user assumed).
+  const { data: ksConfig } = await supabase
+    .from('cache_keepalive_state')
+    .select('user_id, base_url, api_key, auth_style, model, body, proactive_ai_cooldown_until')
+    .maybeSingle()
+
+  if (!ksConfig) {
+    spontaneous = 'no_config'
+  } else {
+    const { user_id, base_url, api_key, auth_style, model, proactive_ai_cooldown_until } = ksConfig as {
+      user_id: string
+      base_url: string | null
+      api_key: string | null
+      auth_style: string | null
+      model: string | null
+      body: Record<string, unknown> | null
+      proactive_ai_cooldown_until: string | null
+    }
+
+    // Validate routing: must be Anthropic-native path (https:// base_url, valid auth_style)
+    const validRouting =
+      base_url &&
+      base_url.startsWith('https://') &&
+      api_key &&
+      auth_style &&
+      ALLOWED_AUTH_STYLES.has(auth_style) &&
+      model
+
+    if (!validRouting) {
+      spontaneous = 'bad_routing'
+    } else if (proactive_ai_cooldown_until && new Date(proactive_ai_cooldown_until) > new Date()) {
+      spontaneous = 'cooldown'
+    } else {
+      // Find the most recent user message across all sessions for this user
+      const { data: lastUserMsg } = await supabase
+        .from('messages')
+        .select('created_at, session_id')
+        .eq('user_id', user_id)
+        .eq('role', 'user')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (!lastUserMsg) {
+        spontaneous = 'no_messages'
+      } else {
+        const idleMs = Date.now() - new Date(lastUserMsg.created_at as string).getTime()
+
+        if (idleMs < IDLE_THRESHOLD_MS) {
+          spontaneous = 'active'
+        } else {
+          // Check no pending scheduled proactives (don't double-send)
+          const { count: pendingCount } = await supabase
+            .from('proactive_queue')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user_id)
+            .eq('sent', false)
+
+          if ((pendingCount ?? 0) > 0) {
+            spontaneous = 'pending_exists'
+          } else {
+            // Get user's system prompt
+            const { data: settingsRow } = await supabase
+              .from('user_settings')
+              .select('system_prompt')
+              .eq('user_id', user_id)
+              .maybeSingle()
+
+            const systemPrompt = (settingsRow?.system_prompt as string | null) ?? ''
+
+            // Get last 20 messages from the most recent session
+            const { data: recentMsgs } = await supabase
+              .from('messages')
+              .select('role, content')
+              .eq('session_id', lastUserMsg.session_id)
+              .order('created_at', { ascending: false })
+              .limit(20)
+
+            const contextMessages = (recentMsgs ?? [])
+              .reverse()
+              .map((m) => ({
+                role: m.role as 'user' | 'assistant',
+                content: [{ type: 'text', text: String(m.content ?? '').slice(0, 800) }],
+              }))
+
+            // Build spontaneous system prompt
+            const idleMinutes = Math.round(idleMs / 60000)
+            const spontaneousSystem =
+              systemPrompt +
+              `\n\n---\n你现在处于"主动触达"模式。用户已经 ${idleMinutes} 分钟没有发消息了。` +
+              `\n请根据上面的对话历史，决定是否要主动发一条消息给用户。` +
+              `\n- 如果你觉得合适，直接输出你想发送的消息内容（简短自然，像朋友一样）。` +
+              `\n- 如果你觉得不需要打扰，只输出 NO_SEND（不要输出其他任何内容）。` +
+              `\n不要解释你的决定。`
+
+            const requestBody = {
+              model: model,
+              max_tokens: 512,
+              system: spontaneousSystem,
+              messages: contextMessages.length > 0
+                ? contextMessages
+                : [{ role: 'user', content: [{ type: 'text', text: '（对话开始）' }] }],
+            }
+
+            // Build auth headers matching the Anthropic-native path used by keepalive
+            const headers: Record<string, string> = {
+              'Content-Type': 'application/json',
+              'anthropic-version': '2023-06-01',
+            }
+            if (auth_style === 'bearer') {
+              headers['Authorization'] = `Bearer ${api_key}`
+            } else {
+              headers['x-api-key'] = api_key!
+            }
+
+            try {
+              const endpoint = `${base_url!.replace(/\/$/, '')}/messages`
+              const resp = await fetch(endpoint, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(requestBody),
+              })
+
+              if (!resp.ok) {
+                const errText = await resp.text().catch(() => '')
+                console.warn('spontaneous: API error', resp.status, errText.slice(0, 200))
+                spontaneous = 'api_error'
+              } else {
+                const respJson = await resp.json() as {
+                  content?: Array<{ type: string; text?: string }>
+                }
+                const text = (respJson.content?.[0]?.text ?? '').trim()
+
+                if (!text || text === 'NO_SEND') {
+                  // Set 30min cooldown so we don't hammer the API
+                  const cooldownUntil = new Date(Date.now() + COOLDOWN_AFTER_SKIP_MS).toISOString()
+                  await supabase
+                    .from('cache_keepalive_state')
+                    .update({ proactive_ai_cooldown_until: cooldownUntil })
+                    .eq('user_id', user_id)
+                  spontaneous = 'no_send'
+                } else {
+                  // Insert the spontaneous message
+                  const clientId = `spontaneous-${Date.now()}`
+                  const { error: insertErr } = await supabase.from('messages').insert({
+                    session_id: lastUserMsg.session_id,
+                    user_id,
+                    role: 'assistant',
+                    content: text,
+                    client_id: clientId,
+                    client_created_at: now,
+                    meta: { model: model, provider: 'spontaneous' },
+                  })
+
+                  if (insertErr) {
+                    console.warn('spontaneous: insert failed', insertErr.message)
+                    spontaneous = 'insert_error'
+                  } else {
+                    // Touch session + update keepalive body
+                    await supabase
+                      .from('sessions')
+                      .update({ updated_at: now })
+                      .eq('id', lastUserMsg.session_id)
+
+                    if (ksConfig.body) {
+                      const body = ksConfig.body as Record<string, unknown>
+                      const messages = Array.isArray(body.messages) ? [...body.messages] : []
+                      messages.push({ role: 'assistant', content: [{ type: 'text', text }] })
+                      const cooldownUntil = new Date(Date.now() + COOLDOWN_AFTER_SEND_MS).toISOString()
+                      await supabase
+                        .from('cache_keepalive_state')
+                        .update({ body: { ...body, messages }, proactive_ai_cooldown_until: cooldownUntil })
+                        .eq('user_id', user_id)
+                    } else {
+                      const cooldownUntil = new Date(Date.now() + COOLDOWN_AFTER_SEND_MS).toISOString()
+                      await supabase
+                        .from('cache_keepalive_state')
+                        .update({ proactive_ai_cooldown_until: cooldownUntil })
+                        .eq('user_id', user_id)
+                    }
+
+                    spontaneous = 'sent'
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn('spontaneous: fetch error', String(e).slice(0, 200))
+              spontaneous = 'fetch_error'
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return new Response(JSON.stringify({ dispatched, raced, now, spontaneous }), {
     headers: { 'Content-Type': 'application/json' },
   })
 })
