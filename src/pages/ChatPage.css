@@ -411,11 +411,11 @@
 .sticker-panel__tabs::-webkit-scrollbar { display: none; }
 .sticker-panel__tab {
   flex-shrink: 0;
-  padding: 7px 16px;
+  padding: 10px 22px;
   border-radius: 20px;
   border: 1px solid rgba(15, 23, 42, 0.12);
   background: transparent;
-  font-size: 14px;
+  font-size: 12px;
   color: #6b7280;
   cursor: pointer;
   white-space: nowrap;
