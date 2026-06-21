@@ -7,17 +7,20 @@
 //   3. If claimed: INSERT message, touch session, update keepalive body
 //
 // Spontaneous flow (new, runs after scheduled):
-//   - Triggers when: last msg was scheduled proactive →30min idle / otherwise →1h idle
+//   - Triggers when: last msg was scheduled proactive →30min idle / otherwise →25min idle
 //   - Calls user's real model (Anthropic-native) with recent conversation context
 //   - AI returns either a message to send or "NO_SEND"
-//   - Cooldown: 2h after sending, 30min after NO_SEND / error
+//   - Cooldown: 1h after sending, 30min after NO_SEND / error
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
-const IDLE_THRESHOLD_MS          = 60 * 60 * 1000  // default: 1h silence
+// "Clingy / medium" tuning (2026-06): she reaches out after ~25min of silence
+// instead of an hour, and the post-send cooldown is 1h instead of 2h, so she
+// stays present without spamming. Bumping these up/down dials her clinginess.
+const IDLE_THRESHOLD_MS          = 25 * 60 * 1000  // 25min silence
 const IDLE_THRESHOLD_AFTER_SCH_MS = 30 * 60 * 1000  // after scheduled proactive, no reply: 30min
-const COOLDOWN_AFTER_SEND_MS = 2 * 60 * 60 * 1000
-const COOLDOWN_AFTER_SKIP_MS = 30 * 60 * 1000
+const COOLDOWN_AFTER_SEND_MS = 60 * 60 * 1000   // 1h after sending
+const COOLDOWN_AFTER_SKIP_MS = 30 * 60 * 1000   // 30min after NO_SEND / error
 const ALLOWED_AUTH_STYLES = new Set(['bearer', 'x-api-key'])
 
 Deno.serve(async (req: Request) => {
