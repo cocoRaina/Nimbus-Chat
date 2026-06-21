@@ -333,6 +333,35 @@ App ──→ │ 数据库 · 登录 · 文件 · 记忆搜索 · 定时任务 
 > **MCP 是什么?** Model Context Protocol,一个"让 AI 接外部工具"的标准。Supabase 官方做了一个 MCP 服务器,把它接到你的 AI 客户端,AI 就多了一双手能直接操作你的项目。
 > (这篇教程对应的项目,作者就是让 AI 通过 MCP 部署的 Edge Function——不用自己敲命令。)
 
+### ⚠️ 先分清两件事(最容易搞混,务必看)
+
+很多人会问:"我自己做的网页/App,是不是要靠 MCP 连 Supabase?" —— **不是!** 这是两件完全不同的事,千万别混:
+
+| | 谁在用 | 什么时候 | 用什么连 |
+|---|---|---|---|
+| **MCP** | **你(开发者)+ AI** | **做东西的时候** | MCP 服务器 |
+| **你的 App** | **你做出来的网页/App** | **用户真正使用的时候** | Supabase 客户端库(SDK)+ anon key |
+
+打个比方:
+- **MCP** = 装修时你请的**师傅**。帮你砌墙、改水电(=建表、部署函数)。房子装好了,师傅就走了——**用户住进来不需要师傅。**
+- **App 连 Supabase(SDK)** = 房子里的**水管电线**。住进来之后,日常用水用电(=App 读写数据)走的是这套管线,**跟当初那个师傅没关系。**
+
+所以:
+- MCP **跟你用什么前端框架毫无关系**(React、Vue、纯 HTML、Flutter…都行),它只是"开发时让 AI 帮你管后端"的工具。**谁都能用。**
+- 你的 App 真正连 Supabase,**不靠 MCP**,而是装一个客户端库,用项目网址 + anon key,几行代码:
+
+```js
+import { createClient } from '@supabase/supabase-js'
+const supabase = createClient('https://你的项目.supabase.co', '你的 anon key')
+
+// 读数据
+const { data } = await supabase.from('memories').select('*')
+```
+
+(连 `@supabase/supabase-js` 都不想装的话,纯 HTML 直接发 HTTP 请求也行——Supabase 建完表会**自动**给你一套 API。)
+
+**一句话**:MCP 是给"你 + AI"开发用的;App 连数据库是另一套(SDK + anon key)。两者不冲突,经常同时用——你用 MCP 让 AI 帮你把后端搭好,然后你的 App 用 SDK 去读写它。下面讲怎么连 MCP。
+
 ### 它接上后能干什么
 
 建表 / 改表、跑任意 SQL、部署 Edge Function、看数据、读日志排错、查官方文档…基本上你在网页能干的,变成"跟 AI 说一句"。
