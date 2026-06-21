@@ -97,13 +97,13 @@ cd android && ./gradlew assembleDebug
 Anthropic prompt caching（三锚点断点 + `metadata.user_id` 粘性）、对话压缩、可选 summarizer 省 token。工具迭代全链路缓存命中：所有迭代统一开 thinking + 跨迭代原样回传 thinking block（content + signature），避免工具调用触发冷写（¥1.5 → ¥0.01）。
 → 详见 [docs/caching.md](docs/caching.md)
 
-### 🌤️ 天气 + 每日状态注入
-**每条**用户消息自动附带三类环境信息，通过 `message.meta` 持久化（历史消息保留快照，**不影响 prompt cache 稳定性**，UI 不显示，只塞给 LLM）：
-- **天气**：GPS 定位 → **区级地名**（BigDataCloud 反查，无需 key，精度与天气格点匹配）+ 温度 / 体感（差 ≥3°C 时标注）/ 天气状况（Open-Meteo，无需 key）。天气数据 1 小时缓存、后台静默刷新，每条消息都是最新值，不会锁死早上的天气。
-- **健康快照**：查 `health_data`（昨晚睡眠 + 深/浅/REM 分段 / 步数）+ `period_tracking`（经期状态），格式如 `昨晚睡了 5.5h（深睡 1.2h／REM 1.0h／浅睡 3.3h），步数 2341；经期进行中`；每天注入一次
-- **设备状态**（APK）：当前电量 + 充电状态，格式如 `🔋32% 充电中`；每天注入一次
+### 🌤️ 天气 + 手机状态 + 每日状态注入
+用户消息自动附带环境信息，通过 `message.meta` 持久化（历史消息保留快照，**不影响 prompt cache 稳定性**——都进消息前缀的 BP2 锚点，不碰系统提示词 BP1，UI 不显示，只塞给 LLM）：
+- **天气（每条）**：GPS 定位 → **区级地名**（BigDataCloud 反查，无需 key，精度与天气格点匹配）+ 温度 / 体感（差 ≥3°C 时标注）/ 风速（≥20km/h 时标注）/ 天气状况（Open-Meteo，无需 key）。1 小时缓存、后台静默刷新，每条消息都是最新值，不会锁死早上的天气。
+- **手机状态（每条，APK）**：`[手机] 🔋32%充电中 · 静音 · 蓝牙:AirPods · Wi-Fi`。自定义 `EnvState` 插件本机读取——电量+充电（`@capacitor/device`）、铃声（静音/震动）、音频输出（耳机 / 蓝牙+设备名，名字让模型自己判断耳机 vs 车载）、网络（Wi-Fi/流量/离线，**不读 SSID**）。全本机读取、零 API、不轮询；缓存在挂载 + 每次前台刷新。蓝牙设备名需 `BLUETOOTH_CONNECT`（首次弹一次授权，没给则降级"蓝牙音频"；`getProductName` 守卫在 API 30+，老安卓不崩）。
+- **健康快照（每天一次）**：查 `health_data`（昨晚睡眠 + 深/浅/REM 分段 / 步数）+ `period_tracking`（经期状态），格式如 `昨晚睡了 5.5h（深睡 1.2h／REM 1.0h／浅睡 3.3h），步数 2341；经期进行中`。
 
-Claude 看到这些后能自然地关心"昨晚睡得不太好，今天感觉怎么样"、"浦东新区今天下雨记得带伞"，无需调用任何工具。
+Claude 看到这些后能自然地关心"昨晚睡得不太好，今天感觉怎么样"、"浦东新区今天下雨记得带伞"、"快没电了记得充"、"戴耳机听歌呢"，无需调用任何工具。
 
 ### 🔔 真·主动消息（APK 限定）
 Claude 凭对话气氛自主判断，调 `schedule_proactive_message` 预约未来主动消息（transient 自动取消 / persist 不可取消两类）。本地通知弹横幅 + 服务端 `proactive_dispatch` cron 到点写库兜底（app 关着也照发），消息时间戳用计划时间。
@@ -323,6 +323,7 @@ DB 函数:
 - `POST_NOTIFICATIONS` — Android 13+ 通知权限
 - `CAMERA` + `uses-feature camera(required=false)` — 输入栏 📷 拍照按钮；`required=false` 让无相机的平板也能装
 - `VIBRATE` — `@capacitor/haptics` 震动反馈
+- `BLUETOOTH_CONNECT` — 仅用于读取已连蓝牙音频设备的**名字**（让 AI 分辨耳机 vs 车载），不扫描/不广播/不传数据。Android 12+ 运行时申请，没给则降级为"蓝牙音频"
 - `health.READ_STEPS / READ_SLEEP / READ_HEART_RATE / READ_RESTING_HEART_RATE / READ_DISTANCE / READ_TOTAL_CALORIES_BURNED / READ_OXYGEN_SATURATION` — Health Connect 读取（用户在 Health Connect app 中授权后才生效）
 - `PACKAGE_USAGE_STATS` — 屏幕使用时间。**特殊 AppOp** — 用户必须在系统设置手动开启
 - `QUERY_ALL_PACKAGES` — 让屏幕时间 plugin 拿到其他 app 的显示名（微信 / B站 等）
@@ -339,6 +340,8 @@ DB 函数:
 - `@capacitor/camera` — 附件面板 📷 拍照 / 🖼 相册
 - **自定义 `MediaControl` plugin** — `play_music` 发 `ACTION_VIEW` Intent 拉起网易云 deep link；`control_media` / `get_now_playing` 走媒体会话（有通知使用权时 `MediaController` 精准控制 + 读元数据，无权限时降级 `AudioManager.dispatchMediaKeyEvent`）。配套空壳 `NotificationListenerService`（`NowPlayingListener`）做通知使用权开关
 - **自定义 `ProactivePoll` plugin** — `androidx.work:work-runtime` 周期任务（~15min）轮询 `poll_proactive`，自发主动消息有新内容就弹本地通知，不依赖 FCM/HMS。注意 `build.gradle` 只在 `*CompileClasspath` force `listenablefuture:1.0`（编译侧缺类，运行侧已有完整 guava，全局 force 会撞重复类，见 [changelog](docs/changelog.md)）
+- **自定义 `EnvState` plugin** — 本机读取环境状态注入聊天上下文：铃声（`AudioManager.getRingerMode`）、音频输出 + 蓝牙设备名（`AudioManager.getDevices`，`getProductName` 守卫 API 30+）、网络传输（`ConnectivityManager`，仅 Wi-Fi/流量，不读 SSID）。全同步读取，无后台/无轮询
+- `@capacitor/preferences` — Supabase 登录态的原生持久化存储（杀进程不丢 refresh token，见 `src/supabase/authStorage.ts`）
 
 ---
 
@@ -353,7 +356,8 @@ src/
 │   └── definitions.ts         # 所有 TOOL_* schema 定义（拆出来减肥 App.tsx）
 ├── plugins/
 │   ├── MediaControlPlugin.ts  # 自定义 MediaControl 原生插件 TS 桥（control_media 发媒体键）
-│   └── ProactivePoll.ts       # 自定义 ProactivePoll 原生插件 TS 桥（配置/暂停 WorkManager 后台轮询）
+│   ├── ProactivePoll.ts       # 自定义 ProactivePoll 原生插件 TS 桥（配置/暂停 WorkManager 后台轮询）
+│   └── EnvState.ts            # 自定义 EnvState 原生插件 TS 桥（读铃声/音频输出/网络 + 申请蓝牙名权限）
 ├── hooks/
 │   └── useHomeWidgetData.ts   # 共享 hook：拉今日 health_data / period / 屏幕时间
 ├── api/
@@ -392,6 +396,7 @@ src/
 │   ├── deviceState.ts         # 电量 + 充电 + 屏幕时间汇总（get_device_state 工具用）
 │   ├── healthSync.ts          # Health Connect 拉取 + 按天聚合 + upsert health_data；30min 节流
 │   ├── weather.ts             # GPS → 区级地名（BigDataCloud 反查）+ Open-Meteo 天气；1h 缓存，每条消息注入
+│   ├── envState.ts            # 手机状态快照（电量/铃声/音频/网络）合成一行，每条消息注入；挂载+前台刷新缓存
 │   ├── proactiveNotification.ts  # 本地通知调度 + cancel/re-arm（title 走 assistantPersona）；PendingProactive 带 queueId 对接服务端 proactive_dispatch 兜底
 │   ├── assistantPersona.ts    # 助手显示名（默认"哥哥"，可在聊天 ⚙️ 菜单改）
 │   ├── supabaseSync.ts        # 远程 CRUD（sessions/messages/checkins/overrides）
@@ -406,7 +411,8 @@ src/
 │   ├── imageUpload.ts         # 图片压缩 + Supabase Storage 上传
 │   └── periodWidget.ts        # 把经期数据推给原生桌面小组件（PeriodWidget plugin 桥）
 └── supabase/
-    └── client.ts              # supabase 单例 + 本地配置覆盖
+    ├── client.ts              # supabase 单例 + 本地配置覆盖（客户端重建幂等，避 refresh token 竞态登出）
+    └── authStorage.ts         # 登录态原生持久化适配器（Capacitor Preferences，杀进程不丢 token；web 降级 localStorage）
 
 android/app/src/main/java/com/cocoraina/nimbuschat/
 ├── MainActivity.java          # Capacitor BridgeActivity + 注册自定义 plugin
@@ -420,7 +426,8 @@ android/app/src/main/java/com/cocoraina/nimbuschat/
 ├── MediaControlPlugin.java    # 自定义 plugin：play_music deep link + control_media/get_now_playing（MediaSession 精准控制 + 读当前歌，降级媒体键）
 ├── NowPlayingListener.java    # 空壳 NotificationListenerService：只做通知使用权开关，开了 getActiveSessions() 才返回别家媒体会话
 ├── ProactivePollPlugin.java   # 自定义 plugin：配置/取消 WorkManager PeriodicWorkRequest（15min 轮询）
-└── ProactivePollWorker.java   # WorkManager Worker：POST poll_proactive → 本地通知；since 指针取最后一条 created_at 推进
+├── ProactivePollWorker.java   # WorkManager Worker：POST poll_proactive → 本地通知；since 指针取最后一条 created_at 推进
+└── EnvStatePlugin.java        # 自定义 plugin：本机读铃声/音频输出+蓝牙名/网络传输，注入聊天上下文（全同步读取）
 
 android/app/src/main/res-crab/drawable-nodpi/   # Clawd 螃蟹精灵帧（24 动画×40 帧，独立资源目录，见 build.gradle sourceSets）
 ```
