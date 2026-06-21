@@ -82,9 +82,14 @@ export const subscribeSupabaseConfigChange = (listener: () => void) => {
     listener()
   }
   window.addEventListener(SUPABASE_CONFIG_CHANGED_EVENT, handler)
-  window.addEventListener('storage', handler)
+  // Do NOT listen to 'storage' events: in Capacitor there is only one WebView
+  // window, so storage events should never fire from another document. On some
+  // Android WebView versions localStorage.setItem() (e.g. Supabase token
+  // refresh) incorrectly fires 'storage' in the same window. That causes
+  // refreshSupabaseClient() to create a second competing Supabase client whose
+  // token refresh race invalidates the first client's refresh token → the
+  // first client (which owns onAuthStateChange) emits SIGNED_OUT → login page.
   return () => {
     window.removeEventListener(SUPABASE_CONFIG_CHANGED_EVENT, handler)
-    window.removeEventListener('storage', handler)
   }
 }
