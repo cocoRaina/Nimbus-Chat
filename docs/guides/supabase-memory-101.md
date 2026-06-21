@@ -326,4 +326,68 @@ App ──→ │ 数据库 · 登录 · 文件 · 记忆搜索 · 定时任务 
 
 ---
 
-> 写完这篇你已经掌握了一个完整 AI 记忆库的全部骨架:**表(存) → 向量(按意思找) → 数据库函数(封装搜索) → Edge Function(串起来 + 藏密钥)**,也知道了 Supabase 的能力边界和什么时候该上 VPS。剩下的都是在这副骨架上加肉。祝玩得开心 🎈
+## 11. 进阶福利:用 MCP 让 AI 直接帮你操作 Supabase
+
+前面所有 SQL、建表、部署 Edge Function,你都得自己去网页点。其实有个更爽的方式:**让 AI(Claude、Cursor 等)直接连上你的 Supabase,你说人话它就帮你建表、跑 SQL、部署函数、查日志。**
+
+> **MCP 是什么?** Model Context Protocol,一个"让 AI 接外部工具"的标准。Supabase 官方做了一个 MCP 服务器,把它接到你的 AI 客户端,AI 就多了一双手能直接操作你的项目。
+> (这篇教程对应的项目,作者就是让 AI 通过 MCP 部署的 Edge Function——不用自己敲命令。)
+
+### 它接上后能干什么
+
+建表 / 改表、跑任意 SQL、部署 Edge Function、看数据、读日志排错、查官方文档…基本上你在网页能干的,变成"跟 AI 说一句"。
+
+### 连接三步(以 Claude / Cursor 为例)
+
+**① 拿一个 Personal Access Token(个人访问令牌)**
+
+Supabase 网页右上角头像 → **Account → Access Tokens**(或 Settings 里找 Access Tokens)→ **Generate new token** → 复制存好(**只显示一次**)。
+> ⚠️ 这个 token 等于你整个 Supabase 账号的钥匙,别发给别人、别提交进代码。
+
+**② 找到项目的 Reference ID(项目编号)**
+
+打开项目,看浏览器地址 `https://supabase.com/dashboard/project/`**`xxxxxxxx`** 里那串,就是 project-ref;或 **Project Settings → General → Reference ID**。
+
+**③ 把配置填进 AI 客户端的 MCP 配置文件**
+
+配置长这样(三个客户端格式一样,只是文件位置不同):
+
+```json
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--read-only",
+        "--project-ref=你的项目编号"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "你刚复制的token"
+      }
+    }
+  }
+}
+```
+
+放哪个文件:
+| 客户端 | 配置文件 |
+|---|---|
+| **Claude Desktop** | 设置 → Developer → Edit Config(`claude_desktop_config.json`) |
+| **Cursor** | 项目根目录建 `.cursor/mcp.json`,或设置里的 MCP 面板 |
+| **Claude Code(命令行)** | 跑 `claude mcp add`,或编辑 `.mcp.json` |
+
+填好**重启客户端**,就连上了。之后直接跟 AI 说"帮我在 memories 表加一列 tags"、"把这个 Edge Function 部署上去",它就动手。
+
+### 两个安全要点(重要)
+
+- **先用 `--read-only`**:加上这个参数,AI **只能读不能改**(查数据、看结构、排错都行,但删不了你的表)。等你信得过了再去掉。新手强烈建议先只读。
+- **用 `--project-ref` 锁死单个项目**:AI 的手只能伸到这一个项目,碰不到你账号里别的项目,炸了也只炸这一个。
+- **别让它读不可信内容**:MCP 让 AI 能执行操作,如果你把它指向陌生人的数据/留言,理论上有"提示词注入"风险(内容里藏指令骗 AI 乱操作)。自己的项目、自己掌控的数据,放心用。
+
+> 小白建议:**先 `--read-only` + 锁单项目**起步。让 AI 帮你看表、写 SQL、解释报错,你复制去网页执行;熟了再开放写权限让它直接动手。
+
+---
+
+> 写完这篇你已经掌握了一个完整 AI 记忆库的全部骨架:**表(存) → 向量(按意思找) → 数据库函数(封装搜索) → Edge Function(串起来 + 藏密钥)**,也知道了 Supabase 的能力边界、什么时候该上 VPS,还学会了用 MCP 让 AI 直接帮你干活。剩下的都是在这副骨架上加肉。祝玩得开心 🎈
