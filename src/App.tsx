@@ -1328,6 +1328,7 @@ const App = () => {
                 feelsLikeC: weatherSnap.feelsLikeC,
                 condition: weatherSnap.condition,
                 ...(weatherSnap.city ? { city: weatherSnap.city } : {}),
+                ...(weatherSnap.windKmh > 0 ? { windKmh: weatherSnap.windKmh } : {}),
               },
             }
           : {}),
@@ -1779,8 +1780,11 @@ const App = () => {
                 ? ` 体感${weatherMeta.feelsLikeC}°C`
                 : ''
             const weatherCityPrefix = weatherMeta?.city ? `${weatherMeta.city} ` : ''
+            const weatherWindSuffix = weatherMeta?.windKmh && weatherMeta.windKmh >= 20
+              ? ` 风速${weatherMeta.windKmh}km/h`
+              : ''
             const weatherStr = weatherMeta
-              ? ` [当时天气] ${weatherCityPrefix}${weatherMeta.temperatureC}°C ${weatherMeta.condition}${weatherFeelSuffix}`
+              ? ` [当时天气] ${weatherCityPrefix}${weatherMeta.temperatureC}°C ${weatherMeta.condition}${weatherFeelSuffix}${weatherWindSuffix}`
               : ''
             const healthMeta = message.role === 'user' ? message.meta?.healthSnapshot : undefined
             const deviceMeta = message.role === 'user' ? message.meta?.deviceSnapshot : undefined
@@ -3270,6 +3274,7 @@ TOOL_SEARCH_HANDOFF,
                 feelsLikeC: weatherSnap.feelsLikeC,
                 condition: weatherSnap.condition,
                 ...(weatherSnap.city ? { city: weatherSnap.city } : {}),
+                ...(weatherSnap.windKmh > 0 ? { windKmh: weatherSnap.windKmh } : {}),
               },
             }
           : {}),
