@@ -98,7 +98,12 @@ public class EnvStatePlugin extends Plugin {
                     } else if (t == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
                             || t == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
                         bt = true;
-                        if (btName == null && hasBluetoothPerm()) {
+                        // getProductName() is API 30 (Android 11)+. minSdk is 26,
+                        // so guard it — calling it on 8–10 (common on older
+                        // Huawei) would NoSuchMethodError. Below 30 we just
+                        // report unnamed "蓝牙音频".
+                        if (btName == null && hasBluetoothPerm()
+                                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                             CharSequence name = d.getProductName();
                             if (name != null) {
                                 String n = name.toString().trim();
