@@ -122,7 +122,7 @@ const reverseGeocodeCity = async (lat: number, lon: number): Promise<string | nu
       locality?: string
       principalSubdivision?: string
     }
-    const name = d.city?.trim() || d.locality?.trim() || d.principalSubdivision?.trim()
+    const name = d.locality?.trim() || d.city?.trim() || d.principalSubdivision?.trim()
     return name && name.length > 0 ? name : null
   } catch {
     return null
