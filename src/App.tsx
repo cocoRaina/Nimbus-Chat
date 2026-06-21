@@ -1274,26 +1274,18 @@ const App = () => {
       )
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
-      // Snapshot current weather (if cached) only on the day's first
-      // user message — Claude doesn't need to see it on every turn,
-      // and it keeps the prompt cleaner. Per-day tracker in localStorage.
-      // If the weather changes later in the day, Claude can fall back to
-      // the web_search tool to grab a fresh reading instead of relying
-      // on this morning snapshot.
-      const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
-      const WEATHER_DATE_KEY = 'nimbus_weather_injected_date'
-      const lastWeatherDate = typeof window !== 'undefined'
-        ? window.localStorage.getItem(WEATHER_DATE_KEY)
-        : null
-      const shouldInjectWeather = lastWeatherDate !== todayCN
-      const weatherSnap = shouldInjectWeather ? peekCachedWeather() : null
-      if (weatherSnap && typeof window !== 'undefined') {
-        window.localStorage.setItem(WEATHER_DATE_KEY, todayCN)
-      }
+      // Inject weather on every user message from the 1-hour cache (no
+      // extra network call — the mount effect keeps the cache warm).
+      // Previously this was once-per-day: morning weather was locked in all
+      // day, so afternoon rain showed as "sunny". Now each message carries
+      // the current cached reading; when the cache refreshes (hourly) the
+      // next message automatically reflects the updated conditions.
+      const weatherSnap = peekCachedWeather()
 
       // Health + device snapshot — injected once per day on the first message,
       // same pattern as weather. Claude naturally notices sleep/steps/period/battery
       // without needing to call any tool.
+      const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
       const HEALTH_DATE_KEY = 'nimbus_health_injected_date'
       const lastHealthDate = typeof window !== 'undefined'
         ? window.localStorage.getItem(HEALTH_DATE_KEY)
@@ -1780,8 +1772,13 @@ const App = () => {
             const imageAttachments = messageAttachments.filter((a) => a.type === 'image')
             const stamp = message.role === 'user' ? formatStamp(message.createdAt) : ''
             const weatherMeta = message.role === 'user' ? message.meta?.weather : undefined
+            const weatherFeelSuffix =
+              weatherMeta?.feelsLikeC !== undefined &&
+              Math.abs(weatherMeta.temperatureC - weatherMeta.feelsLikeC) >= 3
+                ? ` 体感${weatherMeta.feelsLikeC}°C`
+                : ''
             const weatherStr = weatherMeta
-              ? ` [当时天气] ${weatherMeta.temperatureC}°C ${weatherMeta.condition}`
+              ? ` [当时天气] ${weatherMeta.temperatureC}°C ${weatherMeta.condition}${weatherFeelSuffix}`
               : ''
             const healthMeta = message.role === 'user' ? message.meta?.healthSnapshot : undefined
             const deviceMeta = message.role === 'user' ? message.meta?.deviceSnapshot : undefined
@@ -3261,14 +3258,7 @@ TOOL_SEARCH_HANDOFF,
     ) => {
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
-      const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
-      const WEATHER_DATE_KEY = 'nimbus_weather_injected_date'
-      const lastWeatherDate =
-        typeof window !== 'undefined' ? window.localStorage.getItem(WEATHER_DATE_KEY) : null
-      const weatherSnap = lastWeatherDate !== todayCN ? peekCachedWeather() : null
-      if (weatherSnap && typeof window !== 'undefined') {
-        window.localStorage.setItem(WEATHER_DATE_KEY, todayCN)
-      }
+      const weatherSnap = peekCachedWeather()
       const userMeta: ChatMessage['meta'] = {
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(weatherSnap

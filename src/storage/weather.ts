@@ -83,7 +83,7 @@ const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | nu
       const pos = await Geolocation.getCurrentPosition({
         enableHighAccuracy: false,
         timeout: 8000,
-        maximumAge: 60 * 60 * 1000,
+        maximumAge: 30 * 60 * 1000,
       })
       return { lat: pos.coords.latitude, lon: pos.coords.longitude }
     } catch (err) {
@@ -96,7 +96,7 @@ const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | nu
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
       () => resolve(null),
-      { timeout: 5000, maximumAge: 60 * 60 * 1000 },
+      { timeout: 5000, maximumAge: 30 * 60 * 1000 },
     )
   })
 }
