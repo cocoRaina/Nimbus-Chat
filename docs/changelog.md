@@ -80,6 +80,30 @@
 
 ---
 
+## 2026-06-21
+
+### 自发叫醒消息：列名写错，从来没真正触发过（关键修）
+
+`proactive_dispatch` 的自发叫醒分支查 `cache_keepalive_state` 时 `select` 了**两个不存在的列** `api_key`、`model`。PostgREST 对不存在的列**静默返回 null**，于是 `validRouting=false`，每次都走 `spontaneous='bad_routing'` 提前返回——**从来没有真正调用过 AI**。用户「说了话也不主动叫醒」就是这个原因。
+
+- **根因**：真正的 API key 列叫 `openrouter_key`（历史命名，见 `cache_keepalive`），模型名在 `body.model` 里，没有独立的 `api_key`/`model` 列。
+- **修**：`select` 改 `openrouter_key`，`model` 从 `body.model` 取。
+- **实弹验证**（用 `pg_net` 从 SQL 复刻整条自发请求打中转站，读 `usage`）：`status 200` + `cache_read_input_tokens=29208` + `cache_creation_input_tokens=0`——**缓存命中、零冷写**，每次自发约 ¥0.05–0.1（热读），不烧钱。模型正常返回 `NO_SEND`/消息。之前看到的 `no_send` 是 AI 正常决策、不是报错。
+
+### 自发 vs 定时消息「双发撞车」（防御性修）
+
+每分钟的 `send_proactive_push` 会抢先把 `proactive_queue` 到期行标 `sent=true`，导致 `proactive_dispatch` 里 `dispatched` 恒为 0、那个「刚发过定时消息就跳过自发」的 `dispatched>0` 守卫失效，理论上会「定时推送 + 自发」连发。修：发自发前额外查「最近 30min 内 `fire_at` 已触发的队列行」，有就 `spontaneous='recent_scheduled'` 跳过。
+> 注：经查 `send_proactive_push` 的 cron（job 1 `send-proactive-pushes`）**5/30 起 `active=false` 已停用**（FCM 推送退役，改用 WorkManager `poll_proactive` 轮询），所以这个撞车当前不会真发生，修复是留作防御。
+
+### Firebase 私钥从硬编码挪进 Secrets
+
+`send_proactive_push` 里内联了整把 Firebase service-account 私钥（`Deno.env.get(...) ?? '<硬编码>'`），且该函数源码**从未进仓库**（只在 Supabase 上）。改：私钥移到 `FIREBASE_PRIVATE_KEY` Edge Function secret（已设并用「换 Google token 成功」验证），源码删钥后纳入仓库；`config.toml` 给它固定 `verify_jwt=false`（它的 cron caller 发的是空 Bearer，`supabase.service_role_key` GUC 在本项目取不到值，默认 `true` 会 401）。CI 部署后 Supabase 上的明文私钥也清掉了（v5）。
+
+### 复查旧修复：memories 有 11 条 embedding 缺失（补）
+
+顺手核验「最近修的东西」时发现 `memories` 表 11 行 `embedding IS NULL`（其余 diaries/letters/timeline/posts/replies 全 0）。不是异步延迟——9 条来自 6/19、2 条来自 6/9，早过窗口。和 6/16–6/19 日记缺嵌入同源：embedding key 删除窗口期 auto_embed 静默失败，当时补了日记**漏了 memories**。这些（偏好/规则/情感等）语义搜索**完全搜不到**。`auto_embed_memory` 触发器逻辑是 `embedding IS NULL AND content IS NOT NULL` 才发，所以 `UPDATE memories SET content=content WHERE embedding IS NULL` 即可重新触发补嵌入。补完 58/58 全部命中。
+> 隐患：embedding key 一旦中断，失败行会**永久 null** 直到有人手动重试，没有自动兜底。可考虑加个 cron 周期性给 null embedding 补嵌入。
+
 ## 2026-06-20
 
 ### 自发主动消息：命中 BP1 缓存 + 今日门（改）
