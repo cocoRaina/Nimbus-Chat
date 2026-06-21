@@ -159,21 +159,22 @@ Deno.serve(async (req: Request) => {
   // that has API config (this function is called per-project, single-user assumed).
   const { data: ksConfig } = await supabase
     .from('cache_keepalive_state')
-    .select('user_id, base_url, api_key, auth_style, model, body, proactive_ai_cooldown_until')
+    .select('user_id, base_url, openrouter_key, auth_style, body, proactive_ai_cooldown_until')
     .maybeSingle()
 
   if (!ksConfig) {
     spontaneous = 'no_config'
   } else {
-    const { user_id, base_url, api_key, auth_style, model, proactive_ai_cooldown_until } = ksConfig as {
+    const { user_id, base_url, openrouter_key, auth_style, proactive_ai_cooldown_until } = ksConfig as {
       user_id: string
       base_url: string | null
-      api_key: string | null
+      openrouter_key: string | null
       auth_style: string | null
-      model: string | null
       body: Record<string, unknown> | null
       proactive_ai_cooldown_until: string | null
     }
+    const api_key = openrouter_key
+    const model = ((ksConfig.body as Record<string, unknown> | null)?.model as string | null) ?? null
 
     // Validate routing: must be Anthropic-native path (https:// base_url, valid auth_style)
     const validRouting =
