@@ -86,7 +86,8 @@
 
 `proactive_dispatch` 的"叫醒"调用(自发主动消息)两处优化:
 
-1. **命中缓存**:原来重新从 `user_settings.system_prompt` 拼纯文本 system,全价计费。改为复用 `cache_keepalive_state.body.system`(已带 `cache_control` 的 BP1 块),后面追加一个**不带缓存**的自发指令块(沉默分钟数等易变内容)。保活每 55min 续命、自发在静默 1h 后触发,缓存必热,命中率接近 100%,Opus 下每次省约 20%。首次冷启动(`body.system` 为空)回退到 `user_settings` 查询。
+1. **命中缓存**:原来重新从 `user_settings.system_prompt` 拼纯文本 system,全价计费。改为**复用整个 `cache_keepalive_state.body`**(保活 ping 每 55min 刷的那条热缓存的原始 body),只替换 system 末尾追加块 + messages。保活每 55min 续命、自发在静默 1h 后触发,缓存必热,命中率接近 100%,Opus 下每次省约 20%。首次冷启动(`body` 为空)回退到 `user_settings` 纯文本(无 `cache_control`,不冷写)。
+   - **⚠️ 关键修(同日)**:第一版只复用了 `body.system`,**漏了 `tools`/`thinking`/`metadata.user_id`**。这三者都是缓存键的一部分(tools 在缓存前缀里、thinking 开/关是两条独立链、user_id 做粘性路由),漏掉 → 前缀对不上热缓存 → **不命中**;而复用的 system 又带着 `cache_control` → 反而**冷写 ¥1.5**,比原来纯字符串(不带 cache_control、不冷写)更糟。修法:复用**完整 body**,保留 `tools` 但加 `tool_choice:{type:'none'}` 强制出文字(这个组合 caching §7 验证过仍命中);`max_tokens` 缓存中性,按 thinking budget 放宽到 `budget+1024`(adaptive/无 thinking 给 1024)。
 2. **今日门**:和 `cache_keepalive` 同款逻辑——只有当天 08:00(北京)后有过用户消息才触发自发。`lastUserMsg.created_at < todayWakingStartMs` 则 `spontaneous='not_active_today'`,不调 API。防止昨晚最后一条消息导致清晨被自动叫醒,也确保不会拿隔夜状态触发计费。
 
 ### 自发主动消息本地通知:WorkManager 后台轮询(新)

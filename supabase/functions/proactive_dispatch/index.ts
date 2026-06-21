@@ -265,11 +265,9 @@ Deno.serve(async (req: Request) => {
             }
             const contextMessages = [...history, triggerTurn]
 
-            // Build system: reuse the cached BP1 blocks from keepalive body so the
-            // cache_control hit carries over (keepalive fires at T=55min, wake-up at
-            // T=60min → cache is always warm). Append a non-cached block for the
-            // spontaneous-mode instructions (volatile: idle minutes changes every run).
-            // Fall back to querying user_settings if the keepalive body is absent.
+            // Volatile per-run instruction block: appended AFTER the cached system
+            // so it never disturbs the cache_control prefix (idle minutes changes
+            // every run, so it must stay outside the cached bytes).
             const idleMinutes = Math.round(idleMs / 60000)
             const spontaneousBlock = {
               type: 'text',
@@ -281,28 +279,62 @@ Deno.serve(async (req: Request) => {
                 `\n不要解释你的决定。`,
             }
 
-            const ksBodySystem = (ksConfig.body as Record<string, unknown> | null)?.system
-            let spontaneousSystem: unknown
-            if (Array.isArray(ksBodySystem) && ksBodySystem.length > 0) {
-              // Happy path: spread cached BP1 blocks (cache_control intact) then
-              // append the non-cached spontaneous block.
-              spontaneousSystem = [...ksBodySystem, spontaneousBlock]
+            // Reuse the FULL keepalive body so EVERY cache-key component matches
+            // the warm lineage the keepalive ping refreshes every ~55min: tools
+            // (part of the cached prefix — dropping them changes the key), system
+            // (with its cache_control breakpoints), thinking/budget (a thinking-ful
+            // vs thinking-less request lands on DISJOINT cache lineages, measured),
+            // and metadata.user_id (sticky upstream routing). We only swap in the
+            // spontaneous system tail + the trigger messages. Sending a bare system
+            // without tools/thinking would MISS the warm cache and — because system
+            // still carries cache_control — COLD-WRITE ~¥1.5 each run, the opposite
+            // of the optimization. See docs/caching.md + docs/changelog.md.
+            const ksBody = ksConfig.body as Record<string, unknown> | null
+            const ksBodySystem = ksBody?.system
+            let requestBody: Record<string, unknown>
+            if (ksBody && Array.isArray(ksBodySystem) && ksBodySystem.length > 0) {
+              requestBody = {
+                ...ksBody,
+                system: [...ksBodySystem, spontaneousBlock],
+                messages: contextMessages,
+                stream: false,
+              }
+              delete requestBody.reasoning
+              delete requestBody.usage
+              // Keep `tools` (cache prefix) but forbid calls so the model emits a
+              // text decision instead of a tool_use. tool_choice is NOT part of the
+              // cache key (proven by the tool-iteration fix), so this keeps the hit.
+              if (Array.isArray(requestBody.tools) && (requestBody.tools as unknown[]).length > 0) {
+                requestBody.tool_choice = { type: 'none' }
+              } else {
+                delete requestBody.tool_choice
+              }
+              // max_tokens is cache-key-neutral, so size it freely: extended
+              // thinking requires max_tokens > budget_tokens, with headroom for a
+              // short reply. Adaptive / no-thinking: a modest cap is plenty. The
+              // budget is a ceiling, not a target — the model self-limits on a
+              // trivial "should I message?" decision, so cost stays ~¥0.1.
+              const th = requestBody.thinking as { type?: string; budget_tokens?: number } | undefined
+              requestBody.max_tokens =
+                th?.type === 'enabled' && typeof th.budget_tokens === 'number'
+                  ? th.budget_tokens + 1024
+                  : 1024
             } else {
-              // Fallback: no cached body yet (first run / cold start).
+              // Fallback: no warm keepalive body yet (first run / cold start).
+              // Plain-string system → NO cache_control → no cold-write risk, just
+              // a small full-price request.
               const { data: settingsRow } = await supabase
                 .from('user_settings')
                 .select('system_prompt')
                 .eq('user_id', user_id)
                 .maybeSingle()
               const systemPrompt = (settingsRow?.system_prompt as string | null) ?? ''
-              spontaneousSystem = systemPrompt + spontaneousBlock.text
-            }
-
-            const requestBody = {
-              model: model,
-              max_tokens: 512,
-              system: spontaneousSystem,
-              messages: contextMessages,
+              requestBody = {
+                model: model,
+                max_tokens: 1024,
+                system: systemPrompt + spontaneousBlock.text,
+                messages: contextMessages,
+              }
             }
 
             // Build auth headers matching the Anthropic-native path used by keepalive
