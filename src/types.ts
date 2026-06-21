@@ -44,6 +44,9 @@ export type ChatMessage = {
     }
     healthSnapshot?: string
     deviceSnapshot?: string
+    // Per-message ambient phone state: battery + charging + ringer + audio
+    // output + Wi-Fi/cellular, e.g. "🔋32%充电中 · 静音 · 蓝牙:AirPods · Wi-Fi".
+    envSnapshot?: string
     tool_calls?: Array<{
       name: string
       args: unknown

@@ -78,6 +78,8 @@ import {
 import { recordUsage } from './storage/usageStats'
 import { maybeAutoSyncHealth, syncHealthDataToSupabase } from './storage/healthSync'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
+import { peekEnvSnapshot, refreshEnvSnapshot } from './storage/envState'
+import { requestBluetoothName } from './plugins/EnvState'
 import { getDeviceState } from './storage/deviceState'
 import { runSandboxCode } from './storage/sandbox'
 import {
@@ -728,6 +730,14 @@ const App = () => {
     return () => window.clearInterval(id)
   }, [])
 
+  // Warm the ambient phone-state snapshot (battery / ringer / audio / network)
+  // on mount, and ask once for BLUETOOTH_CONNECT so the bluetooth device name
+  // (earbuds vs car) is readable. Refreshed again on every foreground below.
+  useEffect(() => {
+    void requestBluetoothName()
+    void refreshEnvSnapshot()
+  }, [])
+
   useEffect(() => {
     if (!supabase) {
       setUser(null)
@@ -841,6 +851,9 @@ const App = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()
+        // Refresh ambient phone state so the next message carries current
+        // battery / ringer / headphones / network.
+        void refreshEnvSnapshot()
         // Cancel notification while user is in the app (no in-app popup).
         void cancelProactiveNotification()
         // Advance the background-poll pointer so spontaneous messages the user
@@ -1289,10 +1302,14 @@ const App = () => {
       // the current cached reading; when the cache refreshes (hourly) the
       // next message automatically reflects the updated conditions.
       const weatherSnap = peekCachedWeather()
+      // Ambient phone state (battery/charging/ringer/audio/network) — injected
+      // on every message like weather, from the cache warmed on mount/foreground.
+      const envSnap = peekEnvSnapshot()
 
-      // Health + device snapshot — injected once per day on the first message,
-      // same pattern as weather. Claude naturally notices sleep/steps/period/battery
-      // without needing to call any tool.
+      // Health snapshot — injected once per day on the first message, same
+      // pattern as weather. Claude naturally notices sleep/steps/period without
+      // needing to call any tool. (Battery moved into the per-message env
+      // snapshot above so it stays fresh instead of being a morning value.)
       const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
       const HEALTH_DATE_KEY = 'nimbus_health_injected_date'
       const lastHealthDate = typeof window !== 'undefined'
@@ -1300,7 +1317,6 @@ const App = () => {
         : null
       const shouldInjectHealth = lastHealthDate !== todayCN
       let healthSnap: string | null = null
-      let deviceSnap: string | null = null
       if (shouldInjectHealth) {
         // On APK, force a Health Connect sync before reading the snapshot so
         // sleep data from last night is already in Supabase when we query.
@@ -1316,14 +1332,6 @@ const App = () => {
           if (typeof window !== 'undefined') {
             window.localStorage.setItem(HEALTH_DATE_KEY, todayCN)
           }
-        }
-        if (Capacitor.getPlatform() !== 'web') {
-          try {
-            const ds = await getDeviceState()
-            if (ds.battery_percent !== null) {
-              deviceSnap = `🔋${ds.battery_percent}%${ds.is_charging ? ' 充电中' : ''}`
-            }
-          } catch { /* non-fatal */ }
         }
       }
 
@@ -1341,7 +1349,7 @@ const App = () => {
             }
           : {}),
         ...(healthSnap ? { healthSnapshot: healthSnap } : {}),
-        ...(deviceSnap ? { deviceSnapshot: deviceSnap } : {}),
+        ...(envSnap ? { envSnapshot: envSnap } : {}),
       }
       const optimisticMessage: ChatMessage = {
         id: clientId,
@@ -1794,13 +1802,17 @@ const App = () => {
             const weatherStr = weatherMeta
               ? ` [当时天气] ${weatherCityPrefix}${weatherMeta.temperatureC}°C ${weatherMeta.condition}${weatherFeelSuffix}${weatherWindSuffix}`
               : ''
+            const envMeta = message.role === 'user' ? message.meta?.envSnapshot : undefined
+            const envStr = envMeta ? ` [手机] ${envMeta}` : ''
             const healthMeta = message.role === 'user' ? message.meta?.healthSnapshot : undefined
+            // deviceSnapshot kept for backward-compat with messages written
+            // before battery moved into the per-message env snapshot.
             const deviceMeta = message.role === 'user' ? message.meta?.deviceSnapshot : undefined
             const statusParts = [healthMeta, deviceMeta].filter(Boolean)
             const statusStr = statusParts.length > 0
               ? `\n[TA 今日状态] ${statusParts.join('；')}`
               : ''
-            const prefix = stamp ? `[当前时间] ${stamp}${weatherStr}${statusStr}\n\n` : ''
+            const prefix = stamp ? `[当前时间] ${stamp}${weatherStr}${envStr}${statusStr}\n\n` : ''
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []
               const textContent = `${prefix}${message.content}`
@@ -3273,6 +3285,7 @@ TOOL_SEARCH_HANDOFF,
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
       const weatherSnap = peekCachedWeather()
+      const envSnap = peekEnvSnapshot()
       const userMeta: ChatMessage['meta'] = {
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(weatherSnap
@@ -3286,6 +3299,7 @@ TOOL_SEARCH_HANDOFF,
               },
             }
           : {}),
+        ...(envSnap ? { envSnapshot: envSnap } : {}),
       }
       const clientCreatedAtIso = clientCreatedAt
       const optimisticMessage: ChatMessage = {

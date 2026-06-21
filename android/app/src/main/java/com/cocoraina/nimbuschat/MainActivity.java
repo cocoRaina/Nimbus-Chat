@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(PeriodWidgetPlugin.class);
         registerPlugin(MediaControlPlugin.class);
         registerPlugin(ProactivePollPlugin.class);
+        registerPlugin(EnvStatePlugin.class);
         super.onCreate(savedInstanceState);
         handleShareIntent(getIntent());
     }

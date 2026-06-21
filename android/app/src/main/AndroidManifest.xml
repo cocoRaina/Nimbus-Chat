@@ -123,6 +123,12 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
 
+    <!-- Bluetooth: only to read the connected audio device's NAME so the AI
+         context can tell earbuds from a car stereo. We never scan, advertise,
+         or transfer data. Runtime-requested on Android 12+; on older versions
+         it isn't a runtime permission and the name is read freely. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
     <!-- Haptics: VIBRATE is normal-protection (auto-granted) but
          declared so the Capacitor plugin's runtime check doesn't warn,
          and so future migration to USE_VIBRATE_PERMISSION (Android 13+)
