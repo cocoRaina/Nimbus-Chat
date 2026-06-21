@@ -48,8 +48,30 @@ const emitConfigChange = () => {
   window.dispatchEvent(new CustomEvent(SUPABASE_CONFIG_CHANGED_EVENT))
 }
 
+const sameConfig = (
+  a: SupabaseLocalConfig | null,
+  b: SupabaseLocalConfig | null,
+): boolean => {
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.url === b.url && a.anonKey === b.anonKey
+}
+
+// Recreate the client ONLY when the resolved URL/anonKey actually changed.
+// Recreating it is destructive: the old instance keeps its onAuthStateChange
+// subscription and its autoRefresh timer alive, so a second instance sharing
+// the same localStorage token races the first on Supabase's single-use refresh
+// token. The loser gets "Invalid Refresh Token: Already Used" and emits
+// SIGNED_OUT → the app drops to the login page. Making this a no-op when the
+// config is unchanged means a spurious trigger (stray event, double call)
+// can never orphan the live client or start a refresh race.
 const refreshSupabaseClient = () => {
-  currentResolved = resolveConfig()
+  const next = resolveConfig()
+  if (supabase && sameConfig(next.config, currentResolved.config)) {
+    currentResolved = next
+    return
+  }
+  currentResolved = next
   supabase = createSupabaseFromConfig(currentResolved.config)
 }
 
