@@ -903,13 +903,21 @@ const App = () => {
     // on Android WebView for detecting foreground/background transitions.
     const appStateSubPromise = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       if (isActive) {
+        // Resume token auto-refresh now we're foreground. Paired with the
+        // stopAutoRefresh below: not refreshing in the background means the
+        // refresh token is never rotated right before Android kills the
+        // process, so the on-disk token is always the valid current one and
+        // the next cold start can refresh cleanly (no surprise logout).
+        void supabase?.auth.startAutoRefresh()
         // Coming to foreground — cancel notification + check pending
         handleVisibilityChange()
       } else {
-        // Going to background — re-arm the local notification with
-        // remaining time so it fires while the user is away. Persist
-        // alarms (wake-up etc.) are kept on their own notification ID
-        // and storage, so handle them in parallel.
+        // Going to background — stop auto-refresh so no token rotation can be
+        // left unflushed when the OS kills us (see startAutoRefresh above).
+        void supabase?.auth.stopAutoRefresh()
+        // Re-arm the local notification with remaining time so it fires while
+        // the user is away. Persist alarms (wake-up etc.) are kept on their own
+        // notification ID and storage, so handle them in parallel.
         const transientPending = readPendingProactive()
         if (transientPending && Date.now() < transientPending.fireAt) {
           void scheduleProactiveNotification(

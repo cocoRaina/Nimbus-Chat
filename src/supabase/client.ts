@@ -5,6 +5,7 @@ import {
   saveLocalSupabaseConfig,
   type SupabaseLocalConfig,
 } from '../storage/supabaseConfig'
+import { supabaseAuthStorage } from './authStorage'
 
 type SupabaseConfigSource = 'local' | 'env' | 'none'
 
@@ -34,6 +35,12 @@ const createSupabaseFromConfig = (config: SupabaseLocalConfig | null): SupabaseC
     auth: {
       detectSessionInUrl: true,
       persistSession: true,
+      // Durable native session storage (Capacitor Preferences) so a rotated
+      // refresh token survives an app-process kill — see authStorage.ts. Falls
+      // back to localStorage on web. No custom storageKey: keep Supabase's
+      // default (sb-<ref>-auth-token) so the one-time migration in the adapter
+      // reads the same key the previous build wrote to localStorage.
+      storage: supabaseAuthStorage,
     },
   })
 }
