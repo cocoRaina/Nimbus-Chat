@@ -1,7 +1,18 @@
 # Read by `supabase functions deploy` in CI (.github/workflows/deploy-functions.yml).
-# Only auto_embed needs verify_jwt disabled — it's invoked by a pg_net DB trigger
-# (INSERT → embed) that doesn't send a user JWT, so a default verify_jwt=true would
-# 401 the trigger and silently stop embedding new rows. Every other function does
-# its own getUser() check and keeps the CLI default verify_jwt=true.
+# Most functions do their own getUser() check and keep the CLI default
+# verify_jwt=true. The two exceptions below are invoked WITHOUT a user JWT:
+#
+# - auto_embed: invoked by a pg_net DB trigger (INSERT → embed) that sends no
+#   JWT, so a default verify_jwt=true would 401 the trigger and silently stop
+#   embedding new rows.
+# - send_proactive_push: invoked only by pg_cron (job "send-proactive-pushes")
+#   whose Authorization header is an empty Bearer (the supabase.service_role_key
+#   GUC is unset on this project). verify_jwt=true would 401 it. NOTE: this cron
+#   is currently inactive (FCM push retired in favour of the WorkManager
+#   poll_proactive path) — this entry just preserves the function's original
+#   verify_jwt=false so re-enabling the cron won't break.
 [functions.auto_embed]
+verify_jwt = false
+
+[functions.send_proactive_push]
 verify_jwt = false
