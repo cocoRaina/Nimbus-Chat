@@ -39,6 +39,7 @@ export type ChatMessage = {
       temperatureC: number
       condition: string
       feelsLikeC?: number
+      city?: string
     }
     healthSnapshot?: string
     deviceSnapshot?: string

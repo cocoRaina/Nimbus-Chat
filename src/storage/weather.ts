@@ -101,6 +101,34 @@ const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | nu
   })
 }
 
+// Reverse-geocode a coordinate to a human city name. BigDataCloud's
+// reverse-geocode-client endpoint is genuinely key-free and CORS-enabled
+// (built for browser use), unlike Nominatim which needs a custom User-Agent
+// the browser won't let us set. Best-effort: any failure returns null and the
+// weather still works without a city. Only called on a cache miss (hourly
+// background warm), never on the send path, so it adds no send latency.
+const reverseGeocodeCity = async (lat: number, lon: number): Promise<string | null> => {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 4000)
+    const url =
+      `https://api.bigdatacloud.net/data/reverse-geocode-client` +
+      `?latitude=${lat}&longitude=${lon}&localityLanguage=zh`
+    const r = await fetch(url, { signal: controller.signal })
+    clearTimeout(timer)
+    if (!r.ok) return null
+    const d = (await r.json()) as {
+      city?: string
+      locality?: string
+      principalSubdivision?: string
+    }
+    const name = d.city?.trim() || d.locality?.trim() || d.principalSubdivision?.trim()
+    return name && name.length > 0 ? name : null
+  } catch {
+    return null
+  }
+}
+
 export const fetchCurrentWeather = async (
   cityOverride?: { lat: number; lon: number; city?: string },
 ): Promise<WeatherSnapshot | null> => {
@@ -126,13 +154,18 @@ export const fetchCurrentWeather = async (
     }
     const c = data.current
     if (!c) return cached ?? null
+    // For GPS readings, resolve the city name too. cityOverride already
+    // carries its own label, so only reverse-geocode the GPS path.
+    const city = cityOverride
+      ? ('city' in cityOverride ? (cityOverride.city ?? null) : null)
+      : await reverseGeocodeCity(coords.lat, coords.lon)
     const snap: WeatherSnapshot = {
       fetchedAt: Date.now(),
       temperatureC: Math.round(c.temperature_2m ?? 0),
       feelsLikeC: Math.round(c.apparent_temperature ?? 0),
       condition: WEATHER_CODE_LABEL[c.weather_code ?? -1] ?? '未知天气',
       windKmh: Math.round(c.wind_speed_10m ?? 0),
-      city: (cityOverride && 'city' in cityOverride ? cityOverride.city : null) ?? null,
+      city,
       lat: coords.lat,
       lon: coords.lon,
     }

@@ -1327,6 +1327,7 @@ const App = () => {
                 temperatureC: weatherSnap.temperatureC,
                 feelsLikeC: weatherSnap.feelsLikeC,
                 condition: weatherSnap.condition,
+                ...(weatherSnap.city ? { city: weatherSnap.city } : {}),
               },
             }
           : {}),
@@ -1777,8 +1778,9 @@ const App = () => {
               Math.abs(weatherMeta.temperatureC - weatherMeta.feelsLikeC) >= 3
                 ? ` 体感${weatherMeta.feelsLikeC}°C`
                 : ''
+            const weatherCityPrefix = weatherMeta?.city ? `${weatherMeta.city} ` : ''
             const weatherStr = weatherMeta
-              ? ` [当时天气] ${weatherMeta.temperatureC}°C ${weatherMeta.condition}${weatherFeelSuffix}`
+              ? ` [当时天气] ${weatherCityPrefix}${weatherMeta.temperatureC}°C ${weatherMeta.condition}${weatherFeelSuffix}`
               : ''
             const healthMeta = message.role === 'user' ? message.meta?.healthSnapshot : undefined
             const deviceMeta = message.role === 'user' ? message.meta?.deviceSnapshot : undefined
@@ -3267,6 +3269,7 @@ TOOL_SEARCH_HANDOFF,
                 temperatureC: weatherSnap.temperatureC,
                 feelsLikeC: weatherSnap.feelsLikeC,
                 condition: weatherSnap.condition,
+                ...(weatherSnap.city ? { city: weatherSnap.city } : {}),
               },
             }
           : {}),
