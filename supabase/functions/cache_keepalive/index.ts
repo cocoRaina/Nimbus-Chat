@@ -182,8 +182,11 @@ Deno.serve(async (req) => {
     //      max_tokens: 1.
     //   4. keep `tools` + `system` + `messages` + `metadata` + `provider`
     //      + `model` — they're all part of the cache prefix key.
-    //   5. drop OpenAI-specific leftovers (usage, tool_choice) just in
-    //      case App.tsx stored a body that still carried them.
+    //   5. keep `tool_choice` — it IS part of the Anthropic cache key.
+    //      Deleting it previously caused a cache-key mismatch vs the real
+    //      chat (which sends {type:'auto'}) → cold write on every ping.
+    //      `usage` and `reasoning` are dropped defensively (they're OpenAI
+    //      response fields that shouldn't appear in a stored Anthropic body).
     //
     // Defensive shape check: any row written before the
     // anthropic-native conversion shipped (or written by a rolled-back
@@ -215,8 +218,13 @@ Deno.serve(async (req) => {
       ...row.body,
       stream: false,
     }
+    // row.body is already Anthropic-native (converted by App.tsx before upsert).
+    // `reasoning` and `usage` are OpenAI-specific response fields that should
+    // never appear in a stored Anthropic body, but delete them defensively.
+    // `tool_choice` must NOT be deleted — the stored body carries it in
+    // Anthropic format ({type:'auto'}) which IS part of the cache key. Removing
+    // it caused a key mismatch vs the real chat → cold write on every ping.
     delete pingBody.reasoning
-    delete pingBody.tool_choice
     delete pingBody.usage
     // Keep `thinking`; size max_tokens to satisfy extended thinking's
     // max_tokens > budget_tokens rule while capping output. Adaptive thinking
