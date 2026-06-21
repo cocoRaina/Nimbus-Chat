@@ -10,5 +10,33 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": [
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__get_logs",
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__list_projects",
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__get_edge_function",
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__list_edge_functions",
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__list_tables",
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__get_project",
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__get_project_url",
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__get_advisors",
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__list_migrations",
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__list_extensions",
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__get_cost",
+      "mcp__08053c26-806e-4ad7-921c-25bff832ae0e__get_publishable_keys",
+      "mcp__github__actions_list",
+      "mcp__github__actions_get",
+      "mcp__github__pull_request_read",
+      "mcp__github__list_pull_requests",
+      "mcp__github__list_commits",
+      "mcp__github__get_commit",
+      "mcp__github__get_file_contents",
+      "mcp__github__list_branches",
+      "mcp__github__search_code",
+      "mcp__github__issue_read",
+      "mcp__github__list_issues",
+      "mcp__github__get_me"
+    ]
   }
 }
