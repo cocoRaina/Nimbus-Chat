@@ -227,15 +227,34 @@ Deno.serve(async (req: Request) => {
         } else if (idleMs < idleThreshold) {
           spontaneous = 'active'
         } else {
-          // Check no pending scheduled proactives (don't double-send)
+          // Don't stack a spontaneous message on top of a scheduled one.
+          // Two cases to avoid:
+          //  (a) a scheduled proactive is still pending (sent=false) — it will
+          //      fire imminently; let it, don't pre-empt with spontaneous.
+          //  (b) a scheduled proactive already fired very recently. This
+          //      function rarely delivers scheduled messages itself: the
+          //      every-minute send_proactive_push usually claims the queue row
+          //      (sets sent=true) and pushes it first, so `dispatched` here is 0
+          //      and the `dispatched > 0` guard above never trips. Checking
+          //      recently-fired rows directly closes that race so the user never
+          //      gets a scheduled push and a spontaneous message back-to-back.
+          const recentFiredCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
           const { count: pendingCount } = await supabase
             .from('proactive_queue')
             .select('id', { count: 'exact', head: true })
             .eq('user_id', user_id)
             .eq('sent', false)
+          const { count: recentFiredCount } = await supabase
+            .from('proactive_queue')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user_id)
+            .gt('fire_at', recentFiredCutoff)
+            .lte('fire_at', now)
 
           if ((pendingCount ?? 0) > 0) {
             spontaneous = 'pending_exists'
+          } else if ((recentFiredCount ?? 0) > 0) {
+            spontaneous = 'recent_scheduled'
           } else {
             // Get last 20 messages from the most recent session
             const { data: recentMsgs } = await supabase
