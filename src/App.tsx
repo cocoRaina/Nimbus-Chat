@@ -6,6 +6,7 @@ import AuthPage from './pages/AuthPage'
 import SessionsDrawer from './components/SessionsDrawer'
 import type { ChatMessage, ChatSession, UserSettings } from './types'
 import { usePendingShare } from './hooks/useShareReceiver'
+import { hydrateTtsConfig } from './storage/ttsConfig'
 import {
   addMessage,
   createSession,
@@ -523,6 +524,14 @@ const App = () => {
     ...feedAiConfigBase,
     model: resolveModelId('syzygy', { defaultModelId }),
   }), [defaultModelId, feedAiConfigBase])
+  // Restore the durable (Capacitor Preferences) TTS config into the sync
+  // localStorage mirror on every app/WebView load, so chat voice bubbles and
+  // the settings page see what was actually saved even if a recent localStorage
+  // write was lost to an Android background kill.
+  useEffect(() => {
+    void hydrateTtsConfig()
+  }, [])
+
   useEffect(() => {
     sessionsRef.current = sessions
   }, [sessions])

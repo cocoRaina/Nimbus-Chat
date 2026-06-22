@@ -39,7 +39,7 @@ import {
   saveSandboxEndpoint,
   saveSandboxToken,
 } from '../storage/sandbox'
-import { getTtsConfig, saveTtsConfig, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
+import { getTtsConfig, saveTtsConfig, hydrateTtsConfig, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
 const TTS_MODELS = ['speech-2.8-turbo', 'speech-2.8-hd']
 const EL_MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_turbo_v2_5']
 import {
@@ -125,6 +125,12 @@ const SettingsPage = ({
     setTtsDraft((d) => ({ ...d, ...patch }))
     saveTtsConfig(patch)
     setTtsStatus('saved')
+  }, [])
+  // On native, the WebView's localStorage may have dropped a recent write; pull
+  // the durable Preferences copy back into the sync mirror, then refresh the
+  // draft so re-opening this page shows what was actually saved.
+  useEffect(() => {
+    void hydrateTtsConfig().then(() => setTtsDraft(getTtsConfig()))
   }, [])
   const [sandboxSectionExpanded, setSandboxSectionExpanded] = useState(false)
   const [sandboxEndpointInput, setSandboxEndpointInput] = useState(() => getSandboxEndpoint())
