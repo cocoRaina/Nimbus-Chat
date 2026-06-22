@@ -39,7 +39,7 @@ import {
   saveSandboxEndpoint,
   saveSandboxToken,
 } from '../storage/sandbox'
-import { getTtsConfig, saveTtsConfig, DEFAULT_TTS_BASE, type TtsProvider } from '../storage/ttsConfig'
+import { getTtsConfig, saveTtsConfig, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
 const TTS_MODELS = ['speech-2.8-turbo', 'speech-2.8-hd']
 const EL_MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_turbo_v2_5']
 import {
@@ -116,6 +116,16 @@ const SettingsPage = ({
   const [ttsDraft, setTtsDraft] = useState(() => getTtsConfig())
   const [ttsApiKeyVisible, setTtsApiKeyVisible] = useState(false)
   const [ttsStatus, setTtsStatus] = useState<'idle' | 'saved'>('idle')
+  // Write-through: persist each TTS field to localStorage as it changes, not
+  // only on the Save click. Filling these often means alt-tabbing to ElevenLabs
+  // to copy the key/voice id; Android can reclaim the WebView in the background
+  // and reload, wiping any draft that lived only in React state. Saving on every
+  // change means a reload re-reads the same values instead of losing them.
+  const patchTts = useCallback((patch: Partial<TtsConfig>) => {
+    setTtsDraft((d) => ({ ...d, ...patch }))
+    saveTtsConfig(patch)
+    setTtsStatus('saved')
+  }, [])
   const [sandboxSectionExpanded, setSandboxSectionExpanded] = useState(false)
   const [sandboxEndpointInput, setSandboxEndpointInput] = useState(() => getSandboxEndpoint())
   const [sandboxTokenInput, setSandboxTokenInput] = useState(() => getSandboxToken())
@@ -1151,14 +1161,14 @@ const SettingsPage = ({
               <input
                 type="checkbox"
                 checked={ttsDraft.enabled}
-                onChange={(e) => { setTtsDraft((d) => ({ ...d, enabled: e.target.checked })); setTtsStatus('idle') }}
+                onChange={(e) => patchTts({ enabled: e.target.checked })}
               />
               <span>开启语音条</span>
             </label>
 
             <label htmlFor="tts-provider">供应商</label>
             <select id="tts-provider" value={ttsDraft.provider}
-              onChange={(e) => { setTtsDraft((d) => ({ ...d, provider: e.target.value as TtsProvider })); setTtsStatus('idle') }}>
+              onChange={(e) => patchTts({ provider: e.target.value as TtsProvider })}>
               <option value="minimax">MiniMax（中文最稳·按量便宜）</option>
               <option value="elevenlabs">ElevenLabs（最真实·会笑会叹气·免费档够轻量用）</option>
             </select>
@@ -1167,12 +1177,12 @@ const SettingsPage = ({
               <>
                 <label htmlFor="tts-el-voice-id">Voice ID</label>
                 <input id="tts-el-voice-id" type="text" value={ttsDraft.elVoiceId}
-                  onChange={(e) => { setTtsDraft((d) => ({ ...d, elVoiceId: e.target.value })); setTtsStatus('idle') }}
+                  onChange={(e) => patchTts({ elVoiceId: e.target.value })}
                   placeholder="从 ElevenLabs 语音库复制（如 21m00Tcm...）" />
                 <label htmlFor="tts-el-api-key">API Key</label>
                 <div className="model-select-row">
                   <input id="tts-el-api-key" type={ttsApiKeyVisible ? 'text' : 'password'} value={ttsDraft.elApiKey}
-                    onChange={(e) => { setTtsDraft((d) => ({ ...d, elApiKey: e.target.value })); setTtsStatus('idle') }}
+                    onChange={(e) => patchTts({ elApiKey: e.target.value })}
                     placeholder="sk_...（仅存本地）" />
                   <button type="button" className="ghost small" onClick={() => setTtsApiKeyVisible((v) => !v)}>
                     {ttsApiKeyVisible ? '隐藏' : '显示'}
@@ -1180,7 +1190,7 @@ const SettingsPage = ({
                 </div>
                 <label htmlFor="tts-el-model">模型</label>
                 <select id="tts-el-model" value={ttsDraft.elModel}
-                  onChange={(e) => { setTtsDraft((d) => ({ ...d, elModel: e.target.value })); setTtsStatus('idle') }}>
+                  onChange={(e) => patchTts({ elModel: e.target.value })}>
                   {(EL_MODELS.includes(ttsDraft.elModel) ? EL_MODELS : [ttsDraft.elModel, ...EL_MODELS]).map((m) => (
                     <option key={m} value={m}>
                       {
@@ -1197,7 +1207,7 @@ const SettingsPage = ({
                 </select>
                 <label htmlFor="tts-el-stability">情绪稳定度（{ttsDraft.elStability}）</label>
                 <select id="tts-el-stability" value={String(ttsDraft.elStability)}
-                  onChange={(e) => { setTtsDraft((d) => ({ ...d, elStability: Number(e.target.value) })); setTtsStatus('idle') }}>
+                  onChange={(e) => patchTts({ elStability: Number(e.target.value) })}>
                   <option value="0">0 · Creative（最放飞·最有情绪）</option>
                   <option value="0.5">0.5 · Natural（自然·推荐）</option>
                   <option value="1">1 · Robust（最稳·像念稿）</option>
@@ -1208,12 +1218,12 @@ const SettingsPage = ({
               <>
                 <label htmlFor="tts-voice-id">Voice ID</label>
                 <input id="tts-voice-id" type="text" value={ttsDraft.voiceId}
-                  onChange={(e) => { setTtsDraft((d) => ({ ...d, voiceId: e.target.value })); setTtsStatus('idle') }}
+                  onChange={(e) => patchTts({ voiceId: e.target.value })}
                   placeholder="moss_audio_..." />
                 <label htmlFor="tts-api-key">API Key</label>
                 <div className="model-select-row">
                   <input id="tts-api-key" type={ttsApiKeyVisible ? 'text' : 'password'} value={ttsDraft.apiKey}
-                    onChange={(e) => { setTtsDraft((d) => ({ ...d, apiKey: e.target.value })); setTtsStatus('idle') }}
+                    onChange={(e) => patchTts({ apiKey: e.target.value })}
                     placeholder="MiniMax API Key（仅存本地）" />
                   <button type="button" className="ghost small" onClick={() => setTtsApiKeyVisible((v) => !v)}>
                     {ttsApiKeyVisible ? '隐藏' : '显示'}
@@ -1221,16 +1231,16 @@ const SettingsPage = ({
                 </div>
                 <label htmlFor="tts-group-id">GroupId（MiniMax 控制台，可能必填）</label>
                 <input id="tts-group-id" type="text" value={ttsDraft.groupId}
-                  onChange={(e) => { setTtsDraft((d) => ({ ...d, groupId: e.target.value })); setTtsStatus('idle') }}
+                  onChange={(e) => patchTts({ groupId: e.target.value })}
                   placeholder="留空先试，报错再填" />
                 <label htmlFor="tts-base-url">Base URL</label>
                 <input id="tts-base-url" type="text" value={ttsDraft.baseUrl}
-                  onChange={(e) => { setTtsDraft((d) => ({ ...d, baseUrl: e.target.value })); setTtsStatus('idle') }}
+                  onChange={(e) => patchTts({ baseUrl: e.target.value })}
                   placeholder={DEFAULT_TTS_BASE} />
                 <span className="settings-hint">国际版 {DEFAULT_TTS_BASE}；国内账号用 https://api.minimaxi.com</span>
                 <label htmlFor="tts-model">模型</label>
                 <select id="tts-model" value={ttsDraft.model}
-                  onChange={(e) => { setTtsDraft((d) => ({ ...d, model: e.target.value })); setTtsStatus('idle') }}>
+                  onChange={(e) => patchTts({ model: e.target.value })}>
                   {(TTS_MODELS.includes(ttsDraft.model) ? TTS_MODELS : [ttsDraft.model, ...TTS_MODELS]).map((m) => (
                     <option key={m} value={m}>
                       {
@@ -1247,14 +1257,8 @@ const SettingsPage = ({
             )}
 
             <div className="system-prompt-actions">
-              <button type="button" className="primary"
-                onClick={() => { saveTtsConfig(ttsDraft); setTtsStatus('saved') }}
-                disabled={ttsDraft.provider === 'elevenlabs'
-                  ? (!ttsDraft.elVoiceId.trim() || !ttsDraft.elApiKey.trim())
-                  : (!ttsDraft.voiceId.trim() || !ttsDraft.apiKey.trim())}>
-                保存
-              </button>
-              {ttsStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
+              <span className="settings-hint">改动会即时自动保存到本地，切到别的 App 复制 Key 再回来也不会丢。</span>
+              {ttsStatus === 'saved' ? <span className="system-prompt-status">已自动保存</span> : null}
             </div>
           </div>
         ) : null}
