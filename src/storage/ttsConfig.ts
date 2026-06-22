@@ -207,3 +207,23 @@ export const isTtsReady = (c: TtsConfig = getTtsConfig()): boolean => {
     ? c.elApiKey.length > 0 && c.elVoiceId.length > 0
     : c.apiKey.length > 0 && c.voiceId.length > 0
 }
+
+// System-prompt section appended when voice is configured, so the model knows
+// how to "speak". Per the user's ElevenLabs v3 setup, voice lines must be in
+// ENGLISH and may carry English audio tags ([laughs] etc.) — never Chinese
+// tags. Empty when TTS isn't ready (then [voice] just degrades to text). Like
+// buildStickerSystemSection, this is stable within a session so it doesn't
+// disturb prompt caching.
+export const buildVoiceSystemSection = (c: TtsConfig = getTtsConfig()): string => {
+  if (!isTtsReady(c)) return ''
+  const tags = c.provider === 'elevenlabs'
+    ? ' 你可以加入英文语气标签来"表演"，例如 [laughs] [giggles] [sighs] [whispers] [excited] [sad] [gasps] [clears throat] 等；标签必须是英文，绝不要写中文标签（如 [笑]、[叹气]），否则不生效。'
+    : ''
+  return (
+    '\n\n## 语音（重要）\n' +
+    '当你用 `[voice]…[/voice]` 发语音时，括起来要"说出口"的话**必须用英文**，不要用中文。' +
+    tags +
+    ' 正经的长内容、列表、代码仍用普通文字（可中文，非语音）。一条消息里可以混用语音和文字。'
+  )
+}
+

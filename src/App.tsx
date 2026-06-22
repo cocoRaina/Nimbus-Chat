@@ -6,7 +6,7 @@ import AuthPage from './pages/AuthPage'
 import SessionsDrawer from './components/SessionsDrawer'
 import type { ChatMessage, ChatSession, UserSettings } from './types'
 import { usePendingShare } from './hooks/useShareReceiver'
-import { hydrateTtsConfig } from './storage/ttsConfig'
+import { hydrateTtsConfig, buildVoiceSystemSection } from './storage/ttsConfig'
 import {
   addMessage,
   createSession,
@@ -1194,7 +1194,7 @@ const App = () => {
         ? '\n\n【工具 = 真实动作，必须真调用】当你打算"待会提醒她 / 晚点联系她 / 叫她起床 / 到点喊她"时，必须真的调用 schedule_proactive_message 工具，拿到 ok 才算数。只在回复里说"我设置好了 / 待会提醒你"却没调用工具，是无效的——不会真的发出任何提醒，她也收不到。放歌、记录健康/经期等同理：先真的调用对应工具，再用你的语气说话。'
         : ''
       const systemPrompt =
-        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + toolActionReminder
+        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + buildVoiceSystemSection() + toolActionReminder
       const isFirstMessageInSession = !messagesRef.current.some(
         (message) =>
           message.sessionId === sessionId &&
