@@ -3,18 +3,23 @@ import { Preferences } from '@capacitor/preferences'
 
 // TTS config. Two providers, fields stored separately so switching between
 // them doesn't clobber either's settings. Keys live only on-device (like the
-// other API keys) — never committed, only sent to our own `tts` edge function
-// which relays to the chosen provider.
+// other API keys) — never committed, only sent to our own `tts` edge function.
 //
-// Storage: on native (Capacitor Android) the WebView's localStorage does NOT
-// reliably flush a *recent* write to disk before the app is backgrounded /
-// killed / the WebView is reclaimed — the same hazard documented in
-// supabase/authStorage.ts. A TTS key the user just typed would survive in
-// memory for the current session but vanish on the next cold start / reload.
-// So we write through to Capacitor Preferences (native SharedPreferences, which
-// commits durably) AND keep a synchronous localStorage mirror for fast reads.
-// `hydrateTtsConfig()` pulls Preferences → localStorage on app/WebView load so
-// the durable value is always in the sync cache before anything reads it.
+// Storage layering (and why it's not just localStorage):
+//   1. `mem` — a module-level in-memory cache, the SYNCHRONOUS source of truth.
+//      getTtsConfig()/isTtsReady() read this, so they never depend on
+//      localStorage succeeding.
+//   2. Capacitor Preferences (native SharedPreferences) — the DURABLE store on
+//      Android. Survives background kills, unlike a not-yet-flushed localStorage
+//      write (same hazard handled in supabase/authStorage.ts).
+//   3. localStorage — a best-effort web mirror, written in a try/catch.
+//
+// The localStorage layer is deliberately fault-tolerant: the WebView's
+// localStorage can be FULL (QuotaExceededError) from chat caches etc., and a
+// raw setItem there throws. Earlier that thrown quota error aborted the whole
+// save before the durable Preferences write ran — which is exactly why typed
+// keys silently refused to persist. Now localStorage failures are swallowed and
+// Preferences + mem still get the value.
 const K = {
   provider: 'nimbus_tts_provider',
   enabled: 'nimbus_tts_enabled',
@@ -33,6 +38,9 @@ const K = {
 
 const ALL_KEYS = Object.values(K)
 const isNative = Capacitor.isNativePlatform()
+
+// Synchronous in-memory source of truth (see header).
+const mem: Record<string, string> = {}
 
 export type TtsProvider = 'minimax' | 'elevenlabs'
 
@@ -59,15 +67,31 @@ export type TtsConfig = {
   elStability: number
 }
 
-const read = (k: string): string => {
-  if (typeof window === 'undefined') return ''
-  return window.localStorage.getItem(k)?.trim() ?? ''
+// Best-effort localStorage write; never throws (it may be full / disabled).
+const safeLocalSet = (k: string, v: string) => {
+  try {
+    if (typeof window !== 'undefined') window.localStorage.setItem(k, v)
+  } catch { /* quota exceeded / private mode — mem + Preferences still hold it */ }
 }
 
-// Write one key to the synchronous localStorage mirror AND, on native, to the
-// durable Preferences store (fire-and-forget; the mirror is what reads hit).
+const safeLocalGet = (k: string): string | null => {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage.getItem(k) : null
+  } catch { return null }
+}
+
+// Read prefers the in-memory cache; falls back to localStorage (pre-hydrate /
+// web). Empty string in mem is a real "cleared" value and is honoured.
+const read = (k: string): string => {
+  const v = k in mem ? mem[k] : (safeLocalGet(k) ?? '')
+  return v.trim()
+}
+
+// Write one key everywhere: mem (sync), localStorage (best-effort), and — on
+// native — durable Preferences (fire-and-forget for autosave).
 const writeKey = (k: string, v: string) => {
-  if (typeof window !== 'undefined') window.localStorage.setItem(k, v)
+  mem[k] = v
+  safeLocalSet(k, v)
   if (isNative) void Preferences.set({ key: k, value: v })
 }
 
@@ -117,52 +141,58 @@ const toPairs = (c: TtsConfig): [string, string][] => [
   [K.elStability, String(c.elStability)],
 ]
 
-// Explicit, AWAITED save used by the Save button. Unlike saveTtsConfig's
-// fire-and-forget native write, this resolves only after every value has been
-// committed to native Preferences (durable on Android) — so when the "已保存"
-// confirmation shows, the data is guaranteed on disk, even if the app is killed
-// the moment after.
+// Explicit, AWAITED save used by the Save button. Resolves only after every
+// value is committed to native Preferences (durable) — so when "已保存" shows,
+// the data is guaranteed on disk even if the app is killed the moment after.
+// localStorage failures (full quota) are swallowed; they don't block the save.
 export const commitTtsConfig = async (c: TtsConfig): Promise<void> => {
-  const pairs = toPairs(c)
-  if (typeof window !== 'undefined') {
-    for (const [k, v] of pairs) window.localStorage.setItem(k, v)
+  for (const [k, v] of toPairs(c)) {
+    mem[k] = v
+    safeLocalSet(k, v)
   }
-  if (isNative) await Promise.all(pairs.map(([k, v]) => Preferences.set({ key: k, value: v })))
+  if (isNative) await Promise.all(toPairs(c).map(([k, v]) => Preferences.set({ key: k, value: v })))
 }
 
-// Pull the durable Preferences copy into the synchronous localStorage mirror.
-// Call once on every app / WebView load BEFORE reading TTS config, so a value
-// that localStorage dropped (unflushed write lost to a background kill) is
-// restored from native storage. No-op on web (localStorage persists fine there).
-// Also migrates any pre-existing localStorage-only value INTO Preferences so the
-// first run after shipping this doesn't lose what was already entered.
+// Load the durable copy into the in-memory cache on every app / WebView load,
+// BEFORE anything reads TTS config. No-op semantics on web (reads localStorage
+// into mem). Also migrates any pre-existing localStorage-only value into the
+// durable store so shipping this doesn't lose what was already entered.
 export const hydrateTtsConfig = async (): Promise<void> => {
-  if (!isNative || typeof window === 'undefined') return
+  if (typeof window === 'undefined') return
+  if (!isNative) {
+    for (const k of ALL_KEYS) {
+      const v = safeLocalGet(k)
+      if (v !== null) mem[k] = v
+    }
+    return
+  }
   await Promise.all(
     ALL_KEYS.map(async (k) => {
       const { value } = await Preferences.get({ key: k })
       if (value !== null) {
-        window.localStorage.setItem(k, value)
+        mem[k] = value
+        safeLocalSet(k, value)
         return
       }
       // Nothing durable yet — adopt any legacy localStorage value.
-      const legacy = window.localStorage.getItem(k)
-      if (legacy !== null) await Preferences.set({ key: k, value: legacy })
+      const legacy = safeLocalGet(k)
+      if (legacy !== null) {
+        mem[k] = legacy
+        await Preferences.set({ key: k, value: legacy })
+      }
     }),
   )
 }
 
 // Diagnostic: read the active provider's voice id + api key back from the
 // DURABLE store (Preferences on native, localStorage on web) and report their
-// lengths. Lets the settings UI prove whether a save actually landed on disk —
-// 0/0 means the write failed; non-zero means storage is fine and any remaining
-// problem is elsewhere (display / [voice] tags / enable toggle).
+// lengths, so the settings UI can prove whether a save actually landed.
 export const readbackTtsActive = async (): Promise<{
   native: boolean; provider: TtsProvider; voiceLen: number; keyLen: number
 }> => {
   const getDurable = async (k: string): Promise<string> => {
     if (isNative) return ((await Preferences.get({ key: k })).value ?? '').trim()
-    return (typeof window !== 'undefined' ? window.localStorage.getItem(k) ?? '' : '').trim()
+    return (safeLocalGet(k) ?? '').trim()
   }
   const provider = (await getDurable(K.provider)) === 'elevenlabs' ? 'elevenlabs' : 'minimax'
   const voice = provider === 'elevenlabs' ? await getDurable(K.elVoiceId) : await getDurable(K.voiceId)
