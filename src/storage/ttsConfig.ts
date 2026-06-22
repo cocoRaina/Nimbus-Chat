@@ -102,6 +102,34 @@ export const saveTtsConfig = (c: Partial<TtsConfig>) => {
   if (c.elStability !== undefined) writeKey(K.elStability, String(c.elStability))
 }
 
+// Full config → the [key, value] pairs we persist.
+const toPairs = (c: TtsConfig): [string, string][] => [
+  [K.provider, c.provider],
+  [K.enabled, c.enabled ? '1' : '0'],
+  [K.apiKey, c.apiKey.trim()],
+  [K.groupId, c.groupId.trim()],
+  [K.voiceId, c.voiceId.trim()],
+  [K.baseUrl, c.baseUrl.trim()],
+  [K.model, c.model.trim()],
+  [K.elApiKey, c.elApiKey.trim()],
+  [K.elVoiceId, c.elVoiceId.trim()],
+  [K.elModel, c.elModel.trim()],
+  [K.elStability, String(c.elStability)],
+]
+
+// Explicit, AWAITED save used by the Save button. Unlike saveTtsConfig's
+// fire-and-forget native write, this resolves only after every value has been
+// committed to native Preferences (durable on Android) — so when the "已保存"
+// confirmation shows, the data is guaranteed on disk, even if the app is killed
+// the moment after.
+export const commitTtsConfig = async (c: TtsConfig): Promise<void> => {
+  const pairs = toPairs(c)
+  if (typeof window !== 'undefined') {
+    for (const [k, v] of pairs) window.localStorage.setItem(k, v)
+  }
+  if (isNative) await Promise.all(pairs.map(([k, v]) => Preferences.set({ key: k, value: v })))
+}
+
 // Pull the durable Preferences copy into the synchronous localStorage mirror.
 // Call once on every app / WebView load BEFORE reading TTS config, so a value
 // that localStorage dropped (unflushed write lost to a background kill) is

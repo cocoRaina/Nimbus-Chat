@@ -39,7 +39,7 @@ import {
   saveSandboxEndpoint,
   saveSandboxToken,
 } from '../storage/sandbox'
-import { getTtsConfig, saveTtsConfig, hydrateTtsConfig, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
+import { getTtsConfig, saveTtsConfig, commitTtsConfig, hydrateTtsConfig, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
 const TTS_MODELS = ['speech-2.8-turbo', 'speech-2.8-hd']
 const EL_MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_turbo_v2_5']
 import {
@@ -115,7 +115,7 @@ const SettingsPage = ({
   const [ttsSectionExpanded, setTtsSectionExpanded] = useState(false)
   const [ttsDraft, setTtsDraft] = useState(() => getTtsConfig())
   const [ttsApiKeyVisible, setTtsApiKeyVisible] = useState(false)
-  const [ttsStatus, setTtsStatus] = useState<'idle' | 'saved'>('idle')
+  const [ttsStatus, setTtsStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   // Write-through: persist each TTS field to localStorage as it changes, not
   // only on the Save click. Filling these often means alt-tabbing to ElevenLabs
   // to copy the key/voice id; Android can reclaim the WebView in the background
@@ -1263,9 +1263,17 @@ const SettingsPage = ({
             )}
 
             <div className="system-prompt-actions">
-              <span className="settings-hint">改动会即时自动保存到本地，切到别的 App 复制 Key 再回来也不会丢。</span>
-              {ttsStatus === 'saved' ? <span className="system-prompt-status">已自动保存</span> : null}
+              <button type="button" className="primary"
+                disabled={ttsStatus === 'saving'}
+                onClick={() => {
+                  setTtsStatus('saving')
+                  void commitTtsConfig(ttsDraft).then(() => setTtsStatus('saved'))
+                }}>
+                {ttsStatus === 'saving' ? '保存中…' : '保存'}
+              </button>
+              {ttsStatus === 'saved' ? <span className="system-prompt-status">已保存 ✓</span> : null}
             </div>
+            <span className="settings-hint">边填边会自动保存；填完点一下「保存」更稳妥（确保写进系统存储，关 App 也不丢）。</span>
           </div>
         ) : null}
       </section>
