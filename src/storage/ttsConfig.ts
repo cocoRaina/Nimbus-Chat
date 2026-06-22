@@ -152,6 +152,24 @@ export const hydrateTtsConfig = async (): Promise<void> => {
   )
 }
 
+// Diagnostic: read the active provider's voice id + api key back from the
+// DURABLE store (Preferences on native, localStorage on web) and report their
+// lengths. Lets the settings UI prove whether a save actually landed on disk —
+// 0/0 means the write failed; non-zero means storage is fine and any remaining
+// problem is elsewhere (display / [voice] tags / enable toggle).
+export const readbackTtsActive = async (): Promise<{
+  native: boolean; provider: TtsProvider; voiceLen: number; keyLen: number
+}> => {
+  const getDurable = async (k: string): Promise<string> => {
+    if (isNative) return ((await Preferences.get({ key: k })).value ?? '').trim()
+    return (typeof window !== 'undefined' ? window.localStorage.getItem(k) ?? '' : '').trim()
+  }
+  const provider = (await getDurable(K.provider)) === 'elevenlabs' ? 'elevenlabs' : 'minimax'
+  const voice = provider === 'elevenlabs' ? await getDurable(K.elVoiceId) : await getDurable(K.voiceId)
+  const key = provider === 'elevenlabs' ? await getDurable(K.elApiKey) : await getDurable(K.apiKey)
+  return { native: isNative, provider, voiceLen: voice.length, keyLen: key.length }
+}
+
 // Ready = turned on AND the active provider has the minimum to make a call.
 export const isTtsReady = (c: TtsConfig = getTtsConfig()): boolean => {
   if (!c.enabled) return false

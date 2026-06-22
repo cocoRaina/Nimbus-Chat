@@ -39,7 +39,7 @@ import {
   saveSandboxEndpoint,
   saveSandboxToken,
 } from '../storage/sandbox'
-import { getTtsConfig, saveTtsConfig, commitTtsConfig, hydrateTtsConfig, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
+import { getTtsConfig, saveTtsConfig, commitTtsConfig, hydrateTtsConfig, readbackTtsActive, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
 const TTS_MODELS = ['speech-2.8-turbo', 'speech-2.8-hd']
 const EL_MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_turbo_v2_5']
 import {
@@ -116,6 +116,11 @@ const SettingsPage = ({
   const [ttsDraft, setTtsDraft] = useState(() => getTtsConfig())
   const [ttsApiKeyVisible, setTtsApiKeyVisible] = useState(false)
   const [ttsStatus, setTtsStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  // Diagnostic readback after Save: what the durable store actually holds.
+  const [ttsCheck, setTtsCheck] = useState<
+    { native: boolean; provider: string; voiceLen: number; keyLen: number } | null
+  >(null)
+  const [ttsError, setTtsError] = useState<string | null>(null)
   // Write-through: persist each TTS field to localStorage as it changes, not
   // only on the Save click. Filling these often means alt-tabbing to ElevenLabs
   // to copy the key/voice id; Android can reclaim the WebView in the background
@@ -1267,12 +1272,32 @@ const SettingsPage = ({
                 disabled={ttsStatus === 'saving'}
                 onClick={() => {
                   setTtsStatus('saving')
-                  void commitTtsConfig(ttsDraft).then(() => setTtsStatus('saved'))
+                  setTtsError(null)
+                  setTtsCheck(null)
+                  void (async () => {
+                    try {
+                      await commitTtsConfig(ttsDraft)
+                      // Read it straight back out of durable storage to prove it landed.
+                      setTtsCheck(await readbackTtsActive())
+                      setTtsStatus('saved')
+                    } catch (e) {
+                      setTtsError(e instanceof Error ? e.message : String(e))
+                      setTtsStatus('idle')
+                    }
+                  })()
                 }}>
                 {ttsStatus === 'saving' ? '保存中…' : '保存'}
               </button>
               {ttsStatus === 'saved' ? <span className="system-prompt-status">已保存 ✓</span> : null}
             </div>
+            {ttsCheck ? (
+              <span className="settings-hint">
+                存储自检 → 原生存储:{ttsCheck.native ? '开' : '关(localStorage)'}｜
+                供应商:{ttsCheck.provider}｜Voice ID:{ttsCheck.voiceLen}位｜API Key:{ttsCheck.keyLen}位
+                {ttsCheck.voiceLen > 0 && ttsCheck.keyLen > 0 ? '（已落盘✓）' : '（写入失败❌）'}
+              </span>
+            ) : null}
+            {ttsError ? <span className="voice-bar__err">保存出错：{ttsError}</span> : null}
             <span className="settings-hint">边填边会自动保存；填完点一下「保存」更稳妥（确保写进系统存储，关 App 也不丢）。</span>
           </div>
         ) : null}
