@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
-import { LocalNotifications } from '@capacitor/local-notifications'
 import { SplashScreen } from '@capacitor/splash-screen'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import './index.css'
@@ -42,15 +41,6 @@ if (Capacitor.getPlatform() === 'android') {
     }
   })
 
-  void LocalNotifications.requestPermissions()
-  void LocalNotifications.createChannel({
-    id: 'proactive',
-    name: '主动消息',
-    description: 'Claude 间隔一段时间后的主动消息提醒',
-    importance: 4,
-    sound: 'default',
-    vibration: true,
-  })
 }
 
 createRoot(document.getElementById('root')!).render(

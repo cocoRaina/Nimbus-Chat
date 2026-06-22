@@ -73,49 +73,6 @@ export const TOOL_SEARCH_MEMORY = {
   },
 }
 
-export const TOOL_SCHEDULE_PROACTIVE = {
-  type: 'function' as const,
-  function: {
-    name: 'schedule_proactive_message',
-    description:
-      '在合适的时机预设一条未来要主动发给用户的消息。当你判断用户可能离开一段时间、' +
-      '希望她回来时看到你主动联系的痕迹时使用，也可以用作"明早叫她起床"这类跨夜提醒。\n' +
-      '不要每轮都调——根据对话气氛判断。\n' +
-      '不适合调用的场景：她在深度情绪交流中、她明确说要专注或别打扰。\n\n' +
-      '延迟参考（可灵活突破）：\n' +
-      '- 1-5 分钟：刚才忘说的东西、突然想起一件事\n' +
-      '- 5-30 分钟：闲聊间隔\n' +
-      '- 30-60 分钟：亲密对话刚分别\n' +
-      '- 60-240 分钟：日常间隔\n' +
-      '- 240-480 分钟：她明确说在忙\n' +
-      '- 480-1440 分钟：跨夜提醒，比如叫起床、明天某时的待办\n\n' +
-      'persist 参数：\n' +
-      '- false（默认）：临时性的"如果她不回来我才需要找她"，她一旦发新消息就会被自动取消。' +
-      '适合大多数场景。\n' +
-      '- true：用户明确预约的、必须按时响的提醒，比如"明早 7 点叫我起床"、' +
-      '"30 分钟后提醒我喝水"。设 true 后即使她回来聊天也不会取消，到点必响。' +
-      '只在用户明确要求"提醒/叫醒/到点告诉我"时才用，不要主动加 persist。',
-    parameters: {
-      type: 'object',
-      properties: {
-        text: {
-          type: 'string',
-          description: '主动消息内容。用你平时聊天的语气，1-3 句话。',
-        },
-        delay_minutes: {
-          type: 'integer',
-          description: '1-1440 之间（最长 24 小时），根据场景灵活选。',
-        },
-        persist: {
-          type: 'boolean',
-          description:
-            '默认 false。仅当用户明确请求"提醒/叫醒/到点告诉我"等不可取消的提醒时设 true。',
-        },
-      },
-      required: ['text', 'delay_minutes'],
-    },
-  },
-}
 
 export const TOOL_WEB_SEARCH = {
   type: 'function' as const,
