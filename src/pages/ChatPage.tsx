@@ -75,14 +75,11 @@ export type ChatPageProps = {
 // Claude desktop/web app: long replies = one long bubble, short replies =
 // one short bubble. If you want a multi-bubble feel, instruct Claude to
 // drop [NEXT] between bubbles (case-insensitive).
-const splitAssistantContent = (content: string): string[] => {
-  if (!content) return ['']
-  const parts = content
+const splitAssistantContent = (content: string): string[] =>
+  content
     .split(/\[NEXT\]/i)
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
-  return parts.length > 0 ? parts : [content]
-}
 
 // Split an assistant reply into ordered text / voice segments. The model
 // wraps spoken content in [voice]…[/voice]; those become WeChat-style voice
@@ -128,8 +125,10 @@ const splitAssistantSegments = (content: string): MsgSegment[] => {
   }
   if (segs.length > 0) return segs
   // A message that contains nothing but [NEXT] markers (stored as a standalone
-  // DB row) should be invisible rather than rendering "[NEXT]" as text.
-  if (/^\s*(\[NEXT\]\s*)*$/i.test(content)) return []
+  // DB row) should be invisible rather than rendering "[NEXT]" as text. Require
+  // at least one actual [NEXT] — an EMPTY string must NOT match here, or an
+  // empty/streaming/tool-only assistant turn would get hidden entirely.
+  if (/^\s*(\[NEXT\]\s*)+$/i.test(content)) return []
   return [{ type: 'text', text: content }]
 }
 
@@ -160,7 +159,15 @@ const MessageRow = memo(function MessageRow({
       : [{ type: 'text' as const, text: message.content }]
   ).flatMap((seg) => (seg.type === 'text' ? splitStickerSegments(seg.text) : [seg]))
   const isOut = message.role === 'user'
-  if (segments.length === 0) return null
+  // Only fully hide the row when there's genuinely nothing to show — i.e. a
+  // standalone [NEXT] marker. If the turn still carries tool calls, reasoning,
+  // or attachments, keep rendering so those aren't swallowed.
+  const hasExtras =
+    !!reasoningText ||
+    (message.meta?.tool_calls?.length ?? 0) > 0 ||
+    (message.meta?.flow?.length ?? 0) > 0 ||
+    (message.meta?.attachments?.length ?? 0) > 0
+  if (segments.length === 0 && !hasExtras) return null
   return (
     <div
       className={`message ${isOut ? 'out' : 'in'} ${groupWithPrevious ? 'group-with-previous' : ''}`}
