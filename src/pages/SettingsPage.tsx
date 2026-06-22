@@ -39,8 +39,9 @@ import {
   saveSandboxEndpoint,
   saveSandboxToken,
 } from '../storage/sandbox'
-import { getTtsConfig, saveTtsConfig, DEFAULT_TTS_BASE } from '../storage/ttsConfig'
+import { getTtsConfig, saveTtsConfig, DEFAULT_TTS_BASE, type TtsProvider } from '../storage/ttsConfig'
 const TTS_MODELS = ['speech-2.8-turbo', 'speech-2.8-hd']
+const EL_MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_turbo_v2_5']
 import {
   DEFAULT_SNACK_SYSTEM_OVERLAY,
   DEFAULT_SYZYGY_POST_PROMPT,
@@ -1139,8 +1140,8 @@ const SettingsPage = ({
         >
           <span className="section-title">
             <span className="section-icon" aria-hidden="true">🔊</span>
-            <h2 className="ui-title">语音（TTS · MiniMax）</h2>
-            <p>开启后，AI 用 [voice]…[/voice] 包起来的内容会显示成语音条（点播才合成，可转文字）。</p>
+            <h2 className="ui-title">语音（TTS · MiniMax / ElevenLabs）</h2>
+            <p>开启后，AI 用 [voice]…[/voice] 包起来的内容会显示成语音条（点播才合成，可转文字）。两家供应商二选一，各自的配置分开保存。</p>
           </span>
           <span className="collapse-indicator" aria-hidden="true">›</span>
         </button>
@@ -1154,47 +1155,103 @@ const SettingsPage = ({
               />
               <span>开启语音条</span>
             </label>
-            <label htmlFor="tts-voice-id">Voice ID</label>
-            <input id="tts-voice-id" type="text" value={ttsDraft.voiceId}
-              onChange={(e) => { setTtsDraft((d) => ({ ...d, voiceId: e.target.value })); setTtsStatus('idle') }}
-              placeholder="moss_audio_..." />
-            <label htmlFor="tts-api-key">API Key</label>
-            <div className="model-select-row">
-              <input id="tts-api-key" type={ttsApiKeyVisible ? 'text' : 'password'} value={ttsDraft.apiKey}
-                onChange={(e) => { setTtsDraft((d) => ({ ...d, apiKey: e.target.value })); setTtsStatus('idle') }}
-                placeholder="MiniMax API Key（仅存本地）" />
-              <button type="button" className="ghost small" onClick={() => setTtsApiKeyVisible((v) => !v)}>
-                {ttsApiKeyVisible ? '隐藏' : '显示'}
-              </button>
-            </div>
-            <label htmlFor="tts-group-id">GroupId（MiniMax 控制台，可能必填）</label>
-            <input id="tts-group-id" type="text" value={ttsDraft.groupId}
-              onChange={(e) => { setTtsDraft((d) => ({ ...d, groupId: e.target.value })); setTtsStatus('idle') }}
-              placeholder="留空先试，报错再填" />
-            <label htmlFor="tts-base-url">Base URL</label>
-            <input id="tts-base-url" type="text" value={ttsDraft.baseUrl}
-              onChange={(e) => { setTtsDraft((d) => ({ ...d, baseUrl: e.target.value })); setTtsStatus('idle') }}
-              placeholder={DEFAULT_TTS_BASE} />
-            <span className="settings-hint">国际版 {DEFAULT_TTS_BASE}；国内账号用 https://api.minimaxi.com</span>
-            <label htmlFor="tts-model">模型</label>
-            <select id="tts-model" value={ttsDraft.model}
-              onChange={(e) => { setTtsDraft((d) => ({ ...d, model: e.target.value })); setTtsStatus('idle') }}>
-              {(TTS_MODELS.includes(ttsDraft.model) ? TTS_MODELS : [ttsDraft.model, ...TTS_MODELS]).map((m) => (
-                <option key={m} value={m}>
-  {
-    m === 'speech-2.8-turbo'
-      ? `${m}（快·便宜，推荐）`
-      : m === 'speech-2.8-hd'
-        ? `${m}（高质量·贵）`
-        : m
-  }
-</option>
-              ))}
+
+            <label htmlFor="tts-provider">供应商</label>
+            <select id="tts-provider" value={ttsDraft.provider}
+              onChange={(e) => { setTtsDraft((d) => ({ ...d, provider: e.target.value as TtsProvider })); setTtsStatus('idle') }}>
+              <option value="minimax">MiniMax（中文最稳·按量便宜）</option>
+              <option value="elevenlabs">ElevenLabs（最真实·会笑会叹气·免费档够轻量用）</option>
             </select>
+
+            {ttsDraft.provider === 'elevenlabs' ? (
+              <>
+                <label htmlFor="tts-el-voice-id">Voice ID</label>
+                <input id="tts-el-voice-id" type="text" value={ttsDraft.elVoiceId}
+                  onChange={(e) => { setTtsDraft((d) => ({ ...d, elVoiceId: e.target.value })); setTtsStatus('idle') }}
+                  placeholder="从 ElevenLabs 语音库复制（如 21m00Tcm...）" />
+                <label htmlFor="tts-el-api-key">API Key</label>
+                <div className="model-select-row">
+                  <input id="tts-el-api-key" type={ttsApiKeyVisible ? 'text' : 'password'} value={ttsDraft.elApiKey}
+                    onChange={(e) => { setTtsDraft((d) => ({ ...d, elApiKey: e.target.value })); setTtsStatus('idle') }}
+                    placeholder="sk_...（仅存本地）" />
+                  <button type="button" className="ghost small" onClick={() => setTtsApiKeyVisible((v) => !v)}>
+                    {ttsApiKeyVisible ? '隐藏' : '显示'}
+                  </button>
+                </div>
+                <label htmlFor="tts-el-model">模型</label>
+                <select id="tts-el-model" value={ttsDraft.elModel}
+                  onChange={(e) => { setTtsDraft((d) => ({ ...d, elModel: e.target.value })); setTtsStatus('idle') }}>
+                  {(EL_MODELS.includes(ttsDraft.elModel) ? EL_MODELS : [ttsDraft.elModel, ...EL_MODELS]).map((m) => (
+                    <option key={m} value={m}>
+                      {
+                        m === 'eleven_v3'
+                          ? `${m}（最有感情·支持 [laughs] 等语气，推荐）`
+                          : m === 'eleven_multilingual_v2'
+                            ? `${m}（稳定·省积分）`
+                            : m === 'eleven_turbo_v2_5'
+                              ? `${m}（最快最省）`
+                              : m
+                      }
+                    </option>
+                  ))}
+                </select>
+                <label htmlFor="tts-el-stability">情绪稳定度（{ttsDraft.elStability}）</label>
+                <select id="tts-el-stability" value={String(ttsDraft.elStability)}
+                  onChange={(e) => { setTtsDraft((d) => ({ ...d, elStability: Number(e.target.value) })); setTtsStatus('idle') }}>
+                  <option value="0">0 · Creative（最放飞·最有情绪）</option>
+                  <option value="0.5">0.5 · Natural（自然·推荐）</option>
+                  <option value="1">1 · Robust（最稳·像念稿）</option>
+                </select>
+                <span className="settings-hint">v3 可在文本里写 [laughs]/[sighs]/[whispers] 等标签触发语气；积分用完到下月重置，免费档不会自动扣费。</span>
+              </>
+            ) : (
+              <>
+                <label htmlFor="tts-voice-id">Voice ID</label>
+                <input id="tts-voice-id" type="text" value={ttsDraft.voiceId}
+                  onChange={(e) => { setTtsDraft((d) => ({ ...d, voiceId: e.target.value })); setTtsStatus('idle') }}
+                  placeholder="moss_audio_..." />
+                <label htmlFor="tts-api-key">API Key</label>
+                <div className="model-select-row">
+                  <input id="tts-api-key" type={ttsApiKeyVisible ? 'text' : 'password'} value={ttsDraft.apiKey}
+                    onChange={(e) => { setTtsDraft((d) => ({ ...d, apiKey: e.target.value })); setTtsStatus('idle') }}
+                    placeholder="MiniMax API Key（仅存本地）" />
+                  <button type="button" className="ghost small" onClick={() => setTtsApiKeyVisible((v) => !v)}>
+                    {ttsApiKeyVisible ? '隐藏' : '显示'}
+                  </button>
+                </div>
+                <label htmlFor="tts-group-id">GroupId（MiniMax 控制台，可能必填）</label>
+                <input id="tts-group-id" type="text" value={ttsDraft.groupId}
+                  onChange={(e) => { setTtsDraft((d) => ({ ...d, groupId: e.target.value })); setTtsStatus('idle') }}
+                  placeholder="留空先试，报错再填" />
+                <label htmlFor="tts-base-url">Base URL</label>
+                <input id="tts-base-url" type="text" value={ttsDraft.baseUrl}
+                  onChange={(e) => { setTtsDraft((d) => ({ ...d, baseUrl: e.target.value })); setTtsStatus('idle') }}
+                  placeholder={DEFAULT_TTS_BASE} />
+                <span className="settings-hint">国际版 {DEFAULT_TTS_BASE}；国内账号用 https://api.minimaxi.com</span>
+                <label htmlFor="tts-model">模型</label>
+                <select id="tts-model" value={ttsDraft.model}
+                  onChange={(e) => { setTtsDraft((d) => ({ ...d, model: e.target.value })); setTtsStatus('idle') }}>
+                  {(TTS_MODELS.includes(ttsDraft.model) ? TTS_MODELS : [ttsDraft.model, ...TTS_MODELS]).map((m) => (
+                    <option key={m} value={m}>
+                      {
+                        m === 'speech-2.8-turbo'
+                          ? `${m}（快·便宜，推荐）`
+                          : m === 'speech-2.8-hd'
+                            ? `${m}（高质量·贵）`
+                            : m
+                      }
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
+
             <div className="system-prompt-actions">
               <button type="button" className="primary"
                 onClick={() => { saveTtsConfig(ttsDraft); setTtsStatus('saved') }}
-                disabled={!ttsDraft.voiceId.trim() || !ttsDraft.apiKey.trim()}>
+                disabled={ttsDraft.provider === 'elevenlabs'
+                  ? (!ttsDraft.elVoiceId.trim() || !ttsDraft.elApiKey.trim())
+                  : (!ttsDraft.voiceId.trim() || !ttsDraft.apiKey.trim())}>
                 保存
               </button>
               {ttsStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
