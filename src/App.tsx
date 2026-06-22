@@ -43,6 +43,17 @@ import {
   updateRemoteSessionReasoningOverride,
 } from './storage/supabaseSync'
 import { hasSupabaseConfig, subscribeSupabaseConfigChange, supabase } from './supabase/client'
+import {
+  cancelProactiveNotification,
+  clearPendingProactive,
+  clearPersistProactive,
+  readPendingProactive,
+  readPersistProactive,
+  savePendingProactive,
+  scheduleProactiveNotification,
+  shouldScheduleProactive,
+} from './storage/proactiveNotification'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import './App.css'
 // Heavy routes are code-split — only the active route's chunk loads.
 // Keep AuthPage and ChatPage statically imported (they're hit immediately).
@@ -90,6 +101,7 @@ import {
   TOOL_LOG_PERIOD,
   TOOL_LOG_HEALTH,
   TOOL_RUN_CODE,
+  TOOL_SCHEDULE_PROACTIVE,
   TOOL_GET_DEVICE_STATE,
   TOOL_MANAGE_MEMORY,
   TOOL_LIST_MEMORIES,
@@ -467,6 +479,9 @@ const App = () => {
   // pre-warm on chat-page entry — avoids hammering when the timer has
   // recently fired or pre-warm has already run.
   const keepaliveLastPingedAtRef = useRef<number>(0)
+  const insertPendingProactiveRef = useRef<
+    (entry: { sessionId: string; text: string; fireAt: number; persist?: boolean }) => Promise<void>
+  >(async () => undefined)
   const settingsRef = useRef<UserSettings | null>(null)
   const fallbackSettings = useMemo(
     () => createDefaultSettings(user?.id ?? 'local'),
@@ -800,12 +815,24 @@ const App = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()
         void refreshEnvSnapshot()
+        void cancelProactiveNotification()
         void maybeAutoSyncHealth()
         if (streamingControllerRef.current && lastChunkAtRef.current > 0) {
           const ageMs = Date.now() - lastChunkAtRef.current
           if (ageMs > 8000) {
             streamingControllerRef.current.abort()
           }
+        }
+        // If a tool-scheduled proactive has fired, insert it now.
+        const transientPending = readPendingProactive()
+        if (transientPending && Date.now() >= transientPending.fireAt) {
+          clearPendingProactive()
+          void insertPendingProactiveRef.current(transientPending)
+        }
+        const persistPending = readPersistProactive()
+        if (persistPending && Date.now() >= persistPending.fireAt) {
+          clearPersistProactive()
+          void insertPendingProactiveRef.current(persistPending)
         }
       }
     }
@@ -816,13 +843,34 @@ const App = () => {
         handleVisibilityChange()
       } else {
         void supabase?.auth.stopAutoRefresh()
+        // Re-arm local notification so it fires while app is away.
+        const transientPending = readPendingProactive()
+        if (transientPending && Date.now() < transientPending.fireAt) {
+          void scheduleProactiveNotification(
+            transientPending.text,
+            transientPending.fireAt - Date.now(),
+          )
+        }
+        const persistPending = readPersistProactive()
+        if (persistPending && Date.now() < persistPending.fireAt) {
+          void scheduleProactiveNotification(
+            persistPending.text,
+            persistPending.fireAt - Date.now(),
+            { persist: true },
+          )
+        }
       }
     })
+    const notifSubPromise = LocalNotifications.addListener(
+      'localNotificationActionPerformed',
+      () => handleVisibilityChange(),
+    )
     const coldStartId = window.setTimeout(() => handleVisibilityChange(), 0)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.clearTimeout(coldStartId)
       void appStateSubPromise.then((s) => s.remove())
+      void notifSubPromise.then((s) => s.remove())
     }
   }, [refreshRemoteSessions, user])
 
@@ -1134,7 +1182,7 @@ const App = () => {
       }
       const willHaveTools = isToolCapableModel(effectiveModel) && Boolean(supabase)
       const toolActionReminder = willHaveTools
-        ? '\n\n【工具 = 真实动作，必须真调用】放歌、记录健康/经期、搜索记忆等，先真的调用对应工具，再用你的语气说话。只在回复里说"我记下来了"却没调用工具是无效的。'
+        ? '\n\n【工具 = 真实动作，必须真调用】当你打算"待会提醒她 / 晚点联系她 / 叫她起床 / 到点喊她"时，必须真的调用 schedule_proactive_message 工具，拿到 ok 才算数。只在回复里说"我设置好了 / 待会提醒你"却没调用工具，是无效的——不会真的发出任何提醒，她也收不到。放歌、记录健康/经期等同理：先真的调用对应工具，再用你的语气说话。'
         : ''
       const systemPrompt =
         (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + toolActionReminder
@@ -1607,6 +1655,7 @@ const App = () => {
             },
           )
           const baseMessages: ChatRequestMessage[] = []
+          const cancelledProactive = skipUser ? null : readPendingProactive()
           // Trim before checking + sending so a whitespace-only system
           // prompt doesn't end up as { role: 'system', content: '   ' }
           // — relays sometimes reject that as an empty content block.
@@ -1685,6 +1734,16 @@ const App = () => {
               baseMessages.push({ role: message.role, content } as ChatRequestMessage)
             }
           }
+          if (cancelledProactive) {
+            const originalFire = new Date(cancelledProactive.fireAt).toLocaleString('zh-CN', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+            baseMessages.push({
+              role: 'system',
+              content: `[内部系统提示] 你之前用 schedule_proactive_message 预约的「${cancelledProactive.text}」（原定 ${originalFire} 发送）因用户刚刚发新消息已自动取消。如果你判断后续仍需要这条提醒/关心，请在本次回复里重新调用 schedule_proactive_message；如果对话已经转向不再需要，就不用调。`,
+            })
+          }
           const toolsEnabled = isToolCapableModel(effectiveModel) && Boolean(supabase)
           const MAX_TOOL_ITERATIONS = 4
 
@@ -1694,6 +1753,8 @@ const App = () => {
           // Cancel any pending keepalive — the real send is about to refresh
           // the cache anyway, no need to ping in parallel.
           cancelKeepalive()
+          void cancelProactiveNotification()
+          clearPendingProactive()
           lastChunkAtRef.current = Date.now()
           setIsStreaming(true)
 
@@ -1804,7 +1865,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
                 ...(supabase ? [TOOL_SEARCH_STICKERS] : []),
-                ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
+                ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
             }
@@ -2339,6 +2400,44 @@ TOOL_SEARCH_HANDOFF,
                     resultText = insertErr
                       ? JSON.stringify({ error: insertErr.message })
                       : JSON.stringify({ ok: true, table, inserted })
+                  } else if (tc.function.name === 'schedule_proactive_message') {
+                    let args: { text?: string; delay_minutes?: number; persist?: boolean } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 schedule_proactive_message 失败', jsonError)
+                    }
+                    const proText = (args.text ?? '').trim()
+                    const delayMin = Math.max(1, Math.min(1440, Number(args.delay_minutes) || 60))
+                    const persist = args.persist === true
+                    if (proText && shouldScheduleProactive(delayMin * 60 * 1000)) {
+                      const delayMs = delayMin * 60 * 1000
+                      const fireAt = Date.now() + delayMs
+                      const proEntry: import('./storage/proactiveNotification').PendingProactive = {
+                        sessionId,
+                        text: proText,
+                        fireAt,
+                        persist,
+                      }
+                      savePendingProactive(proEntry)
+                      void scheduleProactiveNotification(proText, delayMs, { persist })
+                      setToolStatus(
+                        persist
+                          ? `⏰ 已锁定提醒：${delayMin} 分钟后`
+                          : `📨 已预设 ${delayMin} 分钟后的消息`,
+                      )
+                      resultText = JSON.stringify({
+                        ok: true,
+                        scheduled_at: new Date(fireAt).toISOString(),
+                        delay_minutes: delayMin,
+                        persist,
+                      })
+                    } else {
+                      resultText = JSON.stringify({
+                        ok: false,
+                        reason: 'missing_text',
+                      })
+                    }
                   } else if (tc.function.name === 'get_health_status' && supabase) {
                     setToolStatus('🫀 查健康数据…')
                     const [healthResult, periodResult] = await Promise.all([
@@ -3175,6 +3274,41 @@ TOOL_SEARCH_HANDOFF,
     },
     [user, resolveSessionModel, fallbackSettings],
   )
+
+  useEffect(() => {
+    insertPendingProactiveRef.current = async (entry) => {
+      if (!user || !supabase) {
+        if (entry.persist) clearPersistProactive()
+        else clearPendingProactive()
+        return
+      }
+      const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
+      const targetSessionId = hashMatch?.[1] ?? entry.sessionId
+      try {
+        const clientId = createClientId()
+        const clientCreatedAt = new Date(entry.fireAt).toISOString()
+        const { message: saved, updatedAt } = await addRemoteMessage(
+          targetSessionId,
+          user.id,
+          'assistant',
+          entry.text,
+          clientId,
+          clientCreatedAt,
+          { model: 'proactive', provider: getActiveProvider() },
+        )
+        const updatedMessages = sortMessages([...messagesRef.current, saved])
+        const updatedSessions = sessionsRef.current.map((s) =>
+          s.id === targetSessionId ? { ...s, updatedAt } : s,
+        )
+        applySnapshot(updatedSessions, updatedMessages)
+      } catch (err) {
+        console.warn('insert pending proactive failed', err)
+      } finally {
+        if (entry.persist) clearPersistProactive()
+        else clearPendingProactive()
+      }
+    }
+  }, [applySnapshot, user])
 
   const regenerateAssistantReply = useCallback(
     async (assistantMessageId: string) => {

@@ -15,6 +15,7 @@ const TOOL_ICONS: Record<string, string> = {
   add_memory: '📝',
   write_diary: '📔',
   write_handoff_letter: '✉️',
+  schedule_proactive_message: '⏰',
   log_health: '💗',
   log_period: '🩸',
   add_timeline_event: '📍',
@@ -28,6 +29,7 @@ const TOOL_LABELS: Record<string, string> = {
   add_memory: '记下来',
   write_diary: '写日记',
   write_handoff_letter: '写交接信',
+  schedule_proactive_message: '预约主动消息',
   log_health: '记录健康',
   log_period: '记录经期',
   add_timeline_event: '加时间轴',
@@ -41,6 +43,9 @@ function extractPreview(name: string, args: Record<string, unknown>): string {
   if (name === 'add_memory') {
     const c = typeof args?.content === 'string' ? args.content : ''
     return c.length > 30 ? c.slice(0, 30) + '…' : c
+  }
+  if (name === 'schedule_proactive_message') {
+    return `${args?.delay_minutes ?? '?'}min`
   }
   if (name === 'write_diary') {
     return typeof args?.date === 'string' ? args.date : ''
