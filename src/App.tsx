@@ -480,7 +480,7 @@ const App = () => {
   // recently fired or pre-warm has already run.
   const keepaliveLastPingedAtRef = useRef<number>(0)
   const insertPendingProactiveRef = useRef<
-    (entry: { sessionId: string; text: string; fireAt: number; persist?: boolean }) => Promise<void>
+    (entry: { sessionId: string; text: string; fireAt: number; persist?: boolean; queueId?: string }) => Promise<void>
   >(async () => undefined)
   const settingsRef = useRef<UserSettings | null>(null)
   const fallbackSettings = useMemo(
@@ -1755,6 +1755,16 @@ const App = () => {
           cancelKeepalive()
           void cancelProactiveNotification()
           clearPendingProactive()
+          // Cancel any unsent server-side proactive too — but only transient
+          // ones (persist alarms like wake-up must survive a chat reply).
+          if (supabase && user) {
+            void supabase
+              .from('proactive_queue')
+              .delete()
+              .eq('user_id', user.id)
+              .eq('sent', false)
+              .eq('persist', false)
+          }
           lastChunkAtRef.current = Date.now()
           setIsStreaming(true)
 
@@ -2418,6 +2428,24 @@ TOOL_SEARCH_HANDOFF,
                         text: proText,
                         fireAt,
                         persist,
+                      }
+                      // Register in proactive_queue so the server cron can deliver
+                      // it into Supabase at fire time even if the app stays closed
+                      // (and keep it warm in the keepalive cache). The client claims
+                      // the same row on next open, so only one insert ever happens.
+                      if (supabase && user) {
+                        const { data: qRow } = await supabase
+                          .from('proactive_queue')
+                          .insert({
+                            user_id: user.id,
+                            session_id: sessionId,
+                            text: proText,
+                            fire_at: new Date(fireAt).toISOString(),
+                            persist,
+                          })
+                          .select('id')
+                          .single()
+                        if (qRow?.id) proEntry.queueId = qRow.id as string
                       }
                       savePendingProactive(proEntry)
                       void scheduleProactiveNotification(proText, delayMs, { persist })
@@ -3282,6 +3310,25 @@ TOOL_SEARCH_HANDOFF,
         else clearPendingProactive()
         return
       }
+      // If registered in proactive_queue, claim the row first. If the server
+      // cron already delivered it (claim fails), the message is already in
+      // Supabase and refreshRemoteSessions will surface it — skip to avoid a
+      // duplicate insert.
+      if (entry.queueId) {
+        const { data: claimed } = await supabase
+          .from('proactive_queue')
+          .update({ sent: true })
+          .eq('id', entry.queueId)
+          .eq('sent', false)
+          .select('id')
+          .maybeSingle()
+        if (!claimed) {
+          void refreshRemoteSessions()
+          if (entry.persist) clearPersistProactive()
+          else clearPendingProactive()
+          return
+        }
+      }
       const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
       const targetSessionId = hashMatch?.[1] ?? entry.sessionId
       try {
@@ -3308,7 +3355,7 @@ TOOL_SEARCH_HANDOFF,
         else clearPendingProactive()
       }
     }
-  }, [applySnapshot, user])
+  }, [applySnapshot, refreshRemoteSessions, user])
 
   const regenerateAssistantReply = useCallback(
     async (assistantMessageId: string) => {

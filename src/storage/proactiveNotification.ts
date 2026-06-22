@@ -12,6 +12,8 @@ export type PendingProactive = {
   text: string
   fireAt: number
   persist?: boolean
+  /** proactive_queue row id, set when registered for server-side dispatch. */
+  queueId?: string
 }
 
 export const shouldScheduleProactive = (_delayMs: number): boolean => true
