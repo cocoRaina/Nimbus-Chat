@@ -126,7 +126,11 @@ const splitAssistantSegments = (content: string): MsgSegment[] => {
   for (const t of splitAssistantContent(content.slice(last))) {
     if (t.trim()) segs.push({ type: 'text', text: t })
   }
-  return segs.length > 0 ? segs : [{ type: 'text', text: content }]
+  if (segs.length > 0) return segs
+  // A message that contains nothing but [NEXT] markers (stored as a standalone
+  // DB row) should be invisible rather than rendering "[NEXT]" as text.
+  if (/^\s*(\[NEXT\]\s*)*$/i.test(content)) return []
+  return [{ type: 'text', text: content }]
 }
 
 // Memoised single-message renderer. The chat history can be hundreds of
@@ -156,6 +160,7 @@ const MessageRow = memo(function MessageRow({
       : [{ type: 'text' as const, text: message.content }]
   ).flatMap((seg) => (seg.type === 'text' ? splitStickerSegments(seg.text) : [seg]))
   const isOut = message.role === 'user'
+  if (segments.length === 0) return null
   return (
     <div
       className={`message ${isOut ? 'out' : 'in'} ${groupWithPrevious ? 'group-with-previous' : ''}`}
