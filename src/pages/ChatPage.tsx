@@ -458,6 +458,8 @@ const ChatPage = ({
   }
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const messagesRef = useRef<HTMLElement | null>(null)
+  // Composer textarea: auto-grows with content up to the CSS max-height.
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const lastSessionIdRef = useRef<string | null>(null)
   const lastMessagesLengthRef = useRef(0)
   const headerMenuRef = useRef<HTMLDivElement | null>(null)
@@ -477,6 +479,16 @@ const ChatPage = ({
   // state because we only need it during the post-render measurement.
   const actionsAnchorRef = useRef<DOMRect | null>(null)
   const navigate = useNavigate()
+
+  // Grow the composer textarea to fit its content (reset to auto first so it
+  // also shrinks back when text is deleted or the draft is cleared on send).
+  // The visible cap comes from CSS max-height; past that it scrolls.
+  useLayoutEffect(() => {
+    const el = composerInputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [draft])
 
   const submitDraft = async () => {
     const trimmed = draft.trim()
@@ -1276,6 +1288,7 @@ const ChatPage = ({
             <span aria-hidden="true">＋</span>
           </button>
           <textarea
+            ref={composerInputRef}
             className="composer-line-input"
             placeholder="输入你的消息"
             rows={1}
