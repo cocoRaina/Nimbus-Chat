@@ -215,18 +215,22 @@ export const compressIfNeeded = async (
   if (!settings.force && !settings.enabled) {
     return baseResult
   }
-  if (!settings.force) {
-    const contextLimit = estimateModelContextLimit(model)
-    const triggerTokens = Math.floor(contextLimit * Math.max(0.1, Math.min(0.95, settings.triggerRatio)))
-    const systemTokens = estimateTokens(systemPromptText)
-    const historyTokens = estimateMessagesTokens(fullHistory)
-    if (systemTokens + historyTokens < triggerTokens) {
-      return baseResult
-    }
-  }
   const keepRecent = Math.max(MIN_KEEP_RECENT, settings.keepRecentMessages)
   if (fullHistory.length <= keepRecent + MIN_EXTRA_OLD_FOR_COMPRESSION) {
     return baseResult
+  }
+
+  // The trigger gate only decides whether to do the EXPENSIVE work of
+  // generating / refreshing a summary. Reusing a summary that already exists
+  // is free, so once the user has compressed a conversation we honour it on
+  // every send regardless of this estimate — otherwise a manual "压缩对话" got
+  // silently ignored at send time and the full history rode along anyway.
+  let overTrigger = settings.force === true
+  if (!overTrigger) {
+    const contextLimit = estimateModelContextLimit(model)
+    const triggerTokens = Math.floor(contextLimit * Math.max(0.1, Math.min(0.95, settings.triggerRatio)))
+    overTrigger =
+      estimateTokens(systemPromptText) + estimateMessagesTokens(fullHistory) >= triggerTokens
   }
 
   const oldEndIdx = fullHistory.length - keepRecent - 1
@@ -244,7 +248,10 @@ export const compressIfNeeded = async (
       )
       if (cacheIdx >= 0) {
         const messagesSinceCache = oldMessages.length - cacheIdx - 1
-        if (messagesSinceCache < MIN_NEW_MESSAGES_BEFORE_RESUMMARIZE) {
+        // Use the existing summary as-is when there's little new to fold in,
+        // OR whenever we're below the trigger — i.e. don't pay to refine a
+        // summary for a small context, but still SEND the one we already have.
+        if (messagesSinceCache < MIN_NEW_MESSAGES_BEFORE_RESUMMARIZE || !overTrigger) {
           return {
             systemPromptText,
             recentMessages,
@@ -258,6 +265,12 @@ export const compressIfNeeded = async (
     }
   } catch (error) {
     console.warn('compression cache 读取失败，按未压缩处理', error)
+  }
+
+  // No usable summary yet, and the context is still small (and not forced) —
+  // leave history uncompressed rather than paying to summarise prematurely.
+  if (!overTrigger) {
+    return baseResult
   }
 
   const summarizerModel = settings.summarizerModel?.trim() || DEFAULT_SUMMARIZER_MODEL
