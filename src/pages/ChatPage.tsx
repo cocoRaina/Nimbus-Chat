@@ -62,6 +62,8 @@ export type ChatPageProps = {
   highReasoningEnabled: boolean
   onSelectReasoning: (reasoning: boolean | null) => void
   onManualCompress: () => Promise<{ ok: boolean; message: string }>
+  keepaliveEnabled: boolean
+  onToggleKeepalive: () => void
   user: User | null
   toolStatus?: string
   remoteStickerPacks?: RemotePackMap
@@ -322,6 +324,8 @@ const ChatPage = ({
   highReasoningEnabled,
   onSelectReasoning,
   onManualCompress,
+  keepaliveEnabled,
+  onToggleKeepalive,
   toolStatus,
   remoteStickerPacks,
   shareDraft,
@@ -1041,6 +1045,14 @@ const ChatPage = ({
                   >
                     {compressing ? '⏳ 压缩中…' : '📦 手动压缩对话'}
                   </button>
+                  <label className="header-menu-toggle">
+                    <input
+                      type="checkbox"
+                      checked={keepaliveEnabled}
+                      onChange={onToggleKeepalive}
+                    />
+                    <span>🔥 缓存保活</span>
+                  </label>
                   <button
                     type="button"
                     onClick={() => {

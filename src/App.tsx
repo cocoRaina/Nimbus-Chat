@@ -475,6 +475,9 @@ const App = () => {
   const keepaliveTimerRef = useRef<number | null>(null)
   const keepaliveBodyRef = useRef<Record<string, unknown> | null>(null)
   const keepaliveControllerRef = useRef<AbortController | null>(null)
+  const [keepaliveEnabled, setKeepaliveEnabled] = useState(true)
+  const keepaliveEnabledRef = useRef(true)
+  keepaliveEnabledRef.current = keepaliveEnabled
   // Tracks when we last successfully fired a keepalive ping (timer-driven
   // or pre-warm). prewarmKeepaliveIfStale uses this to decide whether to
   // pre-warm on chat-page entry — avoids hammering when the timer has
@@ -1120,6 +1123,7 @@ const App = () => {
       keepaliveTimerRef.current = null
     }
     if (!keepaliveBodyRef.current) return
+    if (!keepaliveEnabledRef.current) return
     const KEEPALIVE_DELAY_MS = 55 * 60 * 1000
     keepaliveTimerRef.current = window.setTimeout(() => {
       keepaliveTimerRef.current = null
@@ -3680,6 +3684,8 @@ TOOL_SEARCH_HANDOFF,
                 onActiveSessionChange={setActiveChatSessionId}
                 onManualCompress={handleManualCompress}
                 onChatPageEnter={prewarmKeepaliveIfStale}
+                keepaliveEnabled={keepaliveEnabled}
+                onToggleKeepalive={() => setKeepaliveEnabled((v) => !v)}
                 user={user}
                 toolStatus={toolStatus}
                 remoteStickerPacks={remoteStickerPacks}
@@ -3875,6 +3881,8 @@ const ChatRoute = ({
   onActiveSessionChange,
   onManualCompress,
   onChatPageEnter,
+  keepaliveEnabled,
+  onToggleKeepalive,
   user,
   toolStatus,
   remoteStickerPacks,
@@ -3911,6 +3919,8 @@ const ChatRoute = ({
   onActiveSessionChange: (sessionId: string) => void
   onManualCompress: (sessionId: string) => Promise<{ ok: boolean; message: string }>
   onChatPageEnter: () => void
+  keepaliveEnabled: boolean
+  onToggleKeepalive: () => void
   user: User | null
   toolStatus: string
   remoteStickerPacks: RemotePackMap
@@ -4061,6 +4071,8 @@ const ChatRoute = ({
           onSelectReasoning(activeSession.id, reasoning)
         }
         onManualCompress={() => onManualCompress(activeSession.id)}
+        keepaliveEnabled={keepaliveEnabled}
+        onToggleKeepalive={onToggleKeepalive}
         user={user}
         toolStatus={toolStatus}
         remoteStickerPacks={remoteStickerPacks}
