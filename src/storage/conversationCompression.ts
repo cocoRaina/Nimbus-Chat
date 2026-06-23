@@ -8,11 +8,29 @@ const MIN_KEEP_RECENT = 4
 const MIN_EXTRA_OLD_FOR_COMPRESSION = 4
 const MIN_NEW_MESSAGES_BEFORE_RESUMMARIZE = 8
 
-// Conservative token estimate: ~3 chars per token for Chinese-heavy text,
-// ~4 for English. Use 3 to err on the high side so we trigger early enough.
+// Token estimate, CJK-aware. Claude's tokenizer is very inefficient for CJK:
+// a Chinese/Japanese/Korean character is ~1.5–2 tokens, whereas Latin text is
+// ~4 chars/token. A flat chars/3 therefore badly UNDER-counts Chinese-heavy
+// chats — e.g. a 72k-char / 62%-CJK conversation reads as ~24k here while
+// Anthropic actually sees ~100k. That made the compression trigger (0.35 ×
+// 200k = 70k) never fire, so the entire history rode every request: invisible
+// while the prompt cache hit, but a brutal full-price cold write the moment the
+// relay rotated upstream keys and the cache missed (every turn re-writing
+// ~108k instead of a compressed ~20k). Count CJK at ~1.5 tokens and the rest at
+// ~1/4, erring high so we compress in time.
 export const estimateTokens = (text: string): number => {
   if (!text) return 0
-  return Math.ceil(text.length / 3)
+  let cjk = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (
+      (c >= 0x3000 && c <= 0x9fff) || // CJK punctuation, kana, Unified Ideographs
+      (c >= 0xac00 && c <= 0xd7af) || // Hangul syllables
+      (c >= 0xf900 && c <= 0xfaff) || // CJK compatibility ideographs
+      (c >= 0xff00 && c <= 0xffef)    // full-width forms
+    ) cjk++
+  }
+  return Math.ceil(cjk * 1.5 + (text.length - cjk) / 4)
 }
 
 // A full-size image is roughly 1.6k tokens; err high (like estimateTokens)
