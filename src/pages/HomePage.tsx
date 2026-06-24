@@ -250,13 +250,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     setBackgroundImageUrl(undefined);
   };
 
-  const getEmoji = (iconId: string) => {
-    const config = appIconConfigs[iconId];
-    return config?.type === "emoji"
-      ? config.emoji
-      : (appIcons.find((i) => i.id === iconId)?.defaultEmoji ?? "");
-  };
-
   const mainListItems = [
     { id: "chat",   label: "Chat",    sub: "Start a new conversation", action: onOpenChat,  route: undefined },
     { id: "memory", label: "Memory",  sub: "View memories",            action: undefined,   route: "/memory-vault" },
@@ -454,7 +447,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                       else if (item.route) navigate(item.route);
                     }}
                   >
-                    <span className="home-list-icon">{getEmoji(item.id)}</span>
                     <div className="home-list-body">
                       <strong className="home-list-title">{item.label}</strong>
                       <span className="home-list-sub">{item.sub}</span>
