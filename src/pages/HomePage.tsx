@@ -49,6 +49,34 @@ const DEFAULT_ICON_ORDER = [
   "chat", "checkin", "memory", "snacks", "syzygy", "usage", "health", "settings", "export",
 ];
 
+const HomeCoupleCard = () => {
+  const myAvatar = useState(() => localStorage.getItem('my-homepage-avatar'))[0]
+  const claudeAvatar = useState(() => localStorage.getItem('syzygy-homepage-avatar'))[0]
+  return (
+    <section className="home-couple glass-card">
+      <div className="home-couple__side">
+        {myAvatar
+          ? <img src={myAvatar} alt="我" className="home-couple__avatar" />
+          : <div className="home-couple__avatar home-couple__avatar--empty">🐱</div>}
+      </div>
+      <div className="home-couple__center">
+        <svg viewBox="0 0 90 28" className="home-couple__ecg" aria-hidden="true">
+          <polyline points="0,14 18,14 22,3 27,25 31,7 35,14 44,14"
+            stroke="#C5D6EC" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <polyline points="46,14 55,14 59,3 64,25 68,7 72,14 90,14"
+            stroke="#C5D6EC" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="home-couple__heart" aria-hidden="true">🩷</span>
+      </div>
+      <div className="home-couple__side">
+        {claudeAvatar
+          ? <img src={claudeAvatar} alt="Claude" className="home-couple__avatar" />
+          : <div className="home-couple__avatar home-couple__avatar--empty">🤍</div>}
+      </div>
+    </section>
+  )
+}
+
 const readFileAsDataUrl = (file: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -390,6 +418,9 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   ⚙️
                 </button>
               </div>
+
+              {/* Couple avatar widget */}
+              <HomeCoupleCard />
 
               {/* Hero: days counter + week dots + check-in */}
               <section className="home-hero glass-card">
