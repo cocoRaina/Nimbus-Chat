@@ -320,7 +320,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       },
       { id: "snacks", defaultEmoji: "🍪", label: "mimi", route: "/snacks" },
       { id: "syzygy", defaultEmoji: "📘", label: "Claude", route: "/syzygy" },
-      { id: "usage", defaultEmoji: "📊", label: "用量统计", route: "/usage" },
+      { id: "usage", defaultEmoji: "📊", label: "检测中心", route: "/usage" },
       { id: "health", defaultEmoji: "🫀", label: "健康", route: "/health-sync" },
       { id: "settings", defaultEmoji: "⚙️", label: "设置", route: "/settings" },
       { id: "export", defaultEmoji: "📦", label: "导出", route: "/export" },
