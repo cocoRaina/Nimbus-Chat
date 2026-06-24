@@ -73,18 +73,6 @@ const CheckinPage = ({ user }: CheckinPageProps) => {
   const [checkinSubmitting, setCheckinSubmitting] = useState(false)
   const [checkinNotice, setCheckinNotice] = useState<string | null>(null)
   const navigate = useNavigate()
-  const navTabs = useMemo(
-    () => [
-      { label: 'Chat', path: '/' },
-      { label: 'Memory', path: '/memory-vault' },
-      { label: 'mimi', path: '/snacks' },
-      { label: 'Claude', path: '/syzygy' },
-      { label: 'Check-in', path: '/checkin' },
-      { label: '设置', path: '/settings' },
-      { label: '数据导出', path: '/export' },
-    ],
-    [],
-  )
 
   const todayKey = useMemo(() => formatDateKey(new Date()), [])
   const todayDisplay = useMemo(
@@ -140,22 +128,9 @@ const CheckinPage = ({ user }: CheckinPageProps) => {
   return (
     <div className="checkin-page">
       <header className="checkin-page-header">
-        <div className="checkin-nav-actions">
-          {navTabs.map((tab) => {
-            const isActive = tab.path === '/checkin'
-            return (
-              <button
-                key={tab.path}
-                type="button"
-                className={`checkin-nav-tab ${isActive ? 'active' : ''}`}
-                aria-current={isActive ? 'page' : undefined}
-                onClick={() => navigate(tab.path)}
-              >
-                {tab.label}
-              </button>
-            )
-          })}
-        </div>
+        <button type="button" className="checkin-back" onClick={() => navigate(-1)}>‹</button>
+        <span className="checkin-page-title">Check-in</span>
+        <span className="checkin-header-gap" />
       </header>
 
       <section className="checkin-card standalone">

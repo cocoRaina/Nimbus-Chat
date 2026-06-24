@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import MarkdownRenderer from '../components/MarkdownRenderer'
-import LocalAvatar from '../components/LocalAvatar'
 import { fetchOpenRouter } from '../api/openrouter'
 import { recordUsage } from '../storage/usageStats'
 import type { SnackPost, SnackReply, SyzygyPost, SyzygyReply } from '../types'
@@ -422,7 +421,7 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
           ‹
         </button>
         <h1 className="moments-title">Moments</h1>
-        <LocalAvatar storageKey="my-homepage-avatar" alt="kitten's avatar" />
+        <span className="moments-header-gap" />
       </header>
 
       {/* Composer */}

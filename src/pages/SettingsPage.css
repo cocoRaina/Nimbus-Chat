@@ -496,3 +496,81 @@
 .relay-preset-delete:hover {
   background: #fff7ed;
 }
+
+.settings-avatar-section {
+  display: flex;
+  gap: 2rem;
+  padding: 1rem 0.5rem 0.5rem;
+  align-items: flex-start;
+}
+
+.settings-avatar-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.settings-avatar-label {
+  font-size: 0.75rem;
+  color: #789EC8;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.settings-avatar-item .profile-avatar-wrap {
+  position: relative;
+}
+
+.settings-avatar-item .profile-avatar-button {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  border: 2px dashed rgba(152, 181, 216, 0.5);
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  background: rgba(152, 181, 216, 0.1);
+  display: block;
+  transition: border-color 0.15s;
+}
+
+.settings-avatar-item .profile-avatar-button:hover {
+  border-color: #98B5D8;
+}
+
+.settings-avatar-item .profile-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.settings-avatar-item .profile-avatar-placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+.settings-avatar-item .profile-avatar-remove {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: #b91c1c;
+  color: white;
+  font-size: 0.65rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.settings-avatar-item .profile-avatar-input {
+  display: none;
+}

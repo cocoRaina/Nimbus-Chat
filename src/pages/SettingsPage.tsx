@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import ConfirmDialog from '../components/ConfirmDialog'
+import LocalAvatar from '../components/LocalAvatar'
 import { fetchOpenRouterModels } from '../api/openrouter'
 import type { UserSettings } from '../types'
 import { supabase } from '../supabase/client'
@@ -32,13 +33,6 @@ import {
   type ProviderId,
   type RelayPreset,
 } from '../storage/apiProvider'
-import {
-  clearSandboxConfig,
-  getSandboxEndpoint,
-  getSandboxToken,
-  saveSandboxEndpoint,
-  saveSandboxToken,
-} from '../storage/sandbox'
 import { getTtsConfig, saveTtsConfig, commitTtsConfig, hydrateTtsConfig, readbackTtsActive, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
 const TTS_MODELS = ['speech-2.8-turbo', 'speech-2.8-hd']
 const EL_MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_turbo_v2_5']
@@ -137,10 +131,6 @@ const SettingsPage = ({
   useEffect(() => {
     void hydrateTtsConfig().then(() => setTtsDraft(getTtsConfig()))
   }, [])
-  const [sandboxSectionExpanded, setSandboxSectionExpanded] = useState(false)
-  const [sandboxEndpointInput, setSandboxEndpointInput] = useState(() => getSandboxEndpoint())
-  const [sandboxTokenInput, setSandboxTokenInput] = useState(() => getSandboxToken())
-  const [sandboxStatus, setSandboxStatus] = useState<'idle' | 'saved'>('idle')
   // Friendly label for the custom provider, derived from its base URL hostname.
   const customProviderName = useMemo(
     () => deriveProviderDisplayName(msuicodeBaseUrlInput || DEFAULT_MSUICODE_BASE),
@@ -380,21 +370,6 @@ const SettingsPage = ({
     setRelayPresets(getRelayPresets())
   }
 
-  const handleSaveSandboxConfig = () => {
-    const ep = sandboxEndpointInput.trim()
-    if (!ep) return
-    saveSandboxEndpoint(ep)
-    saveSandboxToken(sandboxTokenInput.trim())
-    setSandboxEndpointInput(ep)
-    setSandboxStatus('saved')
-  }
-
-  const handleClearSandboxConfig = () => {
-    clearSandboxConfig()
-    setSandboxEndpointInput('')
-    setSandboxTokenInput('')
-    setSandboxStatus('idle')
-  }
 
   const catalogMap = useMemo(() => {
     return new Map(catalog.map((model) => [model.id, model.name ?? model.id]))
@@ -915,6 +890,19 @@ const SettingsPage = ({
           <span className="settings-ribbon-icon">☁</span>
           <span className="settings-ribbon-line" />
         </div>
+
+        {/* Avatar section */}
+        <div className="settings-avatar-section">
+          <div className="settings-avatar-item">
+            <span className="settings-avatar-label">我的头像</span>
+            <LocalAvatar storageKey="my-homepage-avatar" alt="kitten" />
+          </div>
+          <div className="settings-avatar-item">
+            <span className="settings-avatar-label">Claude 头像</span>
+            <LocalAvatar storageKey="syzygy-homepage-avatar" alt="Claude" />
+          </div>
+        </div>
+
         <div className="settings-group" role="list">
       <section className="settings-section" role="listitem">
         <button
@@ -1303,86 +1291,6 @@ const SettingsPage = ({
         ) : null}
       </section>
 
-      <section className="settings-section" role="listitem">
-        <button
-          type="button"
-          className="collapse-header"
-          onClick={() => setSandboxSectionExpanded((current) => !current)}
-          aria-expanded={sandboxSectionExpanded}
-        >
-          <span className="section-title">
-            <span className="section-icon" aria-hidden="true">🧪</span>
-            <h2 className="ui-title">代码沙盒</h2>
-            <p>给 Claude 一个能跑 Python/JS 的环境。配你 Mac mini / VPS 的地址，没配的话 run_code 工具会报错。</p>
-          </span>
-          <span className="collapse-indicator" aria-hidden="true">›</span>
-        </button>
-        {sandboxSectionExpanded ? (
-          <div className="accordion-content">
-            <label htmlFor="sandbox-endpoint">Sandbox endpoint</label>
-            <input
-              id="sandbox-endpoint"
-              type="text"
-              value={sandboxEndpointInput}
-              onChange={(event) => {
-                setSandboxEndpointInput(event.target.value)
-                setSandboxStatus('idle')
-              }}
-              placeholder="https://your-macmini.example.com"
-            />
-            <label htmlFor="sandbox-token">Sandbox token（可选）</label>
-            <input
-              id="sandbox-token"
-              type="password"
-              value={sandboxTokenInput}
-              onChange={(event) => {
-                setSandboxTokenInput(event.target.value)
-                setSandboxStatus('idle')
-              }}
-              placeholder="用 X-Sandbox-Token header 校验你服务端的身份"
-            />
-            <div className="system-prompt-actions">
-              <button
-                type="button"
-                className="primary"
-                onClick={handleSaveSandboxConfig}
-                disabled={!sandboxEndpointInput.trim()}
-              >
-                保存
-              </button>
-              <button
-                type="button"
-                className="ghost danger"
-                onClick={handleClearSandboxConfig}
-                disabled={!sandboxEndpointInput.trim() && !sandboxTokenInput.trim()}
-              >
-                清除
-              </button>
-              {sandboxStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
-            </div>
-            <details style={{ marginTop: 10 }}>
-              <summary style={{ cursor: 'pointer', opacity: 0.7 }}>📑 服务端契约（给以后写 Mac mini 服务用）</summary>
-              <pre style={{ fontSize: 11, opacity: 0.75, marginTop: 8, whiteSpace: 'pre-wrap' }}>{`POST {endpoint}/run
-Headers:
-  Content-Type: application/json
-  X-Sandbox-Token: <你设的token>   （可选）
-Body:
-  { "language": "python"|"javascript", "code": "...", "timeout_seconds": 30 }
-
-Response (success):
-  {
-    "ok": true,
-    "stdout": "...",
-    "stderr": "...",
-    "exit_code": 0,
-    "duration_ms": 123,
-    "files": [ { "name":"out.png","url":"...","mime":"image/png" } ]
-  }
-Response (error): { "ok": false, "error": "..." }`}</pre>
-            </details>
-          </div>
-        ) : null}
-      </section>
       <section className="settings-section" role="listitem">
         <button
           type="button"

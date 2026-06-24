@@ -462,10 +462,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   Check-in
                 </button>
                 <span className="home-footer-sep">·</span>
-                <button type="button" className="home-footer-link" onClick={() => navigate("/syzygy")}>
-                  Claude
-                </button>
-                <span className="home-footer-sep">·</span>
                 <button type="button" className="home-footer-link" onClick={() => navigate("/usage")}>
                   Diagnostics
                 </button>

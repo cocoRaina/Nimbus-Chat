@@ -4,7 +4,6 @@ import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MarkdownRenderer from '../components/MarkdownRenderer'
-import LocalAvatar from '../components/LocalAvatar'
 import { fetchOpenRouter } from '../api/openrouter'
 import { recordUsage } from '../storage/usageStats'
 import type { SyzygyPost, SyzygyReply } from '../types'
@@ -720,7 +719,6 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
         <>
           <section className="profile-header-card" aria-label="TA主页头部">
             <div className="profile-cover-banner" />
-            <LocalAvatar storageKey="syzygy-homepage-avatar" alt="Claude 头像" />
             <div className="profile-meta">
               <h2 className="profile-title">Claude</h2>
               <p className="profile-bio">Claude's daily observations</p>
