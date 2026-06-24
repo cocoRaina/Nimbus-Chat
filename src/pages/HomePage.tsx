@@ -258,10 +258,10 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   };
 
   const mainListItems = [
-    { id: "chat",   label: "聊天",   sub: "开始新的对话",    action: onOpenChat,                  route: undefined },
-    { id: "memory", label: "记忆库", sub: "查看 TA 的记忆",  action: undefined,                   route: "/memory-vault" },
-    { id: "snacks", label: "朋友圈", sub: "我的 · TA 的",    action: undefined,                   route: "/snacks" },
-    { id: "health", label: "健康同步", sub: "今日健康数据",   action: undefined,                   route: "/health-sync" },
+    { id: "chat",   label: "Chat",    sub: "Start a new conversation", action: onOpenChat,  route: undefined },
+    { id: "memory", label: "Memory",  sub: "View memories",            action: undefined,   route: "/memory-vault" },
+    { id: "snacks", label: "Moments", sub: "Mine · Yours",             action: undefined,   route: "/snacks" },
+    { id: "health", label: "Health",  sub: "Today's health data",      action: undefined,   route: "/health-sync" },
   ];
 
   return (
@@ -380,9 +380,9 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                     type="button"
                     className="home-topbar-edit"
                     onClick={() => setEditMode((v) => !v)}
-                    aria-label={editMode ? "完成编辑" : "编辑主页"}
+                    aria-label={editMode ? "Done" : "Edit"}
                   >
-                    {editMode ? "完成" : "编辑"}
+                    {editMode ? "Done" : "Edit"}
                   </button>
                 ) : (
                   <span />
@@ -467,7 +467,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
               {/* Footer links */}
               <footer className="home-footer">
                 <button type="button" className="home-footer-link" onClick={() => navigate("/checkin")}>
-                  打卡
+                  Check-in
                 </button>
                 <span className="home-footer-sep">·</span>
                 <button type="button" className="home-footer-link" onClick={() => navigate("/syzygy")}>
@@ -475,11 +475,11 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                 </button>
                 <span className="home-footer-sep">·</span>
                 <button type="button" className="home-footer-link" onClick={() => navigate("/usage")}>
-                  检测中心
+                  Diagnostics
                 </button>
                 <span className="home-footer-sep">·</span>
                 <button type="button" className="home-footer-link" onClick={() => navigate("/export")}>
-                  导出
+                  Export
                 </button>
               </footer>
 

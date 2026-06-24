@@ -59,8 +59,8 @@ import './App.css'
 // Heavy routes are code-split — only the active route's chunk loads.
 // Keep AuthPage and ChatPage statically imported (they're hit immediately).
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const MyHomePage = lazy(() => import('./pages/MyHomePage'))
 const AssistantHomePage = lazy(() => import('./pages/AssistantHomePage'))
+const MomentsPage = lazy(() => import('./pages/MomentsPage'))
 const MemoryVaultPage = lazy(() => import('./pages/MemoryVaultPage'))
 const CheckinPage = lazy(() => import('./pages/CheckinPage'))
 const HealthSyncPage = lazy(() => import('./pages/HealthSyncPage'))
@@ -3745,7 +3745,7 @@ TOOL_SEARCH_HANDOFF,
           path="/snacks"
           element={
             <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
-              <MyHomePage user={user} snackAiConfig={snackAiConfig} />
+              <MomentsPage user={user} snackAiConfig={snackAiConfig} syzygyAiConfig={syzygyAiConfig} />
             </RequireAuth>
           }
         />
