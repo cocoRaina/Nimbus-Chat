@@ -5,6 +5,22 @@
   --font-rounded: 'Nunito', 'Quicksand', 'Comfortaa', 'Avenir Next Rounded', 'Arial Rounded MT Bold', var(--font-sans);
   --font-display: 'Rounded Mplus 1c', 'Nunito', system-ui, -apple-system, 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  /* Editorial English serif — for decorative titles/labels only (CJK falls
+     back to system fonts, so never use this for Chinese body text). */
+  --font-serif: 'Cormorant Garamond', 'EB Garamond', Georgia, 'Times New Roman', serif;
+
+  /* ── Angel Blue palette (冰蓝天使) — the canonical 6 swatches. Pages
+     should reference these instead of hardcoding hex, so the whole app
+     re-themes from one place. ───────────────────────────────────────────── */
+  --ab-bg:      #F4F8FC; /* 冰蓝白  BG       */
+  --ab-surface: #DEEAF5; /* 蓝雾    SURFACE  */
+  --ab-muted:   #C5D6EC; /* 蓝灰    MUTED    */
+  --ab-accent:  #98B5D8; /* 雾蓝    ACCENT   */
+  --ab-strong:  #789EC8; /* 天使蓝  STRONG   */
+  --ab-ink:     #586878; /* 蓝墨    TEXT     */
+  --hairline:   rgba(88, 104, 120, 0.16); /* 发丝分割线 */
+  --eyebrow:    #789EC8;                   /* small-caps 标签色 */
+
   --accent: #DBEAFE;
   --accent-strong: #93C5FD;
   --text-main: #111827;
@@ -44,6 +60,39 @@
 .ui-numeric {
   font-family: var(--font-rounded);
   font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* ── Editorial helpers (Harbor-style, Angel Blue palette) ──────────────────
+   .ui-display  — big English serif title (decorative; English text only)
+   .ui-eyebrow  — small-caps tracked label above a section (English)
+   .ui-hairline — thin divider line                                          */
+.ui-display {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  line-height: 1.1;
+  color: var(--ab-ink);
+}
+
+.ui-display.italic {
+  font-style: italic;
+  font-weight: 500;
+}
+
+.ui-eyebrow {
+  font-family: var(--font-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--eyebrow);
+}
+
+.ui-hairline {
+  height: 1px;
+  border: 0;
+  background: var(--hairline);
+  margin: 0;
 }
 
 .glass-card,

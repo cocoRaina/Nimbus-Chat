@@ -32,6 +32,13 @@
   color: #1E3A8A;
 }
 
+/* Editorial serif page title (pilot for the Angel Blue / Harbor theme) */
+.diag-page-title {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
 .page-header-spacer {
   width: 80px;
   flex-shrink: 0;
@@ -46,7 +53,7 @@
   display: flex;
   gap: 6px;
   background: rgba(255, 255, 255, 0.7);
-  border: 1px solid #DBEAFE;
+  border: 1px solid var(--ab-surface);
   border-radius: 14px;
   padding: 4px;
 }
@@ -64,9 +71,9 @@
 }
 
 .usage-range-tabs button.active {
-  background: linear-gradient(180deg, #BFDBFE, #93C5FD);
-  color: #1D4ED8;
-  box-shadow: 0 4px 10px rgba(147, 197, 253, 0.3);
+  background: linear-gradient(180deg, var(--ab-muted), var(--ab-accent));
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(152, 181, 216, 0.35);
 }
 
 .usage-error {
@@ -171,7 +178,13 @@
 .usage-section h2 {
   margin: 0;
   font-size: 1rem;
-  color: #1E40AF;
+  color: var(--ab-ink);
+}
+
+/* Section sub-headers — ink-blue editorial tone */
+.usage-section h3 {
+  color: var(--ab-ink);
+  letter-spacing: 0.01em;
 }
 
 .usage-empty {
@@ -272,9 +285,9 @@
 }
 
 .diag-tabs button.active {
-  background: linear-gradient(180deg, #93C5FD, #60A5FA);
+  background: linear-gradient(180deg, var(--ab-accent), var(--ab-strong));
   color: #fff;
-  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.22);
+  box-shadow: 0 4px 10px rgba(120, 158, 200, 0.3);
 }
 
 /* ── API check panel ─────────────────────────────────────────────── */
