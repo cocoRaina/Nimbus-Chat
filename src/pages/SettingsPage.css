@@ -1,11 +1,11 @@
 .settings-shell {
   min-height: 100vh;
   min-height: 100dvh;
-  background: var(--page-bg);
+  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
 }
 
 .settings-shell.app-shell {
-  background: var(--page-bg);
+  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
   overscroll-behavior: auto;
 }
 
@@ -14,8 +14,8 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding-top: 32px;
-  background: var(--page-bg);
+  padding-top: 24px;
+  background: transparent;
   padding-bottom: calc(28px + env(safe-area-inset-bottom));
   overflow: auto;
   -webkit-overflow-scrolling: touch;
@@ -34,7 +34,7 @@
 .settings-ribbon-line {
   width: 100%;
   height: 1px;
-  border-bottom: 2px dashed #DBEAFE;
+  border-bottom: 2px dashed rgba(197, 214, 236, 0.6);
 }
 
 .settings-ribbon-icon {
@@ -56,23 +56,26 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.86);
-  border-bottom: 1px solid rgba(17, 24, 39, 0.08);
-  backdrop-filter: blur(12px);
+  padding: calc(env(safe-area-inset-top) + 0.6rem) 1.1rem 0.6rem;
+  background: rgba(244, 248, 252, 0.88);
+  border-bottom: 1px solid rgba(88, 104, 120, 0.1);
+  backdrop-filter: blur(16px);
 }
 
 .settings-header h1 {
   margin: 0;
-  font-size: 16px;
-  color: #5c5c5c;
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #2A3D52;
+  letter-spacing: 0.02em;
 }
 
 .settings-header .ghost {
   border: none;
   background: transparent;
-  color: #5c5c5c;
-  font-weight: 700;
+  color: #789EC8;
+  font-weight: 600;
   font-size: 14px;
   cursor: pointer;
 }
@@ -123,24 +126,24 @@
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  background: rgba(107, 114, 128, 0.12);
-  color: #6b7280;
+  background: rgba(152, 181, 216, 0.15);
+  color: #789EC8;
   font-size: 18px;
 }
 
 .section-title h2 {
   grid-area: title;
   margin: 0;
-  font-size: 16px;
-  color: #5c5c5c;
-  font-weight: 700;
+  font-size: 15px;
+  color: #2A3D52;
+  font-weight: 600;
 }
 
 .section-title p {
   grid-area: subtitle;
   margin: 0;
-  color: #8c8c8c;
-  font-size: 13px;
+  color: #98B5D8;
+  font-size: 12px;
 }
 
 .settings-page .collapse-header {
@@ -167,11 +170,11 @@
 }
 
 .settings-page .collapse-header[aria-expanded='false']:hover {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(244, 248, 252, 0.5);
 }
 
 .settings-page .settings-section + .settings-section .collapse-header {
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid rgba(88, 104, 120, 0.08);
 }
 
 .settings-page .settings-section .collapse-header[aria-expanded='true']::after {
@@ -183,7 +186,7 @@
 }
 
 .collapse-indicator {
-  color: rgba(17, 24, 39, 0.35);
+  color: rgba(88, 104, 120, 0.4);
   font-size: 24px;
   line-height: 1;
   transform: rotate(0deg);
@@ -195,7 +198,7 @@
 }
 
 .accordion-content {
-  background: #f8f4f8;
+  background: rgba(244, 248, 252, 0.6);
   border: none;
   border-radius: 0;
   padding: 14px 16px 16px;
@@ -222,7 +225,7 @@
 .catalog-result-item,
 .catalog-dropdown {
   border-radius: 12px;
-  border: 1px solid #DBEAFE;
+  border: 1px solid rgba(197, 214, 236, 0.5);
   background: rgba(255, 255, 255, 0.9);
 }
 
@@ -253,7 +256,7 @@
 .search-input,
 .compression-fields input,
 .compression-fields select {
-  border: 1px solid #DBEAFE;
+  border: 1px solid rgba(197, 214, 236, 0.5);
   border-radius: 12px;
   padding: 10px 12px;
   font-size: 14px;
@@ -266,7 +269,7 @@
   min-height: 140px;
   resize: vertical;
   border-style: dashed;
-  border-color: #DBEAFE;
+  border-color: rgba(197, 214, 236, 0.5);
   background: #ffffff;
 }
 
@@ -274,7 +277,7 @@
   outline: none;
   border-style: solid;
   border-width: 2px;
-  border-color: #93C5FD;
+  border-color: #98B5D8;
 }
 
 .model-id {
@@ -287,7 +290,7 @@
   border: 1px solid transparent;
   border-radius: 999px;
   padding: 8px 12px;
-  background: #3B82F6;
+  background: linear-gradient(135deg, #98B5D8, #789EC8);
   color: #ffffff;
   font-size: 13px;
   font-weight: 600;
@@ -296,7 +299,7 @@
 
 .settings-page button.ghost {
   background: rgba(255, 255, 255, 0.8);
-  border-color: #DBEAFE;
+  border-color: rgba(197, 214, 236, 0.5);
   color: #6d6d6d;
 }
 
@@ -306,12 +309,12 @@
 }
 
 .settings-page button.danger {
-  color: #1D4ED8;
-  border-color: #93C5FD;
+  color: #b91c1c;
+  border-color: #98B5D8;
 }
 
 .badge {
-  background: #DBEAFE;
+  background: rgba(197, 214, 236, 0.5);
   color: #6d6d6d;
   font-size: 11px;
   padding: 4px 8px;
@@ -319,7 +322,7 @@
 }
 
 .badge.subtle {
-  background: #DBEAFE;
+  background: rgba(197, 214, 236, 0.5);
 }
 
 .field-group {
@@ -368,7 +371,7 @@
 }
 
 .toggle-control input:checked {
-  background: #DBEAFE;
+  background: rgba(197, 214, 236, 0.5);
 }
 
 .toggle-control input:checked::after {
@@ -376,7 +379,7 @@
 }
 
 .field-error {
-  color: #1D4ED8;
+  color: #b91c1c;
   font-size: 12px;
 }
 
@@ -396,7 +399,7 @@
 }
 
 .system-prompt-actions .primary {
-  background: #3B82F6;
+  background: linear-gradient(135deg, #98B5D8, #789EC8);
   color: #ffffff;
 }
 
@@ -433,7 +436,7 @@
 }
 
 .catalog-status.error {
-  color: #1D4ED8;
+  color: #b91c1c;
 }
 
 /* Relay presets: saved custom relays you can switch between with one tap. */

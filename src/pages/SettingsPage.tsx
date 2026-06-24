@@ -106,6 +106,7 @@ const SettingsPage = ({
   const [msuicodeApiKeyStatus, setMsuicodeApiKeyStatus] = useState<'idle' | 'saved'>('idle')
   const [msuicodeFormat, setMsuicodeFormatState] = useState<ApiFormat>(() => getMsuicodeFormat())
   const [msuicodeBaseUrlInput, setMsuicodeBaseUrlInput] = useState(() => getMsuicodeBaseUrl())
+  const [avatarSectionExpanded, setAvatarSectionExpanded] = useState(false)
   const [ttsSectionExpanded, setTtsSectionExpanded] = useState(false)
   const [ttsDraft, setTtsDraft] = useState(() => getTtsConfig())
   const [ttsApiKeyVisible, setTtsApiKeyVisible] = useState(false)
@@ -891,16 +892,36 @@ const SettingsPage = ({
           <span className="settings-ribbon-line" />
         </div>
 
-        {/* Avatar section */}
-        <div className="settings-avatar-section">
-          <div className="settings-avatar-item">
-            <span className="settings-avatar-label">我的头像</span>
-            <LocalAvatar storageKey="my-homepage-avatar" alt="kitten" />
+        <div className="settings-group" role="list">
+      <section className="settings-section" role="listitem">
+        <button
+          type="button"
+          className="collapse-header"
+          onClick={() => setAvatarSectionExpanded((current) => !current)}
+          aria-expanded={avatarSectionExpanded}
+        >
+          <span className="section-title">
+            <span className="section-icon" aria-hidden="true">🖼️</span>
+            <h2 className="ui-title">头像</h2>
+            <p>点击上传，右上角 × 删除。</p>
+          </span>
+          <span className="collapse-indicator" aria-hidden="true">›</span>
+        </button>
+        {avatarSectionExpanded ? (
+          <div className="accordion-content">
+            <div className="settings-avatar-section">
+              <div className="settings-avatar-item">
+                <span className="settings-avatar-label">我的头像</span>
+                <LocalAvatar storageKey="my-homepage-avatar" alt="kitten" />
+              </div>
+              <div className="settings-avatar-item">
+                <span className="settings-avatar-label">Claude 头像</span>
+                <LocalAvatar storageKey="syzygy-homepage-avatar" alt="Claude" />
+              </div>
+            </div>
           </div>
-          <div className="settings-avatar-item">
-            <span className="settings-avatar-label">Claude 头像</span>
-            <LocalAvatar storageKey="syzygy-homepage-avatar" alt="Claude" />
-          </div>
+        ) : null}
+      </section>
         </div>
 
         <div className="settings-group" role="list">

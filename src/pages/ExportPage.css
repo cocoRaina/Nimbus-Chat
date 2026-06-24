@@ -1,125 +1,170 @@
+/* ── Page shell ───────────────────────────────────────────────── */
 .export-page {
-  width: min(840px, 100%);
-  margin: 0 auto;
-  padding: 20px 16px 40px;
+  min-height: 100dvh;
+  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  padding-bottom: calc(2rem + env(safe-area-inset-bottom));
 }
 
+/* ── Header ───────────────────────────────────────────────────── */
 .export-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  width: 100%;
+  max-width: 640px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  padding: calc(env(safe-area-inset-top) + 0.6rem) 1.1rem 0.6rem;
+  background: rgba(244, 248, 252, 0.88);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(88, 104, 120, 0.1);
+}
+
+.export-header .ghost {
+  background: transparent;
+  border: none;
+  font-size: 0.88rem;
+  color: #789EC8;
+  cursor: pointer;
+  padding: 0 0.4rem;
+  font-weight: 600;
+  font-family: inherit;
+  min-width: 2.5rem;
 }
 
 .export-header h1 {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #2A3D52;
   margin: 0;
-  font-size: 1.1rem;
-  color: #5c5c5c;
+  letter-spacing: 0.02em;
 }
 
+/* ── Main card ────────────────────────────────────────────────── */
 .export-package-card {
   position: relative;
-  border: 1px solid #DBEAFE;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  padding: 20px;
+  width: 100%;
+  max-width: 640px;
+  margin: 1rem 0 0;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: 0 4px 18px rgba(88, 104, 120, 0.07);
+  backdrop-filter: blur(18px);
+  padding: 1.1rem 1.1rem 1rem;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 1rem;
 }
 
 .export-package-card h2 {
   margin: 0;
-  font-size: 1.1rem;
-  color: #5c5c5c;
-  font-weight: 700;
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #2A3D52;
+  letter-spacing: 0.02em;
 }
 
+/* ── Washi tape decoration ────────────────────────────────────── */
 .export-washi-tape {
   position: absolute;
-  top: -12px;
+  top: -11px;
   left: 20px;
-  width: 92px;
-  height: 24px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, rgba(219, 234, 254, 0.86), rgba(255, 255, 255, 0.6));
-  border: 1px dashed rgba(255, 255, 255, 0.8);
-  transform: rotate(-10deg);
-  box-shadow: 0 4px 8px rgba(92, 92, 92, 0.08);
+  width: 80px;
+  height: 20px;
+  border-radius: 4px;
+  background: rgba(197, 214, 236, 0.55);
+  border: 1px dashed rgba(197, 214, 236, 0.8);
+  transform: rotate(-8deg);
 }
 
+/* ── Subsections ──────────────────────────────────────────────── */
 .export-subsection {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0.55rem;
 }
 
 .export-subsection h3 {
   margin: 0;
-  font-size: 0.95rem;
-  color: #5c5c5c;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #98B5D8;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
+/* ── Format stickers ──────────────────────────────────────────── */
 .export-format-stickers {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 0.5rem;
 }
 
 .export-sticker {
-  border: 1px solid #DBEAFE;
+  border: 1px solid rgba(197, 214, 236, 0.7);
   background: transparent;
-  color: #8c8c8c;
+  color: #98B5D8;
   border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 0.92rem;
+  padding: 0.32rem 0.85rem;
+  font-size: 0.85rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  font-family: inherit;
+  transition: all 0.15s;
 }
 
 .export-sticker.active {
-  background: #DBEAFE;
-  color: #5c5c5c;
+  background: rgba(152, 181, 216, 0.18);
+  color: #2A3D52;
+  border-color: rgba(152, 181, 216, 0.5);
 }
 
+/* ── Module checkboxes ────────────────────────────────────────── */
 .export-package-card label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: #5c5c5c;
+  gap: 0.55rem;
+  color: #2A3D52;
+  font-size: 0.9rem;
+  cursor: pointer;
 }
 
+/* ── Notes ────────────────────────────────────────────────────── */
 .export-note,
 .export-signoff {
   margin: 0;
-  font-size: 0.85rem;
-  color: #8c8c8c;
+  font-size: 0.82rem;
+  color: #98B5D8;
+  line-height: 1.5;
 }
 
 .export-signoff {
   font-style: italic;
 }
 
+/* ── Pack button ──────────────────────────────────────────────── */
 .export-button {
   align-self: stretch;
-  border: 0;
+  border: none;
   border-radius: 999px;
-  background: #DBEAFE;
-  color: #5c5c5c;
-  font-size: 0.98rem;
+  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  color: white;
+  font-size: 0.95rem;
   font-weight: 700;
-  padding: 12px 18px;
+  padding: 0.7rem 1.4rem;
   cursor: pointer;
-  transition: transform 0.15s ease, filter 0.2s ease;
+  font-family: inherit;
+  transition: opacity 0.15s, transform 0.12s;
 }
 
 .export-button:hover {
-  filter: brightness(0.98);
+  opacity: 0.92;
 }
 
 .export-button:active {
@@ -128,13 +173,20 @@
 
 .export-button:disabled {
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
+/* ── Attribution ──────────────────────────────────────────────── */
 .export-attribution {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #b0b0b0;
-  font-weight: 400;
+  margin: 0.25rem 0 0;
+  font-size: 0.7rem;
+  color: #C5D6EC;
   text-align: center;
+}
+
+@media (max-width: 680px) {
+  .export-page {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
 }
