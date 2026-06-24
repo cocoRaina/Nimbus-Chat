@@ -40,7 +40,7 @@
   gap: 0.5rem;
   padding-left: clamp(14px, 4vw, 20px);
   padding-right: clamp(14px, 4vw, 20px);
-  padding-top: 0.4rem;
+  padding-top: 1.5rem;
   padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
 }
 
