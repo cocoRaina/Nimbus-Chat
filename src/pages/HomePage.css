@@ -60,6 +60,12 @@
   justify-content: flex-start;
 }
 
+@media (max-width: 900px) {
+  .home-page--edit .home-page__content {
+    display: none;
+  }
+}
+
 .phone-shell__mask {
   display: none;
 }

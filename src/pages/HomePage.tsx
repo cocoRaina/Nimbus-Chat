@@ -287,7 +287,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
 
   return (
     <main
-      className={`home-page app-shell ${isSettingsPage ? "home-page--settings" : ""}${backgroundImageUrl ? " home-page--has-bg" : ""}`}
+      className={`home-page app-shell ${isSettingsPage ? "home-page--settings" : ""}${editMode ? " home-page--edit" : ""}${backgroundImageUrl ? " home-page--has-bg" : ""}`}
       style={
         backgroundImageUrl
           ? { backgroundImage: `url(${backgroundImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
