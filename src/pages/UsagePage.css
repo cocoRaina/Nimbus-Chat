@@ -272,9 +272,9 @@
 }
 
 .diag-tabs button.active {
-  background: linear-gradient(180deg, #818CF8, #4F46E5);
+  background: linear-gradient(180deg, #60A5FA, #2563EB);
   color: #fff;
-  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.25);
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
 }
 
 /* ── API check panel ─────────────────────────────────────────────── */
@@ -311,8 +311,8 @@
 }
 
 .diag-model-input:focus {
-  border-color: #6366F1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: #60A5FA;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
 .diag-model-input:disabled {
@@ -329,12 +329,12 @@
   padding: 10px 24px;
   border: none;
   border-radius: 12px;
-  background: linear-gradient(180deg, #818CF8, #4F46E5);
+  background: linear-gradient(180deg, #60A5FA, #2563EB);
   color: #fff;
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.2);
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
   transition: opacity 0.15s;
 }
 
@@ -393,7 +393,7 @@
 .diag-badge-fail   { background: #FEE2E2; color: #991B1B; }
 .diag-badge-warn   { background: #FEF3C7; color: #92400E; }
 .diag-badge-skip   { background: #F1F5F9; color: #64748B; }
-.diag-badge-running{ background: #EEF2FF; color: #3730A3; }
+.diag-badge-running{ background: #DBEAFE; color: #1D4ED8; }
 .diag-badge-idle   { background: #F1F5F9; color: #94A3B8; }
 
 .diag-result-detail {
