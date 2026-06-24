@@ -75,11 +75,11 @@ const CheckinPage = ({ user }: CheckinPageProps) => {
   const navigate = useNavigate()
   const navTabs = useMemo(
     () => [
-      { label: '聊天', path: '/' },
-      { label: '记忆库', path: '/memory-vault' },
+      { label: 'Chat', path: '/' },
+      { label: 'Memory', path: '/memory-vault' },
       { label: 'mimi', path: '/snacks' },
       { label: 'Claude', path: '/syzygy' },
-      { label: '打卡', path: '/checkin' },
+      { label: 'Check-in', path: '/checkin' },
       { label: '设置', path: '/settings' },
       { label: '数据导出', path: '/export' },
     ],
@@ -110,7 +110,7 @@ const CheckinPage = ({ user }: CheckinPageProps) => {
       setCheckinNotice(null)
     } catch (error) {
       console.warn('加载打卡记录失败', error)
-      setCheckinNotice('加载打卡数据失败，请稍后重试。')
+      setCheckinNotice('Load failed. Please try again.')
     } finally {
       setCheckinLoading(false)
     }
@@ -127,11 +127,11 @@ const CheckinPage = ({ user }: CheckinPageProps) => {
     setCheckinSubmitting(true)
     try {
       const result = await createTodayCheckin(todayKey)
-      setCheckinNotice(result === 'created' ? '打卡成功！' : '今日已打卡')
+      setCheckinNotice(result === 'created' ? 'Checked in!' : 'Already checked in')
       await loadCheckinData()
     } catch (error) {
       console.warn('打卡失败', error)
-      setCheckinNotice('打卡失败，请稍后重试。')
+      setCheckinNotice('Check-in failed. Please try again.')
     } finally {
       setCheckinSubmitting(false)
     }
@@ -160,22 +160,22 @@ const CheckinPage = ({ user }: CheckinPageProps) => {
 
       <section className="checkin-card standalone">
         <div className="checkin-header">
-          <h2 className="ui-title">陪伴记录</h2>
+          <h2 className="ui-title">Together Log</h2>
           <span>{todayDisplay}</span>
         </div>
         <div className="checkin-metrics">
           <article className="metric-card">
-            <p>连续打卡 Streak</p>
+            <p>Streak</p>
             <strong>{streakDays}</strong>
           </article>
           <article className="metric-card">
-            <p>累计打卡 Total Days</p>
+            <p>Total Days</p>
             <strong>{checkinTotal}</strong>
           </article>
         </div>
         <div className="checkin-status-row">
           <span className={`checkin-status ${checkedToday ? 'done' : 'todo'}`}>
-            {checkedToday ? '今日已陪伴 / Accompanied Today' : '今天还没盖章喔'}
+            {checkedToday ? 'Accompanied Today' : 'No check-in yet today'}
           </span>
           <button
             type="button"
@@ -183,14 +183,14 @@ const CheckinPage = ({ user }: CheckinPageProps) => {
             onClick={() => void handleCheckin()}
             disabled={!user || checkinSubmitting || checkedToday}
           >
-            {checkedToday ? '今日已陪伴 💖' : checkinSubmitting ? '盖章中…' : '点我打卡 / Check in'}
+            {checkedToday ? 'Accompanied 💖' : checkinSubmitting ? 'Checking in…' : 'Check in'}
           </button>
         </div>
 
-        <section className="calendar-panel" aria-label="打卡月历">
+        <section className="calendar-panel" aria-label="Calendar">
           <div className="calendar-tape tape-left" aria-hidden="true" />
           <div className="calendar-tape tape-right" aria-hidden="true" />
-          <h3>{monthTitle} 陪伴月历</h3>
+          <h3>{monthTitle} Calendar</h3>
           <div className="calendar-weekdays" aria-hidden="true">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
               <span key={day}>{day}</span>
@@ -206,7 +206,7 @@ const CheckinPage = ({ user }: CheckinPageProps) => {
                 <div
                   key={cell.dateKey}
                   className={`calendar-day ${isChecked ? 'checked' : 'unchecked'}`}
-                  aria-label={`${cell.dateKey} ${isChecked ? '已打卡' : '未打卡'}`}
+                  aria-label={`${cell.dateKey} ${isChecked ? 'Checked in' : 'Not checked in'}`}
                 >
                   <span className="day-number">{cell.dayNumber}</span>
                   <span className="day-stamp">{isChecked ? '💗' : ''}</span>
@@ -216,7 +216,7 @@ const CheckinPage = ({ user }: CheckinPageProps) => {
           </div>
         </section>
 
-        {checkinLoading ? <p className="checkin-tip">打卡数据加载中…</p> : null}
+        {checkinLoading ? <p className="checkin-tip">Loading…</p> : null}
         {checkinNotice ? <p className="checkin-tip">{checkinNotice}</p> : null}
       </section>
     </div>

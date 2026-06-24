@@ -32,13 +32,13 @@ const REQUESTED_TYPES: HealthDataType[] = [
 ]
 
 const TYPE_LABELS: Record<HealthDataType, string> = {
-  steps: '步数',
-  sleep: '睡眠',
+  steps: 'Steps',
+  sleep: 'Sleep',
   heartRate: '心率',
-  restingHeartRate: '静息心率',
+  restingHeartRate: 'Resting HR',
   distance: '距离',
   totalCalories: '总卡路里',
-  oxygenSaturation: '血氧',
+  oxygenSaturation: 'Blood O₂',
   calories: '卡路里',
   weight: '体重',
   respiratoryRate: '呼吸频率',
@@ -66,10 +66,10 @@ const formatSampleValue = (s: HealthSample): string => {
 }
 
 const formatLastSync = (ts: number | null) => {
-  if (!ts) return '从未同步'
+  if (!ts) return 'Never synced'
   const delta = Date.now() - ts
   const mins = Math.floor(delta / 60000)
-  if (mins < 1) return '刚刚'
+  if (mins < 1) return 'just now'
   if (mins < 60) return `${mins} 分钟前`
   const hours = Math.floor(mins / 60)
   if (hours < 24) return `${hours} 小时前`
@@ -231,13 +231,13 @@ const HealthSyncPage = ({ user: _user }: Props) => {
     }
     let phase: string
     if (isInPeriod) {
-      phase = '经期中'
+      phase = 'Period'
     } else if (daysSinceStart < 12) {
-      phase = '滤泡期'
+      phase = 'Follicular'
     } else if (daysSinceStart >= 12 && daysSinceStart <= 16) {
-      phase = '排卵期'
+      phase = 'Ovulation'
     } else {
-      phase = '黄体期'
+      phase = 'Luteal'
     }
     const nextDate = new Date(start.getTime() + cycleLength * oneDay)
     return {
@@ -253,7 +253,7 @@ const HealthSyncPage = ({ user: _user }: Props) => {
 
   const handleSyncNow = async () => {
     if (!isNative) {
-      pushLog('⚠️ Web 端无法同步，请用 APK')
+      pushLog('⚠️ Cannot sync on web — use APK')
       return
     }
     setBusy(true)
@@ -266,9 +266,9 @@ const HealthSyncPage = ({ user: _user }: Props) => {
         .map(([t, n]) => `${TYPE_LABELS[t as HealthDataType] ?? t} ${n}`)
         .join(' · ')
       if (summary.ok) {
-        pushLog(`✅ 同步成功：${summary.upsertedDates.length} 天入库${counts ? ' · ' + counts : ''}`)
+        pushLog(`✅ Synced: ${summary.upsertedDates.length} days stored${counts ? ' · ' + counts : ''}`)
       } else {
-        // Translate internal reason codes to actionable Chinese where
+        // Translate internal reason codes to actionable messages where
         // the user actually has something to do — "rate-limited" is
         // the only case worth phrasing as a wait-and-retry hint, the
         // rest just surface the code so we can debug from the log.
@@ -276,10 +276,10 @@ const HealthSyncPage = ({ user: _user }: Props) => {
         const reasonText =
           summary.skippedReason === 'rate-limited'
             ? cooldownLeft > 0
-              ? `Health Connect 限速冷却中,约 ${cooldownLeft} 分钟后自动恢复（这期间手动同步也会跳过,别再点了让配额回血）`
-              : 'Health Connect 限速,稍等几分钟再点同步'
+              ? `Health Connect rate-limited — cooldown ~${cooldownLeft} min (Please wait for quota recovery)`
+              : 'Health Connect rate-limited — wait a few minutes'
             : summary.skippedReason === 'throttled'
-              ? '距上次同步不足 30 分钟,自动跳过(手动按钮可强制)'
+              ? 'Synced recently (< 30 min ago) — skipped (force button bypasses)'
               : (summary.skippedReason ?? '未知')
         // Even with skippedReason set we may have partial success — the
         // parallel-read path saves whatever types didn't rate-limit.
@@ -288,7 +288,7 @@ const HealthSyncPage = ({ user: _user }: Props) => {
           summary.upsertedDates.length > 0
             ? `（部分入库 ${summary.upsertedDates.length} 天${counts ? ' · ' + counts : ''}）`
             : ''
-        pushLog(`⚠️ 同步未完成：${reasonText}${partialNote}`)
+        pushLog(`⚠️ Sync incomplete: ${reasonText}${partialNote}`)
       }
       for (const err of summary.errors) {
         pushLog(`  · ${err}`)
@@ -365,17 +365,17 @@ const HealthSyncPage = ({ user: _user }: Props) => {
     <div className="app-shell">
       <header className="page-header-bar">
         <button type="button" className="ghost" onClick={() => navigate('/')}>
-          返回聊天
+          Back to Chat
         </button>
-        <h1 className="ui-title">健康同步</h1>
+        <h1 className="ui-title">Health Sync</h1>
         <span className="page-header-spacer" aria-hidden="true" />
       </header>
       <main className="app-shell__content health-sync">
         <section className="glass-card health-sync__sync-card">
           <header className="health-sync__sync-header">
             <div>
-              <h2>从 Health Connect 拉取</h2>
-              <p className="health-sync__sync-meta">上次同步：{formatLastSync(lastSync)}</p>
+              <h2>Sync from Health Connect</h2>
+              <p className="health-sync__sync-meta">Last synced: {formatLastSync(lastSync)}</p>
             </div>
             <button
               type="button"
@@ -383,11 +383,11 @@ const HealthSyncPage = ({ user: _user }: Props) => {
               disabled={busy || !isNative}
               onClick={() => void handleSyncNow()}
             >
-              {busy ? '同步中…' : '立即同步'}
+              {busy ? 'Syncing…' : 'Sync Now'}
             </button>
           </header>
           {!isNative ? (
-            <p className="health-sync__warn">⚠️ Web 端不可用，请在 APK 里同步</p>
+            <p className="health-sync__warn">⚠️ Not available on web — sync from APK</p>
           ) : null}
           {lastSummary && lastSummary.ok ? (
             <p className="health-sync__sync-result">
@@ -396,36 +396,36 @@ const HealthSyncPage = ({ user: _user }: Props) => {
           ) : null}
           {lastSummary && !lastSummary.ok && lastSummary.skippedReason ? (
             <p className="health-sync__sync-result warn">
-              ⚠ 未完成：
+              ⚠️ Sync incomplete:{' '}
               {lastSummary.skippedReason === 'rate-limited'
                 ? rateLimitCooldownMinutesLeft() > 0
-                  ? `Health Connect 限速冷却中,约 ${rateLimitCooldownMinutesLeft()} 分钟后恢复（别再点,让配额回血）`
-                  : 'Health Connect 限速,稍等几分钟再点同步'
+                  ? `Health Connect rate-limited — ~${rateLimitCooldownMinutesLeft()} min until recovery (Please wait for quota recovery)`
+                  : 'Health Connect rate-limited — wait a few minutes'
                 : lastSummary.skippedReason === 'throttled'
-                  ? '距上次同步不足 30 分钟,自动跳过'
+                  ? 'Synced recently (< 30 min ago) — skipped'
                   : lastSummary.skippedReason}
             </p>
           ) : null}
         </section>
 
         <section className="glass-card health-sync__today">
-          <h2>今天</h2>
+          <h2>Today</h2>
           {todayRow ? (
             <div className="health-sync__today-grid">
               <div>
-                <span className="label">步数</span>
+                <span className="label">Steps</span>
                 <span className="value">{todayRow.steps ?? '—'}</span>
               </div>
               <div>
-                <span className="label">睡眠</span>
+                <span className="label">Sleep</span>
                 <span className="value">{todayRow.sleep_hours != null ? `${todayRow.sleep_hours} h` : '—'}</span>
               </div>
               <div>
-                <span className="label">平均心率</span>
+                <span className="label">Avg Heart Rate</span>
                 <span className="value">{todayRow.heart_rate_avg ?? '—'}</span>
               </div>
               <div>
-                <span className="label">心率范围</span>
+                <span className="label">HR Range</span>
                 <span className="value">
                   {todayRow.heart_rate_min != null && todayRow.heart_rate_max != null
                     ? todayRow.heart_rate_min === todayRow.heart_rate_max
@@ -437,29 +437,29 @@ const HealthSyncPage = ({ user: _user }: Props) => {
                 </span>
               </div>
               <div>
-                <span className="label">静息心率</span>
+                <span className="label">Resting HR</span>
                 <span className="value">{todayRow.heart_rate_rest ?? '—'}</span>
               </div>
               <div>
-                <span className="label">血氧</span>
+                <span className="label">Blood O₂</span>
                 <span className="value">{todayRow.oxygen_saturation_avg != null ? `${todayRow.oxygen_saturation_avg}%` : '—'}</span>
               </div>
             </div>
           ) : (
             <p className="health-sync__empty">
-              今天还没数据。早上记得开一下 Health Sync 把华为运动健康的数据搬到 Health Connect，再点上面"立即同步"。
+              No data yet today. Sync from Health Sync in the morning.
             </p>
           )}
         </section>
 
         <section className="glass-card health-sync__usage">
-          <h2>📱 屏幕使用时间</h2>
+          <h2>📱 Screen Time</h2>
           {!isNative ? (
-            <p className="health-sync__empty">Web 端无法读取屏幕时间，请用 APK。</p>
+            <p className="health-sync__empty">Screen time unavailable on web — use APK.</p>
           ) : usageGranted === false ? (
             <div className="health-sync__usage-prompt">
               <p className="health-sync__empty">
-                还没授权读取「使用情况访问权限」。授权后才能看到今天每个 app 的使用时长。
+                Usage stats permission not granted. Grant permission to see per-app usage.
               </p>
               <button
                 type="button"
@@ -468,23 +468,23 @@ const HealthSyncPage = ({ user: _user }: Props) => {
                   void openUsageStatsSettings()
                 }}
               >
-                打开系统设置授权
+                Open Settings
               </button>
               <button
                 type="button"
                 className="ghost"
                 onClick={() => void refreshUsage()}
               >
-                我已授权，重新检查
+                Authorized — recheck
               </button>
             </div>
           ) : !usageData || usageData.total_minutes === 0 ? (
-            <p className="health-sync__empty">今天还没记录到使用时间。</p>
+            <p className="health-sync__empty">No usage recorded today.</p>
           ) : (
             <div className="health-sync__usage-body">
               <div className="health-sync__usage-total">
                 <span className="value">{Math.floor(usageData.total_minutes / 60)}h {usageData.total_minutes % 60}m</span>
-                <span className="label">今日总时长</span>
+                <span className="label">Total today</span>
               </div>
               <ol className="health-sync__usage-apps">
                 {usageData.top_apps.map((app) => {
@@ -503,10 +503,10 @@ const HealthSyncPage = ({ user: _user }: Props) => {
         </section>
 
         <section className="glass-card health-sync__period">
-          <h2>🌸 经期跟踪</h2>
+          <h2>🌸 Period Tracking</h2>
           {!periodMetrics ? (
             <p className="health-sync__empty">
-              还没记录过经期。让 Claude 帮你记，或者去 Supabase 表里手动加 period_tracking 一行。
+              No period records yet. Ask Claude to help, or add a row to period_tracking in Supabase.
             </p>
           ) : (
             <div className="health-sync__period-body">
@@ -516,7 +516,7 @@ const HealthSyncPage = ({ user: _user }: Props) => {
               </div>
               <div className="health-sync__period-meta">
                 <div>
-                  <span className="label">下次预计</span>
+                  <span className="label">Next expected</span>
                   <span className="value">
                     {periodMetrics.daysToNext > 0
                       ? `${periodMetrics.daysToNext} 天后（${periodMetrics.nextDate.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}）`
@@ -526,13 +526,13 @@ const HealthSyncPage = ({ user: _user }: Props) => {
                   </span>
                 </div>
                 <div>
-                  <span className="label">平均周期</span>
+                  <span className="label">Avg cycle</span>
                   <span className="value">
                     {periodMetrics.cycleLength} 天
                     {periodMetrics.cycleSource === 'history'
                       ? `（按你最近 ${periodMetrics.cycleSampleSize + 1} 个周期算的）`
                       : periodMetrics.cycleSource === 'logged'
-                        ? '（手动记录）'
+                        ? 'Manual entry'
                         : '（默认值，需 ≥2 个周期才能自适应）'}
                   </span>
                 </div>
@@ -542,35 +542,35 @@ const HealthSyncPage = ({ user: _user }: Props) => {
         </section>
 
         <details className="glass-card health-sync__diag" open={diagOpen} onToggle={(e) => setDiagOpen((e.currentTarget as HTMLDetailsElement).open)}>
-          <summary>🔧 诊断工具</summary>
+          <summary>🔧 Diagnostic Tools</summary>
           <p className="health-sync__hint">
             如果上面同步没反应，按顺序点：① 检查可用 → ② 请求授权（系统弹窗）→ ③ 读样本看是否拿到数据。
           </p>
           <div className="health-sync__diag-actions">
             <button type="button" className="ghost" disabled={busy} onClick={() => void handleAvailability()}>
-              ① 检查 Health Connect{available === true ? ' ✅' : available === false ? ' ❌' : ''}
+              ① Check Health Connect{available === true ? ' ✅' : available === false ? ' ❌' : ''}
             </button>
             <button type="button" className="ghost" disabled={busy} onClick={() => void handleAuthorize()}>
-              ② 请求授权
+              ② Request Permission
             </button>
             <div className="health-sync__row">
               <button type="button" className="ghost" disabled={busy} onClick={() => void readType('steps', 24)}>
-                读 24h 步数
+                Read 24h steps
               </button>
               <button type="button" className="ghost" disabled={busy} onClick={() => void readType('sleep', 48)}>
-                读 48h 睡眠
+                Read 48h sleep
               </button>
               <button type="button" className="ghost" disabled={busy} onClick={() => void readType('heartRate', 24)}>
-                读 24h 心率
+                Read 24h HR
               </button>
               <button type="button" className="ghost" disabled={busy} onClick={() => void readType('oxygenSaturation', 24)}>
-                读 24h 血氧
+                Read 24h SpO₂
               </button>
             </div>
           </div>
           {samples.length > 0 ? (
             <div className="health-sync__samples">
-              <h3>原始样本 ({samples.length})</h3>
+              <h3>Raw samples ({samples.length})</h3>
               <ol>
                 {samples.slice(0, 30).map((s, i) => (
                   <li key={`${s.platformId ?? i}`}>
@@ -588,8 +588,8 @@ const HealthSyncPage = ({ user: _user }: Props) => {
         </details>
 
         <section className="glass-card health-sync__log">
-          <h2>日志</h2>
-          {log.length === 0 ? <p className="health-sync__empty">还没操作过</p> : null}
+          <h2>Log</h2>
+          {log.length === 0 ? <p className="health-sync__empty">No operations yet</p> : null}
           <pre>
             {log.map((line, i) => (
               <div key={i}>{line}</div>

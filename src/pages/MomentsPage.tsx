@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import MarkdownRenderer from '../components/MarkdownRenderer'
+import LocalAvatar from '../components/LocalAvatar'
 import { fetchOpenRouter } from '../api/openrouter'
 import { recordUsage } from '../storage/usageStats'
 import type { SnackPost, SnackReply, SyzygyPost, SyzygyReply } from '../types'
@@ -402,9 +403,9 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
 
   const getReplyAuthorLabel = (entry: FeedEntry, reply: SnackReply | SyzygyReply) => {
     if (entry.kind === 'user') {
-      return (reply as SnackReply).role === 'assistant' ? 'Claude' : 'Me'
+      return (reply as SnackReply).role === 'assistant' ? 'Claude' : 'kitten'
     }
-    return (reply as SyzygyReply).authorRole === 'ai' ? 'Claude' : 'Me'
+    return (reply as SyzygyReply).authorRole === 'ai' ? 'Claude' : 'kitten'
   }
 
   const isReplyFromAI = (entry: FeedEntry, reply: SnackReply | SyzygyReply) => {
@@ -421,7 +422,7 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
           ‹
         </button>
         <h1 className="moments-title">Moments</h1>
-        <span className="moments-header-gap" />
+        <LocalAvatar storageKey="my-homepage-avatar" alt="kitten's avatar" />
       </header>
 
       {/* Composer */}
@@ -483,7 +484,7 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
                 {/* Post header */}
                 <div className="moments-card-header">
                   <span className={`moments-author-badge ${entry.kind === 'ai' ? 'moments-author-badge--ai' : 'moments-author-badge--user'}`}>
-                    {entry.kind === 'ai' ? 'Claude' : 'Me'}
+                    {entry.kind === 'ai' ? 'Claude' : 'kitten'}
                   </span>
                   <span className="moments-card-time">{formatTime(entry.post.createdAt)}</span>
                   <button

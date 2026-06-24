@@ -65,7 +65,7 @@ const isAuthExpiredError = (value: unknown) =>
 
 const getReplyPreview = (reply: SyzygyReply | undefined) => {
   if (!reply) {
-    return '暂无回复'
+    return 'No replies yet'
   }
   return reply.content.length > 30 ? `${reply.content.slice(0, 30)}…` : reply.content
 }
@@ -114,7 +114,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
       setRepliesByPost(nextReplies)
     } catch (loadError) {
       console.warn('加载观察日志失败', loadError)
-      setError('加载失败，请稍后重试。')
+      setError('Load failed. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -129,7 +129,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
       setTrashReplies(replyList)
     } catch (loadError) {
       console.warn('加载回收站失败', loadError)
-      setError('回收站加载失败，请稍后重试。')
+      setError('Load failed. Please try again.')
     } finally {
       setTrashLoading(false)
     }
@@ -181,7 +181,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
       setDraft('')
     } catch (publishError) {
       console.warn('发布观察日志失败', publishError)
-      setError(isAuthExpiredError(publishError) ? '登录状态已过期，请重新登录。' : '发布失败，请稍后重试。')
+      setError(isAuthExpiredError(publishError) ? 'Session expired. Please log in again.' : 'Failed to publish. Please try again.')
     } finally {
       setPublishing(false)
     }
@@ -194,11 +194,11 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
     try {
       await softDeleteSyzygyPost(pendingDelete.id)
       setPosts((current) => current.filter((post) => post.id !== pendingDelete.id))
-      setNotice('已移入回收站')
+      setNotice('Moved to trash')
       setPendingDelete(null)
     } catch (deleteError) {
       console.warn('删除观察日志失败', deleteError)
-      setError('删除失败，请重试；若仍失败请稍后再试。')
+      setError('Delete failed. Please try again.')
       setPendingDelete(null)
     }
   }
@@ -215,11 +215,11 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
           (reply) => reply.id !== pendingDeleteReply.id,
         ),
       }))
-      setNotice('已移入回收站')
+      setNotice('Moved to trash')
       setPendingDeleteReply(null)
     } catch (deleteError) {
       console.warn('删除观察日志回复失败', deleteError)
-      setError('删除回复失败，请稍后重试。')
+      setError('Failed to delete reply. Please try again.')
       setPendingDeleteReply(null)
     }
   }
@@ -233,7 +233,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
       await refreshPosts()
     } catch (restoreError) {
       console.warn('恢复观察日志失败', restoreError)
-      setError('恢复失败，请稍后重试。')
+      setError('Restore failed. Please try again.')
     } finally {
       setRestoringPostId(null)
     }
@@ -254,7 +254,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
       }
     } catch (restoreError) {
       console.warn('恢复观察日志回复失败', restoreError)
-      setError('恢复回复失败，请稍后重试。')
+      setError('Failed to restore reply. Please try again.')
     } finally {
       setRestoringReplyId(null)
     }
@@ -278,12 +278,12 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
         throw postError
       }
 
-      setNotice('已彻底删除')
+      setNotice('Permanently deleted')
       await refreshTrashPosts()
     } catch (deleteError) {
       console.error(deleteError)
-      setNotice('彻底删除失败')
-      setError('彻底删除失败，请稍后重试。')
+      setNotice('Permanent delete failed')
+      setError('Permanent delete failed. Please try again.')
     } finally {
       setDeletingPermanentPostId(null)
     }
@@ -302,12 +302,12 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
         throw error
       }
 
-      setNotice('已彻底删除')
+      setNotice('Permanently deleted')
       await refreshTrashPosts()
     } catch (deleteError) {
       console.error(deleteError)
-      setNotice('彻底删除失败')
-      setError('彻底删除失败，请稍后重试。')
+      setNotice('Permanent delete failed')
+      setError('Permanent delete failed. Please try again.')
     } finally {
       setDeletingPermanentReplyId(null)
     }
@@ -317,7 +317,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
     e.preventDefault()
     e.stopPropagation()
     console.log('[recycle] permanent delete clicked', { module: 'syzygy', kind: 'post', id: postId })
-    const ok = window.confirm('确定彻底删除？此操作不可恢复。')
+    const ok = window.confirm('Delete forever? This cannot be undone.')
     if (!ok) {
       return
     }
@@ -328,7 +328,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
     e.preventDefault()
     e.stopPropagation()
     console.log('[recycle] permanent delete clicked', { module: 'syzygy', kind: 'reply', id: replyId })
-    const ok = window.confirm('确定彻底删除？此操作不可恢复。')
+    const ok = window.confirm('Delete forever? This cannot be undone.')
     if (!ok) {
       return
     }
@@ -393,7 +393,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
         ...current,
         [postId]: (current[postId] ?? []).filter((item) => item.id !== pendingId),
       }))
-      setError(isAuthExpiredError(submitError) ? '登录状态已过期，请重新登录。' : '发送失败，请稍后重试。')
+      setError(isAuthExpiredError(submitError) ? 'Session expired. Please log in again.' : 'Send failed. Please try again.')
     } finally {
       setSubmittingReplyPostId(null)
     }
@@ -493,7 +493,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
     }
 
     return {
-      content: content || '（空回复）',
+      content: content || '(empty reply)',
       reasoningText: reasoningText || undefined,
       model: resolvedModel,
     }
@@ -527,7 +527,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
       setPosts((current) => [created, ...current])
     } catch (generateError) {
       console.warn('生成观察日志失败', generateError)
-      setError(isAuthExpiredError(generateError) ? '登录状态已过期，请重新登录。' : '生成失败，请稍后重试。')
+      setError(isAuthExpiredError(generateError) ? 'Session expired. Please log in again.' : 'Generation failed. Please try again.')
     } finally {
       setGeneratingPost(false)
     }
@@ -545,7 +545,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
       id: pendingAssistantId,
       postId: post.id,
       authorRole: 'ai',
-      content: '生成中…',
+      content: 'Generating…',
       createdAt: new Date().toISOString(),
       userId: user.id,
       isDeleted: false,
@@ -570,7 +570,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
       })
 
       const existingReplies = (repliesByPost[post.id] ?? []).filter(
-        (reply) => reply.content && reply.content !== '生成中…',
+        (reply) => reply.content && reply.content !== 'Generating…',
       )
       const lastReplies = existingReplies.slice(-6)
       if (lastReplies.length > 0) {
@@ -607,7 +607,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
         ...current,
         [post.id]: (current[post.id] ?? []).filter((item) => item.id !== pendingAssistantId),
       }))
-      setError(isAuthExpiredError(generateError) ? '登录状态已过期，请重新登录。' : '生成失败，请稍后重试。')
+      setError(isAuthExpiredError(generateError) ? 'Session expired. Please log in again.' : 'Generation failed. Please try again.')
     } finally {
       setGeneratingPostId(null)
     }
@@ -621,9 +621,9 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
     <div className="my-home-page app-shell__content">
       <header className="my-home-header">
         <button type="button" className="ghost" onClick={() => navigate('/')}>
-          返回聊天
+          Back to Chat
         </button>
-        <h1 className="ui-title">{showTrash ? 'Claude 回收站' : 'Claude'}</h1>
+        <h1 className="ui-title">{showTrash ? 'Claude Trash' : 'Claude'}</h1>
         <button
           type="button"
           className="ghost compact-action"
@@ -632,7 +632,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
             setNotice(null)
           }}
         >
-          {showTrash ? '返回列表' : '回收站'}
+          {showTrash ? 'Back' : 'Trash'}
         </button>
       </header>
 
@@ -641,14 +641,14 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
 
       {showTrash ? (
         <main className="home-feed">
-          {trashLoading ? <p className="tips">回收站加载中…</p> : null}
+          {trashLoading ? <p className="tips">Loading trash…</p> : null}
           {!trashLoading && trashPosts.length === 0 && trashReplies.length === 0 ? (
-            <p className="tips">回收站空空如也，去记录点新观察吧。</p>
+            <p className="tips">Trash is empty.</p>
           ) : null}
           {trashPosts.map((post) => (
             <article key={post.id} className="post-card">
               <div className="post-header">
-                <span className="feed-badge">TA动态</span>
+                <span className="feed-badge">Posts</span>
               </div>
               {post.modelId ? (
                 <div className="post-content assistant-markdown">
@@ -666,7 +666,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                     onClick={() => void handleRestore(post.id)}
                     disabled={restoringPostId === post.id}
                   >
-                    {restoringPostId === post.id ? '恢复中…' : '恢复'}
+                    {restoringPostId === post.id ? 'Restoring…' : 'Restore'}
                   </button>
                   <button
                     type="button"
@@ -674,7 +674,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                     onClick={(e) => handlePermanentDeletePostClick(e, post.id)}
                     disabled={deletingPermanentPostId === post.id}
                   >
-                    {deletingPermanentPostId === post.id ? '删除中…' : '彻底删除'}
+                    {deletingPermanentPostId === post.id ? 'Deleting…' : 'Delete Forever'}
                   </button>
                 </div>
               </div>
@@ -683,7 +683,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
           {trashReplies.map((reply) => (
             <article key={reply.id} className="post-card">
               <div className="post-header">
-                <span className="feed-badge">已删除回复</span>
+                <span className="feed-badge">Deleted Reply</span>
               </div>
               {reply.authorRole === 'ai' ? (
                 <div className="post-content assistant-markdown">
@@ -701,7 +701,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                     onClick={() => void handleRestoreReply(reply)}
                     disabled={restoringReplyId === reply.id}
                   >
-                    {restoringReplyId === reply.id ? '恢复中…' : '恢复'}
+                    {restoringReplyId === reply.id ? 'Restoring…' : 'Restore'}
                   </button>
                   <button
                     type="button"
@@ -709,7 +709,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                     onClick={(e) => handlePermanentDeleteReplyClick(e, reply.id)}
                     disabled={deletingPermanentReplyId === reply.id}
                   >
-                    {deletingPermanentReplyId === reply.id ? '删除中…' : '彻底删除'}
+                    {deletingPermanentReplyId === reply.id ? 'Deleting…' : 'Delete Forever'}
                   </button>
                 </div>
               </div>
@@ -723,14 +723,14 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
             <LocalAvatar storageKey="syzygy-homepage-avatar" alt="Claude 头像" />
             <div className="profile-meta">
               <h2 className="profile-title">Claude</h2>
-              <p className="profile-bio">记录 Claude 的日常观察</p>
+              <p className="profile-bio">Claude's daily observations</p>
             </div>
           </section>
 
           <section className="my-home-composer">
             <textarea
               rows={2}
-              placeholder="写些什么吧！"
+              placeholder="What's on your mind…"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               maxLength={maxLength + 10}
@@ -743,21 +743,21 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                   className="ghost"
                   onClick={() => void handleGeneratePost()}
                   disabled={generatingPost || publishing}
-                  title="生成TA动态"
+                  title="✦ Generate"
                 >
-                  {generatingPost ? '▶️ 生成中…' : '▶️'}
+                  {generatingPost ? '▶️ Generating…' : '▶️'}
                 </button>
                 <button type="button" className="primary" onClick={handlePublish} disabled={publishDisabled}>
-                  {publishing ? '发布中…' : '发布'}
+                  {publishing ? 'Publishing…' : 'Post'}
                 </button>
               </div>
             </div>
-            {draftTooLong ? <p className="error">内容不能超过 1000 字。</p> : null}
+            {draftTooLong ? <p className="error">Content cannot exceed 1000 characters.</p> : null}
           </section>
 
           <main className="home-feed">
-            {loading ? <p className="tips">加载中…</p> : null}
-            {!loading && posts.length === 0 ? <p className="tips">还没有日志，来发布第一条吧。</p> : null}
+            {loading ? <p className="tips">Loading…</p> : null}
+            {!loading && posts.length === 0 ? <p className="tips">No posts yet — publish the first one.</p> : null}
             {posts.map((post) => {
               const replies = repliesByPost[post.id] ?? []
               const isExpanded = expandedPostIds[post.id] ?? false
@@ -766,7 +766,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
               return (
                 <article key={post.id} className="post-card">
                   <div className="post-header">
-                    <span className="feed-badge">TA动态</span>
+                    <span className="feed-badge">Posts</span>
                   </div>
                   {post.modelId ? (
                     <div className="post-content assistant-markdown">
@@ -779,7 +779,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                     <span>{formatChineseTime(post.createdAt)}</span>
                     <div className="post-actions">
                       <button type="button" className="ghost danger" onClick={() => setPendingDelete(post)}>
-                        删除
+                        Delete
                       </button>
                     </div>
                   </div>
@@ -791,7 +791,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                       onClick={() => toggleExpanded(post.id)}
                       aria-expanded={isExpanded}
                     >
-                      <span className="reply-toggle-main">回复（{replies.length}）</span>
+                      <span className="reply-toggle-main">Replies ({replies.length})</span>
                       <span className="reply-preview">{getReplyPreview(latestReply)}</span>
                       <span className="reply-chevron">{isExpanded ? '▾' : '▸'}</span>
                     </button>
@@ -800,12 +800,12 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                       className="ghost"
                       onClick={() => void handleGenerateReply(post)}
                       disabled={generatingPostId !== null}
-                      title="生成 AI 回复"
+                      title="Generate AI reply"
                     >
                       ▶️
                     </button>
                     <button type="button" className="ghost" onClick={() => expandAndFocusReply(post.id)}>
-                      回复
+                      Reply
                     </button>
                   </div>
 
@@ -817,11 +817,11 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                             <div className="reply-role">
                               {reply.authorRole === 'ai' ? (
                                 <>
-                                  <span>TA</span>
-                                  <span className="reply-model-badge">{reply.modelId || '未知模型'}</span>
+                                  <span>Claude</span>
+                                  <span className="reply-model-badge">{reply.modelId || 'unknown model'}</span>
                                 </>
                               ) : (
-                                <span>我</span>
+                                <span>kitten</span>
                               )}
                             </div>
                             {reply.authorRole === 'ai' ? (
@@ -834,12 +834,12 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                             <span className="reply-time">{formatChineseTime(reply.createdAt)}</span>
                           </div>
                           <button type="button" className="ghost danger" onClick={() => setPendingDeleteReply(reply)}>
-                            删除
+                            Delete
                           </button>
                         </div>
                       ))}
                       {/* The pending placeholder is already pushed into `replies`
-                          as a synthetic row with content "生成中…", so rendering
+                          as a synthetic row with content "Generating…", so rendering
                           it again here would double-stack the bubble. */}
 
                       <div className="reply-composer">
@@ -848,7 +848,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                             replyInputRefs.current[post.id] = node
                           }}
                           rows={2}
-                          placeholder="写下你的回复…"
+                          placeholder="Write a reply…"
                           value={replyDraft}
                           onChange={(event) => handleReplyDraftChange(post.id, event.target.value)}
                         />
@@ -858,7 +858,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
                           onClick={() => void handleSubmitReply(post.id)}
                           disabled={submittingReplyPostId === post.id || replyDraft.trim().length === 0}
                         >
-                          {submittingReplyPostId === post.id ? '发送中…' : '发送'}
+                          {submittingReplyPostId === post.id ? 'Sending…' : 'Send'}
                         </button>
                       </div>
                     </div>
@@ -870,17 +870,17 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
 
           <ConfirmDialog
             open={pendingDelete !== null}
-            title="确定删除这条记录吗？"
-            confirmLabel="删除"
-            cancelLabel="取消"
+            title="Delete this post?"
+            confirmLabel="Delete"
+            cancelLabel="Cancel"
             onCancel={() => setPendingDelete(null)}
             onConfirm={handleDelete}
           />
           <ConfirmDialog
             open={pendingDeleteReply !== null}
-            title="确定删除这条回复吗？"
-            confirmLabel="删除"
-            cancelLabel="取消"
+            title="Delete this reply?"
+            confirmLabel="Delete"
+            cancelLabel="Cancel"
             onCancel={() => setPendingDeleteReply(null)}
             onConfirm={handleDeleteReply}
           />
