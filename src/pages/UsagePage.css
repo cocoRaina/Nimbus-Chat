@@ -506,3 +506,40 @@
   font-weight: 700;
   color: #1E40AF;
 }
+
+/* ── Historical trend row ─────────────────────────────────────────────────── */
+
+.hist-trend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 0.86rem;
+  padding: 8px 10px;
+  background: rgba(239, 246, 255, 0.6);
+  border-radius: 10px;
+}
+
+.hist-trend-label {
+  color: #64748B;
+  font-weight: 600;
+}
+
+.hist-trend-value {
+  color: #1f2937;
+  font-variant-numeric: tabular-nums;
+}
+
+.hist-trend-sep {
+  color: #CBD5E1;
+}
+
+.hist-trend-delta {
+  margin-left: auto;
+  font-weight: 700;
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.hist-trend-up   { color: #059669; }
+.hist-trend-down { color: #DC2626; }
