@@ -13,10 +13,12 @@
 .my-home-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
 }
 
 .my-home-header h1 {
+  flex: 1;
+  text-align: center;
   font-family: var(--font-serif);
   font-size: 1.15rem;
   font-weight: 600;
