@@ -1,14 +1,13 @@
 .memory-vault-page {
   min-height: 100vh;
   min-height: 100dvh;
-  background:
-    radial-gradient(circle at 1px 1px, rgba(232, 232, 232, 0.55) 1px, transparent 0) 0 0 / 28px 28px,
-    linear-gradient(165deg, #F8FAFC 0%, #f4f5f7 100%);
+  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
   padding: 16px;
-  padding-bottom: calc(24px + env(safe-area-inset-bottom));
-  color: #1f2937;
+  padding-bottom: calc(2rem + env(safe-area-inset-bottom));
+  color: #2A3D52;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 14px;
 }
 
@@ -28,8 +27,9 @@
   margin: 0;
   text-align: center;
   font-size: 18px;
-  font-weight: 700;
-  color: #1E3A8A;
+  font-weight: 600;
+  font-family: var(--font-serif);
+  color: #2A3D52;
 }
 
 .page-header-spacer {
@@ -38,10 +38,10 @@
 }
 
 .memory-vault-header .ghost {
-  border: 1px solid #93C5FD;
-  background: #EFF6FF;
-  color: #1E40AF;
-  border-radius: 12px;
+  border: 1px solid rgba(152, 181, 216, 0.5);
+  background: rgba(222, 234, 245, 0.55);
+  color: #586878;
+  border-radius: 999px;
   padding: 6px 12px;
   font-size: 0.88rem;
   font-weight: 600;
@@ -51,10 +51,12 @@
 .memory-vault-tabs {
   display: flex;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid #DBEAFE;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.75);
   border-radius: 14px;
   padding: 4px;
+  width: 100%;
+  max-width: 640px;
 }
 
 .memory-vault-tabs button {
@@ -64,24 +66,27 @@
   border-radius: 10px;
   padding: 8px 10px;
   font-size: 0.95rem;
-  color: #475569;
+  color: #586878;
   cursor: pointer;
   font-weight: 600;
 }
 
 .memory-vault-tabs button.active {
-  background: linear-gradient(180deg, #60A5FA, #2563EB);
+  background: linear-gradient(135deg, #98B5D8, #789EC8);
   color: #fff;
-  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.25);
+  box-shadow: 0 4px 10px rgba(120, 158, 200, 0.25);
 }
 
 .memory-vault-hint {
   margin: 0;
   font-size: 0.85rem;
-  color: #64748B;
+  color: #586878;
   padding: 8px 10px;
-  background: rgba(239, 246, 255, 0.55);
+  background: rgba(222, 234, 245, 0.45);
   border-radius: 10px;
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
 }
 
 .memory-vault-error {
@@ -92,22 +97,31 @@
   border: 1px solid #fecaca;
   color: #b91c1c;
   font-size: 0.9rem;
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
 }
 
 .memory-vault-editor {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid #DBEAFE;
-  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 4px 18px rgba(88, 104, 120, 0.07);
+  backdrop-filter: blur(18px);
+  border-radius: 20px;
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
 }
 
 .memory-vault-editor h2 {
   margin: 0 0 4px;
   font-size: 1rem;
-  color: #1E40AF;
+  color: #789EC8;
+  font-family: var(--font-serif);
 }
 
 .memory-vault-field {
@@ -120,17 +134,17 @@
 
 .memory-vault-field > span {
   font-size: 0.82rem;
-  color: #1E40AF;
+  color: #789EC8;
   font-weight: 600;
 }
 
 .memory-vault-field input,
 .memory-vault-field textarea {
-  border: 1px solid #93C5FD;
-  border-radius: 10px;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 12px;
   padding: 8px 10px;
-  background: #fff;
-  color: #0f172a;
+  background: rgba(244, 248, 252, 0.9);
+  color: #2A3D52;
   font-size: 0.95rem;
   font-family: inherit;
   width: 100%;
@@ -140,8 +154,8 @@
 .memory-vault-field input:focus,
 .memory-vault-field textarea:focus {
   outline: none;
-  border-color: #2563EB;
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25);
+  border-color: #98B5D8;
+  box-shadow: 0 0 0 3px rgba(152, 181, 216, 0.2);
 }
 
 .memory-vault-row {
@@ -161,10 +175,10 @@
 }
 
 .memory-vault-editor-actions .primary {
-  border: 1px solid #2563EB;
-  background: linear-gradient(180deg, #60A5FA, #2563EB);
+  border: none;
+  background: linear-gradient(135deg, #98B5D8, #789EC8);
   color: #fff;
-  border-radius: 12px;
+  border-radius: 999px;
   padding: 8px 16px;
   font-size: 0.92rem;
   font-weight: 700;
@@ -177,10 +191,10 @@
 }
 
 .memory-vault-editor-actions .ghost {
-  border: 1px solid #93C5FD;
-  background: #EFF6FF;
-  color: #1E40AF;
-  border-radius: 12px;
+  border: 1px solid rgba(152, 181, 216, 0.5);
+  background: rgba(222, 234, 245, 0.55);
+  color: #586878;
+  border-radius: 999px;
   padding: 8px 14px;
   font-size: 0.9rem;
   font-weight: 600;
@@ -188,13 +202,18 @@
 }
 
 .memory-vault-list {
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid #DBEAFE;
-  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 4px 18px rgba(88, 104, 120, 0.07);
+  backdrop-filter: blur(18px);
+  border-radius: 20px;
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
 }
 
 .memory-vault-toolbar {
@@ -225,29 +244,30 @@
 
 .memory-vault-search {
   flex: 1;
-  border: 1px solid #93C5FD;
-  border-radius: 10px;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 12px;
   padding: 8px 10px;
-  background: #fff;
+  background: rgba(244, 248, 252, 0.9);
   font-size: 0.95rem;
   min-width: 0;
+  color: #2A3D52;
 }
 
 .memory-vault-filter {
-  border: 1px solid #93C5FD;
-  border-radius: 10px;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 12px;
   padding: 8px 10px;
-  background: #fff;
+  background: rgba(244, 248, 252, 0.9);
   font-size: 0.9rem;
-  color: #1f2937;
+  color: #2A3D52;
   font-family: inherit;
 }
 
 .memory-vault-count {
   font-size: 0.8rem;
-  color: #1E40AF;
+  color: #789EC8;
   white-space: nowrap;
-  background: #DBEAFE;
+  background: rgba(197, 214, 236, 0.5);
   padding: 2px 8px;
   border-radius: 9999px;
   font-weight: 600;
@@ -258,7 +278,7 @@
   margin: 0;
   text-align: center;
   padding: 24px 0;
-  color: #94A3B8;
+  color: #98B5D8;
 }
 
 .memory-vault-items {
@@ -271,8 +291,8 @@
 }
 
 .memory-vault-item {
-  background: rgba(248, 250, 252, 0.95);
-  border: 1px solid #E2E8F0;
+  background: rgba(244, 248, 252, 0.7);
+  border: 1px solid rgba(88, 104, 120, 0.08);
   border-radius: 14px;
   padding: 12px 14px;
   display: flex;
@@ -282,8 +302,8 @@
 }
 
 .memory-vault-item.editing {
-  border-color: #60A5FA;
-  box-shadow: 0 6px 18px rgba(96, 165, 250, 0.18);
+  border-color: #98B5D8;
+  box-shadow: 0 6px 18px rgba(120, 158, 200, 0.15);
 }
 
 .memory-vault-item-meta {
@@ -295,15 +315,15 @@
 }
 
 .memory-vault-item-category {
-  background: #DBEAFE;
-  color: #1E40AF;
+  background: rgba(197, 214, 236, 0.5);
+  color: #789EC8;
   padding: 2px 8px;
   border-radius: 9999px;
   font-weight: 600;
 }
 
 .memory-vault-item-author {
-  color: #64748B;
+  color: #586878;
 }
 
 .memory-vault-item-tags {
@@ -314,8 +334,8 @@
 
 .memory-vault-item-tags .tag,
 .memory-vault-item-meta .tag {
-  background: rgba(96, 165, 250, 0.15);
-  color: #1E40AF;
+  background: rgba(152, 181, 216, 0.18);
+  color: #789EC8;
   padding: 1px 6px;
   border-radius: 6px;
   font-size: 0.78rem;
@@ -324,7 +344,7 @@
 .memory-vault-item-title {
   margin: 2px 0 0;
   font-size: 1rem;
-  color: #0f172a;
+  color: #2A3D52;
   font-weight: 600;
 }
 
@@ -332,7 +352,7 @@
   margin: 0;
   font-size: 0.95rem;
   line-height: 1.55;
-  color: #1f2937;
+  color: #2A3D52;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -353,7 +373,7 @@
   right: 0;
   width: 60%;
   height: 1.55em;
-  background: linear-gradient(90deg, transparent, rgba(248, 250, 252, 0.95) 60%);
+  background: linear-gradient(90deg, transparent, rgba(244, 248, 252, 0.9) 60%);
   pointer-events: none;
 }
 
@@ -361,7 +381,7 @@
   align-self: flex-start;
   border: none;
   background: transparent;
-  color: #2563EB;
+  color: #789EC8;
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -376,7 +396,7 @@
 .memory-vault-item-signature {
   margin: 4px 0 0;
   font-size: 0.85rem;
-  color: #64748B;
+  color: #586878;
   font-style: italic;
   text-align: right;
   white-space: pre-wrap;
@@ -391,7 +411,7 @@
 .memory-vault-field input[type='range'] {
   padding: 0;
   height: 28px;
-  accent-color: #2563EB;
+  accent-color: #789EC8;
 }
 
 .memory-vault-item-actions {
@@ -403,9 +423,9 @@
 /* Bumped padding so the edit/delete buttons hit closer to Android's
    recommended 44px tap target — previously ~26px and easy to misfire. */
 .memory-vault-item-actions .ghost {
-  border: 1px solid #93C5FD;
-  background: #EFF6FF;
-  color: #1E40AF;
+  border: 1px solid rgba(152, 181, 216, 0.5);
+  background: rgba(222, 234, 245, 0.55);
+  color: #586878;
   border-radius: 8px;
   padding: 8px 14px;
   min-height: 36px;
@@ -429,8 +449,8 @@
 /* ── Auto-extract status card ── */
 
 .auto-extract-card {
-  background: #F0F7FF;
-  border: 1px solid #BFDBFE;
+  background: rgba(222, 234, 245, 0.45);
+  border: 1px solid rgba(197, 214, 236, 0.6);
   border-radius: 14px;
   padding: 14px 16px;
   font-size: 0.88rem;
@@ -445,23 +465,23 @@
 
 .auto-extract-title {
   font-weight: 700;
-  color: #1E3A8A;
+  color: #2A3D52;
   font-size: 0.92rem;
 }
 
 .btn-trigger {
-  background: linear-gradient(180deg, #60A5FA, #2563EB);
+  background: linear-gradient(135deg, #98B5D8, #789EC8);
   color: white;
   border: none;
   padding: 6px 14px;
-  border-radius: 10px;
+  border-radius: 999px;
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .btn-trigger:disabled {
-  background: #93C5FD;
+  background: #C5D6EC;
   cursor: not-allowed;
 }
 
@@ -469,11 +489,11 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.62);
   border-radius: 10px;
   padding: 8px 12px;
   font-size: 0.78rem;
-  color: #4B5563;
+  color: #586878;
   line-height: 1.6;
 }
 
@@ -486,9 +506,9 @@
 }
 
 .source-filter button {
-  border: 1px solid #BFDBFE;
-  background: rgba(255, 255, 255, 0.8);
-  color: #1E40AF;
+  border: 1px solid rgba(197, 214, 236, 0.6);
+  background: rgba(255, 255, 255, 0.62);
+  color: #789EC8;
   border-radius: 8px;
   padding: 4px 10px;
   font-size: 0.78rem;
@@ -498,16 +518,16 @@
 }
 
 .source-filter button.active {
-  background: #DBEAFE;
-  color: #1E40AF;
-  border-color: #93C5FD;
+  background: rgba(197, 214, 236, 0.5);
+  color: #789EC8;
+  border-color: rgba(152, 181, 216, 0.6);
   font-weight: 700;
 }
 
 /* ── Pending entries card ── */
 
 .pending-entries-card {
-  background: #FFFBEB;
+  background: rgba(255, 251, 235, 0.7);
   border: 1px solid #FDE68A;
   border-radius: 14px;
   padding: 14px 16px;
@@ -531,7 +551,7 @@
   color: white;
   border: none;
   padding: 6px 14px;
-  border-radius: 10px;
+  border-radius: 999px;
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -547,7 +567,7 @@
 }
 
 .pending-entry-item {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.62);
   border: 1px solid #FDE68A;
   border-radius: 10px;
   padding: 10px 12px;
@@ -560,7 +580,7 @@
   margin: 0;
   font-size: 0.9rem;
   line-height: 1.5;
-  color: #1f2937;
+  color: #2A3D52;
 }
 
 .pending-entry-actions {
@@ -574,7 +594,7 @@
   color: white;
   border: none;
   padding: 6px 14px;
-  border-radius: 8px;
+  border-radius: 999px;
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -582,11 +602,11 @@
 }
 
 .btn-dismiss {
-  background: rgba(0, 0, 0, 0.04);
-  color: #6B7280;
-  border: 1px solid #D1D5DB;
+  background: rgba(222, 234, 245, 0.55);
+  color: #586878;
+  border: 1px solid rgba(152, 181, 216, 0.5);
   padding: 6px 14px;
-  border-radius: 8px;
+  border-radius: 999px;
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -605,9 +625,9 @@
 
 .locked-budget {
   font-size: 0.78rem;
-  color: #6B7280;
+  color: #586878;
   padding: 3px 8px;
-  background: rgba(0, 0, 0, 0.04);
+  background: rgba(222, 234, 245, 0.45);
   border-radius: 6px;
   white-space: nowrap;
 }
@@ -629,16 +649,16 @@
 
 .pagination-info {
   font-size: 0.82rem;
-  color: #6B7280;
+  color: #586878;
 }
 
 /* ── Inline form (new item / inline edit) ── */
 
 .memory-vault-item.inline-form,
 .memory-vault-item.editing {
-  background: var(--surface-raised, #F9FAFB);
-  border: 1.5px solid var(--accent, #6366F1);
-  border-radius: 10px;
+  background: rgba(244, 248, 252, 0.85);
+  border: 1.5px solid #98B5D8;
+  border-radius: 14px;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -655,11 +675,11 @@
   flex: 1 1 120px;
   min-width: 80px;
   padding: 6px 10px;
-  border: 1px solid #D1D5DB;
-  border-radius: 6px;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 12px;
   font-size: 0.875rem;
-  background: white;
-  color: inherit;
+  background: rgba(244, 248, 252, 0.9);
+  color: #2A3D52;
 }
 
 .inline-input--full {
@@ -669,11 +689,11 @@
 .inline-textarea {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid #D1D5DB;
-  border-radius: 6px;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 12px;
   font-size: 0.875rem;
-  background: white;
-  color: inherit;
+  background: rgba(244, 248, 252, 0.9);
+  color: #2A3D52;
   resize: vertical;
   font-family: inherit;
   line-height: 1.5;
@@ -685,11 +705,12 @@
   flex-direction: column;
   gap: 4px;
   font-size: 0.85rem;
-  color: #6B7280;
+  color: #586878;
 }
 
 .inline-importance input[type="range"] {
   width: 100%;
+  accent-color: #789EC8;
 }
 
 .toolbar-row3 {
@@ -698,7 +719,7 @@
 }
 
 .btn-add-new {
-  background: linear-gradient(180deg, #60A5FA, #2563EB);
+  background: linear-gradient(135deg, #98B5D8, #789EC8);
   color: white;
   border: none;
   width: 34px;
@@ -712,7 +733,7 @@
   justify-content: center;
   flex-shrink: 0;
   transition: opacity 0.15s;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 2px 8px rgba(120, 158, 200, 0.3);
 }
 
 .btn-add-new:hover {
@@ -721,8 +742,8 @@
 
 .btn-refresh {
   background: none;
-  border: 1px solid #D1D5DB;
-  color: #6B7280;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  color: #586878;
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -736,7 +757,7 @@
 }
 
 .btn-refresh:hover:not(:disabled) {
-  background: #F3F4F6;
+  background: rgba(222, 234, 245, 0.55);
 }
 
 .btn-refresh:disabled {
