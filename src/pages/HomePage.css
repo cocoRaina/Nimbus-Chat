@@ -64,6 +64,10 @@
   .home-page--edit .home-page__content {
     display: none;
   }
+  .home-page--edit .phone-shell__content {
+    padding-top: 3rem;
+    justify-content: center;
+  }
 }
 
 .phone-shell__mask {
