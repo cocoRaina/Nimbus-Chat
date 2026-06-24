@@ -73,7 +73,7 @@
   padding: 0 clamp(22px, 5vw, 28px);
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 0.5rem;
   position: relative;
   z-index: 2;
   overflow: visible;
@@ -143,10 +143,10 @@
 
 /* ── Hero card ─────────────────────────────────────────────── */
 .home-hero {
-  padding: 1.4rem 1.2rem 1.1rem;
+  padding: 1rem 1.2rem 0.85rem;
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 0.65rem;
 }
 
 .hero-days {
@@ -282,7 +282,7 @@
   display: flex;
   align-items: center;
   gap: 0.9rem;
-  padding: 0.9rem 1.1rem;
+  padding: 0.65rem 1.1rem;
   background: transparent;
   border: none;
   cursor: pointer;
