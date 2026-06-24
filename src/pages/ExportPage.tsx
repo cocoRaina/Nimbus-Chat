@@ -537,7 +537,7 @@ const ExportPage = ({ user }: { user: User | null }) => {
         </button>
       </section>
 
-      <p className="export-attribution">Built by chuan-101 on GitHub</p>
+      <p className="export-attribution">Built by Wren and Claude</p>
     </div>
   )
 }
