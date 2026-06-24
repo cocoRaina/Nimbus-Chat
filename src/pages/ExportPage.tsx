@@ -462,9 +462,7 @@ const ExportPage = ({ user }: { user: User | null }) => {
   return (
     <div className="export-page">
       <header className="export-header">
-        <button type="button" className="ghost" onClick={() => navigate(-1)}>
-          Back
-        </button>
+        <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>‹</button>
         <h1 className="ui-title">Export</h1>
         <button type="button" className="ghost" onClick={() => navigate('/')}>
           Chat

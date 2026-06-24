@@ -55,9 +55,7 @@ const MemoryVaultPage = ({ recentMessages, memoryExtractProvider }: MemoryVaultP
   return (
     <main className="memory-vault-page app-shell">
       <header className="page-header-bar">
-        <button type="button" className="ghost" onClick={() => navigate('/')}>
-          Back to Chat
-        </button>
+        <button type="button" className="page-back-btn" onClick={() => navigate('/')}>‹</button>
         <h1 className="ui-title">Memory Vault</h1>
         <span className="page-header-spacer" aria-hidden="true" />
       </header>

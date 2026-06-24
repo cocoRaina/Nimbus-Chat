@@ -364,9 +364,7 @@ const HealthSyncPage = ({ user: _user }: Props) => {
   return (
     <div className="app-shell">
       <header className="page-header-bar">
-        <button type="button" className="ghost" onClick={() => navigate('/')}>
-          Back to Chat
-        </button>
+        <button type="button" className="page-back-btn" onClick={() => navigate('/')}>‹</button>
         <h1 className="ui-title">Health Sync</h1>
         <span className="page-header-spacer" aria-hidden="true" />
       </header>

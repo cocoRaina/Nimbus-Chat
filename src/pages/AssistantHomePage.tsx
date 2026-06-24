@@ -619,9 +619,7 @@ const AssistantHomePage = ({ user, snackAiConfig }: AssistantHomePageProps) => {
   return (
     <div className="my-home-page app-shell__content">
       <header className="my-home-header">
-        <button type="button" className="ghost" onClick={() => navigate('/')}>
-          Back to Chat
-        </button>
+        <button type="button" className="page-back-btn" onClick={() => navigate('/')}>‹</button>
         <h1 className="ui-title">{showTrash ? 'Claude Trash' : 'Claude'}</h1>
         <button
           type="button"

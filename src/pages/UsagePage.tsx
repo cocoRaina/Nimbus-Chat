@@ -578,7 +578,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
   return (
     <main className="usage-page app-shell">
       <header className="page-header-bar">
-        <button type="button" className="ghost" onClick={() => navigate('/')}>返回聊天</button>
+        <button type="button" className="page-back-btn" onClick={() => navigate('/')}>‹</button>
         <h1 className="ui-display diag-page-title">Diagnostics</h1>
         {headerRight}
       </header>
