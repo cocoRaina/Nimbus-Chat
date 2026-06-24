@@ -28,3 +28,4 @@ android/app/google-services.json
 *.njsproj
 *.sln
 *.sw?
+.claude/worktrees/
