@@ -351,13 +351,95 @@ const UsagePage = ({ user }: UsagePageProps) => {
   const [checkRunning, setCheckRunning] = useState(false)
   const checkAbortRef = useRef<AbortController | null>(null)
 
-  // Pre-fill test model from most recent usage log when switching to API tab
+  // Separate 30-day history for historical analysis in Tab 2 (loaded once)
+  const [histRows, setHistRows] = useState<UsageLogRow[]>([])
+  const [histLoading, setHistLoading] = useState(false)
+  const histLoadedRef = useRef(false)
+
+  useEffect(() => {
+    if (activeTab !== 'api' || !user || histLoadedRef.current) return
+    histLoadedRef.current = true
+    setHistLoading(true)
+    fetchUsageLogs(user.id, computeRangeStart('month'))
+      .then((data) => {
+        setHistRows(data)
+        // Pre-fill test model from most recent row
+        if (!testModel && data.length > 0 && data[0].model) setTestModel(data[0].model)
+      })
+      .catch(() => {})
+      .finally(() => setHistLoading(false))
+  }, [activeTab, user, testModel])
+
+  // Pre-fill test model from Tab 1 rows if histRows aren't loaded yet
   useEffect(() => {
     if (activeTab === 'api' && !testModel && rows.length > 0) {
       const mostRecent = rows[0].model
       if (mostRecent) setTestModel(mostRecent)
     }
   }, [activeTab, testModel, rows])
+
+  // Historical cache health stats (Claude chat calls only)
+  const histStats = useMemo(() => {
+    const claudeRows = histRows.filter((r) => /claude|anthropic/i.test(r.model) && r.source === 'chat')
+    if (claudeRows.length === 0) return null
+
+    const now = Date.now()
+    const sevenDays = 7 * 86_400_000
+    const recent7 = claudeRows.filter((r) => now - new Date(r.createdAt).getTime() < sevenDays)
+    const prev7 = claudeRows.filter((r) => {
+      const age = now - new Date(r.createdAt).getTime()
+      return age >= sevenDays && age < sevenDays * 2
+    })
+
+    const hitRate = (rows_: typeof claudeRows) =>
+      rows_.length ? rows_.filter((r) => r.cachedTokens > 0).length / rows_.length : null
+    const avgCacheRatio = (rows_: typeof claudeRows) =>
+      rows_.length ? rows_.reduce((s, r) => s + (r.promptTokens > 0 ? r.cachedTokens / r.promptTokens : 0), 0) / rows_.length : 0
+
+    // Per-provider breakdown
+    const providerMap = new Map<string, { calls: number; hits: number; totalCacheRatio: number }>()
+    for (const r of claudeRows) {
+      const p = r.provider || 'openrouter'
+      const existing = providerMap.get(p)
+      const hitCount = r.cachedTokens > 0 ? 1 : 0
+      const ratio = r.promptTokens > 0 ? r.cachedTokens / r.promptTokens : 0
+      if (existing) {
+        existing.calls++
+        existing.hits += hitCount
+        existing.totalCacheRatio += ratio
+      } else {
+        providerMap.set(p, { calls: 1, hits: hitCount, totalCacheRatio: ratio })
+      }
+    }
+    const byProvider = Array.from(providerMap.entries()).map(([provider, d]) => ({
+      provider,
+      calls: d.calls,
+      hits: d.hits,
+      avgCacheRatio: d.totalCacheRatio / d.calls,
+    }))
+
+    // Health assessment
+    const overallHitRate = hitRate(claudeRows) ?? 0
+    let health: 'good' | 'ok' | 'low' | 'none' = 'none'
+    if (claudeRows.length >= 3) {
+      if (overallHitRate >= 0.4) health = 'good'
+      else if (overallHitRate >= 0.1) health = 'ok'
+      else health = 'low'
+    }
+
+    return {
+      total: claudeRows.length,
+      hitCount: claudeRows.filter((r) => r.cachedTokens > 0).length,
+      overallHitRate,
+      avgCacheRatio: avgCacheRatio(claudeRows),
+      recent7Rate: hitRate(recent7),
+      prev7Rate: hitRate(prev7),
+      recent7Calls: recent7.length,
+      prev7Calls: prev7.length,
+      byProvider,
+      health,
+    }
+  }, [histRows])
 
   const startApiChecks = async () => {
     const model = testModel.trim()
@@ -586,6 +668,100 @@ const UsagePage = ({ user }: UsagePageProps) => {
             </section>
           )}
 
+          {/* ── Historical cache analysis ── */}
+          <section className="usage-section">
+            <h3>历史缓存分析（近 30 天 Claude 对话）</h3>
+            {histLoading ? (
+              <p className="usage-empty">加载中…</p>
+            ) : histRows.length === 0 && !histLoading ? (
+              <p className="usage-empty">暂无记录，请先使用 Claude 模型对话后再查看。</p>
+            ) : !histStats ? (
+              <p className="usage-empty">近 30 天无 Claude 对话记录。</p>
+            ) : (
+              <>
+                {/* Health banner */}
+                <div className={`diag-result-card ${histHealthCard(histStats.health)}`} style={{ marginBottom: '10px' }}>
+                  <div className="diag-result-header">
+                    <span className="diag-result-icon">{histHealthIcon(histStats.health)}</span>
+                    <span className="diag-result-label">缓存健康度</span>
+                    <span className={`diag-badge ${histHealthBadge(histStats.health)}`}>{histHealthText(histStats.health)}</span>
+                  </div>
+                  <p className="diag-result-detail">{histHealthDesc(histStats)}</p>
+                </div>
+
+                {/* Summary cards */}
+                <div className="usage-summary" style={{ marginBottom: '10px' }}>
+                  <div className="usage-summary-card">
+                    <span className="label">Claude 调用</span>
+                    <span className="value">{histStats.total}</span>
+                  </div>
+                  <div className="usage-summary-card">
+                    <span className="label">有缓存命中</span>
+                    <span className="value">{histStats.hitCount}</span>
+                    {histStats.total > 0 && <span className="label-hint" style={{ display: 'block', fontSize: '0.72rem', color: '#94A3B8', marginTop: '2px' }}>{Math.round(histStats.overallHitRate * 100)}% 的调用</span>}
+                  </div>
+                  <div className="usage-summary-card">
+                    <span className="label">平均缓存率</span>
+                    <span className="value">{Math.round(histStats.avgCacheRatio * 100)}%</span>
+                  </div>
+                </div>
+
+                {/* Trend: recent 7 days vs prior 7 */}
+                {(histStats.recent7Calls > 0 || histStats.prev7Calls > 0) && (
+                  <div className="hist-trend-row">
+                    <span className="hist-trend-label">近 7 天</span>
+                    <span className="hist-trend-value">
+                      {histStats.recent7Rate != null
+                        ? `${histStats.recent7Calls} 次·命中率 ${Math.round(histStats.recent7Rate * 100)}%`
+                        : '—'}
+                    </span>
+                    <span className="hist-trend-sep">｜</span>
+                    <span className="hist-trend-label">前 7 天</span>
+                    <span className="hist-trend-value">
+                      {histStats.prev7Rate != null
+                        ? `${histStats.prev7Calls} 次·命中率 ${Math.round(histStats.prev7Rate * 100)}%`
+                        : histStats.prev7Calls === 0 ? '无数据' : '—'}
+                    </span>
+                    {histStats.recent7Rate != null && histStats.prev7Rate != null && (
+                      <span className={`hist-trend-delta ${histStats.recent7Rate >= histStats.prev7Rate ? 'hist-trend-up' : 'hist-trend-down'}`}>
+                        {histStats.recent7Rate >= histStats.prev7Rate ? '↑' : '↓'}
+                        {Math.abs(Math.round((histStats.recent7Rate - histStats.prev7Rate) * 100))} pp
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Per-provider breakdown */}
+                {histStats.byProvider.length > 1 && (
+                  <div className="usage-table-wrap" style={{ marginTop: '8px' }}>
+                    <table className="usage-table">
+                      <thead>
+                        <tr>
+                          <th>提供商</th>
+                          <th>调用次数</th>
+                          <th>有命中</th>
+                          <th>命中率</th>
+                          <th>平均缓存率</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {histStats.byProvider.map((p) => (
+                          <tr key={p.provider}>
+                            <td className="model">{p.provider === 'openrouter' ? 'OpenRouter' : '中转站'}</td>
+                            <td>{p.calls}</td>
+                            <td>{p.hits}</td>
+                            <td>{p.calls > 0 ? `${Math.round((p.hits / p.calls) * 100)}%` : '—'}</td>
+                            <td>{Math.round(p.avgCacheRatio * 100)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+
           <section className="usage-section diag-explainer">
             <h3>检测说明</h3>
             <ul className="diag-explain-list">
@@ -712,6 +888,39 @@ const statusLabel = (s: CheckStatus) => {
   if (s === 'skip') return '跳过'
   if (s === 'running') return '检测中'
   return '待检'
+}
+
+// ── Historical health card helpers ────────────────────────────────────────
+
+type HistHealth = 'good' | 'ok' | 'low' | 'none'
+
+const histHealthCard = (h: HistHealth) =>
+  h === 'good' ? 'diag-pass' : h === 'ok' ? '' : h === 'low' ? 'diag-warn' : 'diag-skip'
+
+const histHealthIcon = (h: HistHealth) =>
+  h === 'good' ? '✓' : h === 'ok' ? '○' : h === 'low' ? '!' : '–'
+
+const histHealthBadge = (h: HistHealth) =>
+  h === 'good' ? 'diag-badge-pass' : h === 'ok' ? 'diag-badge-running' : h === 'low' ? 'diag-badge-warn' : 'diag-badge-skip'
+
+const histHealthText = (h: HistHealth) =>
+  h === 'good' ? '良好' : h === 'ok' ? '正常' : h === 'low' ? '偏低' : '暂无'
+
+type HistStats = {
+  total: number
+  hitCount: number
+  overallHitRate: number
+  avgCacheRatio: number
+  health: HistHealth
+}
+
+const histHealthDesc = (s: HistStats) => {
+  if (s.health === 'none') return '调用次数不足（< 3 次），无法评估。'
+  const pct = Math.round(s.overallHitRate * 100)
+  const avgPct = Math.round(s.avgCacheRatio * 100)
+  if (s.health === 'good') return `近 30 天 ${s.total} 次 Claude 调用中，${s.hitCount} 次（${pct}%）有缓存命中，平均命中 ${avgPct}% 输入 token，缓存正常工作。`
+  if (s.health === 'ok') return `近 30 天 ${s.total} 次 Claude 调用中，${s.hitCount} 次（${pct}%）有缓存命中。命中率中等，属正常范围（短对话、全新 system prompt 首次不会命中）。`
+  return `近 30 天 ${s.total} 次 Claude 调用中仅 ${s.hitCount} 次（${pct}%）有缓存命中，命中率偏低。若对话较长且重复打开过多次，建议用「运行检测」确认 relay 是否透传缓存字段。`
 }
 
 export default UsagePage
