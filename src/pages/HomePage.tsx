@@ -419,8 +419,8 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                 </button>
               </div>
 
-              {/* Couple avatar widget */}
-              <HomeCoupleCard />
+              {/* Couple avatar widget — hidden in edit mode */}
+              {!editMode && <HomeCoupleCard />}
 
               {/* Hero: days counter + week dots + check-in */}
               <section className="home-hero glass-card">
