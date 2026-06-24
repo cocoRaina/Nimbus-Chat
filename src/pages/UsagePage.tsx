@@ -427,6 +427,70 @@ const UsagePage = ({ user }: UsagePageProps) => {
       else health = 'low'
     }
 
+    // ── 中转打散检测 ───────────────────────────────────────────────────────
+    // Signature of a relay load-balancing across multiple upstream Anthropic
+    // accounts: a COLD write that happens shortly after a prior call in the
+    // SAME session — within the 1h cache TTL the cache should still be warm,
+    // so a cold miss means that request landed on a different upstream account
+    // than the one holding the cache. On a stable single-account setup these
+    // are ~0. Many of them = the relay is scattering requests.
+    const SPLIT_GAP_MS = 55 * 60 * 1000 // within cache TTL → cache should be warm
+    const MIN_CACHEABLE = 2000 // ignore tiny prompts that wouldn't cache anyway
+    const bySession = new Map<string, typeof claudeRows>()
+    for (const r of claudeRows) {
+      const key = r.sessionId ?? '__none__'
+      const arr = bySession.get(key)
+      if (arr) arr.push(r)
+      else bySession.set(key, [r])
+    }
+    type SplitMiss = { title: string; at: string; gapMin: number; promptTokens: number }
+    const splitMisses: SplitMiss[] = []
+    for (const [, sessionRows] of bySession) {
+      const sorted = [...sessionRows].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      )
+      for (let i = 1; i < sorted.length; i++) {
+        const cur = sorted[i]
+        if (cur.cachedTokens > 0 || cur.promptTokens < MIN_CACHEABLE) continue // not a cold write
+        // find nearest prior cacheable call in this session
+        const prev = sorted[i - 1]
+        if (prev.promptTokens < MIN_CACHEABLE) continue
+        const gap = new Date(cur.createdAt).getTime() - new Date(prev.createdAt).getTime()
+        if (gap > 0 && gap <= SPLIT_GAP_MS) {
+          splitMisses.push({
+            title: cur.sessionTitle?.trim() || (cur.sessionId ? `会话 ${cur.sessionId.slice(0, 6)}` : '未知会话'),
+            at: cur.createdAt,
+            gapMin: Math.round(gap / 60_000),
+            promptTokens: cur.promptTokens,
+          })
+        }
+      }
+    }
+    splitMisses.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+
+    // ── 每日命中率趋势 ─────────────────────────────────────────────────────
+    const dayKey = (iso: string) => {
+      const d = new Date(iso)
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    }
+    const dayMap = new Map<string, { calls: number; hits: number; cold: number; coldTokens: number }>()
+    for (const r of claudeRows) {
+      const k = dayKey(r.createdAt)
+      const d = dayMap.get(k) ?? { calls: 0, hits: 0, cold: 0, coldTokens: 0 }
+      d.calls++
+      if (r.cachedTokens > 0) d.hits++
+      else if (r.promptTokens >= MIN_CACHEABLE) { d.cold++; d.coldTokens += r.promptTokens }
+      dayMap.set(k, d)
+    }
+    const dailyTrend = Array.from(dayMap.entries())
+      .map(([day, d]) => ({ day, ...d, hitPct: d.calls > 0 ? d.hits / d.calls : 0 }))
+      .sort((a, b) => (a.day < b.day ? 1 : -1))
+      .slice(0, 10)
+
+    // ── 今日冷写 ───────────────────────────────────────────────────────────
+    const todayKey = dayKey(new Date(now).toISOString())
+    const today = dayMap.get(todayKey) ?? { calls: 0, hits: 0, cold: 0, coldTokens: 0 }
+
     return {
       total: claudeRows.length,
       hitCount: claudeRows.filter((r) => r.cachedTokens > 0).length,
@@ -438,6 +502,9 @@ const UsagePage = ({ user }: UsagePageProps) => {
       prev7Calls: prev7.length,
       byProvider,
       health,
+      splitMisses,
+      dailyTrend,
+      today: { ...today, dateKey: todayKey },
     }
   }, [histRows])
 
@@ -679,6 +746,78 @@ const UsagePage = ({ user }: UsagePageProps) => {
               <p className="usage-empty">近 30 天无 Claude 对话记录。</p>
             ) : (
               <>
+                {/* 今日冷写提醒 — early warning at the top */}
+                {histStats.today.calls > 0 && (
+                  <div
+                    className={`diag-result-card ${histStats.today.cold >= 3 ? 'diag-warn' : histStats.today.cold > 0 ? '' : 'diag-pass'}`}
+                    style={{ marginBottom: '10px' }}
+                  >
+                    <div className="diag-result-header">
+                      <span className="diag-result-icon">{histStats.today.cold >= 3 ? '!' : histStats.today.cold > 0 ? '○' : '✓'}</span>
+                      <span className="diag-result-label">今日缓存</span>
+                      <span className={`diag-badge ${histStats.today.cold >= 3 ? 'diag-badge-warn' : 'diag-badge-pass'}`}>
+                        {histStats.today.calls > 0 ? `${Math.round((histStats.today.hits / histStats.today.calls) * 100)}% 命中` : '—'}
+                      </span>
+                    </div>
+                    <p className="diag-result-detail">
+                      今日 {histStats.today.calls} 次调用，命中 {histStats.today.hits} 次，
+                      冷写 {histStats.today.cold} 次
+                      {histStats.today.coldTokens > 0 ? `（多读 ~${formatTokenCount(histStats.today.coldTokens)} token）` : ''}。
+                      {histStats.today.cold >= 3 ? ' 冷写偏多，可能中转在打散缓存（见下方检测）。' : ''}
+                    </p>
+                  </div>
+                )}
+
+                {/* 中转打散自动检测 — the headline diagnostic */}
+                <div
+                  className={`diag-result-card ${histStats.splitMisses.length >= 2 ? 'diag-warn' : 'diag-pass'}`}
+                  style={{ marginBottom: '10px' }}
+                >
+                  <div className="diag-result-header">
+                    <span className="diag-result-icon">{histStats.splitMisses.length >= 2 ? '!' : '✓'}</span>
+                    <span className="diag-result-label">中转打散检测</span>
+                    <span className={`diag-badge ${histStats.splitMisses.length >= 2 ? 'diag-badge-warn' : 'diag-badge-pass'}`}>
+                      {histStats.splitMisses.length >= 2 ? '疑似打散' : '正常'}
+                    </span>
+                  </div>
+                  <p className="diag-result-detail">
+                    {histStats.splitMisses.length >= 2 ? (
+                      <>
+                        近 30 天检测到 <strong>{histStats.splitMisses.length}</strong> 次「会话中途冷写」——
+                        同一会话里上一条刚建好缓存，几分钟后的下一条却完全没读到（理应在 1 小时缓存窗口内）。
+                        这是中转把请求<strong>轮询分发到多个上游账号</strong>的典型特征：缓存按账号隔离，请求落到没缓存的账号就冷写。
+                        可联系中转问有没有「固定上游/独享通道」，或缓存敏感时切回 OpenRouter 直连。
+                      </>
+                    ) : (
+                      '未检测到会话中途异常冷写，缓存命中模式正常。偶发的首条冷写（新对话/隔夜缓存过期）属正常现象。'
+                    )}
+                  </p>
+                  {histStats.splitMisses.length >= 2 && (
+                    <div className="usage-table-wrap" style={{ marginTop: '8px' }}>
+                      <table className="usage-table">
+                        <thead>
+                          <tr>
+                            <th>会话</th>
+                            <th>时间</th>
+                            <th>距上次</th>
+                            <th>本次输入</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {histStats.splitMisses.slice(0, 6).map((m, i) => (
+                            <tr key={`${m.at}-${i}`}>
+                              <td className="model">{m.title}</td>
+                              <td>{new Date(m.at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                              <td>{m.gapMin} 分钟</td>
+                              <td>{formatTokenCount(m.promptTokens)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
                 {/* Health banner */}
                 <div className={`diag-result-card ${histHealthCard(histStats.health)}`} style={{ marginBottom: '10px' }}>
                   <div className="diag-result-header">
@@ -758,6 +897,29 @@ const UsagePage = ({ user }: UsagePageProps) => {
                     </table>
                   </div>
                 )}
+
+                {/* 每日命中率趋势 */}
+                {histStats.dailyTrend.length > 1 && (
+                  <div style={{ marginTop: '12px' }}>
+                    <div className="diag-label" style={{ marginBottom: '6px' }}>每日命中率趋势</div>
+                    <div className="hist-day-list">
+                      {histStats.dailyTrend.map((d) => {
+                        const pct = Math.round(d.hitPct * 100)
+                        const tone = pct >= 80 ? 'good' : pct >= 50 ? 'mid' : 'low'
+                        return (
+                          <div key={d.day} className="hist-day-row">
+                            <span className="hist-day-date">{d.day.slice(5)}</span>
+                            <div className="hist-day-bar-wrap">
+                              <div className={`hist-day-bar hist-day-${tone}`} style={{ width: `${Math.max(pct, 3)}%` }} />
+                            </div>
+                            <span className="hist-day-pct">{pct}%</span>
+                            <span className="hist-day-meta">{d.calls} 次{d.cold > 0 ? ` · 冷写 ${d.cold}` : ''}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </section>
@@ -768,6 +930,8 @@ const UsagePage = ({ user }: UsagePageProps) => {
               <li><strong>连通性</strong> — 向当前 provider 发一条最小请求，测量首响应延迟。</li>
               <li><strong>缓存字段透传</strong>（仅 Claude）— 发送带 cache_control 的请求，检查响应里是否含 cache_creation_input_tokens / cache_read_input_tokens 字段。缺失说明中间层剥离了缓存元数据，prompt cache 将无法正常工作。</li>
               <li><strong>模型核验</strong> — 发送一个随机金丝雀字符串，要求模型原样返回，并核对 response.model 字段。字符串未返回或 model 字段不符提示可能发生了模型替换或上下文截断。</li>
+              <li><strong>中转打散检测</strong>（读历史·免费）— 扫近 30 天记录，找「同一会话上一条刚建好缓存、几分钟后下一条却没读到」的异常冷写。这是中转把请求轮询到多个上游账号、缓存被打散的特征，不用发探针就能判断。</li>
+              <li><strong>每日命中率趋势</strong>（读历史·免费）— 按天看命中率和冷写次数，能一眼看出哪天开始缓存变差（通常是中转那边变了，不是你的设置）。</li>
             </ul>
           </section>
         </div>

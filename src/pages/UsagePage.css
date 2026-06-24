@@ -543,3 +543,59 @@
 
 .hist-trend-up   { color: #059669; }
 .hist-trend-down { color: #DC2626; }
+
+/* ── Daily hit-rate trend bars ────────────────────────────────────────────── */
+
+.hist-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.hist-day-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.hist-day-date {
+  width: 42px;
+  flex-shrink: 0;
+  color: #64748B;
+}
+
+.hist-day-bar-wrap {
+  flex: 1;
+  height: 12px;
+  background: rgba(226, 232, 240, 0.6);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.hist-day-bar {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.3s;
+}
+
+.hist-day-good { background: linear-gradient(90deg, #6EE7B7, #34D399); }
+.hist-day-mid  { background: linear-gradient(90deg, #FCD34D, #FBBF24); }
+.hist-day-low  { background: linear-gradient(90deg, #FCA5A5, #F87171); }
+
+.hist-day-pct {
+  width: 38px;
+  flex-shrink: 0;
+  text-align: right;
+  font-weight: 600;
+  color: #334155;
+}
+
+.hist-day-meta {
+  width: 92px;
+  flex-shrink: 0;
+  text-align: right;
+  color: #94A3B8;
+  font-size: 0.76rem;
+}
