@@ -353,12 +353,6 @@
   margin-right: -0.2rem;
 }
 
-/* ── Spacer: pushes footer to bottom when content is short ── */
-.home-spacer {
-  flex: 1;
-  min-height: 0.5rem;
-}
-
 /* ── Footer ────────────────────────────────────────────────── */
 .home-footer {
   display: flex;

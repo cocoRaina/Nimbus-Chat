@@ -456,8 +456,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                 ))}
               </nav>
 
-              <div className="home-spacer" aria-hidden="true" />
-
               {/* Footer links */}
               <footer className="home-footer">
                 <button type="button" className="home-footer-link" onClick={() => navigate("/checkin")}>
