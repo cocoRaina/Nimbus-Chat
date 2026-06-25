@@ -15,6 +15,14 @@ const config: CapacitorConfig = {
     androidScheme: 'https',
   },
   plugins: {
+    CapacitorHttp: {
+      // Route all fetch() calls through native Android HTTP (OkHttp) to
+      // bypass WebView CORS restrictions. Without this, any relay whose
+      // CORS policy doesn't allow origin https://localhost (Capacitor's
+      // WebView origin) will fail with "Failed to fetch". Capacitor 5+
+      // supports streaming SSE through native HTTP so chat is unaffected.
+      enabled: true,
+    },
     SplashScreen: {
       launchShowDuration: 1200,
       launchAutoHide: false,
