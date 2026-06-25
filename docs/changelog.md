@@ -80,6 +80,40 @@
 
 ---
 
+## 2026-06-25
+
+### Android APK 使用自定义中转时 "Failed to fetch"
+
+**症状**：切到 msuicode 或其他第三方中转站，APK 里所有请求报 `Failed to fetch`；同一 Key 在网页版 (PWA) 正常。
+
+**根因**：`capacitor.config.ts` 设了 `androidScheme: 'https'`，WebView 的 origin 变成 `https://localhost`。OpenRouter 的 CORS header 是 `Access-Control-Allow-Origin: *`，所以没事。但大部分中转站没有把 `https://localhost` 加进允许列表，OPTIONS preflight 被拒，fetch 直接失败。
+
+**修**：`capacitor.config.ts` 加 `CapacitorHttp: { enabled: true }`。Capacitor 8 会把所有 `fetch()` 路由给原生 Android OkHttp，完全绕过 WebView 的 CORS 限制。OkHttp 也支持 SSE 流式，聊天不受影响。**需要重新出 APK 才生效**（原生配置变更）。
+
+```ts
+// capacitor.config.ts
+plugins: {
+  CapacitorHttp: { enabled: true },
+}
+```
+
+### 切换中转预设后模型列表不刷新（三重 bug）
+
+**症状**：在 msuicode 平台换了分组（不同分组有不同可用模型），app 里模型库照旧；切换预设（不同 Base URL）也不刷新。
+
+**根因 1 — 缓存 key 不含 Base URL**：`fetchOpenRouterModels` 的缓存 key 是 `nimbus_models_cache_v1:msuicode`，跟 Base URL 无关。换预设后命中旧站的缓存，不发网络请求。
+
+**根因 2 — reload 没绕过缓存**：`catalogReloadKey++` 触发 useEffect 重跑 `fetchOpenRouterModels()`，但函数内部先读缓存——24h 内有缓存就直接返回，从不走网络，reload 形同虚设。
+
+**根因 3 — 没有手动刷新入口**：用户在 msuicode 平台换完分组后，app 里没有任何按钮强制拉取新的模型列表。
+
+**修**：
+- 缓存 key 升到 `v2` 并追加 `baseUrl`：`nimbus_models_cache_v2:msuicode:${baseUrl}`，不同站点/预设各自独立缓存，自动作废旧 key。
+- `fetchOpenRouterModels` 加 `forceRefresh` 参数；SettingsPage 里用户触发的 reload（`catalogReloadKey > 0`）传 `forceRefresh: true`，强制跳过缓存走网络。
+- 在设置 → 模型库搜索框右侧加「↺ 刷新」按钮，随时可以强制拉取当前站点/分组的最新模型列表。
+
+---
+
 ## 2026-06-21
 
 ### 自发叫醒消息：列名写错，从来没真正触发过（关键修）
