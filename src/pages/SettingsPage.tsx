@@ -1390,15 +1390,27 @@ const SettingsPage = ({
 
             <div className="section-title nested-prompt-title">
               <h2 className="ui-title">{activeProvider === 'msuicode' ? customProviderName : 'OpenRouter'} 模型库</h2>
-              <p>搜索并启用你想使用的模型。</p>
+              <p>搜索并启用你想使用的模型。换了分组/站点后点刷新。</p>
             </div>
-            <input
-              className="search-input"
-              type="search"
-              placeholder="搜索模型名称或 ID"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-            />
+            <div className="model-select-row">
+              <input
+                className="search-input"
+                type="search"
+                placeholder="搜索模型名称或 ID"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="ghost small"
+                disabled={catalogStatus === 'loading'}
+                onClick={() => setCatalogReloadKey((v) => v + 1)}
+                title="重新从服务器拉取模型列表"
+              >
+                {catalogStatus === 'loading' ? '…' : '↺ 刷新'}
+              </button>
+            </div>
             {catalogStatus === 'loading' ? (
               <div className="catalog-status">正在加载模型库...</div>
             ) : null}
