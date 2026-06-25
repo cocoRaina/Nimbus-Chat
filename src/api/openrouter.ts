@@ -81,9 +81,10 @@ export const fetchOpenRouter = async (
   })
 }
 
-export const fetchOpenRouterModels = async () => {
-  const { id: providerId } = getProviderConfig()
-  const cacheKey = `nimbus_models_cache_v1:${providerId}`
+export const fetchOpenRouterModels = async ({ forceRefresh = false } = {}) => {
+  const { id: providerId, baseUrl } = getProviderConfig()
+  // Include base URL so different relay presets get isolated caches.
+  const cacheKey = `nimbus_models_cache_v2:${providerId}:${baseUrl}`
   const cacheTtlMs = 24 * 60 * 60 * 1000
 
   const readCache = (allowStale = false): Array<{ id: string; name?: string; context_length: number | null }> | null => {
@@ -109,9 +110,11 @@ export const fetchOpenRouterModels = async () => {
     }
   }
 
-  // Serve fresh cache immediately to skip the network round-trip.
-  const fresh = readCache()
-  if (fresh) return fresh
+  // Serve fresh cache immediately — unless caller explicitly wants a network refresh.
+  if (!forceRefresh) {
+    const fresh = readCache()
+    if (fresh) return fresh
+  }
 
   try {
     const response = await fetchOpenRouter('/models')

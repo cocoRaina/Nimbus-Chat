@@ -279,7 +279,7 @@ const SettingsPage = ({
       setCatalogStatus('loading')
       setCatalogError(null)
     }, 0)
-    fetchOpenRouterModels()
+    fetchOpenRouterModels({ forceRefresh: catalogReloadKey > 0 })
       .then((models) => {
         if (!active) {
           return
