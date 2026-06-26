@@ -156,14 +156,16 @@ const sortMessages = (messages: ChatMessage[]) =>
   )
 
 const selectMostRecentSession = (sessions: ChatSession[]) => {
-  if (sessions.length === 0) {
+  const active = sessions.filter((s) => !s.isArchived)
+  const pool = active.length > 0 ? active : sessions
+  if (pool.length === 0) {
     return null
   }
-  return sessions.reduce<ChatSession>((latest, session) => {
+  return pool.reduce<ChatSession>((latest, session) => {
     const latestTime = new Date(latest.updatedAt ?? latest.createdAt).getTime()
     const sessionTime = new Date(session.updatedAt ?? session.createdAt).getTime()
     return sessionTime > latestTime ? session : latest
-  }, sessions[0])
+  }, pool[0])
 }
 
 const mergeMessages = (localMessages: ChatMessage[], remoteMessages: ChatMessage[]) => {
@@ -780,7 +782,15 @@ const App = () => {
     }
     let active = true
     const loadRemote = async () => {
-      setSessionsReady(false)
+      // Pre-hydrate from localStorage so the chat renders immediately
+      // while the Supabase round-trip is in-flight (avoids blank screen).
+      const localFallback = loadSnapshot()
+      if (localFallback.sessions.length > 0) {
+        applySnapshot(localFallback.sessions, localFallback.messages)
+        setSessionsReady(true)
+      } else {
+        setSessionsReady(false)
+      }
       setSyncing(true)
       try {
         const [remoteSessions, remoteMessages] = await Promise.all([
