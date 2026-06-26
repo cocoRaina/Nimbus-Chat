@@ -922,14 +922,37 @@ const App = () => {
     async (title?: string) => {
       const sessionTitle = title ?? '新会话'
       if (user && supabase) {
-        try {
-          const remoteSession = await createRemoteSession(user.id, sessionTitle)
-          const nextSessions = sortSessions([...sessionsRef.current, remoteSession])
-          applySnapshot(nextSessions, messagesRef.current)
-          return remoteSession
-        } catch (error) {
-          console.warn('创建云端会话失败，已切换本地存储', error)
+        // Optimistic-local-first: create session immediately so navigation
+        // doesn't block on the Supabase round-trip.
+        const localId =
+          globalThis.crypto?.randomUUID?.() ??
+          `${Date.now()}-${Math.random().toString(16).slice(2)}`
+        const now = new Date().toISOString()
+        const optimisticSession: ChatSession = {
+          id: localId,
+          title: sessionTitle,
+          createdAt: now,
+          updatedAt: now,
+          isArchived: false,
+          archivedAt: null,
+          overrideModel: null,
+          overrideReasoning: null,
         }
+        const optimisticSessions = sortSessions([...sessionsRef.current, optimisticSession])
+        applySnapshot(optimisticSessions, messagesRef.current)
+        // Sync to Supabase in background with the same ID so remote and local
+        // are consistent — no need to reconcile IDs after the fact.
+        createRemoteSession(user.id, sessionTitle, localId)
+          .then((remoteSession) => {
+            const nextSessions = sessionsRef.current.map((s) =>
+              s.id === localId ? remoteSession : s,
+            )
+            applySnapshot(sortSessions(nextSessions), messagesRef.current)
+          })
+          .catch((error) => {
+            console.warn('创建云端会话失败，保留本地会话', error)
+          })
+        return optimisticSession
       }
       const newSession = createSession(sessionTitle)
       setSessions((prev) => sortSessions([...prev, newSession]))
@@ -3342,8 +3365,7 @@ TOOL_SEARCH_HANDOFF,
           return
         }
       }
-      const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
-      const targetSessionId = hashMatch?.[1] ?? entry.sessionId
+      const targetSessionId = entry.sessionId
       try {
         const clientId = createClientId()
         const clientCreatedAt = new Date(entry.fireAt).toISOString()

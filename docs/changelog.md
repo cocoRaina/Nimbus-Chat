@@ -80,6 +80,38 @@
 
 ---
 
+## 2026-06-26
+
+### Chat 界面三重 bug：进去总是旧 session、新 session 慢、主动消息消失
+
+**症状**：
+1. 按主页进入聊天，打开的不是最新对话，而是一个旧 session
+2. 新建 session 要等 1–2 秒才能进入聊天，明显卡顿
+3. 新 session 触发的主动消息找不到了，或者跑到了另一个旧 session 里
+
+**根因 1 — `insertPendingProactiveRef` 覆盖了正确的 sessionId**：
+```js
+// App.tsx 旧代码
+const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
+const targetSessionId = hashMatch?.[1] ?? entry.sessionId
+```
+主动消息在计划时存的 `entry.sessionId` 是正确的新 session，但插入时用 **URL hash 里的当前 session** 覆盖了它。如果此时还在主页（无 `/chat/` hash）就用 `entry.sessionId`；但如果已经在某个旧 session 里，就把消息插到那个旧 session——同时 `updatedAt` 被更新 → 这个旧 session 变成"最新"→ 下次进入聊天就打开这个被污染的旧 session，看起来像"进去总是旧的"。
+
+**根因 2 — `createSessionEntry` 阻塞在网络请求上**：
+```ts
+// App.tsx 旧代码
+const remoteSession = await createRemoteSession(user.id, sessionTitle)
+// ↑ 等 Supabase 响应完才 return，可能 1–2 秒
+```
+新建 session 必须等 Supabase 建表成功才返回，导航被卡在网络延迟里。
+
+**修**：
+- **Fix 1**：删掉 `insertPendingProactiveRef` 里的 URL hash 覆盖逻辑，直接用 `entry.sessionId`（调度时存的值是正确的，不需要 "修正"）。
+- **Fix 2**：`createRemoteSession`（`supabaseSync.ts`）加 `id?: string` 可选参数，Supabase insert 时带入客户端预生成的 UUID。
+- **Fix 3**：`createSessionEntry` 改成乐观本地优先：先在本地立刻生成 session 对象 + 更新 state，立即返回给调用方（导航零延迟）；再在后台异步把同一个 UUID `createRemoteSession`，成功后用远端 row 替换本地版本（timestamps 一致，不变 ID）。Fix 1 顺带解决了根因 1 对 `selectMostRecentSession` 的污染。
+
+---
+
 ## 2026-06-25
 
 ### Android APK 使用自定义中转时 "Failed to fetch"
