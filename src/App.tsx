@@ -464,6 +464,12 @@ const App = () => {
   const [settingsReady, setSettingsReady] = useState(false)
   const [sessionsReady, setSessionsReady] = useState(false)
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null)
+  // Tracks which user.id we've already done the initial remote load for.
+  // Supabase fires onAuthStateChange on every token refresh (same user, new
+  // object reference) which re-runs the loadRemote effect. We only want to
+  // pre-hydrate from localStorage on the first load per user; subsequent
+  // re-runs should silently merge fresh Supabase data without touching state.
+  const lastLoadedUserIdRef = useRef<string | null>(null)
   const [supabaseConfigured, setSupabaseConfigured] = useState(() => hasSupabaseConfig())
   const sessionsRef = useRef(sessions)
   const messagesRef = useRef(messages)
@@ -782,15 +788,24 @@ const App = () => {
     }
     let active = true
     const loadRemote = async () => {
-      // Pre-hydrate from localStorage so the chat renders immediately
-      // while the Supabase round-trip is in-flight (avoids blank screen).
-      const localFallback = loadSnapshot()
-      if (localFallback.sessions.length > 0) {
-        applySnapshot(localFallback.sessions, localFallback.messages)
-        setSessionsReady(true)
-      } else {
-        setSessionsReady(false)
+      const isFirstLoadForUser = lastLoadedUserIdRef.current !== user.id
+      lastLoadedUserIdRef.current = user.id
+
+      if (isFirstLoadForUser) {
+        // Pre-hydrate from localStorage so the chat renders immediately
+        // while the Supabase round-trip is in-flight (avoids blank screen).
+        // Only on the first load per user — token refreshes re-trigger this
+        // effect but we must NOT overwrite live in-memory state with stale
+        // localStorage data on those subsequent runs.
+        const localFallback = loadSnapshot()
+        if (localFallback.sessions.length > 0) {
+          applySnapshot(localFallback.sessions, localFallback.messages)
+          setSessionsReady(true)
+        } else {
+          setSessionsReady(false)
+        }
       }
+
       setSyncing(true)
       try {
         const [remoteSessions, remoteMessages] = await Promise.all([
