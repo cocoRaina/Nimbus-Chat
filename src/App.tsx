@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 're
 import ChatPage from './pages/ChatPage'
 import AuthPage from './pages/AuthPage'
 import SessionsDrawer from './components/SessionsDrawer'
+import ConfirmDialog from './components/ConfirmDialog'
 import type { ChatMessage, ChatSession, UserSettings } from './types'
 import { usePendingShare } from './hooks/useShareReceiver'
 import { hydrateTtsConfig, buildVoiceSystemSection } from './storage/ttsConfig'
@@ -192,6 +193,31 @@ const mergeMessages = (localMessages: ChatMessage[], remoteMessages: ChatMessage
 
 const createClientId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+const parseApiError = (raw: string): string => {
+  try {
+    const json = JSON.parse(raw) as Record<string, unknown>
+    const inner = (json?.error ?? json) as Record<string, unknown>
+    const msg = typeof inner?.message === 'string' ? inner.message : null
+    if (msg) {
+      const lower = msg.toLowerCase()
+      if (lower.includes('disk overload') || lower.includes('disk full')) return '服务商磁盘负载过高，请稍后重试'
+      if (lower.includes('rate limit') || lower.includes('too many requests')) return '请求过于频繁，请稍后重试'
+      if (lower.includes('insufficient') || lower.includes('credit') || lower.includes('quota')) return '账户余额不足，请充值后重试'
+      if (lower.includes('invalid api key') || lower.includes('unauthorized') || lower.includes('authentication')) return 'API Key 无效，请在设置中检查'
+      if (lower.includes('context length') || lower.includes('too many tokens') || lower.includes('token limit')) return '消息太长超出模型限制，请开启新会话'
+      if ((lower.includes('model') && lower.includes('not found')) || lower.includes('model_not_found')) return '模型不可用，请在设置中切换模型'
+      if (lower.includes('timeout') || lower.includes('timed out')) return '请求超时，请稍后重试'
+      return msg
+    }
+  } catch {
+    // not JSON
+  }
+  const lower = raw.toLowerCase()
+  if (lower.includes('failed to fetch') || lower.includes('networkerror')) return '网络连接失败，请检查网络'
+  if (!raw || raw.length > 200) return '请稍后重试'
+  return raw
+}
 
 const defaultOpenRouterModel = 'openrouter/auto'
 const updateMessage = (messages: ChatMessage[], next: ChatMessage) =>
@@ -464,6 +490,7 @@ const App = () => {
   const [settingsReady, setSettingsReady] = useState(false)
   const [sessionsReady, setSessionsReady] = useState(false)
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null)
+  const [chatError, setChatError] = useState<string | null>(null)
   // Tracks which user.id we've already done the initial remote load for.
   // Supabase fires onAuthStateChange on every token refresh (same user, new
   // object reference) which re-runs the loadRemote effect. We only want to
@@ -3150,8 +3177,8 @@ TOOL_SEARCH_HANDOFF,
             pending: false,
           })
           applySnapshot(sessionsRef.current, failedMessages)
-          const errorMessage = error instanceof Error && error.message ? error.message : '回复失败，请稍后重试。'
-          window.alert(errorMessage)
+          const rawError = error instanceof Error && error.message ? error.message : ''
+          setChatError(parseApiError(rawError))
         } finally {
           // Only clear stream state if THIS persist's controller is still
           // active. A regenerate/edit-user-message can abort our stream then
@@ -3826,6 +3853,15 @@ TOOL_SEARCH_HANDOFF,
         />
       </Routes>
       </Suspense>
+      <ConfirmDialog
+        open={chatError !== null}
+        title="发送失败"
+        description={chatError ?? ''}
+        confirmLabel="好的"
+        cancelLabel=""
+        onConfirm={() => setChatError(null)}
+        onCancel={() => setChatError(null)}
+      />
     </div>
   )
 }
