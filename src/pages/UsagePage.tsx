@@ -788,6 +788,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
                 </button>
               )}
             </div>
+            <p className="diag-cost-hint">点一次发 5~6 条小测试请求 · 花费 ≈ 1~2 条普通消息（只在点击时，不后台跑）</p>
           </section>
 
           {checkResults.length > 0 && (
