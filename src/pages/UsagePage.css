@@ -414,6 +414,7 @@
   color: #586878;
   line-height: 1.5;
   word-break: break-all;
+  white-space: pre-line; /* 让响应头指纹的多行换行生效 */
 }
 
 .diag-pass  { border-color: #A7F3D0; background: rgba(209, 250, 229, 0.3); }

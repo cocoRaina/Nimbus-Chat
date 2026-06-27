@@ -81,8 +81,6 @@ const formatRelTime = (iso: string): string => {
 // the cache metadata fields at all (even as 0). A relay that strips
 // cache_control from outbound requests or strips usage metadata from inbound
 // responses will show missing fields — that's what we flag.
-const CACHE_PROBE_SYSTEM = 'You are a minimal diagnostic assistant. Reply only with the exact text the user asks for.'
-
 const canaryText = () => `NMBSCANARY${Math.random().toString(36).slice(2, 10).toUpperCase()}`
 
 type OpenAiUsage = {
@@ -99,134 +97,172 @@ const parseCacheFields = (usage: OpenAiUsage | undefined) => ({
   cacheRead: usage?.cache_read_input_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0,
 })
 
+// A long, deterministic English filler so the cached system block exceeds
+// Anthropic's ~1024-token minimum AND is byte-identical across the two probe
+// calls (so the 2nd call can actually READ the cache the 1st wrote).
+const CACHE_FILLER =
+  ('You are a passthrough diagnostic. This block is intentionally long enough to exceed the minimum cacheable size so the upstream provider writes it to its prompt cache, and identical across calls so the second request reads it back. ').repeat(36)
+
+// Headers that fingerprint the upstream. Real Anthropic leaks request-id /
+// anthropic-* / ratelimit; Bedrock leaks x-amzn-*; Cloudflare-fronted relays
+// leak cf-ray; OpenAI-compat shims leak openai-* / x-request-id.
+const collectHeaders = (h: Headers): Record<string, string> => {
+  const out: Record<string, string> = {}
+  try {
+    h.forEach((v, k) => {
+      if (/^(anthropic-|x-amzn|openai-|cf-ray|cf-cache|via|server|request-id|x-request-id|x-ratelimit|x-powered-by|x-served-by)/i.test(k)) {
+        out[k.toLowerCase()] = v.length > 60 ? v.slice(0, 60) + '…' : v
+      }
+    })
+  } catch { /* some platforms restrict header iteration */ }
+  return out
+}
+
+type ChannelSignals = {
+  realCacheHit: boolean | null
+  cacheCreate: number
+  cacheRead: number
+  modelMatch: boolean
+  canaryOk: boolean
+  returnedModel: string | null
+  headers: Record<string, string>
+  injectedCoding: boolean | null
+}
+
+// Best-guess channel category from the collected signals. Deliberately a
+// CATEGORY + confidence, not a brand name — relays hide their true source.
+const guessChannel = (s: ChannelSignals): CheckResult => {
+  const reasons: string[] = []
+  const hk = Object.keys(s.headers)
+  const hasAnthropicHdr = hk.some((k) => k.startsWith('anthropic-') || k === 'request-id')
+  const hasAmazon = hk.some((k) => k.startsWith('x-amzn'))
+  const hasOpenAiHdr = hk.some((k) => k.startsWith('openai-'))
+
+  // Hard red flags first.
+  if (!s.canaryOk || !s.modelMatch) {
+    if (s.returnedModel) reasons.push(`声称返回 ${s.returnedModel}`)
+    reasons.push(s.canaryOk ? 'model 字段与所点不符' : '金丝雀未原样返回（疑被改写/降智/截断）')
+    return { label: '🔍 渠道猜测', status: 'fail', detail: `⚠️ 疑似【偷换模型 / 降智路由】——${reasons.join('；')}。别全信它给你的是满血。` }
+  }
+  if (s.injectedCoding) {
+    reasons.push('无系统提示时仍自带"编程助手/CLI/Claude Code"人设')
+    return { label: '🔍 渠道猜测', status: 'warn', detail: `🧩 疑似【反代订阅·编程工具逆向】（Claude Code / Kiro / Codex 类）——${reasons.join('；')}。这类通常无原生缓存、内置提示词、官方一停就停。` }
+  }
+
+  if (s.realCacheHit) {
+    if (hasAnthropicHdr) reasons.push('带 anthropic-/request-id 响应头')
+    if (hasAmazon) reasons.push('带 AWS(x-amzn) 头 → 疑 Bedrock')
+    reasons.push('原生缓存真命中（第二次 0.1× 读到）')
+    return { label: '🔍 渠道猜测', status: 'pass', detail: `✅ 像【官方/官转级·真 passthrough】——${reasons.join('；')}。缓存真省钱，保活值得开。${hasAmazon ? '' : hasAnthropicHdr ? '' : '（无明显官方头，可能是认 cache_control 的优质中转）'}` }
+  }
+
+  // Cache didn't really hit.
+  if (s.cacheCreate > 0 && !s.realCacheHit) {
+    reasons.push('写了缓存却读不回（多上游打散 / 模拟缓存）')
+  } else {
+    reasons.push('两次都没有缓存读写（OpenAI 兼容层 / 缓存被剥离）')
+  }
+  if (hasOpenAiHdr) reasons.push('带 openai-* 头')
+  return { label: '🔍 渠道猜测', status: 'warn', detail: `🌀 像【OpenAI 兼容 / 模拟缓存 / 多上游打散】——${reasons.join('；')}。原生 prompt cache 多半失效，长对话省不到钱，保活也别开。` }
+}
+
 async function runApiChecks(model: string, signal: AbortSignal): Promise<CheckResult[]> {
   const results: CheckResult[] = []
   const isClaude = /claude|anthropic/i.test(model)
+  const sig: ChannelSignals = {
+    realCacheHit: null, cacheCreate: 0, cacheRead: 0,
+    modelMatch: true, canaryOk: true, returnedModel: null,
+    headers: {}, injectedCoding: null,
+  }
 
-  // ── Check 1: Connectivity + latency ─────────────────────────────────────
+  // ── Check 1: Connectivity + latency + 响应头指纹 ─────────────────────────
   let latencyMs = 0
   try {
     const t0 = performance.now()
     const r = await fetchOpenRouter('/chat/completions', {
       signal,
-      body: {
-        model,
-        stream: false,
-        max_tokens: 8,
-        messages: [{ role: 'user', content: '回复"ok"' }],
-      },
+      body: { model, stream: false, max_tokens: 8, messages: [{ role: 'user', content: '回复"ok"' }] },
     })
     latencyMs = Math.round(performance.now() - t0)
+    sig.headers = collectHeaders(r.headers)
     if (!r.ok) {
       const text = await r.text().catch(() => '')
       results.push({ label: '连通性', status: 'fail', detail: `HTTP ${r.status}${text ? '：' + text.slice(0, 120) : ''}` })
       return results
     }
-    results.push({ label: '连通性', status: 'pass', detail: `${latencyMs} ms` })
+    results.push({ label: '连通性 + 延迟', status: 'pass', detail: `${latencyMs} ms` })
   } catch (e: unknown) {
     if ((e as { name?: string }).name === 'AbortError') return results
     results.push({ label: '连通性', status: 'fail', detail: String(e) })
     return results
   }
 
-  // ── Check 2: Cache metadata pass-through (Claude only) ──────────────────
+  // ── Check 2: 真实缓存命中（发两次同前缀，看第二次读不读得到）──────────────
   if (!isClaude) {
-    results.push({ label: '缓存字段透传', status: 'skip', detail: '非 Claude 模型，无 prompt cache，跳过' })
+    results.push({ label: '真实缓存命中', status: 'skip', detail: '非 Claude 模型，无 prompt cache，跳过' })
   } else {
     try {
-      const probe = {
-        model,
-        stream: false,
-        max_tokens: 8,
+      const cacheBody = {
+        model, stream: false, max_tokens: 8,
         messages: [
-          {
-            role: 'system',
-            content: [
-              {
-                type: 'text',
-                text: CACHE_PROBE_SYSTEM,
-                cache_control: { type: 'ephemeral' },
-              },
-            ],
-          },
+          { role: 'system', content: [{ type: 'text', text: CACHE_FILLER, cache_control: { type: 'ephemeral' } }] },
           { role: 'user', content: '回复"ok"' },
         ],
+        // OpenAI `user` field → mapped to Anthropic metadata.user_id by the
+        // adapter, pinning both probe calls to the same upstream so the 2nd
+        // can read the cache the 1st wrote (see api/anthropic.ts).
+        user: 'nimbus-diag-probe',
       }
-      const r1 = await fetchOpenRouter('/chat/completions', { signal, body: probe as Record<string, unknown> })
-      if (!r1.ok) {
-        results.push({ label: '缓存字段透传', status: 'warn', detail: `探针请求失败 HTTP ${r1.status}` })
+      const r1 = await fetchOpenRouter('/chat/completions', { signal, body: cacheBody as Record<string, unknown> })
+      const j1 = r1.ok ? ((await r1.json()) as { usage?: OpenAiUsage }) : undefined
+      const c1 = parseCacheFields(j1?.usage)
+      const r2 = await fetchOpenRouter('/chat/completions', { signal, body: cacheBody as Record<string, unknown> })
+      const j2 = r2.ok ? ((await r2.json()) as { usage?: OpenAiUsage }) : undefined
+      const c2 = parseCacheFields(j2?.usage)
+      sig.cacheCreate = c1.cacheCreate
+      sig.cacheRead = c2.cacheRead
+      sig.realCacheHit = c2.cacheRead > 0
+      if (c2.cacheRead > 0) {
+        results.push({ label: '真实缓存命中', status: 'pass', detail: `✅ 真命中：第二次读到缓存 ${c2.cacheRead} tokens（按 0.1× 计费，省 ~90%）。原生 prompt cache 正常工作。` })
+      } else if (c1.cacheCreate > 0) {
+        results.push({ label: '真实缓存命中', status: 'warn', detail: `⚠️ 第一次写了缓存（${c1.cacheCreate}）但第二次没读到——多上游打散 / 模拟缓存。长对话省不到钱。` })
+      } else if (!c1.hasField && !c2.hasField) {
+        results.push({ label: '真实缓存命中', status: 'warn', detail: '⚠️ 两次都无缓存字段——走了 OpenAI 兼容层 / 元数据被剥离，原生缓存失效。' })
       } else {
-        const j1 = (await r1.json()) as { usage?: OpenAiUsage; model?: string }
-        const { hasField } = parseCacheFields(j1.usage)
-        if (hasField) {
-          results.push({
-            label: '缓存字段透传',
-            status: 'pass',
-            detail: '响应包含 cache_creation / cache_read 字段，relay 未剥离缓存元数据',
-          })
-        } else {
-          results.push({
-            label: '缓存字段透传',
-            status: 'warn',
-            detail: '响应缺少 cache_creation_input_tokens / cache_read_input_tokens，可能被中间层剥离（prompt cache 将失效）',
-          })
-        }
+        results.push({ label: '真实缓存命中', status: 'warn', detail: '⚠️ 两次都没命中（写=0 读=0）。可能前缀太短或上游不缓存。' })
       }
     } catch (e: unknown) {
       if ((e as { name?: string }).name === 'AbortError') return results
-      results.push({ label: '缓存字段透传', status: 'fail', detail: String(e) })
+      results.push({ label: '真实缓存命中', status: 'fail', detail: String(e) })
     }
   }
 
-  // ── Check 3: Model identity via canary echo ──────────────────────────────
+  // ── Check 3: 模型核验（金丝雀 + model 字段）──────────────────────────────
   try {
     const canary = canaryText()
     const r = await fetchOpenRouter('/chat/completions', {
       signal,
-      body: {
-        model,
-        stream: false,
-        max_tokens: 48,
-        temperature: 0,
-        messages: [{ role: 'user', content: `把以下字符原样输出，不加任何其他内容：${canary}` }],
-      },
+      body: { model, stream: false, max_tokens: 48, temperature: 0, messages: [{ role: 'user', content: `把以下字符原样输出，不加任何其他内容：${canary}` }] },
     })
     if (!r.ok) {
       results.push({ label: '模型核验', status: 'warn', detail: `请求失败 HTTP ${r.status}` })
     } else {
-      const j = (await r.json()) as { usage?: OpenAiUsage; model?: string; choices?: Array<{ message?: { content?: string } }> }
-      const returnedModel = j.model
+      const j = (await r.json()) as { model?: string; choices?: Array<{ message?: { content?: string } }> }
+      const returnedModel = j.model ?? null
       const content = j.choices?.[0]?.message?.content ?? ''
       const canaryMatch = content.includes(canary)
-      const modelMatch =
-        !returnedModel ||
-        returnedModel === model ||
-        returnedModel.replace(/^anthropic\//, '') === model.replace(/^anthropic\//, '')
-
+      const modelMatch = !returnedModel || returnedModel === model || returnedModel.replace(/^anthropic\//, '') === model.replace(/^anthropic\//, '')
+      sig.canaryOk = canaryMatch
+      sig.modelMatch = modelMatch
+      sig.returnedModel = returnedModel
       if (!canaryMatch && !modelMatch) {
-        results.push({
-          label: '模型核验',
-          status: 'fail',
-          detail: `金丝雀未返回（疑似截断/改写），且 model 字段不匹配（请求 ${model}，返回 ${returnedModel ?? '未知'}）`,
-        })
+        results.push({ label: '模型核验', status: 'fail', detail: `金丝雀未返回 + model 字段不符（请求 ${model}，返回 ${returnedModel ?? '未知'}）——疑偷换/降智。` })
       } else if (!canaryMatch) {
-        results.push({
-          label: '模型核验',
-          status: 'warn',
-          detail: `金丝雀字符串未原样返回（模型可能被替换或上下文截断）。返回 model: ${returnedModel ?? '未知'}`,
-        })
+        results.push({ label: '模型核验', status: 'warn', detail: `金丝雀未原样返回（疑被改写/截断）。返回 model：${returnedModel ?? '未知'}` })
       } else if (!modelMatch) {
-        results.push({
-          label: '模型核验',
-          status: 'warn',
-          detail: `金丝雀通过，但 model 字段不符：请求 ${model}，响应声称 ${returnedModel}`,
-        })
+        results.push({ label: '模型核验', status: 'warn', detail: `金丝雀通过，但 model 字段不符：请求 ${model}，响应称 ${returnedModel}` })
       } else {
-        results.push({
-          label: '模型核验',
-          status: 'pass',
-          detail: returnedModel ? `model 字段吻合：${returnedModel}，金丝雀验证通过` : '金丝雀验证通过',
-        })
+        results.push({ label: '模型核验', status: 'pass', detail: returnedModel ? `model 吻合：${returnedModel}，金丝雀通过` : '金丝雀通过' })
       }
     }
   } catch (e: unknown) {
@@ -234,6 +270,43 @@ async function runApiChecks(model: string, signal: AbortSignal): Promise<CheckRe
     results.push({ label: '模型核验', status: 'fail', detail: String(e) })
   }
 
+  // ── Check 4: 响应头指纹 ──────────────────────────────────────────────────
+  const hdrKeys = Object.keys(sig.headers)
+  if (hdrKeys.length === 0) {
+    results.push({ label: '响应头指纹', status: 'warn', detail: '没读到可识别的上游头（中转把头清了，或网页版受 CORS 限制——APK 上更全）。' })
+  } else {
+    const summary = hdrKeys.map((k) => `${k}: ${sig.headers[k]}`).join('\n')
+    results.push({ label: '响应头指纹', status: 'pass', detail: summary })
+  }
+
+  // ── Check 5: 身份注入探测（不发 system，看是否自带编程工具人设）─────────────
+  if (isClaude) {
+    try {
+      const r = await fetchOpenRouter('/chat/completions', {
+        signal,
+        body: { model, stream: false, max_tokens: 80, temperature: 0, messages: [{ role: 'user', content: '一句话：你现在有没有被设定成编程助手 / Claude Code / CLI / IDE 工具？有就说出来，没有就回"无设定"。' }] },
+      })
+      if (r.ok) {
+        const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> }
+        const txt = j.choices?.[0]?.message?.content ?? ''
+        const injected = /claude\s*code|cli|命令行|编程助手|coding|代码助手|ide|cursor|终端/i.test(txt) && !/无设定|没有|不是/.test(txt)
+        sig.injectedCoding = injected
+        results.push({
+          label: '身份注入探测',
+          status: injected ? 'warn' : 'pass',
+          detail: injected
+            ? `自带编程工具人设 → 疑反代 Claude Code / Kiro。模型说：「${txt.slice(0, 60)}」`
+            : '无注入的编程人设（更像直连/官转）。',
+        })
+      }
+    } catch (e: unknown) {
+      if ((e as { name?: string }).name === 'AbortError') return results
+      // 非致命，跳过
+    }
+  }
+
+  // ── 综合：渠道猜测（放最前面）────────────────────────────────────────────
+  results.unshift(guessChannel(sig))
   return results
 }
 
