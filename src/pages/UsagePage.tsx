@@ -5,6 +5,7 @@ import { fetchUsageLogs, type UsageLogRow } from '../storage/usageStats'
 import { fetchOpenRouter } from '../api/openrouter'
 import { supabase } from '../supabase/client'
 import { estimateTokens } from '../storage/conversationCompression'
+import { getCustomProviderDisplayName } from '../storage/apiProvider'
 import './UsagePage.css'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -421,7 +422,9 @@ const UsagePage = ({ user }: UsagePageProps) => {
     return { calls, prompt, completion, total, cached }
   }
 
-  const providerLabel = (id: string) => id === 'openrouter' ? 'OpenRouter' : '中转站'
+  // 中转站显示当前实际名称（从 base URL 推，如 treegpt），换站自动变。
+  const relayName = getCustomProviderDisplayName()
+  const providerLabel = (id: string) => id === 'openrouter' ? 'OpenRouter' : (relayName || '中转站')
 
   const aggregateBySession = (subset: typeof rows) => {
     const groups = new Map<string, { sessionId: string | null; title: string; calls: number; promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number }>()
@@ -1021,7 +1024,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
                       <tbody>
                         {histStats.byProvider.map((p) => (
                           <tr key={p.provider}>
-                            <td className="model">{p.provider === 'openrouter' ? 'OpenRouter' : '中转站'}</td>
+                            <td className="model">{p.provider === 'openrouter' ? 'OpenRouter' : (relayName || '中转站')}</td>
                             <td>{p.calls}</td>
                             <td>{p.hits}</td>
                             <td>{p.calls > 0 ? `${Math.round((p.hits / p.calls) * 100)}%` : '—'}</td>

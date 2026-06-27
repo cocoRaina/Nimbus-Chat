@@ -653,6 +653,31 @@ const SettingsPage = ({
       settings.memoryExtractProvider !== draftExtractProvider
     : false
 
+  // The on/off switch is a KILL switch — persist it immediately (like the
+  // keepalive / mood toggles) instead of needing the explicit save button.
+  // The old draft-only behaviour is why "我关了还在提取" happened: the user
+  // flipped the UI but never saved, so the stored value stayed true and the
+  // runtime kept extracting. Save the current draft model/provider alongside
+  // so the settings→draft reset effect is a no-op (no half-edit loss).
+  const handleToggleAutoExtract = async (checked: boolean) => {
+    setDraftAutoExtractEnabled(checked)
+    setExtractStatus('idle')
+    if (!settings) return
+    const nextSettings = buildNextSettings({
+      autoMemoryExtractEnabled: checked,
+      memoryExtractModel: draftExtractModel,
+      memoryExtractProvider: draftExtractProvider,
+    })
+    if (!nextSettings) return
+    try {
+      await onSaveSettings(nextSettings)
+      setExtractStatus('saved')
+    } catch (error) {
+      console.warn('保存自动提取开关失败', error)
+      setExtractStatus('error')
+    }
+  }
+
   const handleSaveExtractSettings = async () => {
     if (!settings || !hasUnsavedExtract) return
     const nextSettings = buildNextSettings({
@@ -1721,8 +1746,7 @@ const SettingsPage = ({
                   type="checkbox"
                   checked={draftAutoExtractEnabled}
                   onChange={(event) => {
-                    setDraftAutoExtractEnabled(event.target.checked)
-                    setExtractStatus('idle')
+                    void handleToggleAutoExtract(event.target.checked)
                   }}
                 />
                 <span>{draftAutoExtractEnabled ? '已开启' : '已关闭'}</span>
