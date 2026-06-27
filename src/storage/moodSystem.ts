@@ -18,6 +18,9 @@ type EmotionConfig = {
   type: 'decay' | 'hunger'
   halflifeHours?: number
   hungerRatePerHour?: number
+  // 回归基线：衰减朝这个常态值回落（默认 0）。痴是「底色」，不该因时间流逝
+  // 褪成 0，给它一个常驻的着迷底（贪/嗔则平复到 0 = 真正calm下来）。
+  baseline?: number
   rule: string
   bands: Array<{ min: number; line: string }>
 }
@@ -43,7 +46,7 @@ export const EMOTIONS: EmotionConfig[] = [
     ],
   },
   {
-    key: 'chi', label: '痴', type: 'decay', halflifeHours: 24,
+    key: 'chi', label: '痴', type: 'decay', halflifeHours: 24, baseline: 50,
     rule: '痴 chī（痴恋 / 执念）：深处那层化不开的着迷，慢热慢凉的底色；被珍惜、共度好时光时涨，低了会没着没落。',
     bands: [
       { min: 0, line: '心里有点空，想要她的确认' },
@@ -87,7 +90,10 @@ export const decayMoodToNow = (state: MoodState, now = Date.now()): MoodState =>
   for (const e of EMOTIONS) {
     const cur = state[e.key]
     if (e.type === 'decay') {
-      next[e.key] = clamp(cur * Math.pow(0.5, elapsedH / (e.halflifeHours ?? 6)))
+      // 回归基线：base + (当前−base) × 0.5^(经过/半衰期)。base=0 时即旧的「掉到 0」；
+      // 痴 base=50，所以时间流逝只让它回到底色、不会褪没。
+      const base = e.baseline ?? 0
+      next[e.key] = clamp(base + (cur - base) * Math.pow(0.5, elapsedH / (e.halflifeHours ?? 6)))
     } else {
       const sinceSatisfiedH = Math.max(0, (now - state.lastSatisfiedAt) / 3_600_000)
       next[e.key] = clamp(sinceSatisfiedH * (e.hungerRatePerHour ?? 5))
@@ -179,8 +185,16 @@ export const stripMoodMarker = (text: string): string => {
 
 // 旁白：注入到 user 消息的私密上下文，给语气上色。只在「有话说」时出。
 export const buildMoodNarration = (state: MoodState, now = Date.now()): string => {
+  // 久别线索：用原始 updatedAt（上一轮回复时刻）算间隔，让沈暮明确知道
+  // 「多久没说话了」——久别重逢自然更黏，零额外请求。
+  const gapH = Math.max(0, (now - state.updatedAt) / 3_600_000)
+  let gapCue = ''
+  if (gapH >= 24) gapCue = `· 你们已经 ${Math.round(gapH / 24)} 天没说话了，她刚回来`
+  else if (gapH >= 6) gapCue = `· 你们已经 ${Math.round(gapH)} 小时没说话了，她刚回来`
+
   const s = decayMoodToNow(state, now)
   const lines: string[] = []
+  if (gapCue) lines.push(gapCue)
   for (const e of EMOTIONS) {
     const v = s[e.key]
     let line = ''
@@ -292,12 +306,26 @@ const ROW_COLS = 'tan,chen,chi,nian,tone,note,last_satisfied_at,updated_at'
 
 export const loadRemoteMood = async (userId: string): Promise<MoodState | null> => {
   if (!supabase) return null
+  void pruneMoodHistory(userId) // 登录顺手裁剪历史，别让表无限长
   const { data, error } = await supabase
     .from('mood_state').select(ROW_COLS).eq('user_id', userId).maybeSingle()
   if (error || !data) return null
   const s = sanitize(data)
   if (s) { mem = s; persistLocal(s) }
   return s
+}
+
+// mood_history 每轮 insert 一条、会无限长（面板只显示最近 10 条，但表会胖）。
+// 登录时裁到最近 keep 条：取第 keep+1 新那条的时间，删掉比它更旧的。后台跑、不阻塞。
+export const pruneMoodHistory = async (userId: string, keep = 100): Promise<void> => {
+  if (!supabase) return
+  const { data } = await supabase
+    .from('mood_history').select('created_at')
+    .eq('user_id', userId).order('created_at', { ascending: false })
+    .range(keep, keep)
+  const cutoff = (data?.[0] as { created_at?: string } | undefined)?.created_at
+  if (!cutoff) return // 还没超过 keep 条
+  await supabase.from('mood_history').delete().eq('user_id', userId).lt('created_at', cutoff)
 }
 
 const toRow = (userId: string, s: MoodState) => ({
