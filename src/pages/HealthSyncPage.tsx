@@ -17,6 +17,7 @@ import {
   type SyncSummary,
 } from '../storage/healthSync'
 import { computeMedianCycleFromHistory } from '../hooks/useHomeWidgetData'
+import { getAssistantName } from '../storage/assistantPersona'
 import {
   EMOTIONS,
   getMood,
@@ -28,10 +29,9 @@ import {
 } from '../storage/moodSystem'
 import './HealthSyncPage.css'
 
-// 各情绪进度条配色（仅展示用）。
+// 贪嗔痴念进度条配色（仅展示用）。
 const MOOD_COLORS: Record<string, string> = {
-  joy: '#f2b705', sadness: '#6c8ebf', anger: '#e06666', jealous: '#c27ba0',
-  longing: '#9b7ede', venting: '#5fb89a', secure: '#7baf6e', belonging: '#e8915b',
+  chi: '#9b7ede', tan: '#e0915b', nian: '#7fb2f0', chen: '#e06666',
 }
 
 type Props = { user: User | null }
@@ -400,7 +400,7 @@ const HealthSyncPage = ({ user }: Props) => {
       <main className="app-shell__content health-sync">
         {getMoodEnabled() && mood ? (
           <section className="glass-card mood-panel">
-            <h2>小机的心情</h2>
+            <h2>{getAssistantName()}的心 · 贪嗔痴念</h2>
             {mood.tone ? <p className="mood-panel__tone">「{mood.tone}」</p> : null}
             <div className="mood-panel__bars">
               {EMOTIONS.map((e) => {
@@ -436,7 +436,7 @@ const HealthSyncPage = ({ user }: Props) => {
                 </ul>
               </details>
             ) : null}
-            <p className="mood-panel__hint">这是小机自己的情绪，会随相处自然起落 · 你只能看 🦊</p>
+            <p className="mood-panel__hint">这是{getAssistantName()}自己的心绪，会随相处自然起落 · 你只能看 🦊</p>
           </section>
         ) : null}
 

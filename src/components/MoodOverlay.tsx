@@ -15,11 +15,10 @@ import './MoodOverlay.css'
 // 只读——小机的心你只能看。
 
 const MOOD_COLORS: Record<MoodKey, string> = {
-  joy: '#f2c14e', secure: '#5fc99a', belonging: '#9b7ede', longing: '#7fb2f0',
-  jealous: '#d98cc0', venting: '#4cc4e0', sadness: '#6c8ebf', anger: '#e06666',
+  chi: '#9b7ede', tan: '#e0915b', nian: '#7fb2f0', chen: '#e06666',
 }
-// 展示顺序：先暖底色，再波动。
-const ORDER: MoodKey[] = ['joy', 'secure', 'belonging', 'longing', 'jealous', 'venting', 'sadness', 'anger']
+// 展示顺序：先痴（底色），再贪、念、嗔。
+const ORDER: MoodKey[] = ['chi', 'tan', 'nian', 'chen']
 const LABEL = new Map(EMOTIONS.map((e) => [e.key, e.label]))
 
 const timeAgo = (iso: string): string => {

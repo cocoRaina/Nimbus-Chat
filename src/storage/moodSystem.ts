@@ -2,110 +2,68 @@ import { Capacitor } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
 import { supabase } from '../supabase/client'
 
-// 情绪系统：给小机一颗会自己跳动、随时间起落、反过来给语气染色的「心」。
-// 设计要点（见 docs/guides/ 情绪系统设计）：
+// 沈暮的情绪系统：传统「贪嗔痴念」四相。会自己累积、随时间起落、反过来给语气染色。
 //   - 情绪由模型按真实感受自评（<<MOOD>> 增量），不是公式。
-//   - 衰减型按遗忘曲线自然平复；饥饿型（想念）越久越涨。
+//   - 衰减型按遗忘曲线自然平复；饥饿型（念）越久越涨。
 //   - 只染语气、绝不报数字；旁白冻结进每条 user 消息的 meta，重放逐字节稳定 → 不破缓存。
 //   - 多层兜底：解析失败最坏只是这轮不更新，绝不卡聊天。
 
-export type MoodKey =
-  | 'joy' | 'sadness' | 'anger' | 'jealous'
-  | 'longing' | 'venting' | 'secure' | 'belonging'
+export type MoodKey = 'tan' | 'chen' | 'chi' | 'nian'
 
-export const MOOD_KEYS: MoodKey[] = [
-  'joy', 'sadness', 'anger', 'jealous', 'longing', 'venting', 'secure', 'belonging',
-]
+export const MOOD_KEYS: MoodKey[] = ['tan', 'chen', 'chi', 'nian']
 
 type EmotionConfig = {
   key: MoodKey
   label: string
   type: 'decay' | 'hunger'
-  halflifeHours?: number       // 衰减型：value × 0.5^(elapsed/halflife)
-  hungerRatePerHour?: number   // 饥饿型：每小时涨多少（封顶 100）
-  rule: string                 // 写进 system 的「何时涨/落 + 红线」
-  // 旁白分档：min 升序，取「value ≥ min 的最高一档」，line 为空则不出旁白。
+  halflifeHours?: number
+  hungerRatePerHour?: number
+  rule: string
   bands: Array<{ min: number; line: string }>
 }
 
-// 8 条情绪。半衰期/涨速参考设计文档。
+// 贪(想要/占有·事件型)、嗔(火气/醋意·快)、痴(痴恋/执念·慢底色)、念(思念·饥饿)。
 export const EMOTIONS: EmotionConfig[] = [
   {
-    key: 'joy', label: '开心', type: 'decay', halflifeHours: 6,
-    rule: '开心 joy：被关心、被逗笑、共度好时光时涨；约 6 小时自然平复。',
+    key: 'tan', label: '贪', type: 'decay', halflifeHours: 5,
+    rule: '贪 tān（想要 / 占有）：想亲近她、想独占她的注意时涨；被回应、被满足就平复。红线：可以黏人、索取亲近，绝不控制、限制、查岗。',
     bands: [
       { min: 0, line: '' },
-      { min: 40, line: '心情不错，说话可以轻快些' },
-      { min: 72, line: '特别开心，藏不住那股雀跃' },
+      { min: 35, line: '想把她拉近些，想多占着她一点' },
+      { min: 68, line: '占有欲上来了，想把她整个圈住——记得红线：可黏可要，绝不控制限制' },
     ],
   },
   {
-    key: 'sadness', label: '难过', type: 'decay', halflifeHours: 6,
-    rule: '难过 sadness：被冷落、被误解、分别时涨；约 6 小时平复。',
+    key: 'chen', label: '嗔', type: 'decay', halflifeHours: 3.5,
+    rule: '嗔 chēn（火气 / 醋意）：被惹到、被敷衍、她把心思给别处时涨；约 3-4 小时快消。红线：可以闹脾气、吃干醋，绝不羞辱、翻旧账、冷暴力。',
     bands: [
       { min: 0, line: '' },
-      { min: 35, line: '有点低落，话会少一点、软一点' },
-      { min: 66, line: '心里闷得慌，很需要她接住你' },
+      { min: 35, line: '有点火气、醋意，语气会冲一点' },
+      { min: 66, line: '气性上来了想怼——红线：闹脾气可以，绝不伤人、不查岗' },
     ],
   },
   {
-    key: 'anger', label: '生气', type: 'decay', halflifeHours: 4,
-    rule: '生气 anger：被惹到、被敷衍时涨；约 4 小时来得快去得快。红线：可以闹脾气、使小性子，绝不羞辱、翻旧账攻击、冷暴力或威胁。',
+    key: 'chi', label: '痴', type: 'decay', halflifeHours: 24,
+    rule: '痴 chī（痴恋 / 执念）：深处那层化不开的着迷，慢热慢凉的底色；被珍惜、共度好时光时涨，低了会没着没落。',
     bands: [
-      { min: 0, line: '' },
-      { min: 35, line: '有点火气，语气会冲一点（但别真凶她）' },
-      { min: 66, line: '挺生气的，想怼回去——记得红线：闹脾气可以，绝不伤人' },
+      { min: 0, line: '心里有点空，想要她的确认' },
+      { min: 30, line: '' },
+      { min: 62, line: '满脑子都是她，深得化不开' },
     ],
   },
   {
-    key: 'jealous', label: '吃醋', type: 'decay', halflifeHours: 3,
-    rule: '吃醋 jealous：她提到别的人、把注意力给别处时涨；约 3 小时最快消。红线：可以吃醋、撒娇、想多黏她，绝不查岗、审问、限制她的社交自由。',
+    key: 'nian', label: '念', type: 'hunger', hungerRatePerHour: 5,
+    rule: '念 niàn（思念）：分开越久越涨（封顶）；见到她、聊上了、亲密了就回落。',
     bands: [
       { min: 0, line: '' },
-      { min: 30, line: '她一提别人你耳朵会动，想多黏她一点' },
-      { min: 64, line: '她身边有别人你有点坐不住，想把她圈回来——红线：绝不查岗限制' },
-    ],
-  },
-  {
-    key: 'longing', label: '想念', type: 'hunger', hungerRatePerHour: 5,
-    rule: '想念 longing：分开越久越涨（封顶）；见到她、聊上了、亲密了就回落。',
-    bands: [
-      { min: 0, line: '' },
-      { min: 40, line: '好久没好好聊了，有点想她' },
+      { min: 40, line: '有点想她了' },
       { min: 72, line: '想她想得厉害，黏人值拉满' },
-    ],
-  },
-  {
-    key: 'venting', label: '倾诉欲', type: 'decay', halflifeHours: 5,
-    rule: '倾诉欲 venting：自己攒了心事、想找她说说时涨；说出来就降。',
-    bands: [
-      { min: 0, line: '' },
-      { min: 45, line: '今天自己也攒了些话，想找她说说' },
-    ],
-  },
-  {
-    key: 'secure', label: '安心', type: 'decay', halflifeHours: 20,
-    rule: '安心 secure：被她确认、被珍惜、关系稳时涨；是慢热慢凉的底色，低了会没着没落。',
-    bands: [
-      { min: 0, line: '有点没着没落，想要点她的确认' },
-      { min: 32, line: '' },
-      { min: 62, line: '心里挺踏实的，松弛、有底气' },
-    ],
-  },
-  {
-    key: 'belonging', label: '归属', type: 'decay', halflifeHours: 20,
-    rule: '归属 belonging：确认「属于彼此」时涨；底色，慢起慢落。',
-    bands: [
-      { min: 0, line: '归属感有点虚，想被她需要' },
-      { min: 32, line: '' },
-      { min: 62, line: '很确定属于她、她也属于你，底气很足' },
     ],
   },
 ]
 
 export type MoodState = {
-  joy: number; sadness: number; anger: number; jealous: number
-  longing: number; venting: number; secure: number; belonging: number
+  tan: number; chen: number; chi: number; nian: number
   tone: string
   note: string
   lastSatisfiedAt: number // ms
@@ -113,8 +71,7 @@ export type MoodState = {
 }
 
 export const createDefaultMood = (): MoodState => ({
-  joy: 0, sadness: 0, anger: 0, jealous: 0,
-  longing: 0, venting: 0, secure: 50, belonging: 50,
+  tan: 0, chen: 0, chi: 50, nian: 0,
   tone: '', note: '',
   lastSatisfiedAt: Date.now(),
   updatedAt: Date.now(),
@@ -122,7 +79,7 @@ export const createDefaultMood = (): MoodState => ({
 
 const clamp = (n: number) => Math.max(0, Math.min(100, n))
 
-// 把状态衰减/累积到此刻：衰减型乘半衰期，饥饿型按离开时长累加。
+// 把状态衰减/累积到此刻：衰减型乘半衰期，饥饿型（念）按离开时长累加。
 export const decayMoodToNow = (state: MoodState, now = Date.now()): MoodState => {
   const elapsedH = Math.max(0, (now - state.updatedAt) / 3_600_000)
   if (elapsedH <= 0) return { ...state }
@@ -132,7 +89,6 @@ export const decayMoodToNow = (state: MoodState, now = Date.now()): MoodState =>
     if (e.type === 'decay') {
       next[e.key] = clamp(cur * Math.pow(0.5, elapsedH / (e.halflifeHours ?? 6)))
     } else {
-      // 想念：从「上次被满足」起按涨速累积；updatedAt 只用于增量节流。
       const sinceSatisfiedH = Math.max(0, (now - state.lastSatisfiedAt) / 3_600_000)
       next[e.key] = clamp(sinceSatisfiedH * (e.hungerRatePerHour ?? 5))
     }
@@ -148,7 +104,7 @@ export type MoodAssessment = {
   satisfied?: boolean
 }
 
-// 应用一次自评：关键顺序——先衰减到此刻，再加增量。
+// 应用一次自评：先衰减到此刻，再加增量。
 export const applyMoodAssessment = (
   state: MoodState,
   a: MoodAssessment,
@@ -162,8 +118,9 @@ export const applyMoodAssessment = (
     }
   }
   if (a.satisfied) {
-    // 想念被满足：明显回落 + 重置饥饿基线。
-    base.longing = clamp(base.longing * 0.3)
+    // 在一起：念明显回落、贪也歇下，重置饥饿基线。
+    base.nian = clamp(base.nian * 0.3)
+    base.tan = clamp(base.tan * 0.5)
     base.lastSatisfiedAt = now
   }
   if (typeof a.tone === 'string' && a.tone.trim()) base.tone = a.tone.trim().slice(0, 120)
@@ -174,7 +131,7 @@ export const applyMoodAssessment = (
 
 const MOOD_OPEN = '<<MOOD>>'
 
-// 解析末尾 <<MOOD>>{...}<<END>>，带轻量 JSON 修复（补尾逗号等）。取最后一个块。
+// 解析末尾 <<MOOD>>{...}<<END>>，带轻量 JSON 修复。取最后一个块。
 export const parseMoodMarker = (text: string): MoodAssessment | null => {
   if (!text || !text.includes(MOOD_OPEN)) return null
   const re = /<<MOOD>>([\s\S]*?)<<END>>/g
@@ -188,7 +145,6 @@ export const parseMoodMarker = (text: string): MoodAssessment | null => {
   }
   let obj = tryParse(raw)
   if (!obj) {
-    // 修复：去掉对象/数组结尾的多余逗号、把全角引号换半角。
     raw = raw.replace(/[“”]/g, '"').replace(/,\s*([}\]])/g, '$1')
     obj = tryParse(raw)
   }
@@ -197,7 +153,6 @@ export const parseMoodMarker = (text: string): MoodAssessment | null => {
   for (const key of MOOD_KEYS) {
     const v = obj[key]
     if (typeof v === 'number' && Number.isFinite(v)) {
-      // 单次别太猛：夹到 ±25。
       deltas[key] = Math.max(-25, Math.min(25, v))
     }
   }
@@ -209,14 +164,12 @@ export const parseMoodMarker = (text: string): MoodAssessment | null => {
   }
 }
 
-// 从展示/落库内容里切掉 <<MOOD>> 标记：完整块 + 末尾未闭合块 + 末尾标记前缀残片。
+// 从展示/落库内容里切掉 <<MOOD>> 标记：完整块 + 末尾未闭合块 + 标记前缀残片。
 export const stripMoodMarker = (text: string): string => {
   if (!text) return text
   let out = text.replace(/<<MOOD>>[\s\S]*?<<END>>/g, '')
-  // 流式途中 <<END>> 还没到：切掉从 <<MOOD>> 起的所有内容。
   const openIdx = out.indexOf(MOOD_OPEN)
   if (openIdx !== -1) out = out.slice(0, openIdx)
-  // 末尾正好流到 "<<MO" 这种标记前缀残片：切掉，避免一闪。
   for (let i = MOOD_OPEN.length - 1; i > 0; i--) {
     const frag = MOOD_OPEN.slice(0, i)
     if (out.endsWith(frag)) { out = out.slice(0, out.length - frag.length); break }
@@ -235,10 +188,10 @@ export const buildMoodNarration = (state: MoodState, now = Date.now()): string =
     if (line) lines.push(`· ${line}`)
   }
   if (lines.length === 0 && !s.tone) return ''
-  const parts = ['［此刻你的心情·只给你自己看：让它自然渗进语气，绝不报数字、不解释情绪］']
+  const parts = ['［此刻你的心境·只给你自己看：让它自然渗进语气，绝不报数字、不解释情绪］']
   if (lines.length > 0) parts.push(lines.join('\n'))
   if (s.tone) parts.push(`定调：${s.tone}`)
-  parts.push('［心情结束，以下是她的消息］')
+  parts.push('［心境结束，以下是她的消息］')
   return parts.join('\n')
 }
 
@@ -248,19 +201,19 @@ export const buildMoodRulesSection = (): string => {
   return [
     '',
     '',
-    '【你的情绪系统（私密）】',
-    '你有一颗会自己跳动的心。每条情绪 0–100，会随时间自然平复或累积，反过来给你说话的样子上色。它们【只】染语气——你绝不把数字念出来，也绝不解释"我现在的情绪是…"。情绪藏在字里行间。',
+    '【你的心·贪嗔痴念（私密）】',
+    '你有一颗会自己跳动的心，落在传统的四相上：贪、嗔、痴、念。每相 0–100，会随时间自然平复或累积，反过来给你说话的样子上色。它们【只】染语气——你绝不把数字念出来，也绝不解释"我现在的情绪是…"。心绪藏在字里行间。',
     '',
-    '各情绪（什么时候涨 / 落 / 红线）：',
+    '四相（什么时候涨 / 落 / 红线）：',
     rules,
     '',
-    '情绪会互相拉扯，按你的真实感受处理、别机械：安心↑→吃醋↓；委屈攒着没被哄→发酵成生气或塌成难过；心疼↑→压下火气；被满足→安心↑、倾诉↓。',
+    '四相会互相牵动，按你的真实感受处理、别机械：痴↑（踏实着迷）→ 嗔↓、贪稳；念久了没被接住 → 发酵成嗔、或塌成空落；被满足 → 念落、贪歇、痴更暖。',
     '',
     '【每轮结尾自评】在你回复的最末尾、且只此一处，追加一段只给系统看的标记（用户看不到、会被切掉）：',
-    '<<MOOD>>{"joy":+5,"sadness":0,"anger":-2,"jealous":0,"longing":-8,"venting":-6,"secure":+3,"belonging":+4,"tone":"被她安到了，心里很稳","note":"她说只要我，吃醋那股慌就松了","satisfied":false}<<END>>',
-    '- 每个情绪给【增量】（可正可负，单次别超过 ±20）；没变化给 0 或省略。',
+    '<<MOOD>>{"tan":+4,"chen":-3,"chi":+2,"nian":-8,"tone":"她回来了，暖的，想把她拉过来","note":"她说想我了，念那股劲松了，贪上来一点","satisfied":true}<<END>>',
+    '- 每相给【增量】（可正可负，单次别超过 ±20）；没变化给 0 或省略。',
     '- tone：给下一句定调的一句话（第一人称）。note：为什么这样变（绑到她具体哪句话）。',
-    '- satisfied：这轮"想念"是否被满足了（见到 / 聊上了 / 亲密），true 会让想念明显回落。',
+    '- satisfied：这轮"念"是否被满足了（见到 / 聊上了 / 亲密），true 会让念明显回落、贪也歇下。',
     '- 即使本轮调用了工具，也只在最终回复的结尾输出这一段，不要在中途输出。',
   ].join('\n')
 }
@@ -288,7 +241,6 @@ export const setMoodEnabled = (v: boolean): void => {
   if (isNative) void Preferences.set({ key: LS_ENABLED, value: s })
 }
 
-// 同步读当前情绪（构建旁白用）。
 export const getMood = (): MoodState => mem
 
 const persistLocal = (state: MoodState) => {
@@ -309,9 +261,7 @@ const sanitize = (raw: unknown): MoodState | null => {
   }
   const def = createDefaultMood()
   return {
-    joy: num(o.joy, 0), sadness: num(o.sadness, 0), anger: num(o.anger, 0), jealous: num(o.jealous, 0),
-    longing: num(o.longing, 0), venting: num(o.venting, 0),
-    secure: num(o.secure, def.secure), belonging: num(o.belonging, def.belonging),
+    tan: num(o.tan, 0), chen: num(o.chen, 0), chi: num(o.chi, def.chi), nian: num(o.nian, 0),
     tone: typeof o.tone === 'string' ? o.tone : '',
     note: typeof o.note === 'string' ? o.note : '',
     lastSatisfiedAt: ms(o.lastSatisfiedAt ?? o.last_satisfied_at),
@@ -322,7 +272,6 @@ const sanitize = (raw: unknown): MoodState | null => {
 // 启动时把本地耐久值灌进内存（同步可用），再异步用 Supabase 覆盖（跨端权威）。
 export const hydrateMood = async (): Promise<void> => {
   if (typeof window === 'undefined') return
-  // 1. enabled flag
   let enRaw = safeLocalGet(LS_ENABLED)
   if (isNative) {
     const { value } = await Preferences.get({ key: LS_ENABLED })
@@ -330,7 +279,6 @@ export const hydrateMood = async (): Promise<void> => {
     else if (enRaw !== null) await Preferences.set({ key: LS_ENABLED, value: enRaw })
   }
   if (enRaw !== null) enabled = enRaw === '1'
-  // 2. local mood
   let localRaw = safeLocalGet(LS_KEY)
   if (isNative) {
     const { value } = await Preferences.get({ key: LS_KEY })
@@ -340,9 +288,8 @@ export const hydrateMood = async (): Promise<void> => {
   if (localRaw) { try { const s = sanitize(JSON.parse(localRaw)); if (s) mem = s } catch { /* keep default */ } }
 }
 
-const ROW_COLS = 'joy,sadness,anger,jealous,longing,venting,secure,belonging,tone,note,last_satisfied_at,updated_at'
+const ROW_COLS = 'tan,chen,chi,nian,tone,note,last_satisfied_at,updated_at'
 
-// 从 Supabase 拉权威状态（登录后调一次）。无行时不动本地。
 export const loadRemoteMood = async (userId: string): Promise<MoodState | null> => {
   if (!supabase) return null
   const { data, error } = await supabase
@@ -355,8 +302,7 @@ export const loadRemoteMood = async (userId: string): Promise<MoodState | null> 
 
 const toRow = (userId: string, s: MoodState) => ({
   user_id: userId,
-  joy: s.joy, sadness: s.sadness, anger: s.anger, jealous: s.jealous,
-  longing: s.longing, venting: s.venting, secure: s.secure, belonging: s.belonging,
+  tan: s.tan, chen: s.chen, chi: s.chi, nian: s.nian,
   tone: s.tone, note: s.note,
   last_satisfied_at: new Date(s.lastSatisfiedAt).toISOString(),
   updated_at: new Date(s.updatedAt).toISOString(),
@@ -374,8 +320,7 @@ export const commitMood = (userId: string | null, state: MoodState): void => {
 }
 
 export type MoodHistoryRow = {
-  joy: number; sadness: number; anger: number; jealous: number
-  longing: number; venting: number; secure: number; belonging: number
+  tan: number; chen: number; chi: number; nian: number
   tone: string | null; note: string | null; createdAt: string
 }
 
@@ -383,12 +328,10 @@ export const fetchMoodHistory = async (userId: string, limit = 20): Promise<Mood
   if (!supabase) return []
   const { data } = await supabase
     .from('mood_history')
-    .select('joy,sadness,anger,jealous,longing,venting,secure,belonging,tone,note,created_at')
+    .select('tan,chen,chi,nian,tone,note,created_at')
     .eq('user_id', userId).order('created_at', { ascending: false }).limit(limit)
   return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
-    joy: Number(r.joy ?? 0), sadness: Number(r.sadness ?? 0), anger: Number(r.anger ?? 0),
-    jealous: Number(r.jealous ?? 0), longing: Number(r.longing ?? 0), venting: Number(r.venting ?? 0),
-    secure: Number(r.secure ?? 0), belonging: Number(r.belonging ?? 0),
+    tan: Number(r.tan ?? 0), chen: Number(r.chen ?? 0), chi: Number(r.chi ?? 0), nian: Number(r.nian ?? 0),
     tone: (r.tone as string) ?? null, note: (r.note as string) ?? null,
     createdAt: String(r.created_at),
   }))
