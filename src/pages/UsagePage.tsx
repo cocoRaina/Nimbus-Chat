@@ -727,9 +727,12 @@ const UsagePage = ({ user }: UsagePageProps) => {
                     </div>
                     <div className="usage-summary-card">
                       <span className="label">
-                        输入 tokens
+                        输入 tokens（总）
                         {totals.cached > 0 && totals.prompt > 0 ? (
-                          <span className="label-hint">｜命中缓存 {formatTokenCount(totals.cached)}（{Math.round((totals.cached / totals.prompt) * 100)}%）</span>
+                          <span className="label-hint">
+                            ｜命中缓存 {formatTokenCount(totals.cached)}（{Math.round((totals.cached / totals.prompt) * 100)}%·0.1×便宜）
+                            <br />｜真实新增 {formatTokenCount(Math.max(0, totals.prompt - totals.cached))}（非缓存·全价，这才是真花钱的输入）
+                          </span>
                         ) : null}
                       </span>
                       <span className="value">{formatTokenCount(totals.prompt)}</span>
