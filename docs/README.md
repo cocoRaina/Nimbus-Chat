@@ -16,6 +16,7 @@
 | 功能 | 文档 |
 |---|---|
 | 记忆系统 + 自动提取 | [features/memory.md](features/memory.md) |
+| 渠道体检 + Token 对账（防中转骗）| [features/diagnostics.md](features/diagnostics.md) |
 | Claude 工具（12 个） | [features/tools.md](features/tools.md) |
 | 真·主动消息 | [features/proactive.md](features/proactive.md) |
 | 健康同步（Health Connect） | [features/health-sync.md](features/health-sync.md) |
