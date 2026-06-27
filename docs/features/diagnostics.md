@@ -1,112 +1,81 @@
-# 渠道体检 + Token 对账：怎么知道中转有没有骗你
+# 渠道体检 + Token 对账 + 站子健康（实现留档）
 
-> 给自己、也给朋友看：怎么用 Nimbus 的「用量 / API检测」面板，一眼判断中转站（relay）实不实在——有没有用假缓存、偷换模型、虚报用量，以及怎么和站子后台日志对账。
-> 概念是通用的（任何调 Claude/中转的人都用得上），文里「在哪看」是 Nimbus 的位置。
-> 入口：App 底部 → **用量** → 顶部三个标签「用量统计 / API检测 / 压缩状态」。
-
----
-
-## 0. 一句话背景
-
-中转站（treegpt、各种逆向/官转）是你和官方 API 之间的中间商。它**可能**在这些地方动手脚省成本、多赚钱：
-
-- **假缓存**：嘴上说有 prompt cache，其实没透传 → 你长对话一直全价。
-- **偷换 / 降智**：你点 Opus，它偷偷给你便宜模型或降智版本。
-- **虚报用量**：日志里 write/缓存数字注水，多收你钱。
-- **截断 / 不稳**：偷偷砍输出、砍上下文、时快时慢。
-
-这套面板就是来戳穿这些的。**核心判据永远是：看实测数据，不信它嘴上说的。**
+> 给下一个 session 的我：这套「防中转骗」的诊断功能怎么实现的、代码在哪、踩过什么坑。
+> 用户向导（怎么读结果）见对外版 [docs/guides/relay-check-and-token-audit.md](../guides/relay-check-and-token-audit.md)；本篇是**实现参考**。
+> 入口：App → 用量页（`UsagePage.tsx`）→ 顶部三标签「用量统计 / API检测 / 压缩状态」。
 
 ---
 
-## 一、渠道体检（API检测 标签页）
+## 代码地图
 
-填上你的模型（如 `claude-opus-4-6`），点「运行检测」。它会发 5~6 条小测试请求（≈ 1~2 条普通消息的花费，只在点击时），跑出 6 张卡：
-
-### 🔍 渠道猜测（置顶·综合结论）
-把下面所有信号揉成一句话 + 证据，分四类：
-- ✅ **官方 / 官转真 passthrough** —— 缓存真命中、模型真、有官方响应头。最实在。
-- 🧩 **反代订阅·编程工具逆向**（Claude Code / Kiro 类）—— 逆向了别人的订阅。可能照样有缓存，但内置提示词（会干扰角色扮演）、不稳、官方一停就停。
-- 🌀 **OpenAI 兼容 / 模拟缓存 / 多上游打散** —— 原生缓存多半失效，长对话省不到钱。
-- ⚠️ **偷换模型 / 降智路由** —— 别全信它给你满血，赶紧换。
-
-> ⚠️ 诚实边界：它给**类别 + 证据**，给不了**确切牌子**（是「反重力」还是「Kiro」）。中转故意抹掉上游来源，没有可靠信号能定位。但「**有没有在骗我**」这个核心能给你实锤。
-
-### 连通性 + 延迟
-通不通、首响应多少毫秒。几秒正常，十几秒就是这家在卡。
-
-### 真实缓存命中 ⭐（最实用）
-发**两次 ≥1024 token 的相同前缀**（粘同一上游），看第二次读不读得到缓存：
-- **真命中**（读到 X tokens，0.1× 计费）= 原生缓存有效 → 长对话省钱、保活值得开。
-- **写了读不到** = 多上游打散 / 模拟缓存 → 省不到钱。
-- **全 0** = 走了 OpenAI 兼容层 / 缓存被剥离 → 缓存失效。
-
-（连试 2 次都没读到才判「打散」，避免偶发误判。）
-
-### 模型核验
-发一个随机暗号字符串要求原样返回，并核对响应里的 `model` 字段。
-- **暗号没原样回来 / model 不符** = 可能被偷换、降智、或截断。
-
-### 响应头指纹
-采集上游会漏的响应头：`anthropic-` / `request-id`=直连官方、`x-amzn`=Bedrock、`cf-ray`=Cloudflare、`openai-`=OpenAI 兼容、`server: nginx`=中转自己的边缘（上游头被它清了）。
-> 网页版受 CORS 限只读到一点，**APK 上更全**。读到啥取决于中转愿不愿意漏。
-
-### 身份注入探测
-**不发任何系统提示**，问模型「你是不是被设成编程助手 / Claude Code / CLI」。它自带编程人设 = 中转反代了别人的 Claude Code 订阅、内置了提示词。
-> 这也解释了为什么有的中转上角色扮演老「出戏」——底层被塞了个编程助手人设在跟你的设定打架。
-
-### 历史缓存分析（读历史·免费）
-扫近 30 天记录，看命中率、找「同会话刚建缓存几分钟后又冷写」的打散特征、按天看趋势。不发探针、不花钱。
+| 模块 | 文件 | 干啥 |
+|---|---|---|
+| 全部 UI + 探针 + 综合判断 | `src/pages/UsagePage.tsx` | `runApiChecks`、`guessChannel`、`healthOverview`、`providerLabel`/`relayName`、逐条明细表 |
+| 样式 | `src/pages/UsagePage.css` | `.health-overview*`、`.diag-detail-fold`、`.diag-cost-hint` |
+| 用量数据层 | `src/storage/usageStats.ts` | `UsageLogRow`（含 `cacheRead`/`cacheWrite`/`latencyMs`）、`recordUsage`、`fetchUsageLogs` |
+| 延迟测量 + 落库 | `src/App.tsx` | `sendMessage` 里 `reqLatencyMs`（iter1 首字延迟）→ `flushUsageRecord` → `recordUsage` |
+| 响应头保留（关键修） | `src/api/anthropic.ts` | `buildJsonHeaders`：非流式响应带回上游指纹头 |
+| 渠道名自适应 | `src/storage/apiProvider.ts` | `getCustomProviderDisplayName()`（从 base URL 推，如 treegpt） |
+| 数据表 | Supabase `usage_logs` | 新列 `latency_ms`；`cached_tokens`=缓存读；缓存写在 `raw_usage.cache_creation_input_tokens` |
 
 ---
 
-## 二、Token 用量 + 对账（用量统计 标签页）
+## API检测：6 张卡（`runApiChecks` + `guessChannel`）
 
-### 顶部三张卡
-- **调用次数** —— 发了多少次。
-- **输入 tokens（总）** —— 你发进去的输入量。下面拆两行：
-  - **命中缓存 X（Y%·0.1× 便宜）** —— 这部分按 1/10 价算。
-  - **真实新增 Z（非缓存·全价）** —— ⭐ 这才是真花钱的输入。命中缓存占比越高 = 越省。
-- **输出 tokens** —— AI 回出来的量。
+点「运行检测」发 5~6 条小请求（成本提示见 `.diag-cost-hint`）。`runApiChecks` 累积一个 `ChannelSignals`，最后 `guessChannel(sig)` `unshift` 到结果最前。
 
-### 缓存读 vs 缓存写（关键概念）
-- **缓存读** = 命中、便宜（0.1× 输入价）。
-- **缓存写** = 第一次建缓存，**贵**（5min TTL 1.25×、1h TTL 2×）。
-- 健康的形态：**读多写少**。长对话里大部分输入都该是「读」；如果一直在「写」，要么缓存没生效、要么中转在打散。
+1. **🔍 渠道猜测**：`guessChannel` 综合。优先级：偷换/降智(fail) → 注入(warn) → 真缓存命中(pass) → 其余(warn)。
+   - ⚠️ **注入分支要看实测缓存**：反代 Claude Code 也能透传原生缓存。早期写死「通常无原生缓存」和同轮 `真缓存命中=pass` 自相矛盾，已改成按 `s.realCacheHit` 分叉措辞。
+2. **连通性 + 延迟**：最小请求测毫秒；同时 `collectHeaders(r.headers)` 存进 `sig.headers`。
+3. **真实缓存命中** ⭐：`CACHE_FILLER`（≥1024 token 固定文本）当 system 块 + `cache_control`，带 `user:'nimbus-diag-probe'`（→ 适配器映射成 `metadata.user_id` 粘同一上游）。**读回最多 2 次**，命中即停；连 2 次都没读到才判「打散」（避免单次粘连抽风误判）。
+4. **模型核验**：金丝雀 `canaryText()` 原样复述 + 比对 `model` 字段。
+5. **响应头指纹**：从 `sig.headers` 出。正则白名单见 `collectHeaders`/`FINGERPRINT_HEADER_RE`。
+6. **身份注入探测**：不发 system，问身份。判定要**强身份词**（claude code/开发环境/代码助手…）+ 没否认（`denies`），避免「我能帮你编程」误报。
 
-### 逐条明细（折叠·和站子日志对账）⭐
-点开底部「逐条明细」，每条**精确数字**（不缩写）显示：时间 / 模型 / 输入 / 输出 / **缓存读** / **缓存写**。
-
-**怎么对账**：站子后台日志一条显示「缓存 X / write Y」，你在 App 这张表找到**同一条**，比数字：
-- **对得上** → 站子如实计费 ✅
-- **它的 write 比你这边大很多 / 缓存读凭空变 0** → 它在虚报多收钱 💢，换站。
-
-> 按 token 数字对最稳（时间可能差几秒 / 时区不同）。「缓存写」这列要装了对应版本后的新对话才有数据。
+### ⚠️ 头一开始读到空 = 我们自己的 bug（已修）
+非流式 Claude 走 `collectAnthropicStreamAsJson`，旧代码 `new Response(json,{headers:{Content-Type}})` **把上游头全丢了**。修：`buildJsonHeaders(upstream)` 按 `FINGERPRINT_HEADER_RE` 白名单带回（**跳过 content-length/encoding/type 等 body-framing 头，否则会搞坏新 JSON body**）。修后实测能读到 `server: nginx`。读到多少仍取决于中转漏不漏（tree 在 nginx 边缘清了上游头）。
 
 ---
 
-## 三、站子健康概览（用量统计 顶部那张卡）
+## 用量统计 + 对账
 
-一眼看当前渠道今天行不行，名字自动跟着你用的渠道走（OpenRouter 或中转真实名）：
+- **顶部「输入 tokens（总）」卡**：value=`prompt`；hint 两行=命中缓存 `cached`（Y%·0.1×）+ **真实新增** `prompt-cached`（全价，真花钱）。
+- **缓存读 vs 写**：`cached_tokens` 列=读（0.1×）；写只在 `raw_usage.cache_creation_input_tokens`（无独立列），`mapRow` 用 `numField` 取。`UsageLogRow.cacheRead`/`cacheWrite` 即此。
+- **逐条明细表**（`.diag-detail-fold`，`<details>` 默认折叠）：`rows.slice(0,80)`，**精确数字**（`toLocaleString`，不缩 K）：时间/模型/输入/输出/缓存读/缓存写——逐条和站子日志对，对不上=虚报。
 
-> 🟢 **treegpt 近期正常** · 平均首字延迟 4.2s · 缓存命中 88% · 样本 30 条
-
-三档自动判：🟢 正常 / 🟡 略慢留意（延迟 ≥6s 或缓存命中 <10%）/ 🔴 异常（延迟 ≥12s）。换站它自动重算。
+口径坑：OpenAI 形态 `prompt_tokens` 常含缓存；Anthropic 原生 `input_tokens` 不含。对账认准 `cache_read`/`cache_creation` 两个具体数。
 
 ---
 
-## 四、实用口诀
+## 站子健康概览（`healthOverview` useMemo + `.health-overview`）
 
-| 你想知道 | 看哪 |
-|---|---|
-| 这家整体实不实在 | API检测 → **🔍 渠道猜测** |
-| 缓存真假 / 省不省钱 | API检测 → **真实缓存命中**；用量 → 缓存读占比 |
-| 有没有偷换降智 | API检测 → **模型核验** |
-| 是不是逆向反代 | API检测 → **身份注入探测 + 响应头指纹** |
-| 我真花了多少（全价输入）| 用量 → 输入卡的「**真实新增**」 |
-| 和站子账对不对得上 | 用量 → **逐条明细** |
-| 今天快不快 / 要不要换 | 用量 → **健康概览** |
+用量页顶部。从**当前 provider**(`getActiveProvider()`)近 50 条算：平均首字延迟 + Claude 缓存命中率 → 🟢/🟡/🔴。
+- 阈值：延迟 ≥12s=🔴、≥6s=🟡；Claude 样本≥5 且命中<10%→至少🟡。
+- 名字 `provider==='openrouter'?'OpenRouter':(relayName||'中转站')`——换站自动变。
 
-**何时该换站**：模型核验报警（偷换降智）、缓存连试都不命中（假缓存）、逐条明细和站子日志对不上（虚报）、健康概览长期 🔴（又慢又不缓存）。求稳就上官方正向档（直连官 Key / Bedrock），贵但实在。
+### 延迟从哪来
+`App.tsx sendMessage`：iter1 fetch 前 `tFetch0=performance.now()`，`await fetchOpenRouter` 解析后 `if(iteration===1) reqLatencyMs=...`（= 请求发出→响应头回来 ≈ 首字）。经 `recordUsage({latencyMs})` 落 `usage_logs.latency_ms`。**只有装了带此改动的包之后的对话才有延迟数据**；之前的 row 该列为 null，概览显示「延迟暂无」。
 
-**一句话**：别信中转嘴上说的，跑一遍体检、对一次账，数字不会骗人。
+---
+
+## 自适应渠道名（贯穿）
+
+`getCustomProviderDisplayName()` = `deriveProviderDisplayName(getMsuicodeBaseUrl())`：取 host、剥 `www./api./gateway.`、取首段（`api.treegpt.cc`→`treegpt`）。UsagePage 的 `providerLabel`、`healthOverview.name`、历史分组都用它，换中转自动跟着变。
+> 注意：历史 row 只存 provider id（`openrouter`/`msuicode`），不存当时是哪家中转。所以历史里的 `msuicode` 一律显示**当前**中转名——换过站的话旧记录会被标成新名，可接受。
+
+---
+
+## 踩坑 / 教训
+
+- **TTL 判断别拍脑袋**：曾凭「听说 5min」就停了保活 cron，实际中转认 `ttl:'1h'`、ping 在 ~50min 仍命中 → 误判。**看 usage 命中数据为准**（详见 changelog 06-27 保活那条）。
+- **真缓存测试要重试**：单次粘连失败会误报「打散」，故读回 2 次。
+- **头白名单别带 body-framing 头**：会搞坏合成 JSON body。
+- **草稿式开关的坑**：自动提取开关曾是「拨完要点保存」的草稿，用户拨了没保存→存值仍 true→还在提取。kill-switch 类开关应**一拨立即落库**（参考保活/情绪/自动提取开关现都是即时）。
+
+---
+
+## 诚实边界（写给我自己，别过度承诺）
+
+- 只能给**类别**（官方/逆向/模拟缓存/偷换），给不了**确切牌子**（反重力 vs Kiro）——中转抹了上游来源。
+- 精确 TTL 快测给不出（要隔时再测）。
+- 探针有偶然性，缓存类结论连试 2~3 次再下。
