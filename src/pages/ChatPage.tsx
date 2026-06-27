@@ -10,7 +10,6 @@ import { Clipboard } from '@capacitor/clipboard'
 import { Network } from '@capacitor/network'
 import { getAssistantName, setAssistantName } from '../storage/assistantPersona'
 import MoodOverlay from '../components/MoodOverlay'
-import { getMoodEnabled } from '../storage/moodSystem'
 import {
   getActiveProvider,
   getMsuicodeFormat,
@@ -988,16 +987,14 @@ const ChatPage = ({
           ) : null}
         </div>
         <div className="header-actions" ref={headerMenuRef}>
-          {getMoodEnabled() ? (
-            <button
-              type="button"
-              className="ghost chat-header-icon"
-              aria-label="小机的心情"
-              onClick={() => setMoodOpen(true)}
-            >
-              💗
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="ghost chat-header-icon"
+            aria-label="沈暮的心"
+            onClick={() => setMoodOpen(true)}
+          >
+            💗
+          </button>
           <button
             ref={headerMenuButtonRef}
             type="button"

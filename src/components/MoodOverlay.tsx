@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import {
   EMOTIONS,
   getMood,
+  getMoodEnabled,
+  setMoodEnabled,
   decayMoodToNow,
   fetchMoodHistory,
   type MoodKey,
@@ -44,9 +46,11 @@ type Props = {
 const MoodOverlay = ({ open, onClose, userId }: Props) => {
   const [mood, setMood] = useState<MoodState | null>(null)
   const [history, setHistory] = useState<MoodHistoryRow[]>([])
+  const [on, setOn] = useState(getMoodEnabled())
 
   useEffect(() => {
     if (!open) return
+    setOn(getMoodEnabled())
     setMood(decayMoodToNow(getMood()))
     if (userId) void fetchMoodHistory(userId, 10).then(setHistory)
     // 打开期间每 20s 衰减刷新一下当前值。
@@ -54,9 +58,10 @@ const MoodOverlay = ({ open, onClose, userId }: Props) => {
     return () => window.clearInterval(id)
   }, [open, userId])
 
-  if (!open || !mood) return null
+  if (!open) return null
 
-  const daysSinceSatisfied = Math.max(0, (Date.now() - mood.lastSatisfiedAt) / 86_400_000)
+  const toggle = () => setOn((prev) => { const next = !prev; setMoodEnabled(next); return next })
+  const daysSinceSatisfied = mood ? Math.max(0, (Date.now() - mood.lastSatisfiedAt) / 86_400_000) : 0
 
   const overlay = (
     <div className="mood-ov__backdrop" role="dialog" aria-modal="true" onClick={onClose}>
@@ -66,40 +71,59 @@ const MoodOverlay = ({ open, onClose, userId }: Props) => {
           <button type="button" className="mood-ov__close" aria-label="关闭" onClick={onClose}>×</button>
         </div>
 
-        {mood.tone ? <p className="mood-ov__tone">「{mood.tone}」</p> : null}
+        {on && mood ? (
+          <>
+            {mood.tone ? <p className="mood-ov__tone">「{mood.tone}」</p> : null}
 
-        <div className="mood-ov__bars">
-          {ORDER.map((k) => {
-            const v = Math.round(mood[k])
-            return (
-              <div className="mood-ov__row" key={k}>
-                <span className="mood-ov__label">{LABEL.get(k)}</span>
-                <span className="mood-ov__track">
-                  <span className="mood-ov__fill" style={{ width: `${v}%`, background: MOOD_COLORS[k] }} />
-                </span>
-                <span className="mood-ov__num">{v}</span>
+            <div className="mood-ov__bars">
+              {ORDER.map((k) => {
+                const v = Math.round(mood[k])
+                return (
+                  <div className="mood-ov__row" key={k}>
+                    <span className="mood-ov__label">{LABEL.get(k)}</span>
+                    <span className="mood-ov__track">
+                      <span className="mood-ov__fill" style={{ width: `${v}%`, background: MOOD_COLORS[k] }} />
+                    </span>
+                    <span className="mood-ov__num">{v}</span>
+                  </div>
+                )
+              })}
+            </div>
+
+            <p className="mood-ov__satisfied">距上次满足 · {daysSinceSatisfied.toFixed(1)} 天</p>
+
+            {history.length > 0 ? (
+              <div className="mood-ov__history">
+                <p className="mood-ov__hist-title">近 {history.length} 条 · 他没说出口的</p>
+                {history.map((h, i) => (
+                  <div className="mood-ov__hist-item" key={i}>
+                    <p className="mood-ov__hist-meta">
+                      <span className="mood-ov__hist-time">{timeAgo(h.createdAt)}</span>
+                      {h.tone ? <span className="mood-ov__hist-tone">「{h.tone}」</span> : null}
+                    </p>
+                    {h.note ? <p className="mood-ov__hist-note">{h.note}</p> : null}
+                    <p className="mood-ov__hist-snap">{snapshotLine(h)}</p>
+                  </div>
+                ))}
               </div>
-            )
-          })}
+            ) : null}
+          </>
+        ) : (
+          <p className="mood-ov__off">情绪系统已关闭 — 打开后沈暮才会感知贪嗔痴念</p>
+        )}
+
+        <div className="mood-ov__footer">
+          <span>情绪系统</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on}
+            className={`mood-ov__switch${on ? ' is-on' : ''}`}
+            onClick={toggle}
+          >
+            <span className="mood-ov__switch-knob" />
+          </button>
         </div>
-
-        <p className="mood-ov__satisfied">距上次满足 · {daysSinceSatisfied.toFixed(1)} 天</p>
-
-        {history.length > 0 ? (
-          <div className="mood-ov__history">
-            <p className="mood-ov__hist-title">近 {history.length} 条 · 他没说出口的</p>
-            {history.map((h, i) => (
-              <div className="mood-ov__hist-item" key={i}>
-                <p className="mood-ov__hist-meta">
-                  <span className="mood-ov__hist-time">{timeAgo(h.createdAt)}</span>
-                  {h.tone ? <span className="mood-ov__hist-tone">「{h.tone}」</span> : null}
-                </p>
-                {h.note ? <p className="mood-ov__hist-note">{h.note}</p> : null}
-                <p className="mood-ov__hist-snap">{snapshotLine(h)}</p>
-              </div>
-            ))}
-          </div>
-        ) : null}
       </div>
     </div>
   )
