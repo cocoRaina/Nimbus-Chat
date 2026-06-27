@@ -781,11 +781,11 @@ const UsagePage = ({ user }: UsagePageProps) => {
             })
           )}
 
-          {/* 逐条明细 — 用于和中转站后台日志一行行核对 */}
+          {/* 逐条明细 — 折叠，要和中转站后台日志核对时再点开 */}
           {rows.length > 0 && (
-            <section className="usage-section">
-              <h3>逐条明细（最近 {Math.min(rows.length, 80)} 条 · 和站子日志对）</h3>
-              <p className="usage-footer-note" style={{ textAlign: 'left', margin: '0 0 8px' }}>
+            <details className="usage-section diag-detail-fold">
+              <summary>逐条明细（点开·和站子日志对账）· 最近 {Math.min(rows.length, 80)} 条</summary>
+              <p className="usage-footer-note" style={{ textAlign: 'left', margin: '8px 0' }}>
                 精确数字（不缩写），按时间倒序。<strong>缓存读</strong>=便宜 0.1×、<strong>缓存写</strong>=贵 1.25~2×、<strong>输入</strong>=本条总输入。拿这几列去和站子每条日志比，数字对不上就是它在虚报。
               </p>
               <div className="usage-table-wrap">
@@ -816,7 +816,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
                   </tbody>
                 </table>
               </div>
-            </section>
+            </details>
           )}
 
           <p className="usage-footer-note">实际计费请去对应提供商网站查看。这里只展示调用次数、token 用量、缓存命中率。</p>

@@ -618,3 +618,18 @@
   font-size: 0.76rem;
   color: #8ba2bb;
 }
+
+/* 逐条明细折叠表 */
+.diag-detail-fold > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--ab-ink, #2A3D52);
+  font-size: 1rem;
+  list-style: none;
+}
+.diag-detail-fold > summary::-webkit-details-marker { display: none; }
+.diag-detail-fold > summary::before {
+  content: '▸ ';
+  color: #789EC8;
+}
+.diag-detail-fold[open] > summary::before { content: '▾ '; }
