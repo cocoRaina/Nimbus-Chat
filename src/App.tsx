@@ -172,12 +172,28 @@ const selectMostRecentSession = (sessions: ChatSession[]) => {
 
 const mergeMessages = (localMessages: ChatMessage[], remoteMessages: ChatMessage[]) => {
   const merged = [...localMessages]
+  // Index local messages by clientId + id for O(1) lookup. The old code did a
+  // findIndex over the full local history for EACH remote message — O(n×m),
+  // which on a long chat (thousands of local × 300 remote) burned 100-300ms of
+  // main-thread time on every cold load. clientId is the stable cross-store
+  // identity (a remote echo of an optimistic local message keeps its clientId
+  // but gains a new server id), so it's checked first.
+  const byClientId = new Map<string, number>()
+  const byId = new Map<string, number>()
+  merged.forEach((m, i) => {
+    if (m.clientId) byClientId.set(m.clientId, i)
+    if (m.id) byId.set(m.id, i)
+  })
   remoteMessages.forEach((message) => {
-    const index = merged.findIndex(
-      (existing) => existing.id === message.id || existing.clientId === message.clientId,
-    )
+    const index =
+      (message.clientId !== undefined ? byClientId.get(message.clientId) : undefined) ??
+      (message.id !== undefined ? byId.get(message.id) : undefined) ??
+      -1
     if (index === -1) {
+      const newIndex = merged.length
       merged.push(message)
+      if (message.clientId) byClientId.set(message.clientId, newIndex)
+      if (message.id) byId.set(message.id, newIndex)
       return
     }
     const existing = merged[index]
