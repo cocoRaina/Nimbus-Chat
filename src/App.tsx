@@ -549,9 +549,25 @@ const App = () => {
     setKeepaliveEnabled((v) => {
       const next = !v
       setKeepaliveEnabledPref(next) // persist so it survives restart / bg kill
+      if (!next) {
+        // Turning OFF must also stop the SERVER-side keepalive, not just the
+        // client timer — the pg_cron edge function pings cache_keepalive_state
+        // every 5min regardless of this toggle. Cancel the pending client timer
+        // and delete this user's server snapshot so the cron has nothing to ping.
+        if (keepaliveTimerRef.current !== null) {
+          window.clearTimeout(keepaliveTimerRef.current)
+          keepaliveTimerRef.current = null
+        }
+        keepaliveControllerRef.current?.abort()
+        keepaliveControllerRef.current = null
+        if (supabase && user) {
+          void supabase.from('cache_keepalive_state').delete().eq('user_id', user.id)
+            .then(({ error }) => { if (error) console.warn('停用保活：删除服务端快照失败', error) })
+        }
+      }
       return next
     })
-  }, [])
+  }, [user])
   // Tracks when we last successfully fired a keepalive ping (timer-driven
   // or pre-warm). prewarmKeepaliveIfStale uses this to decide whether to
   // pre-warm on chat-page entry — avoids hammering when the timer has
@@ -3143,7 +3159,7 @@ TOOL_SEARCH_HANDOFF,
             // every chat just for the keepalive snapshot. Browser/Capacitor
             // HTTP-layer caching usually absorbs the cost when the image
             // origin (e.g. Supabase Storage) sets cache headers.
-            if (supabase && user) {
+            if (supabase && user && keepaliveEnabledRef.current) {
               const cfg = getProviderConfig(activeProvider)
               if (cfg.apiKey && cfg.baseUrl) {
                 const isOR = activeProvider === 'openrouter'

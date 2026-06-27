@@ -82,6 +82,22 @@
 
 ## 2026-06-27
 
+### 保活：前端开关关不掉服务端 ping（烧钱）
+
+**症状**：前端把保活开关关了，还是在 ping、还在花钱。
+
+**根因**：保活有两条腿——① 客户端 55min timer（`scheduleKeepalive`，1249 行有 `keepaliveEnabledRef` 判断，
+开关有效）；② 服务端 `pg_cron`（jobid=3 `cache-keepalive`，每 5min 扫 `cache_keepalive_state` 去 ping）。
+② **完全没看前端开关**：每次聊天照样 upsert 快照（3146 行），cron 接着 ping。用户在 Hyper（5min TTL）上，
+ping 每次都冷写 → 纯烧钱（实测 `ping_count=104`）。
+
+**修**：
+- 服务端 mirror upsert 加 `keepaliveEnabledRef.current` gate——关了就不再写快照。
+- `handleToggleKeepalive` 关闭时：清客户端 timer + **删 `cache_keepalive_state` 行**，让 cron 立刻没目标可 ping。
+- **即时止血**（不等 APK）：停掉 `pg_cron` job 3（`cron.alter_job(3, active:=false)`）+ 删用户当前快照行。
+  > 注：用户当前中转 Hyper 是 5min TTL，保活本就不该跑（55min 救不回 5min 缓存）。日后换 1h TTL 中转
+  > 想要服务端保活，再 `cron.alter_job(3, active:=true)` 重启。
+
 ### 情绪系统：模型不肯吐标记 → 加强指令 + 面板历史折叠
 
 **症状**：装上 APK 聊了几轮，面板纹丝不动；查库 `mood_state`/`mood_history` **0 行**。沈暮（opus-4-6，
