@@ -1505,7 +1505,6 @@ const ChatPage = ({
       <MoodOverlay
         open={moodOpen}
         onClose={() => setMoodOpen(false)}
-        assistantName={assistantName}
         userId={user?.id ?? null}
       />
 

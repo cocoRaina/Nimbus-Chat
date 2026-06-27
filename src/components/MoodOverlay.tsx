@@ -14,8 +14,9 @@ import './MoodOverlay.css'
 // 聊天页点开的小机情绪浮层：tone + 情绪条 + 「距满足」+ 没说出口的历史。
 // 只读——小机的心你只能看。
 
+// 和蓝色系搭：两蓝（痴靛 + 念天使蓝）+ 暖沙（贪）+ 柔玫（嗔），都压低饱和。
 const MOOD_COLORS: Record<MoodKey, string> = {
-  chi: '#9b7ede', tan: '#e0915b', nian: '#7fb2f0', chen: '#e06666',
+  chi: '#8E86C8', tan: '#CDA37E', nian: '#789EC8', chen: '#D58A8A',
 }
 // 展示顺序：先痴（底色），再贪、念、嗔。
 const ORDER: MoodKey[] = ['chi', 'tan', 'nian', 'chen']
@@ -37,11 +38,10 @@ const snapshotLine = (h: MoodHistoryRow): string =>
 type Props = {
   open: boolean
   onClose: () => void
-  assistantName: string
   userId: string | null
 }
 
-const MoodOverlay = ({ open, onClose, assistantName, userId }: Props) => {
+const MoodOverlay = ({ open, onClose, userId }: Props) => {
   const [mood, setMood] = useState<MoodState | null>(null)
   const [history, setHistory] = useState<MoodHistoryRow[]>([])
 
@@ -62,7 +62,7 @@ const MoodOverlay = ({ open, onClose, assistantName, userId }: Props) => {
     <div className="mood-ov__backdrop" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="mood-ov__card" onClick={(e) => e.stopPropagation()}>
         <div className="mood-ov__head">
-          <span className="mood-ov__title">🦊 {assistantName}此刻 · 只你看得见</span>
+          <span className="mood-ov__title">🦊 沈暮此刻情绪 · 只你看得见</span>
           <button type="button" className="mood-ov__close" aria-label="关闭" onClick={onClose}>×</button>
         </div>
 

@@ -17,11 +17,11 @@ import {
   type SyncSummary,
 } from '../storage/healthSync'
 import { computeMedianCycleFromHistory } from '../hooks/useHomeWidgetData'
-import { getAssistantName } from '../storage/assistantPersona'
 import {
   EMOTIONS,
   getMood,
   getMoodEnabled,
+  setMoodEnabled,
   decayMoodToNow,
   fetchMoodHistory,
   type MoodState,
@@ -29,9 +29,9 @@ import {
 } from '../storage/moodSystem'
 import './HealthSyncPage.css'
 
-// 贪嗔痴念进度条配色（仅展示用）。
+// 贪嗔痴念进度条配色（和蓝色系搭，仅展示用）。
 const MOOD_COLORS: Record<string, string> = {
-  chi: '#9b7ede', tan: '#e0915b', nian: '#7fb2f0', chen: '#e06666',
+  chi: '#8E86C8', tan: '#CDA37E', nian: '#789EC8', chen: '#D58A8A',
 }
 
 type Props = { user: User | null }
@@ -109,6 +109,7 @@ const HealthSyncPage = ({ user }: Props) => {
   // 小机的情绪（只读展示）：当前值衰减到此刻 + 最近变化历史。
   const [mood, setMood] = useState<MoodState | null>(null)
   const [moodHistory, setMoodHistory] = useState<MoodHistoryRow[]>([])
+  const [moodOn, setMoodOn] = useState(getMoodEnabled())
 
   const [log, setLog] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
@@ -204,13 +205,20 @@ const HealthSyncPage = ({ user }: Props) => {
 
   // 情绪：当前值每 20 秒衰减刷新一次（纯本地、不发请求）；历史拉一次。
   useEffect(() => {
-    if (!getMoodEnabled()) return
     const tick = () => setMood(decayMoodToNow(getMood()))
     tick()
     const id = window.setInterval(tick, 20_000)
     if (user) void fetchMoodHistory(user.id, 12).then(setMoodHistory)
     return () => window.clearInterval(id)
-  }, [user])
+  }, [user, moodOn])
+
+  const toggleMood = useCallback(() => {
+    setMoodOn((prev) => {
+      const next = !prev
+      setMoodEnabled(next)
+      return next
+    })
+  }, [])
 
   // Derived period metrics for the section render. Hard-codes a 28-day
   // fallback cycle when the user hasn't supplied one (typical adult
@@ -398,47 +406,62 @@ const HealthSyncPage = ({ user }: Props) => {
         <span className="page-header-spacer" aria-hidden="true" />
       </header>
       <main className="app-shell__content health-sync">
-        {getMoodEnabled() && mood ? (
-          <section className="glass-card mood-panel">
-            <h2>{getAssistantName()}的心 · 贪嗔痴念</h2>
-            {mood.tone ? <p className="mood-panel__tone">「{mood.tone}」</p> : null}
-            <div className="mood-panel__bars">
-              {EMOTIONS.map((e) => {
-                const v = Math.round(mood[e.key])
-                return (
-                  <div className="mood-panel__row" key={e.key}>
-                    <span className="mood-panel__label">{e.label}</span>
-                    <span className="mood-panel__track">
-                      <span
-                        className="mood-panel__fill"
-                        style={{ width: `${v}%`, background: MOOD_COLORS[e.key] ?? '#9aa' }}
-                      />
-                    </span>
-                    <span className="mood-panel__num">{v}</span>
-                  </div>
-                )
-              })}
-            </div>
-            {moodHistory.length > 0 ? (
-              <details className="mood-panel__history">
-                <summary>心情变化（最近 {moodHistory.length} 条）</summary>
-                <ul>
-                  {moodHistory.map((h, i) => (
-                    <li key={i}>
-                      <span className="mood-panel__hist-time">
-                        {new Date(h.createdAt).toLocaleString('zh-CN', {
-                          month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-                        })}
+        <section className="glass-card mood-panel">
+          <div className="mood-panel__head">
+            <h2>沈暮此刻情绪 · 贪嗔痴念</h2>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={moodOn}
+              className={`mood-switch${moodOn ? ' is-on' : ''}`}
+              onClick={toggleMood}
+            >
+              <span className="mood-switch__knob" />
+            </button>
+          </div>
+          {moodOn && mood ? (
+            <>
+              {mood.tone ? <p className="mood-panel__tone">「{mood.tone}」</p> : null}
+              <div className="mood-panel__bars">
+                {EMOTIONS.map((e) => {
+                  const v = Math.round(mood[e.key])
+                  return (
+                    <div className="mood-panel__row" key={e.key}>
+                      <span className="mood-panel__label">{e.label}</span>
+                      <span className="mood-panel__track">
+                        <span
+                          className="mood-panel__fill"
+                          style={{ width: `${v}%`, background: MOOD_COLORS[e.key] ?? '#9aa' }}
+                        />
                       </span>
-                      <span className="mood-panel__hist-note">{h.note || h.tone || '—'}</span>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
-            <p className="mood-panel__hint">这是{getAssistantName()}自己的心绪，会随相处自然起落 · 你只能看 🦊</p>
-          </section>
-        ) : null}
+                      <span className="mood-panel__num">{v}</span>
+                    </div>
+                  )
+                })}
+              </div>
+              {moodHistory.length > 0 ? (
+                <details className="mood-panel__history">
+                  <summary>心境变化（最近 {moodHistory.length} 条）</summary>
+                  <ul>
+                    {moodHistory.map((h, i) => (
+                      <li key={i}>
+                        <span className="mood-panel__hist-time">
+                          {new Date(h.createdAt).toLocaleString('zh-CN', {
+                            month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+                          })}
+                        </span>
+                        <span className="mood-panel__hist-note">{h.note || h.tone || '—'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+              <p className="mood-panel__hint">这是沈暮自己的心绪，会随相处自然起落 · 你只能看 🦊</p>
+            </>
+          ) : (
+            <p className="mood-panel__off">情绪系统已关闭 — 打开后沈暮才会感知贪嗔痴念</p>
+          )}
+        </section>
 
         <section className="glass-card health-sync__sync-card">
           <header className="health-sync__sync-header">
