@@ -62,7 +62,7 @@ const MoodOverlay = ({ open, onClose, userId }: Props) => {
     <div className="mood-ov__backdrop" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="mood-ov__card" onClick={(e) => e.stopPropagation()}>
         <div className="mood-ov__head">
-          <span className="mood-ov__title">🦊 沈暮此刻情绪 · 只你看得见</span>
+          <span className="mood-ov__title">🐺 沈暮的心 · 只你看得见</span>
           <button type="button" className="mood-ov__close" aria-label="关闭" onClick={onClose}>×</button>
         </div>
 

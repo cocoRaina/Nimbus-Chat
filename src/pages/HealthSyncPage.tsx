@@ -408,7 +408,7 @@ const HealthSyncPage = ({ user }: Props) => {
       <main className="app-shell__content health-sync">
         <section className="glass-card mood-panel">
           <div className="mood-panel__head">
-            <h2>沈暮此刻情绪 · 贪嗔痴念</h2>
+            <h2>沈暮的心 · 贪嗔痴念</h2>
             <button
               type="button"
               role="switch"
@@ -456,7 +456,7 @@ const HealthSyncPage = ({ user }: Props) => {
                   </ul>
                 </details>
               ) : null}
-              <p className="mood-panel__hint">这是沈暮自己的心绪，会随相处自然起落 · 你只能看 🦊</p>
+              <p className="mood-panel__hint">这是沈暮自己的心绪，会随相处自然起落 · 你只能看 🐺</p>
             </>
           ) : (
             <p className="mood-panel__off">情绪系统已关闭 — 打开后沈暮才会感知贪嗔痴念</p>
