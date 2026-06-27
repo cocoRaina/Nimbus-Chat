@@ -9,6 +9,8 @@ import { Share } from '@capacitor/share'
 import { Clipboard } from '@capacitor/clipboard'
 import { Network } from '@capacitor/network'
 import { getAssistantName, setAssistantName } from '../storage/assistantPersona'
+import MoodOverlay from '../components/MoodOverlay'
+import { getMoodEnabled } from '../storage/moodSystem'
 import {
   getActiveProvider,
   getMsuicodeFormat,
@@ -330,7 +332,9 @@ const ChatPage = ({
   remoteStickerPacks,
   shareDraft,
   onConsumeShare,
+  user,
 }: ChatPageProps) => {
+  const [moodOpen, setMoodOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [openActionsId, setOpenActionsId] = useState<string | null>(null)
   const [actionsMenuPosition, setActionsMenuPosition] = useState<{ top: number; left: number } | null>(null)
@@ -984,6 +988,16 @@ const ChatPage = ({
           ) : null}
         </div>
         <div className="header-actions" ref={headerMenuRef}>
+          {getMoodEnabled() ? (
+            <button
+              type="button"
+              className="ghost chat-header-icon"
+              aria-label="小机的心情"
+              onClick={() => setMoodOpen(true)}
+            >
+              💗
+            </button>
+          ) : null}
           <button
             ref={headerMenuButtonRef}
             type="button"
@@ -1487,6 +1501,13 @@ const ChatPage = ({
           autoFocus
         />
       </ConfirmDialog>
+
+      <MoodOverlay
+        open={moodOpen}
+        onClose={() => setMoodOpen(false)}
+        assistantName={assistantName}
+        userId={user?.id ?? null}
+      />
 
       {showCameraModal && createPortal(
         <div className="camera-modal" onClick={closeCameraModal}>

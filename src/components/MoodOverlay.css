@@ -1,0 +1,135 @@
+.mood-ov__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 4.5rem 1rem 1.5rem;
+  background: rgba(20, 24, 34, 0.45);
+  backdrop-filter: blur(2px);
+  overflow-y: auto;
+}
+
+.mood-ov__card {
+  width: 100%;
+  max-width: 420px;
+  background: rgba(38, 42, 58, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 16px 18px 20px;
+  color: #e8ebf2;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+
+.mood-ov__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.mood-ov__title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #f2d8a8;
+}
+.mood-ov__close {
+  background: none;
+  border: none;
+  color: #aab1c2;
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.mood-ov__tone {
+  margin: 10px 0 14px;
+  font-size: 0.95rem;
+  color: #dfe4f0;
+  font-style: italic;
+}
+
+.mood-ov__bars {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.mood-ov__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mood-ov__label {
+  flex: 0 0 2.6em;
+  font-size: 0.84rem;
+  color: #c7cdda;
+}
+.mood-ov__track {
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.mood-ov__fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+.mood-ov__num {
+  flex: 0 0 1.8em;
+  text-align: right;
+  font-size: 0.78rem;
+  color: #9aa3b6;
+  font-variant-numeric: tabular-nums;
+}
+
+.mood-ov__satisfied {
+  margin: 14px 0 0;
+  font-size: 0.78rem;
+  color: #8f98ad;
+}
+
+.mood-ov__history {
+  margin-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 12px;
+}
+.mood-ov__hist-title {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  color: #f2c98a;
+}
+.mood-ov__hist-item {
+  margin-bottom: 12px;
+}
+.mood-ov__hist-meta {
+  margin: 0 0 3px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.mood-ov__hist-time {
+  color: #f2b86a;
+  font-size: 0.78rem;
+}
+.mood-ov__hist-tone {
+  color: #cfd5e3;
+  font-size: 0.82rem;
+  font-style: italic;
+}
+.mood-ov__hist-note {
+  margin: 0 0 3px;
+  font-size: 0.86rem;
+  color: #dfe4f0;
+  line-height: 1.45;
+}
+.mood-ov__hist-snap {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #8b94a8;
+  font-variant-numeric: tabular-nums;
+}

@@ -95,7 +95,9 @@
   消息的 `meta.moodNarration`，重放逐字节稳定 → 不破 BP4 滚动缓存（同天气/手机状态快照的做法）。
 - **持久化**：`mood_state`（每用户一行）+ `mood_history` 表（RLS auth.uid()=user_id）；本地
   localStorage/Preferences 镜像耐后台杀，Supabase 跨端权威。
-- **面板**：并进健康页（`HealthSyncPage`）——小机情绪进度条 + 变化历史，**你只读不能改**。
+- **面板**：① 并进健康页（`HealthSyncPage`）和身体数据放一起；② 聊天页顶部 💗 一键弹出
+  浮层（`MoodOverlay`）——tone + 情绪条 + 「距上次满足 X.X 天」+「他没说出口的」历史（每条带
+  情绪快照），随时点开看。都**只读不能改**。
 - **范围**：MVP 只做语气染色，暂不接主动消息；可关（`getMoodEnabled`，默认开）。
 - 文件：`storage/moodSystem.ts`（核心）、`App.tsx`（接入）、`HealthSyncPage`（面板）、`types.ts`。
   **需重新出 APK 才生效**；数据表迁移已立即生效。
