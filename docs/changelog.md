@@ -82,6 +82,20 @@
 
 ## 2026-06-27
 
+### 关掉保活 ping 后，退后台再进又自己开了
+
+**症状**：在聊天界面关掉「缓存保活」开关，把 App 退到后台（安卓常被系统杀），
+重新打开，保活又是开着的。
+
+**根因**：`keepaliveEnabled` 只是个 `useState(true)`，**从来没持久化**。每次 App
+重启 / 安卓后台被杀重建，都重置回默认的 ON——用户关掉的设置活不过一次冷启动。
+
+**修**：新增 `storage/keepalivePref.ts`，按 ttsConfig 的三层持久化模式存这个布尔：
+内存（同步真值）+ Capacitor Preferences（原生 SharedPreferences，扛后台杀）+
+localStorage（web 镜像）。`App.tsx` 启动时 `hydrateKeepalivePref()` 恢复，toggle
+走 `setKeepaliveEnabledPref()` 落盘。关掉后冷启动/后台杀都不再被重置。**需重新出
+APK 才生效**（纯前端改动）。
+
 ### 压缩后的近期窗口改为「游标锚定」而非「最后 N 条」
 
 参考一篇 Anthropic 缓存教程复查取历史逻辑，发现压缩生效后我们的近期窗口是

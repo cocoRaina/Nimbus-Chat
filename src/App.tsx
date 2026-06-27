@@ -8,6 +8,7 @@ import ConfirmDialog from './components/ConfirmDialog'
 import type { ChatMessage, ChatSession, UserSettings } from './types'
 import { usePendingShare } from './hooks/useShareReceiver'
 import { hydrateTtsConfig, buildVoiceSystemSection } from './storage/ttsConfig'
+import { getKeepaliveEnabled, setKeepaliveEnabledPref, hydrateKeepalivePref } from './storage/keepalivePref'
 import {
   addMessage,
   createSession,
@@ -510,9 +511,19 @@ const App = () => {
   const keepaliveTimerRef = useRef<number | null>(null)
   const keepaliveBodyRef = useRef<Record<string, unknown> | null>(null)
   const keepaliveControllerRef = useRef<AbortController | null>(null)
-  const [keepaliveEnabled, setKeepaliveEnabled] = useState(true)
-  const keepaliveEnabledRef = useRef(true)
+  // Initialise from the durable pref's in-memory value (hydrated on startup
+  // below). Defaults to ON until hydration lands, then the effect syncs the
+  // real persisted value — so toggling off survives a background kill.
+  const [keepaliveEnabled, setKeepaliveEnabled] = useState(() => getKeepaliveEnabled())
+  const keepaliveEnabledRef = useRef(keepaliveEnabled)
   keepaliveEnabledRef.current = keepaliveEnabled
+  const handleToggleKeepalive = useCallback(() => {
+    setKeepaliveEnabled((v) => {
+      const next = !v
+      setKeepaliveEnabledPref(next) // persist so it survives restart / bg kill
+      return next
+    })
+  }, [])
   // Tracks when we last successfully fired a keepalive ping (timer-driven
   // or pre-warm). prewarmKeepaliveIfStale uses this to decide whether to
   // pre-warm on chat-page entry — avoids hammering when the timer has
@@ -568,6 +579,10 @@ const App = () => {
   // write was lost to an Android background kill.
   useEffect(() => {
     void hydrateTtsConfig()
+    // Restore the persisted keepalive on/off state. Without this it defaulted
+    // back to ON after every restart / Android background kill, re-enabling the
+    // ping the user had turned off.
+    void hydrateKeepalivePref().then((enabled) => setKeepaliveEnabled(enabled))
   }, [])
 
   useEffect(() => {
@@ -3759,7 +3774,7 @@ TOOL_SEARCH_HANDOFF,
                 onManualCompress={handleManualCompress}
                 onChatPageEnter={prewarmKeepaliveIfStale}
                 keepaliveEnabled={keepaliveEnabled}
-                onToggleKeepalive={() => setKeepaliveEnabled((v) => !v)}
+                onToggleKeepalive={handleToggleKeepalive}
                 user={user}
                 toolStatus={toolStatus}
                 remoteStickerPacks={remoteStickerPacks}
