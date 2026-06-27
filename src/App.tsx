@@ -1550,6 +1550,10 @@ const App = () => {
           cache_creation_input_tokens?: number
         } | null = null
         let currentRequestDebug: unknown = null
+        // Iteration-1 response latency (request sent → response headers back) —
+        // the relay's first-byte responsiveness. Recorded per chat so the 站子
+        // 健康概览 can show "今天变慢了".
+        let reqLatencyMs: number | null = null
 
         const flushUsageRecord = (failed = false) => {
           if (!user) {
@@ -1579,6 +1583,7 @@ const App = () => {
             source: 'chat',
             provider: getActiveProvider(),
             sessionId,
+            latencyMs: reqLatencyMs ?? undefined,
             rawUsage: lastUsage,
             // request_debug is never read by the UI — it only exists to
             // troubleshoot failures. Keep it only when the request failed (and
@@ -2123,10 +2128,12 @@ TOOL_SEARCH_HANDOFF,
               `bps=${debugBreakpoints.filter((b) => b.cache_control).map((b) => `${b.role}[${b.idx}]`).join(',')} ` +
               `tools=${Array.isArray(requestBody.tools) ? (requestBody.tools as unknown[]).length : 0} reasoning=${requestBody.reasoning != null}`,
             )
+            const tFetch0 = performance.now()
             const response = await fetchOpenRouter('/chat/completions', {
               body: requestBody,
               signal: controller.signal,
             })
+            if (iteration === 1) reqLatencyMs = Math.round(performance.now() - tFetch0)
             if (!response.ok) {
               const errorText = await response.text()
               throw new Error(errorText || '请求失败')

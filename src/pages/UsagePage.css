@@ -633,3 +633,33 @@
   color: #789EC8;
 }
 .diag-detail-fold[open] > summary::before { content: '▾ '; }
+
+/* 站子健康概览卡 */
+.health-overview {
+  border-radius: 16px;
+  padding: 12px 16px;
+  border: 1px solid #C5D6EC;
+  background: rgba(255, 255, 255, 0.85);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.health-overview--good { border-color: #A7E3C0; background: rgba(209, 250, 229, 0.35); }
+.health-overview--slow { border-color: #F2D8A8; background: rgba(254, 243, 199, 0.4); }
+.health-overview--bad  { border-color: #F1B6B6; background: rgba(254, 226, 226, 0.45); }
+.health-overview__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+  color: #2A3D52;
+}
+.health-overview__metrics {
+  font-size: 0.86rem;
+  color: #586878;
+}
+.health-overview__metrics b { color: #2A3D52; font-variant-numeric: tabular-nums; }
+.health-overview__reasons {
+  font-size: 0.82rem;
+  color: #9a6a1e;
+}

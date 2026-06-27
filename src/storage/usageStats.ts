@@ -12,6 +12,7 @@ export type UsageLogInput = {
   source?: UsageSource | string
   provider?: string
   sessionId?: string | null
+  latencyMs?: number
   rawUsage?: unknown
   requestDebug?: unknown
   // Force-insert even when token counts are all zero. Used to persist a
@@ -34,6 +35,7 @@ export type UsageLogRow = {
   // raw_usage.cache_creation_input_tokens (no dedicated column).
   cacheRead: number
   cacheWrite: number
+  latencyMs: number | null
   source: string
   provider: string
   sessionId: string | null
@@ -53,6 +55,7 @@ type UsageLogRecord = {
   provider: string | null
   session_id: string | null
   created_at: string
+  latency_ms?: number | null
   raw_usage?: Record<string, unknown> | null
   sessions?: { title: string | null } | { title: string | null }[] | null
 }
@@ -76,6 +79,7 @@ const mapRow = (row: UsageLogRecord): UsageLogRow => ({
   cachedTokens: row.cached_tokens ?? 0,
   cacheRead: numField(row.raw_usage, 'cache_read_input_tokens') || (row.cached_tokens ?? 0),
   cacheWrite: numField(row.raw_usage, 'cache_creation_input_tokens'),
+  latencyMs: typeof row.latency_ms === 'number' ? row.latency_ms : null,
   source: row.source,
   provider: row.provider ?? 'openrouter',
   sessionId: row.session_id,
@@ -106,6 +110,7 @@ export const recordUsage = async (input: UsageLogInput): Promise<void> => {
     source: input.source ?? 'chat',
     provider: input.provider ?? 'openrouter',
     session_id: input.sessionId ?? null,
+    latency_ms: typeof input.latencyMs === 'number' ? Math.round(input.latencyMs) : null,
     raw_usage: input.rawUsage ?? null,
     request_debug: input.requestDebug ?? null,
   })
@@ -123,7 +128,7 @@ export const fetchUsageLogs = async (
   }
   let query = supabase
     .from('usage_logs')
-    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,cached_tokens,raw_usage,source,provider,session_id,created_at,sessions(title)')
+    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,cached_tokens,latency_ms,raw_usage,source,provider,session_id,created_at,sessions(title)')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(5000)

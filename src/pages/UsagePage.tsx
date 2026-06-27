@@ -5,7 +5,7 @@ import { fetchUsageLogs, type UsageLogRow } from '../storage/usageStats'
 import { fetchOpenRouter } from '../api/openrouter'
 import { supabase } from '../supabase/client'
 import { estimateTokens } from '../storage/conversationCompression'
-import { getCustomProviderDisplayName } from '../storage/apiProvider'
+import { getCustomProviderDisplayName, getActiveProvider } from '../storage/apiProvider'
 import './UsagePage.css'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -426,6 +426,30 @@ const UsagePage = ({ user }: UsagePageProps) => {
   const relayName = getCustomProviderDisplayName()
   const providerLabel = (id: string) => id === 'openrouter' ? 'OpenRouter' : (relayName || '中转站')
 
+  // 站子健康概览：一眼看当前渠道今天行不行。从当前 provider 的近期记录算
+  // 平均首字延迟 + 缓存命中率，给一句话状态。名字按当前 provider 自适应。
+  const healthOverview = useMemo(() => {
+    const provider = getActiveProvider()
+    const mine = rows.filter((r) => r.provider === provider).slice(0, 50)
+    if (mine.length === 0) return null
+    const lat = mine.filter((r) => typeof r.latencyMs === 'number' && (r.latencyMs ?? 0) > 0)
+    const avgLatency = lat.length ? Math.round(lat.reduce((s, r) => s + (r.latencyMs ?? 0), 0) / lat.length) : null
+    const claude = mine.filter((r) => /claude|anthropic/i.test(r.model))
+    const hitRate = claude.length ? claude.filter((r) => r.cachedTokens > 0).length / claude.length : null
+    const reasons: string[] = []
+    let status: 'good' | 'slow' | 'bad' = 'good'
+    if (avgLatency != null && avgLatency >= 12000) { status = 'bad'; reasons.push(`平均首字延迟 ${(avgLatency / 1000).toFixed(1)}s 很慢`) }
+    else if (avgLatency != null && avgLatency >= 6000) { status = 'slow'; reasons.push(`平均首字延迟 ${(avgLatency / 1000).toFixed(1)}s 偏慢`) }
+    if (hitRate != null && claude.length >= 5 && hitRate < 0.1) {
+      if (status === 'good') status = 'slow'
+      reasons.push('缓存几乎不命中（长对话省不到钱）')
+    }
+    return {
+      name: provider === 'openrouter' ? 'OpenRouter' : (relayName || '中转站'),
+      avgLatency, hitRate, sample: mine.length, claudeSample: claude.length, status, reasons,
+    }
+  }, [rows, relayName])
+
   const aggregateBySession = (subset: typeof rows) => {
     const groups = new Map<string, { sessionId: string | null; title: string; calls: number; promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number }>()
     for (const row of subset) {
@@ -713,6 +737,29 @@ const UsagePage = ({ user }: UsagePageProps) => {
           </div>
 
           {error ? <p className="usage-error">{error}</p> : null}
+
+          {healthOverview && (
+            <div className={`health-overview health-overview--${healthOverview.status}`}>
+              <div className="health-overview__head">
+                <span className="health-overview__dot" aria-hidden="true">
+                  {healthOverview.status === 'good' ? '🟢' : healthOverview.status === 'slow' ? '🟡' : '🔴'}
+                </span>
+                <strong>{healthOverview.name} 近期{healthOverview.status === 'good' ? '正常' : healthOverview.status === 'slow' ? '略慢/留意' : '异常'}</strong>
+              </div>
+              <div className="health-overview__metrics">
+                {healthOverview.avgLatency != null
+                  ? <span>平均首字延迟 <b>{(healthOverview.avgLatency / 1000).toFixed(1)}s</b></span>
+                  : <span>延迟 <b>暂无</b>（新 APK 后的对话才记录）</span>}
+                {healthOverview.hitRate != null
+                  ? <span> · 缓存命中 <b>{Math.round(healthOverview.hitRate * 100)}%</b></span>
+                  : null}
+                <span> · 样本 {healthOverview.sample} 条</span>
+              </div>
+              {healthOverview.reasons.length > 0 && (
+                <div className="health-overview__reasons">⚠️ {healthOverview.reasons.join(' · ')}</div>
+              )}
+            </div>
+          )}
 
           {byProvider.length === 0 ? (
             <p className="usage-empty">这段时间还没有调用记录。</p>
