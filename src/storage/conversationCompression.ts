@@ -7,6 +7,10 @@ const DEFAULT_CONTEXT_LIMIT = 128_000
 const MIN_KEEP_RECENT = 4
 const MIN_EXTRA_OLD_FOR_COMPRESSION = 4
 const MIN_NEW_MESSAGES_BEFORE_RESUMMARIZE = 8
+// Hard cap on the anchored recent window — a safety fuse so a wedged
+// compression cursor can't let the window grow without bound. Normal
+// steady-state never reaches this (compression re-fires well before it).
+const RECENT_WINDOW_HARD_CAP = 120
 
 // Token estimate, CJK-aware. Claude's tokenizer is very inefficient for CJK:
 // a Chinese/Japanese/Korean character is ~1.5–2 tokens, whereas Latin text is
@@ -252,9 +256,23 @@ export const compressIfNeeded = async (
         // OR whenever we're below the trigger — i.e. don't pay to refine a
         // summary for a small context, but still SEND the one we already have.
         if (messagesSinceCache < MIN_NEW_MESSAGES_BEFORE_RESUMMARIZE || !overTrigger) {
+          // Anchor the recent window to the compression cursor instead of a
+          // sliding "last N" slice. Two wins:
+          //   1) Cache: the window's first message stays put until the cursor
+          //      advances (next re-summarize), so the BP4/HEAD prefix is byte-
+          //      stable across sends instead of shifting one message per turn.
+          //   2) Continuity: the window starts exactly where the summary ends
+          //      (cursor + 1), so the messages between the old summary boundary
+          //      and a "last N" start can't fall into a gap that's neither
+          //      summarised nor shown. Hard cap is a safety fuse only.
+          const anchored = fullHistory.slice(cacheIdx + 1)
+          const cappedRecent =
+            anchored.length > RECENT_WINDOW_HARD_CAP
+              ? anchored.slice(-RECENT_WINDOW_HARD_CAP)
+              : anchored
           return {
             systemPromptText,
-            recentMessages,
+            recentMessages: cappedRecent.length > 0 ? cappedRecent : recentMessages,
             summaryText: cache.summary_text,
             didCompress: true,
           }
