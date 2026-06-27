@@ -28,6 +28,12 @@ export type UsageLogRow = {
   completionTokens: number
   totalTokens: number
   cachedTokens: number
+  // Per-request cache breakdown for cross-checking against the relay console.
+  // cacheRead = tokens read from cache (0.1×); cacheWrite = tokens written to
+  // cache (1.25×/2×). cacheRead mirrors cachedTokens; cacheWrite comes from
+  // raw_usage.cache_creation_input_tokens (no dedicated column).
+  cacheRead: number
+  cacheWrite: number
   source: string
   provider: string
   sessionId: string | null
@@ -47,7 +53,17 @@ type UsageLogRecord = {
   provider: string | null
   session_id: string | null
   created_at: string
+  raw_usage?: Record<string, unknown> | null
   sessions?: { title: string | null } | { title: string | null }[] | null
+}
+
+const numField = (obj: Record<string, unknown> | null | undefined, ...keys: string[]): number => {
+  if (!obj) return 0
+  for (const k of keys) {
+    const v = obj[k]
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+  }
+  return 0
 }
 
 const mapRow = (row: UsageLogRecord): UsageLogRow => ({
@@ -58,6 +74,8 @@ const mapRow = (row: UsageLogRecord): UsageLogRow => ({
   completionTokens: row.completion_tokens ?? 0,
   totalTokens: row.total_tokens ?? 0,
   cachedTokens: row.cached_tokens ?? 0,
+  cacheRead: numField(row.raw_usage, 'cache_read_input_tokens') || (row.cached_tokens ?? 0),
+  cacheWrite: numField(row.raw_usage, 'cache_creation_input_tokens'),
   source: row.source,
   provider: row.provider ?? 'openrouter',
   sessionId: row.session_id,
@@ -105,7 +123,7 @@ export const fetchUsageLogs = async (
   }
   let query = supabase
     .from('usage_logs')
-    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,cached_tokens,source,provider,session_id,created_at,sessions(title)')
+    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,cached_tokens,raw_usage,source,provider,session_id,created_at,sessions(title)')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(5000)
