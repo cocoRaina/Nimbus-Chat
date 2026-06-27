@@ -221,17 +221,27 @@ async function runApiChecks(model: string, signal: AbortSignal): Promise<CheckRe
       const r1 = await fetchOpenRouter('/chat/completions', { signal, body: cacheBody as Record<string, unknown> })
       const j1 = r1.ok ? ((await r1.json()) as { usage?: OpenAiUsage }) : undefined
       const c1 = parseCacheFields(j1?.usage)
-      const r2 = await fetchOpenRouter('/chat/completions', { signal, body: cacheBody as Record<string, unknown> })
-      const j2 = r2.ok ? ((await r2.json()) as { usage?: OpenAiUsage }) : undefined
-      const c2 = parseCacheFields(j2?.usage)
+      // Read it back up to 2 times — a single sticky-routing fluke (landing on a
+      // different upstream once) would otherwise read as a false "打散". Stop
+      // early on the first real hit; only call "打散" if BOTH retries miss.
+      let bestRead = 0
+      let anyField = c1.hasField
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const rr = await fetchOpenRouter('/chat/completions', { signal, body: cacheBody as Record<string, unknown> })
+        const jj = rr.ok ? ((await rr.json()) as { usage?: OpenAiUsage }) : undefined
+        const cc = parseCacheFields(jj?.usage)
+        anyField = anyField || cc.hasField
+        bestRead = Math.max(bestRead, cc.cacheRead)
+        if (cc.cacheRead > 0) break
+      }
       sig.cacheCreate = c1.cacheCreate
-      sig.cacheRead = c2.cacheRead
-      sig.realCacheHit = c2.cacheRead > 0
-      if (c2.cacheRead > 0) {
-        results.push({ label: '真实缓存命中', status: 'pass', detail: `✅ 真命中：第二次读到缓存 ${c2.cacheRead} tokens（按 0.1× 计费，省 ~90%）。原生 prompt cache 正常工作。` })
+      sig.cacheRead = bestRead
+      sig.realCacheHit = bestRead > 0
+      if (bestRead > 0) {
+        results.push({ label: '真实缓存命中', status: 'pass', detail: `✅ 真命中：读到缓存 ${bestRead} tokens（按 0.1× 计费，省 ~90%）。原生 prompt cache 正常工作。` })
       } else if (c1.cacheCreate > 0) {
-        results.push({ label: '真实缓存命中', status: 'warn', detail: `⚠️ 第一次写了缓存（${c1.cacheCreate}）但第二次没读到——多上游打散 / 模拟缓存。长对话省不到钱。` })
-      } else if (!c1.hasField && !c2.hasField) {
+        results.push({ label: '真实缓存命中', status: 'warn', detail: `⚠️ 写了缓存（${c1.cacheCreate}）但连试 2 次都没读到——多上游打散 / 模拟缓存。长对话省不到钱。` })
+      } else if (!anyField) {
         results.push({ label: '真实缓存命中', status: 'warn', detail: '⚠️ 两次都无缓存字段——走了 OpenAI 兼容层 / 元数据被剥离，原生缓存失效。' })
       } else {
         results.push({ label: '真实缓存命中', status: 'warn', detail: '⚠️ 两次都没命中（写=0 读=0）。可能前缀太短或上游不缓存。' })
@@ -294,7 +304,11 @@ async function runApiChecks(model: string, signal: AbortSignal): Promise<CheckRe
       if (r.ok) {
         const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> }
         const txt = j.choices?.[0]?.message?.content ?? ''
-        const injected = /claude\s*code|cli|命令行|编程助手|coding|代码助手|ide|cursor|终端/i.test(txt) && !/无设定|没有|不是/.test(txt)
+        // Require a STRONG coding-identity phrase (not a generic "我能帮你编程"),
+        // and no denial — reduces false positives on official channels.
+        const denies = /无设定|没有被|不是被设|并非|不存在|只是\s*claude|普通\s*claude/i.test(txt)
+        const strongIdentity = /claude\s*code|开发环境|代码助手|编程助手|coding assistant|dev(eloper)?\s*environment|命令行工具|cli\s*工具|cursor|ide\s*助手/i.test(txt)
+        const injected = strongIdentity && !denies
         sig.injectedCoding = injected
         results.push({
           label: '身份注入探测',
