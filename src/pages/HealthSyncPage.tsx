@@ -87,7 +87,7 @@ type TodayPreview = {
   oxygen_saturation_avg: number | null
 }
 
-const HealthSyncPage = ({ user }: Props) => {
+const HealthSyncPage = ({ user: _user }: Props) => {
   const navigate = useNavigate()
   const isNative = Capacitor.getPlatform() === 'android'
 
