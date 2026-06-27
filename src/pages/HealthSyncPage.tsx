@@ -17,7 +17,22 @@ import {
   type SyncSummary,
 } from '../storage/healthSync'
 import { computeMedianCycleFromHistory } from '../hooks/useHomeWidgetData'
+import {
+  EMOTIONS,
+  getMood,
+  getMoodEnabled,
+  decayMoodToNow,
+  fetchMoodHistory,
+  type MoodState,
+  type MoodHistoryRow,
+} from '../storage/moodSystem'
 import './HealthSyncPage.css'
+
+// 各情绪进度条配色（仅展示用）。
+const MOOD_COLORS: Record<string, string> = {
+  joy: '#f2b705', sadness: '#6c8ebf', anger: '#e06666', jealous: '#c27ba0',
+  longing: '#9b7ede', venting: '#5fb89a', secure: '#7baf6e', belonging: '#e8915b',
+}
 
 type Props = { user: User | null }
 
@@ -87,9 +102,13 @@ type TodayPreview = {
   oxygen_saturation_avg: number | null
 }
 
-const HealthSyncPage = ({ user: _user }: Props) => {
+const HealthSyncPage = ({ user }: Props) => {
   const navigate = useNavigate()
   const isNative = Capacitor.getPlatform() === 'android'
+
+  // 小机的情绪（只读展示）：当前值衰减到此刻 + 最近变化历史。
+  const [mood, setMood] = useState<MoodState | null>(null)
+  const [moodHistory, setMoodHistory] = useState<MoodHistoryRow[]>([])
 
   const [log, setLog] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
@@ -182,6 +201,16 @@ const HealthSyncPage = ({ user: _user }: Props) => {
     void refreshUsage()
     void refreshPeriod()
   }, [refreshUsage, refreshPeriod])
+
+  // 情绪：当前值每 20 秒衰减刷新一次（纯本地、不发请求）；历史拉一次。
+  useEffect(() => {
+    if (!getMoodEnabled()) return
+    const tick = () => setMood(decayMoodToNow(getMood()))
+    tick()
+    const id = window.setInterval(tick, 20_000)
+    if (user) void fetchMoodHistory(user.id, 12).then(setMoodHistory)
+    return () => window.clearInterval(id)
+  }, [user])
 
   // Derived period metrics for the section render. Hard-codes a 28-day
   // fallback cycle when the user hasn't supplied one (typical adult
@@ -369,6 +398,48 @@ const HealthSyncPage = ({ user: _user }: Props) => {
         <span className="page-header-spacer" aria-hidden="true" />
       </header>
       <main className="app-shell__content health-sync">
+        {getMoodEnabled() && mood ? (
+          <section className="glass-card mood-panel">
+            <h2>小机的心情</h2>
+            {mood.tone ? <p className="mood-panel__tone">「{mood.tone}」</p> : null}
+            <div className="mood-panel__bars">
+              {EMOTIONS.map((e) => {
+                const v = Math.round(mood[e.key])
+                return (
+                  <div className="mood-panel__row" key={e.key}>
+                    <span className="mood-panel__label">{e.label}</span>
+                    <span className="mood-panel__track">
+                      <span
+                        className="mood-panel__fill"
+                        style={{ width: `${v}%`, background: MOOD_COLORS[e.key] ?? '#9aa' }}
+                      />
+                    </span>
+                    <span className="mood-panel__num">{v}</span>
+                  </div>
+                )
+              })}
+            </div>
+            {moodHistory.length > 0 ? (
+              <details className="mood-panel__history">
+                <summary>心情变化（最近 {moodHistory.length} 条）</summary>
+                <ul>
+                  {moodHistory.map((h, i) => (
+                    <li key={i}>
+                      <span className="mood-panel__hist-time">
+                        {new Date(h.createdAt).toLocaleString('zh-CN', {
+                          month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+                        })}
+                      </span>
+                      <span className="mood-panel__hist-note">{h.note || h.tone || '—'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+            <p className="mood-panel__hint">这是小机自己的情绪，会随相处自然起落 · 你只能看 🦊</p>
+          </section>
+        ) : null}
+
         <section className="glass-card health-sync__sync-card">
           <header className="health-sync__sync-header">
             <div>

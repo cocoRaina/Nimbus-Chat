@@ -359,3 +359,85 @@
   border-radius: 10px;
   line-height: 1.5;
 }
+
+/* 小机情绪面板（只读） */
+.mood-panel h2 {
+  margin: 0 0 0.5rem;
+}
+.mood-panel__tone {
+  margin: 0 0 0.75rem;
+  font-style: italic;
+  color: #5a6b7d;
+  font-size: 0.92rem;
+}
+.mood-panel__bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mood-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mood-panel__label {
+  flex: 0 0 3.2em;
+  font-size: 0.86rem;
+  color: #46566a;
+}
+.mood-panel__track {
+  flex: 1;
+  height: 9px;
+  border-radius: 5px;
+  background: rgba(150, 170, 190, 0.22);
+  overflow: hidden;
+}
+.mood-panel__fill {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.6s ease;
+}
+.mood-panel__num {
+  flex: 0 0 2em;
+  text-align: right;
+  font-size: 0.8rem;
+  color: #7c8a99;
+  font-variant-numeric: tabular-nums;
+}
+.mood-panel__history {
+  margin-top: 0.85rem;
+  font-size: 0.85rem;
+}
+.mood-panel__history summary {
+  cursor: pointer;
+  color: #5a6b7d;
+}
+.mood-panel__history ul {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mood-panel__history li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.mood-panel__hist-time {
+  flex: 0 0 auto;
+  color: #93a1b0;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+.mood-panel__hist-note {
+  color: #50606f;
+}
+.mood-panel__hint {
+  margin: 0.85rem 0 0;
+  font-size: 0.76rem;
+  color: #93a1b0;
+  text-align: center;
+}

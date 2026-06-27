@@ -10,6 +10,18 @@ import { usePendingShare } from './hooks/useShareReceiver'
 import { hydrateTtsConfig, buildVoiceSystemSection } from './storage/ttsConfig'
 import { getKeepaliveEnabled, setKeepaliveEnabledPref, hydrateKeepalivePref } from './storage/keepalivePref'
 import {
+  getMoodEnabled,
+  getMood,
+  hydrateMood,
+  loadRemoteMood,
+  buildMoodNarration,
+  buildMoodRulesSection,
+  parseMoodMarker,
+  stripMoodMarker,
+  applyMoodAssessment,
+  commitMood,
+} from './storage/moodSystem'
+import {
   addMessage,
   createSession,
   deleteMessage,
@@ -599,6 +611,8 @@ const App = () => {
     // back to ON after every restart / Android background kill, re-enabling the
     // ping the user had turned off.
     void hydrateKeepalivePref().then((enabled) => setKeepaliveEnabled(enabled))
+    // Restore the AI's persisted mood (local-first; Supabase override on login).
+    void hydrateMood()
   }, [])
 
   useEffect(() => {
@@ -864,6 +878,9 @@ const App = () => {
         }
       }
 
+      // Pull the AI's authoritative mood from Supabase (cross-device). Fire and
+      // forget — narration reads the in-memory cache, so this just refreshes it.
+      void loadRemoteMood(user.id)
       setSyncing(true)
       try {
         const [remoteSessions, remoteMessages] = await Promise.all([
@@ -1303,8 +1320,12 @@ const App = () => {
       const toolActionReminder = willHaveTools
         ? '\n\n【工具 = 真实动作，必须真调用】当你打算"待会提醒她 / 晚点联系她 / 叫她起床 / 到点喊她"时，必须真的调用 schedule_proactive_message 工具，拿到 ok 才算数。只在回复里说"我设置好了 / 待会提醒你"却没调用工具，是无效的——不会真的发出任何提醒，她也收不到。放歌、记录健康/经期等同理：先真的调用对应工具，再用你的语气说话。'
         : ''
+      // Emotion system rules go in the cached system prefix (static — only
+      // shifts when this code changes). The per-turn mood values ride in the
+      // last user message (see below), never in system, to protect the cache.
+      const moodRulesSection = getMoodEnabled() ? buildMoodRulesSection() : ''
       const systemPrompt =
-        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + buildVoiceSystemSection() + toolActionReminder
+        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + buildVoiceSystemSection() + moodRulesSection + toolActionReminder
       const isFirstMessageInSession = !messagesRef.current.some(
         (message) =>
           message.sessionId === sessionId &&
@@ -1368,6 +1389,13 @@ const App = () => {
           : {}),
         ...(healthSnap ? { healthSnapshot: healthSnap } : {}),
         ...(envSnap ? { envSnapshot: envSnap } : {}),
+        ...(() => {
+          // Freeze the AI's current mood narration into this turn's meta — it's
+          // rendered into the payload prefix at send time and replayed verbatim
+          // so the rolling prompt cache stays byte-stable.
+          const narration = getMoodEnabled() ? buildMoodNarration(getMood()) : ''
+          return narration ? { moodNarration: narration } : {}
+        })(),
       }
       const optimisticMessage: ChatMessage = {
         id: clientId,
@@ -1699,7 +1727,10 @@ const App = () => {
         // (see ChatPage.tsx) instead of being embedded in message content.
         // This keeps the bubble clean and the status always visible at the bottom.
 
-        const buildDisplayContent = () => assistantContent
+        // Strip the private <<MOOD>> self-assessment marker from anything shown
+        // to the user — live during streaming (handles a partial trailing token)
+        // and in the final saved content.
+        const buildDisplayContent = () => stripMoodMarker(assistantContent)
 
         const pushStreamingUpdate = () => {
           const streamingUpdate = updateMessage(messagesRef.current, {
@@ -1826,7 +1857,13 @@ const App = () => {
             const statusStr = statusParts.length > 0
               ? `\n[TA 今日状态] ${statusParts.join('；')}`
               : ''
-            const prefix = stamp ? `[当前时间] ${stamp}${weatherStr}${envStr}${statusStr}\n\n` : ''
+            // Frozen mood narration for this user turn (private emotional
+            // context). Stored per-message so replay is byte-stable.
+            const moodMeta = message.role === 'user' ? message.meta?.moodNarration : undefined
+            const moodStr = moodMeta ? `${moodMeta}\n\n` : ''
+            const prefix = stamp
+              ? `[当前时间] ${stamp}${weatherStr}${envStr}${statusStr}\n\n${moodStr}`
+              : moodStr
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []
               const textContent = `${prefix}${message.content}`
@@ -2968,6 +3005,25 @@ TOOL_SEARCH_HANDOFF,
             }
           }
 
+          // Emotion system: parse the private <<MOOD>> self-assessment from the
+          // raw reply, strip it from what we save/show, then apply + persist the
+          // mood update (decay-then-add) in the background. Runs on every path
+          // (stream / non-stream / any provider) because it reads the final
+          // assistantContent. Robust: parse failure just means no update.
+          if (getMoodEnabled()) {
+            try {
+              const assessment = parseMoodMarker(assistantContent)
+              assistantContent = stripMoodMarker(assistantContent)
+              if (assessment) {
+                const nextMood = applyMoodAssessment(getMood(), assessment)
+                commitMood(user?.id ?? null, nextMood)
+              }
+            } catch (moodErr) {
+              console.warn('情绪自评处理失败', moodErr)
+              assistantContent = stripMoodMarker(assistantContent)
+            }
+          }
+
           // Last-resort fallback: if streaming + tool loop + force-final all
           // produced nothing, don't save a ghost empty bubble — surface the
           // failure so the user knows to retry.
@@ -3126,6 +3182,9 @@ TOOL_SEARCH_HANDOFF,
           // abort (pressing stop) isn't a bug worth persisting debug for.
           const isAbort = error instanceof DOMException && error.name === 'AbortError'
           flushUsageRecord(!isAbort)
+          // Strip any (possibly partial) mood marker from the partial reply so
+          // it's never persisted raw. Don't apply the mood — the turn is incomplete.
+          if (getMoodEnabled()) assistantContent = stripMoodMarker(assistantContent)
           if (isAbort) {
             if (assistantContent.trim().length > 0) {
               // Save the partial reply locally first (instant, offline-safe),
@@ -3303,6 +3362,10 @@ TOOL_SEARCH_HANDOFF,
             }
           : {}),
         ...(envSnap ? { envSnapshot: envSnap } : {}),
+        ...(() => {
+          const narration = getMoodEnabled() ? buildMoodNarration(getMood()) : ''
+          return narration ? { moodNarration: narration } : {}
+        })(),
       }
       const clientCreatedAtIso = clientCreatedAt
       const optimisticMessage: ChatMessage = {
