@@ -91,12 +91,15 @@
 ② **完全没看前端开关**：每次聊天照样 upsert 快照（3146 行），cron 接着 ping。用户在 Hyper（5min TTL）上，
 ping 每次都冷写 → 纯烧钱（实测 `ping_count=104`）。
 
-**修**：
+**修**（代码 = 让前端开关真正能控制服务端，正确行为，保留）：
 - 服务端 mirror upsert 加 `keepaliveEnabledRef.current` gate——关了就不再写快照。
 - `handleToggleKeepalive` 关闭时：清客户端 timer + **删 `cache_keepalive_state` 行**，让 cron 立刻没目标可 ping。
-- **即时止血**（不等 APK）：停掉 `pg_cron` job 3（`cron.alter_job(3, active:=false)`）+ 删用户当前快照行。
-  > 注：用户当前中转 Hyper 是 5min TTL，保活本就不该跑（55min 救不回 5min 缓存）。日后换 1h TTL 中转
-  > 想要服务端保活，再 `cron.alter_job(3, active:=true)` 重启。
+
+**⚠️ 更正（同日）**：当时顺手停了 cron job 3 + 删行「止血」，理由写的「Hyper 是 5min TTL、保活没用」
+**是误判**。我们给中转发的标记是 `ttl:'1h'`（`applyClaudeCaching` 对 OR 和中转都标 1h），而 tree/Hyper
+**认这个 1h 标记**——用户实测 ping 在聊天后 ~50min 仍命中，坐实 1h TTL。所以保活一直在好好干活：
+每次 ping 是 0.1× 热读 + 顺手刷新 1h TTL（命中刷 TTL 免费），把「>1h 回来本该冷写」变成热读，实测省一半。
+**已 `cron.alter_job(3, active:=true)` 重新开回来**。教训：别凭「听说几分钟 TTL」就拍板，看 usage 命中数据为准。
 
 ### 情绪系统：模型不肯吐标记 → 加强指令 + 面板历史折叠
 
