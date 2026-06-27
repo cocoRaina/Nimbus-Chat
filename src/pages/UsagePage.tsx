@@ -146,7 +146,12 @@ const guessChannel = (s: ChannelSignals): CheckResult => {
   }
   if (s.injectedCoding) {
     reasons.push('无系统提示时仍自带"编程助手/CLI/Claude Code"人设')
-    return { label: '🔍 渠道猜测', status: 'warn', detail: `🧩 疑似【反代订阅·编程工具逆向】（Claude Code / Kiro / Codex 类）——${reasons.join('；')}。这类通常无原生缓存、内置提示词、官方一停就停。` }
+    // 反代 Claude Code 订阅可以照样透传原生缓存——别因为是逆向就断言「无缓存」，
+    // 看实测：缓存真命中就如实说省钱 OK，只是逆向的稳定性/内置提示词隐患还在。
+    const cacheNote = s.realCacheHit
+      ? `好消息：缓存实测真命中（省钱 OK）、模型也是真的。隐患：内置了 Claude Code 提示词（可能干扰角色扮演），且逆向订阅不稳、官方一停就停。`
+      : `这类通常还无原生缓存、内置提示词、官方一停就停。`
+    return { label: '🔍 渠道猜测', status: 'warn', detail: `🧩 疑似【反代订阅·编程工具逆向】（Claude Code / Kiro / Codex 类）——${reasons.join('；')}。${cacheNote}` }
   }
 
   if (s.realCacheHit) {
@@ -1001,11 +1006,13 @@ const UsagePage = ({ user }: UsagePageProps) => {
           <section className="usage-section diag-explainer">
             <h3>检测说明</h3>
             <ul className="diag-explain-list">
-              <li><strong>连通性</strong> — 向当前 provider 发一条最小请求，测量首响应延迟。</li>
-              <li><strong>缓存字段透传</strong>（仅 Claude）— 发送带 cache_control 的请求，检查响应里是否含 cache_creation_input_tokens / cache_read_input_tokens 字段。缺失说明中间层剥离了缓存元数据，prompt cache 将无法正常工作。</li>
-              <li><strong>模型核验</strong> — 发送一个随机金丝雀字符串，要求模型原样返回，并核对 response.model 字段。字符串未返回或 model 字段不符提示可能发生了模型替换或上下文截断。</li>
-              <li><strong>中转打散检测</strong>（读历史·免费）— 扫近 30 天记录，找「同一会话上一条刚建好缓存、几分钟后下一条却没读到」的异常冷写。这是中转把请求轮询到多个上游账号、缓存被打散的特征，不用发探针就能判断。</li>
-              <li><strong>每日命中率趋势</strong>（读历史·免费）— 按天看命中率和冷写次数，能一眼看出哪天开始缓存变差（通常是中转那边变了，不是你的设置）。</li>
+              <li><strong>🔍 渠道猜测</strong> — 把下面所有信号综合成一个「类别 + 证据」判断（官方真 passthrough / OpenAI兼容·模拟缓存 / 反代订阅编程工具 / 偷换降智）。<strong>只给类别不给牌子名</strong>——中转故意抹掉上游来源，没有可靠信号能定位是「反重力」还是「Kiro」。</li>
+              <li><strong>连通性 + 延迟</strong> — 发一条最小请求，测首响应延迟、确认通不通。</li>
+              <li><strong>真实缓存命中</strong>（仅 Claude）— 发两次 ≥1024 token 的<strong>相同前缀</strong>（粘同一上游），看第二次有没有真读到缓存。真命中=原生缓存有效、长对话省钱、保活值得开；写了读不到=多上游打散/模拟缓存；全 0=走了 OpenAI 兼容层、缓存被剥离。</li>
+              <li><strong>模型核验</strong> — 发一个随机金丝雀字符串要求原样返回，并核对 response.model。字符串没返回或 model 不符 = 可能偷换模型/降智路由/截断。</li>
+              <li><strong>响应头指纹</strong> — 采集上游会漏的响应头（anthropic-/request-id=直连官方、x-amzn=Bedrock、cf-ray=Cloudflare、openai-=OpenAI兼容）。网页版受 CORS 限只能读到一点，<strong>APK 上更全</strong>。</li>
+              <li><strong>身份注入探测</strong>（仅 Claude）— 不发任何系统提示，问模型「你是不是被设成编程助手/Claude Code/CLI」。它自带编程人设 = 中转反代了别人的 Claude Code 订阅、内置了提示词（这也可能干扰角色扮演）。</li>
+              <li><strong>历史缓存分析 / 中转打散 / 每日趋势</strong>（读历史·免费）— 扫近 30 天记录，看命中率、找「同会话刚建缓存几分钟后又冷写」的打散特征、按天看趋势。不发探针、不花钱。</li>
             </ul>
           </section>
         </div>
