@@ -184,3 +184,17 @@
 .mood-ov__switch.is-on .mood-ov__switch-knob {
   transform: translateX(18px);
 }
+
+.mood-ov__hist-more {
+  margin-top: 2px;
+}
+.mood-ov__hist-more > summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: #789ec8;
+  margin-bottom: 8px;
+  list-style: none;
+}
+.mood-ov__hist-more > summary::-webkit-details-marker {
+  display: none;
+}

@@ -37,6 +37,17 @@ const timeAgo = (iso: string): string => {
 const snapshotLine = (h: MoodHistoryRow): string =>
   ORDER.map((k) => `${LABEL.get(k)}${Math.round((h as unknown as Record<string, number>)[k] ?? 0)}`).join(' · ')
 
+const renderHistItem = (h: MoodHistoryRow, key: number) => (
+  <div className="mood-ov__hist-item" key={key}>
+    <p className="mood-ov__hist-meta">
+      <span className="mood-ov__hist-time">{timeAgo(h.createdAt)}</span>
+      {h.tone ? <span className="mood-ov__hist-tone">「{h.tone}」</span> : null}
+    </p>
+    {h.note ? <p className="mood-ov__hist-note">{h.note}</p> : null}
+    <p className="mood-ov__hist-snap">{snapshotLine(h)}</p>
+  </div>
+)
+
 type Props = {
   open: boolean
   onClose: () => void
@@ -94,17 +105,14 @@ const MoodOverlay = ({ open, onClose, userId }: Props) => {
 
             {history.length > 0 ? (
               <div className="mood-ov__history">
-                <p className="mood-ov__hist-title">近 {history.length} 条 · 他没说出口的</p>
-                {history.map((h, i) => (
-                  <div className="mood-ov__hist-item" key={i}>
-                    <p className="mood-ov__hist-meta">
-                      <span className="mood-ov__hist-time">{timeAgo(h.createdAt)}</span>
-                      {h.tone ? <span className="mood-ov__hist-tone">「{h.tone}」</span> : null}
-                    </p>
-                    {h.note ? <p className="mood-ov__hist-note">{h.note}</p> : null}
-                    <p className="mood-ov__hist-snap">{snapshotLine(h)}</p>
-                  </div>
-                ))}
+                <p className="mood-ov__hist-title">他没说出口的</p>
+                {history.slice(0, 2).map((h, i) => renderHistItem(h, i))}
+                {history.length > 2 ? (
+                  <details className="mood-ov__hist-more">
+                    <summary>展开更早（{history.length - 2}）</summary>
+                    {history.slice(2).map((h, i) => renderHistItem(h, i + 2))}
+                  </details>
+                ) : null}
               </div>
             ) : null}
           </>

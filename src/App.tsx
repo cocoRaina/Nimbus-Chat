@@ -1323,9 +1323,12 @@ const App = () => {
       // Emotion system rules go in the cached system prefix (static — only
       // shifts when this code changes). The per-turn mood values ride in the
       // last user message (see below), never in system, to protect the cache.
+      // Placed LAST in the system prompt: the mandatory <<MOOD>> output format
+      // is an instruction the model tends to drop when it's buried mid-prompt
+      // under a strong roleplay persona — recency boosts compliance.
       const moodRulesSection = getMoodEnabled() ? buildMoodRulesSection() : ''
       const systemPrompt =
-        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + buildVoiceSystemSection() + moodRulesSection + toolActionReminder
+        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + buildVoiceSystemSection() + toolActionReminder + moodRulesSection
       const isFirstMessageInSession = !messagesRef.current.some(
         (message) =>
           message.sessionId === sessionId &&
