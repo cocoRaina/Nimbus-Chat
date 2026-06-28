@@ -1,8 +1,7 @@
 import { useRef, useState } from 'react'
 import './VoiceRecordBubble.css'
 
-
-// Deterministic waveform heights seeded by URL so they're stable on re-render
+// Fallback: deterministic waveform seeded by URL (used when no real amplitude data)
 function makeWaveBars(seed: string, count = 22): number[] {
   let h = 0
   return Array.from({ length: count }, (_, i) => {
@@ -12,18 +11,24 @@ function makeWaveBars(seed: string, count = 22): number[] {
   })
 }
 
+// Map real amplitude samples (0-100) to bar height percentages (18-90)
+function realWaveBars(samples: number[]): number[] {
+  return samples.map((v) => Math.round(18 + (v / 100) * 72))
+}
+
 export type VoiceRecordBubbleProps = {
   url: string
   duration?: number    // ms
   transcription?: string
   emotion?: string
+  waveform?: number[]  // real amplitude data captured during recording (22 values, 0-100)
 }
 
-export default function VoiceRecordBubble({ url, duration, transcription, emotion }: VoiceRecordBubbleProps) {
+export default function VoiceRecordBubble({ url, duration, transcription, waveform }: VoiceRecordBubbleProps) {
   const [playing, setPlaying] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const bars = makeWaveBars(url)
+  const bars = waveform ? realWaveBars(waveform) : makeWaveBars(url)
 
   const durationSec = duration ? Math.round(duration / 1000) : null
 

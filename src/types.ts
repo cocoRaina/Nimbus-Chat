@@ -11,7 +11,7 @@ export type ChatSession = {
 
 export type MessageAttachment =
   | { type: 'image'; url: string; width?: number; height?: number }
-  | { type: 'voice'; url: string; duration?: number; transcription?: string; emotion?: string }
+  | { type: 'voice'; url: string; duration?: number; transcription?: string; emotion?: string; waveform?: number[] }
 
 export type ChatMessage = {
   id: string

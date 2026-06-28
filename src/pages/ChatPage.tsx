@@ -265,6 +265,7 @@ const MessageRow = memo(function MessageRow({
                       duration={att.duration}
                       transcription={att.transcription}
                       emotion={att.emotion}
+                      waveform={att.waveform}
                     />
                   ) : null,
                 )}
@@ -398,6 +399,9 @@ const ChatPage = ({
   const recordChunksRef = useRef<Blob[]>([])
   const recordStartRef = useRef<number>(0)
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const waveformSamplesRef = useRef<number[]>([])
   // Lazy load: only render the last N messages on entry. The full
   // history is in the prop, but rendering 500+ bubbles + their
   // markdown was the source of the "进入会卡" the user reported.
@@ -483,14 +487,36 @@ const ChatPage = ({
       const mimeType = getBestMimeType()
       const mr = new MediaRecorder(stream, { mimeType })
       recordChunksRef.current = []
+      waveformSamplesRef.current = []
       mr.ondataavailable = (e) => { if (e.data.size > 0) recordChunksRef.current.push(e.data) }
       mediaRecorderRef.current = mr
       recordStartRef.current = Date.now()
       mr.start(200)
+
+      // 实时振幅采样（每 200ms 一次，与 MediaRecorder timeslice 对齐）
+      try {
+        const audioCtx = new AudioContext()
+        audioContextRef.current = audioCtx
+        const source = audioCtx.createMediaStreamSource(stream)
+        const analyser = audioCtx.createAnalyser()
+        analyser.fftSize = 256
+        source.connect(analyser)
+        analyserRef.current = analyser
+      } catch {
+        // AudioContext 不可用时静默降级为伪随机波形
+      }
+
       setRecordState('recording')
       setRecordDurationMs(0)
       recordTimerRef.current = setInterval(() => {
         setRecordDurationMs(Date.now() - recordStartRef.current)
+        // 采样 RMS 振幅，归一化到 0-100
+        if (analyserRef.current) {
+          const data = new Uint8Array(analyserRef.current.frequencyBinCount)
+          analyserRef.current.getByteTimeDomainData(data)
+          const rms = Math.sqrt(data.reduce((s, v) => s + (v - 128) ** 2, 0) / data.length)
+          waveformSamplesRef.current.push(Math.min(100, Math.round(rms * 2.2)))
+        }
       }, 200)
     } catch {
       // 权限拒绝或无麦克风
@@ -502,6 +528,20 @@ const ChatPage = ({
     const mr = mediaRecorderRef.current
     if (!mr || recordState !== 'recording') return
     if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
+    // 关闭 AudioContext
+    void audioContextRef.current?.close()
+    audioContextRef.current = null
+    analyserRef.current = null
+    // 降采样到 22 根柱，保持最小高度 12
+    const raw = waveformSamplesRef.current
+    const waveform: number[] | undefined = raw.length >= 2
+      ? Array.from({ length: 22 }, (_, i) => {
+          const idx = Math.round((i / 21) * (raw.length - 1))
+          return Math.max(12, raw[idx])
+        })
+      : undefined
+    waveformSamplesRef.current = []
+
     mr.onstop = async () => {
       const durationMs = Date.now() - recordStartRef.current
       mr.stream.getTracks().forEach((t) => t.stop())
@@ -523,10 +563,9 @@ const ChatPage = ({
         const userId = user?.id
         if (!userId) throw new Error('未登录')
         const { url } = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)
-        // 转录在后台完成，结果存进 attachment，Claude 读转录文字
         const { text, emotion } = await transcribeVoice(url)
         await onSendMessage(text || '[语音消息]', {
-          attachments: [{ type: 'voice' as const, url, duration: durationMs, transcription: text, emotion: emotion ?? undefined }],
+          attachments: [{ type: 'voice' as const, url, duration: durationMs, transcription: text, emotion: emotion ?? undefined, waveform }],
           ...(emotion ? { voiceEmotion: emotion } : {}),
         })
       } catch (err) {
@@ -544,6 +583,10 @@ const ChatPage = ({
     const mr = mediaRecorderRef.current
     if (!mr) return
     if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
+    void audioContextRef.current?.close()
+    audioContextRef.current = null
+    analyserRef.current = null
+    waveformSamplesRef.current = []
     mr.onstop = () => {
       mr.stream.getTracks().forEach((t) => t.stop())
       mediaRecorderRef.current = null
