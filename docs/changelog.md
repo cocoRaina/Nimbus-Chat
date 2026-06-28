@@ -80,6 +80,55 @@
 
 ---
 
+## 2026-06-28
+
+### 语音消息「发送中 → 没反应」：三个叠加根因
+
+**症状**：按住录音、松开，界面显示「发送中」，然后没有任何反应，消息不出现。
+
+**根因 1 — `transcribe-voice` Edge Function 从未部署**：
+日志里每次调用都返回 `POST 404`，`deployment_id: null / function_id: null`。函数代码
+在 `supabase/functions/transcribe-voice/index.ts` 里从来没被 deploy 到 Supabase 项目。
+老版本代码把转录失败当致命错误处理，于是整条发送路径因 404 中断，UI 卡在发送中，
+没有任何错误提示。
+
+**根因 2 — 转录失败是致命错误**：
+`stopAndSend` 里 `transcribeVoice(url)` 抛出异常时，整个 try/catch 走到 catch，
+静默 `console.error`，没有弹窗或任何用户可见反馈。
+
+**根因 3 — Android WebView 指针捕获丢失**：
+原来录音/等待/发送三个状态渲染三个不同的 `<div>`，React 切换 DOM 节点时 Android
+WebView 的 `pointercapture` 丢失，`onPointerUp` 触发不到 → 松手没反应。
+
+**修**：
+- 把 `transcribeVoice` 包进内层 try/catch，失败时 `console.warn` 继续，语音以
+  `[语音消息]` 无转录文字发出，不中断整条流程。
+- 上传失败（真正的错误）弹 `uploadErrorDialog` 对话框告知用户。
+- 语音条改为**单一持久 `<div>`**，三个状态只改 className + 内部文字，不换 DOM 节点，
+  pointer capture 不再丢。
+- 用 MCP `deploy_edge_function` 将 `transcribe-voice` 部署到项目（`verify_jwt:false`，
+  函数内部自己用 `createClient` 验 JWT）。
+
+**⚠️ Claude Code 远端环境 MCP 审批没有弹窗（踩坑）**：
+在 Claude Code 远端执行环境（Web/GitHub Action 等）里，MCP 工具首次调用会提示
+「requires approval」，但**界面上没有弹窗**——需要用户在 Claude Code 会话 UI 主动
+allow 一次，或者换用重新连接的 MCP server（旧 server id `08053c26...` 断后新换成
+`mcp__Supabase__*`）。别以为 deploy 已经执行了，看返回值确认 `"status":"ACTIVE"`。
+
+### 语音条功能完善：真实波形 + 情绪接入
+
+- **真实波形（Method A）**：录音期间用 `AudioContext + AnalyserNode` 每 200ms 采样
+  RMS 振幅（0-100），录完下采样到 22 个值存进 attachment `waveform[]`。
+  `VoiceRecordBubble` 收到 `waveform` 时用 `realWaveBars` 映射 → 18-90% 高度，
+  无数据时回退 `makeWaveBars(url)`（伪随机、确定性）。
+- **情绪只传文字，不影响面板**：`transcribe-voice` 解析 SenseVoice 情绪标签后，
+  `queueUserMessage` 把情绪追加为括号文字 `（语气：难过）` 拼进 `content`，传给
+  沈暮做语气感知。不碰 `moodSystem`，贪嗔痴念面板不受影响（面板纯靠 AI 自评
+  `<<MOOD>>` 标记驱动）。
+- **去掉情绪 emoji**：`VoiceRecordBubble` 不再显示 emoji 情绪标记，保持气泡简洁。
+
+---
+
 ## 2026-06-27
 
 ### API 检测面板升级 + 渠道猜测（防中转站骗）
