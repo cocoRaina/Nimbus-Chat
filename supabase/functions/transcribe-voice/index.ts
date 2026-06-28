@@ -19,19 +19,23 @@ const json = (b: unknown, s = 200) =>
 //   <|HAPPY|><|zh|><|Speech|>...<|withitn|>实际文字
 //   HAPPY|实际文字
 function parseTranscription(text: string): { cleanText: string; emotion: string | null } {
-  // SenseVoice actual tag spellings: SURPRISE / FEAR / DISGUST (no -ED/-FUL suffix)
-  const EMOTION_TAGS = /HAPPY|SAD|ANGRY|NEUTRAL|SURPRISE|FEAR|DISGUST/
+  // SenseVoice emotion tags (7 primary + unknown + meaningful audio events)
+  const EMOTION_TAGS = /^(HAPPY|SAD|ANGRY|NEUTRAL|SURPRISED|FEARFUL|DISGUSTED|LAUGHTER|CRY|Unknown_Emo)$/i
   let emotion: string | null = null
   let cleaned = text
 
-  // Strip <|TAG|> angle-bracket markers; capture the first emotion tag seen
+  // Strip <|TAG|> angle-bracket markers; capture the first meaningful emotion/event tag
   cleaned = cleaned.replace(/<\|([^|]+)\|>/g, (_, tag: string) => {
-    if (EMOTION_TAGS.test(tag) && !emotion) emotion = tag.toUpperCase()
+    if (EMOTION_TAGS.test(tag) && !emotion) {
+      const upper = tag.toUpperCase()
+      // Unknown_Emo and NEUTRAL → treat as no emotion
+      emotion = (upper === 'UNKNOWN_EMO' || upper === 'NEUTRAL') ? null : upper
+    }
     return ''
   })
 
   // Pipe-prefix format: "HAPPY|text"
-  const pipeMatch = /^(HAPPY|SAD|ANGRY|NEUTRAL|SURPRISE|FEAR|DISGUST)\|/i.exec(cleaned)
+  const pipeMatch = /^(HAPPY|SAD|ANGRY|NEUTRAL|SURPRISED|FEARFUL|DISGUSTED|LAUGHTER|CRY)\|/i.exec(cleaned)
   if (pipeMatch) {
     if (!emotion) emotion = pipeMatch[1].toUpperCase()
     cleaned = cleaned.slice(pipeMatch[0].length)
