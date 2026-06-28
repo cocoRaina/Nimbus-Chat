@@ -402,6 +402,8 @@ const ChatPage = ({
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const waveformSamplesRef = useRef<number[]>([])
+  const [inCancelZone, setInCancelZone] = useState(false)
+  const pointerStartXRef = useRef<number>(0)
   // Lazy load: only render the last N messages on entry. The full
   // history is in the prop, but rendering 500+ bubbles + their
   // markdown was the source of the "进入会卡" the user reported.
@@ -1489,25 +1491,41 @@ const ChatPage = ({
             // 事件函数始终挂着（不做条件赋值），避免 Android WebView re-render 时
             // 浏览器移除 listener 导致 pointerup/touchend 丢失。
             <div
-              className={`composer-hold-bar${recordState === 'recording' ? ' composer-hold-bar--recording' : recordState === 'sending' ? ' composer-hold-bar--sending' : ''}`}
-              onPointerDown={() => { if (recordState === 'idle') void startRecording() }}
-              onPointerUp={() => { if (recordState === 'recording') stopAndSend() }}
-              onPointerCancel={() => { if (recordState === 'recording') cancelRecording() }}
+              className={`composer-hold-bar${recordState === 'recording' ? (inCancelZone ? ' composer-hold-bar--cancel' : ' composer-hold-bar--recording') : recordState === 'sending' ? ' composer-hold-bar--sending' : ''}`}
+              onPointerDown={(e) => {
+                if (recordState === 'idle') {
+                  pointerStartXRef.current = e.clientX
+                  setInCancelZone(false)
+                  void startRecording()
+                }
+              }}
+              onPointerMove={(e) => {
+                if (recordState === 'recording') {
+                  setInCancelZone(e.clientX - pointerStartXRef.current < -60)
+                }
+              }}
+              onPointerUp={() => {
+                if (recordState === 'recording') {
+                  if (inCancelZone) { setInCancelZone(false); cancelRecording() }
+                  else stopAndSend()
+                }
+              }}
+              onPointerCancel={() => { if (recordState === 'recording') { setInCancelZone(false); cancelRecording() } }}
               role="button"
-              aria-label={recordState === 'idle' ? '按住说话' : recordState === 'recording' ? '松手发送' : '发送中'}
+              aria-label={recordState === 'idle' ? '按住说话' : recordState === 'recording' ? (inCancelZone ? '松开取消' : '松手发送') : '发送中'}
               tabIndex={0}
             >
               {recordState === 'recording' ? (
                 <>
                   <span className="composer-recording-dot" aria-hidden="true" />
                   <span className="composer-hold-bar-text">
-                    {Math.floor(recordDurationMs / 1000)}″ · 松手发送
+                    {inCancelZone ? '← 松开取消' : `${Math.floor(recordDurationMs / 1000)}″ · 松手发送`}
                   </span>
                 </>
               ) : recordState === 'sending' ? (
                 <span className="composer-hold-bar-text">发送中…</span>
               ) : (
-                <span className="composer-hold-bar-text">按住说话</span>
+                <span className="composer-hold-bar-text">按住说话 · 左滑取消</span>
               )}
             </div>
           ) : (

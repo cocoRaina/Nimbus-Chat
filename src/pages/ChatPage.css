@@ -1611,6 +1611,16 @@
   opacity: 0.9;
 }
 
+.composer-hold-bar--cancel {
+  background: rgba(100, 100, 100, 0.15);
+  border-color: rgba(100, 100, 100, 0.35);
+}
+
+.composer-hold-bar--cancel .composer-hold-bar-text {
+  color: #888;
+  opacity: 0.9;
+}
+
 /* ── Voice recording composer state ────────────────────────── */
 .composer-recording-indicator {
   flex: 1;
