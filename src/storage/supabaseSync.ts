@@ -255,6 +255,7 @@ export const fetchSessionRecentMessages = async (
 export const createRemoteSession = async (
   userId: string,
   title: string,
+  id?: string,
 ): Promise<ChatSession> => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
@@ -263,6 +264,7 @@ export const createRemoteSession = async (
   const { data, error } = await supabase
     .from('sessions')
     .insert({
+      ...(id ? { id } : {}),
       user_id: userId,
       title,
       created_at: now,

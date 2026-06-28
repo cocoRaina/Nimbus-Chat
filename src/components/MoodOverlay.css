@@ -1,0 +1,200 @@
+/* 浅蓝色系（冰蓝天使）：BG #F4F8FC · SURFACE #DEEAF5 · MUTED #C5D6EC
+   · ACCENT #98B5D8 · STRONG #789EC8 · TEXT #586878 */
+.mood-ov__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 4.5rem 1rem 1.5rem;
+  background: rgba(88, 104, 120, 0.22);
+  backdrop-filter: blur(3px);
+  overflow-y: auto;
+}
+
+.mood-ov__card {
+  width: 100%;
+  max-width: 420px;
+  background: #f4f8fc;
+  border: 1px solid #c5d6ec;
+  border-radius: 22px;
+  padding: 16px 18px 20px;
+  color: #586878;
+  box-shadow: 0 18px 50px rgba(120, 158, 200, 0.3);
+}
+
+.mood-ov__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.mood-ov__title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #789ec8;
+}
+.mood-ov__close {
+  background: none;
+  border: none;
+  color: #98b5d8;
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.mood-ov__tone {
+  margin: 10px 0 14px;
+  font-size: 0.95rem;
+  color: #586878;
+  font-style: italic;
+}
+
+.mood-ov__bars {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.mood-ov__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mood-ov__label {
+  flex: 0 0 1.6em;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #586878;
+}
+.mood-ov__track {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: #deeaf5;
+  overflow: hidden;
+}
+.mood-ov__fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+.mood-ov__num {
+  flex: 0 0 1.8em;
+  text-align: right;
+  font-size: 0.78rem;
+  color: #789ec8;
+  font-variant-numeric: tabular-nums;
+}
+
+.mood-ov__satisfied {
+  margin: 14px 0 0;
+  font-size: 0.78rem;
+  color: #8ba2bb;
+}
+
+.mood-ov__history {
+  margin-top: 16px;
+  border-top: 1px solid #c5d6ec;
+  padding-top: 12px;
+}
+.mood-ov__hist-title {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #789ec8;
+}
+.mood-ov__hist-item {
+  margin-bottom: 12px;
+}
+.mood-ov__hist-meta {
+  margin: 0 0 3px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.mood-ov__hist-time {
+  color: #789ec8;
+  font-size: 0.78rem;
+}
+.mood-ov__hist-tone {
+  color: #586878;
+  font-size: 0.82rem;
+  font-style: italic;
+}
+.mood-ov__hist-note {
+  margin: 0 0 3px;
+  font-size: 0.86rem;
+  color: #586878;
+  line-height: 1.45;
+}
+.mood-ov__hist-snap {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #9bb0c6;
+  font-variant-numeric: tabular-nums;
+}
+
+.mood-ov__off {
+  margin: 18px 0;
+  text-align: center;
+  font-size: 0.88rem;
+  color: #8ba2bb;
+}
+
+.mood-ov__footer {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #c5d6ec;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: #586878;
+}
+.mood-ov__switch {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  border: none;
+  padding: 0;
+  background: #c5d6ec;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.mood-ov__switch.is-on {
+  background: #789ec8;
+}
+.mood-ov__switch-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(88, 104, 120, 0.35);
+  transition: transform 0.2s ease;
+}
+.mood-ov__switch.is-on .mood-ov__switch-knob {
+  transform: translateX(18px);
+}
+
+.mood-ov__hist-more {
+  margin-top: 2px;
+}
+.mood-ov__hist-more > summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: #789ec8;
+  margin-bottom: 8px;
+  list-style: none;
+}
+.mood-ov__hist-more > summary::-webkit-details-marker {
+  display: none;
+}

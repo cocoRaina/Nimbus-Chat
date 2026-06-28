@@ -41,16 +41,25 @@ const VoiceBubble = memo(function VoiceBubble({ text }: Props) {
       setError(null)
       try {
         const cfg = getTtsConfig()
-        const { data, error: err } = await supabase.functions.invoke('tts', {
-          body: {
-            text,
-            voice_id: cfg.voiceId,
-            api_key: cfg.apiKey,
-            group_id: cfg.groupId,
-            base_url: cfg.baseUrl,
-            model: cfg.model,
-          },
-        })
+        const body = cfg.provider === 'elevenlabs'
+          ? {
+              provider: 'elevenlabs',
+              text,
+              voice_id: cfg.elVoiceId,
+              api_key: cfg.elApiKey,
+              model: cfg.elModel,
+              stability: cfg.elStability,
+            }
+          : {
+              provider: 'minimax',
+              text,
+              voice_id: cfg.voiceId,
+              api_key: cfg.apiKey,
+              group_id: cfg.groupId,
+              base_url: cfg.baseUrl,
+              model: cfg.model,
+            }
+        const { data, error: err } = await supabase.functions.invoke('tts', { body })
         if (err) throw new Error(err.message ?? String(err))
         const b64 = (data as { audio_base64?: string; error?: string })?.audio_base64
         if (!b64) throw new Error((data as { error?: string })?.error ?? '合成失败')

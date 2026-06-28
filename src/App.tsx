@@ -4,8 +4,23 @@ import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 're
 import ChatPage from './pages/ChatPage'
 import AuthPage from './pages/AuthPage'
 import SessionsDrawer from './components/SessionsDrawer'
+import ConfirmDialog from './components/ConfirmDialog'
 import type { ChatMessage, ChatSession, MessageAttachment, UserSettings } from './types'
 import { usePendingShare } from './hooks/useShareReceiver'
+import { hydrateTtsConfig, buildVoiceSystemSection } from './storage/ttsConfig'
+import { getKeepaliveEnabled, setKeepaliveEnabledPref, hydrateKeepalivePref } from './storage/keepalivePref'
+import {
+  getMoodEnabled,
+  getMood,
+  hydrateMood,
+  loadRemoteMood,
+  buildMoodNarration,
+  buildMoodRulesSection,
+  parseMoodMarker,
+  stripMoodMarker,
+  applyMoodAssessment,
+  commitMood,
+} from './storage/moodSystem'
 import {
   addMessage,
   createSession,
@@ -35,7 +50,6 @@ import {
   fetchHealthSnapshot,
   fetchRemoteMessages,
   fetchRemoteSessions,
-  fetchSessionRecentMessages,
   listLockedMemories,
   renameRemoteSession,
   updateMemory,
@@ -43,15 +57,24 @@ import {
   updateRemoteSessionOverride,
   updateRemoteSessionReasoningOverride,
 } from './storage/supabaseSync'
-import { getSupabaseConfig, hasSupabaseConfig, subscribeSupabaseConfigChange, supabase } from './supabase/client'
-import { configureProactivePoll, markProactiveSeen } from './plugins/ProactivePoll'
-import { getAssistantName } from './storage/assistantPersona'
+import { hasSupabaseConfig, subscribeSupabaseConfigChange, supabase } from './supabase/client'
+import {
+  cancelProactiveNotification,
+  clearPendingProactive,
+  clearPersistProactive,
+  readPendingProactive,
+  readPersistProactive,
+  savePendingProactive,
+  scheduleProactiveNotification,
+  shouldScheduleProactive,
+} from './storage/proactiveNotification'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import './App.css'
 // Heavy routes are code-split — only the active route's chunk loads.
 // Keep AuthPage and ChatPage statically imported (they're hit immediately).
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const MyHomePage = lazy(() => import('./pages/MyHomePage'))
 const AssistantHomePage = lazy(() => import('./pages/AssistantHomePage'))
+const MomentsPage = lazy(() => import('./pages/MomentsPage'))
 const MemoryVaultPage = lazy(() => import('./pages/MemoryVaultPage'))
 const CheckinPage = lazy(() => import('./pages/CheckinPage'))
 const HealthSyncPage = lazy(() => import('./pages/HealthSyncPage'))
@@ -78,6 +101,8 @@ import {
 import { recordUsage } from './storage/usageStats'
 import { maybeAutoSyncHealth, syncHealthDataToSupabase } from './storage/healthSync'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
+import { peekEnvSnapshot, refreshEnvSnapshot } from './storage/envState'
+import { requestBluetoothName } from './plugins/EnvState'
 import { getDeviceState } from './storage/deviceState'
 import { runSandboxCode } from './storage/sandbox'
 import {
@@ -104,19 +129,8 @@ import {
   TOOL_SEARCH_STICKERS,
 } from './tools/definitions'
 import { syncStatusBarToAccent, syncStatusBarToColor } from './storage/statusBar'
-import {
-  cancelProactiveNotification,
-  clearPendingProactive,
-  clearPersistProactive,
-  readPendingProactive,
-  readPersistProactive,
-  savePendingProactive,
-  scheduleProactiveNotification,
-  shouldScheduleProactive,
-} from './storage/proactiveNotification'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
-import { LocalNotifications } from '@capacitor/local-notifications'
 import { compressIfNeeded } from './storage/conversationCompression'
 
 const MEMORY_EXTRACT_RECENT_MESSAGES = 24
@@ -156,24 +170,42 @@ const sortMessages = (messages: ChatMessage[]) =>
   )
 
 const selectMostRecentSession = (sessions: ChatSession[]) => {
-  if (sessions.length === 0) {
+  const active = sessions.filter((s) => !s.isArchived)
+  const pool = active.length > 0 ? active : sessions
+  if (pool.length === 0) {
     return null
   }
-  return sessions.reduce<ChatSession>((latest, session) => {
+  return pool.reduce<ChatSession>((latest, session) => {
     const latestTime = new Date(latest.updatedAt ?? latest.createdAt).getTime()
     const sessionTime = new Date(session.updatedAt ?? session.createdAt).getTime()
     return sessionTime > latestTime ? session : latest
-  }, sessions[0])
+  }, pool[0])
 }
 
 const mergeMessages = (localMessages: ChatMessage[], remoteMessages: ChatMessage[]) => {
   const merged = [...localMessages]
+  // Index local messages by clientId + id for O(1) lookup. The old code did a
+  // findIndex over the full local history for EACH remote message — O(n×m),
+  // which on a long chat (thousands of local × 300 remote) burned 100-300ms of
+  // main-thread time on every cold load. clientId is the stable cross-store
+  // identity (a remote echo of an optimistic local message keeps its clientId
+  // but gains a new server id), so it's checked first.
+  const byClientId = new Map<string, number>()
+  const byId = new Map<string, number>()
+  merged.forEach((m, i) => {
+    if (m.clientId) byClientId.set(m.clientId, i)
+    if (m.id) byId.set(m.id, i)
+  })
   remoteMessages.forEach((message) => {
-    const index = merged.findIndex(
-      (existing) => existing.id === message.id || existing.clientId === message.clientId,
-    )
+    const index =
+      (message.clientId !== undefined ? byClientId.get(message.clientId) : undefined) ??
+      (message.id !== undefined ? byId.get(message.id) : undefined) ??
+      -1
     if (index === -1) {
+      const newIndex = merged.length
       merged.push(message)
+      if (message.clientId) byClientId.set(message.clientId, newIndex)
+      if (message.id) byId.set(message.id, newIndex)
       return
     }
     const existing = merged[index]
@@ -190,6 +222,31 @@ const mergeMessages = (localMessages: ChatMessage[], remoteMessages: ChatMessage
 
 const createClientId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+const parseApiError = (raw: string): string => {
+  try {
+    const json = JSON.parse(raw) as Record<string, unknown>
+    const inner = (json?.error ?? json) as Record<string, unknown>
+    const msg = typeof inner?.message === 'string' ? inner.message : null
+    if (msg) {
+      const lower = msg.toLowerCase()
+      if (lower.includes('disk overload') || lower.includes('disk full')) return '服务商磁盘负载过高，请稍后重试'
+      if (lower.includes('rate limit') || lower.includes('too many requests')) return '请求过于频繁，请稍后重试'
+      if (lower.includes('insufficient') || lower.includes('credit') || lower.includes('quota')) return '账户余额不足，请充值后重试'
+      if (lower.includes('invalid api key') || lower.includes('unauthorized') || lower.includes('authentication')) return 'API Key 无效，请在设置中检查'
+      if (lower.includes('context length') || lower.includes('too many tokens') || lower.includes('token limit')) return '消息太长超出模型限制，请开启新会话'
+      if ((lower.includes('model') && lower.includes('not found')) || lower.includes('model_not_found')) return '模型不可用，请在设置中切换模型'
+      if (lower.includes('timeout') || lower.includes('timed out')) return '请求超时，请稍后重试'
+      return msg
+    }
+  } catch {
+    // not JSON
+  }
+  const lower = raw.toLowerCase()
+  if (lower.includes('failed to fetch') || lower.includes('networkerror')) return '网络连接失败，请检查网络'
+  if (!raw || raw.length > 200) return '请稍后重试'
+  return raw
+}
 
 const defaultOpenRouterModel = 'openrouter/auto'
 const updateMessage = (messages: ChatMessage[], next: ChatMessage) =>
@@ -462,6 +519,13 @@ const App = () => {
   const [settingsReady, setSettingsReady] = useState(false)
   const [sessionsReady, setSessionsReady] = useState(false)
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null)
+  const [chatError, setChatError] = useState<string | null>(null)
+  // Tracks which user.id we've already done the initial remote load for.
+  // Supabase fires onAuthStateChange on every token refresh (same user, new
+  // object reference) which re-runs the loadRemote effect. We only want to
+  // pre-hydrate from localStorage on the first load per user; subsequent
+  // re-runs should silently merge fresh Supabase data without touching state.
+  const lastLoadedUserIdRef = useRef<string | null>(null)
   const [supabaseConfigured, setSupabaseConfigured] = useState(() => hasSupabaseConfig())
   const sessionsRef = useRef(sessions)
   const messagesRef = useRef(messages)
@@ -469,38 +533,49 @@ const App = () => {
   // Track when we last received a streamed chunk. Used to detect streams
   // that got silently killed while the app was backgrounded.
   const lastChunkAtRef = useRef<number>(0)
-  // Set later (after sendMessage is defined). Visibility handler calls it
-  // through the ref to dodge declaration-order.
-  const maybeSendProactiveRef = useRef<(sessionId: string) => Promise<void>>(
-    async () => undefined,
-  )
-  // Guards against triple-fire: visibilitychange + appStateChange +
-  // localNotificationActionPerformed all call handleVisibilityChange at
-  // the same time. Without this, a single foreground event can trigger
-  // three parallel nudge sends.
-  const proactiveNudgePendingRef = useRef(false)
-  // Merges any server-dispatched messages for the current session into
-  // local state. Set later via useEffect; ref avoids stale closure.
-  const refreshCurrentSessionRef = useRef<(sessionId: string) => Promise<void>>(
-    async () => undefined,
-  )
-  const refreshingSessionRef = useRef(false)
-  // Inserts a pre-generated proactive message into the session as an
-  // assistant turn. Set later, called via ref for same declaration reason.
-  const insertPendingProactiveRef = useRef<
-    (entry: { sessionId: string; text: string; fireAt: number; persist?: boolean; queueId?: string }) => Promise<void>
-  >(async () => undefined)
   // Keepalive: stash a snapshot of the last successful request body so we
   // can ping it ~55 min later (just before 1h cache TTL expires) with
   // max_tokens: 0 to refresh the cache cheaply.
   const keepaliveTimerRef = useRef<number | null>(null)
   const keepaliveBodyRef = useRef<Record<string, unknown> | null>(null)
   const keepaliveControllerRef = useRef<AbortController | null>(null)
+  // Initialise from the durable pref's in-memory value (hydrated on startup
+  // below). Defaults to ON until hydration lands, then the effect syncs the
+  // real persisted value — so toggling off survives a background kill.
+  const [keepaliveEnabled, setKeepaliveEnabled] = useState(() => getKeepaliveEnabled())
+  const keepaliveEnabledRef = useRef(keepaliveEnabled)
+  keepaliveEnabledRef.current = keepaliveEnabled
+  const handleToggleKeepalive = useCallback(() => {
+    setKeepaliveEnabled((v) => {
+      const next = !v
+      setKeepaliveEnabledPref(next) // persist so it survives restart / bg kill
+      if (!next) {
+        // Turning OFF must also stop the SERVER-side keepalive, not just the
+        // client timer — the pg_cron edge function pings cache_keepalive_state
+        // every 5min regardless of this toggle. Cancel the pending client timer
+        // and delete this user's server snapshot so the cron has nothing to ping.
+        if (keepaliveTimerRef.current !== null) {
+          window.clearTimeout(keepaliveTimerRef.current)
+          keepaliveTimerRef.current = null
+        }
+        keepaliveControllerRef.current?.abort()
+        keepaliveControllerRef.current = null
+        if (supabase && user) {
+          void supabase.from('cache_keepalive_state').delete().eq('user_id', user.id)
+            .then(({ error }) => { if (error) console.warn('停用保活：删除服务端快照失败', error) })
+        }
+      }
+      return next
+    })
+  }, [user])
   // Tracks when we last successfully fired a keepalive ping (timer-driven
   // or pre-warm). prewarmKeepaliveIfStale uses this to decide whether to
   // pre-warm on chat-page entry — avoids hammering when the timer has
   // recently fired or pre-warm has already run.
   const keepaliveLastPingedAtRef = useRef<number>(0)
+  const insertPendingProactiveRef = useRef<
+    (entry: { sessionId: string; text: string; fireAt: number; persist?: boolean; queueId?: string }) => Promise<void>
+  >(async () => undefined)
   const settingsRef = useRef<UserSettings | null>(null)
   const fallbackSettings = useMemo(
     () => createDefaultSettings(user?.id ?? 'local'),
@@ -542,6 +617,20 @@ const App = () => {
     ...feedAiConfigBase,
     model: resolveModelId('syzygy', { defaultModelId }),
   }), [defaultModelId, feedAiConfigBase])
+  // Restore the durable (Capacitor Preferences) TTS config into the sync
+  // localStorage mirror on every app/WebView load, so chat voice bubbles and
+  // the settings page see what was actually saved even if a recent localStorage
+  // write was lost to an Android background kill.
+  useEffect(() => {
+    void hydrateTtsConfig()
+    // Restore the persisted keepalive on/off state. Without this it defaulted
+    // back to ON after every restart / Android background kill, re-enabling the
+    // ping the user had turned off.
+    void hydrateKeepalivePref().then((enabled) => setKeepaliveEnabled(enabled))
+    // Restore the AI's persisted mood (local-first; Supabase override on login).
+    void hydrateMood()
+  }, [])
+
   useEffect(() => {
     sessionsRef.current = sessions
   }, [sessions])
@@ -680,22 +769,6 @@ const App = () => {
       })
   }, [supabase, user])
 
-  // Schedule the native WorkManager poll that surfaces server-written
-  // spontaneous proactive messages as local notifications when the app is
-  // closed (no push service needed — works on GMS-less phones). No-op on web /
-  // when the plugin is unavailable.
-  useEffect(() => {
-    if (!user) return
-    const cfg = getSupabaseConfig()
-    if (!cfg) return
-    void configureProactivePoll({
-      supabaseUrl: cfg.url,
-      anonKey: cfg.anonKey,
-      userId: user.id,
-      persona: getAssistantName(),
-    })
-  }, [user])
-
   useEffect(() => {
     return subscribeSupabaseConfigChange(() => {
       setSupabaseConfigured(hasSupabaseConfig())
@@ -726,6 +799,14 @@ const App = () => {
       void fetchCurrentWeather()
     }, 60 * 60 * 1000)
     return () => window.clearInterval(id)
+  }, [])
+
+  // Warm the ambient phone-state snapshot (battery / ringer / audio / network)
+  // on mount, and ask once for BLUETOOTH_CONNECT so the bluetooth device name
+  // (earbuds vs car) is readable. Refreshed again on every foreground below.
+  useEffect(() => {
+    void requestBluetoothName()
+    void refreshEnvSnapshot()
   }, [])
 
   useEffect(() => {
@@ -795,7 +876,27 @@ const App = () => {
     }
     let active = true
     const loadRemote = async () => {
-      setSessionsReady(false)
+      const isFirstLoadForUser = lastLoadedUserIdRef.current !== user.id
+      lastLoadedUserIdRef.current = user.id
+
+      if (isFirstLoadForUser) {
+        // Pre-hydrate from localStorage so the chat renders immediately
+        // while the Supabase round-trip is in-flight (avoids blank screen).
+        // Only on the first load per user — token refreshes re-trigger this
+        // effect but we must NOT overwrite live in-memory state with stale
+        // localStorage data on those subsequent runs.
+        const localFallback = loadSnapshot()
+        if (localFallback.sessions.length > 0) {
+          applySnapshot(localFallback.sessions, localFallback.messages)
+          setSessionsReady(true)
+        } else {
+          setSessionsReady(false)
+        }
+      }
+
+      // Pull the AI's authoritative mood from Supabase (cross-device). Fire and
+      // forget — narration reads the in-memory cache, so this just refreshes it.
+      void loadRemoteMood(user.id)
       setSyncing(true)
       try {
         const [remoteSessions, remoteMessages] = await Promise.all([
@@ -841,34 +942,16 @@ const App = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()
-        // Cancel notification while user is in the app (no in-app popup).
+        void refreshEnvSnapshot()
         void cancelProactiveNotification()
-        // Advance the background-poll pointer so spontaneous messages the user
-        // is now seeing in-app aren't re-surfaced as notifications.
-        void markProactiveSeen()
-        // Pull whatever's new in Health Connect → health_data.
-        // Throttled to 30min inside; no-op on web.
         void maybeAutoSyncHealth()
-        // Detect "dead stream". Only abort — do NOT null the ref here:
-        // the abort makes the in-flight read reject, and sendMessage's
-        // finally clears isStreaming + the ref via its `=== controller`
-        // guard. Nulling here would make that guard fail, leaving the UI
-        // stuck on "正在输入…" forever (and blocking auto memory extract).
         if (streamingControllerRef.current && lastChunkAtRef.current > 0) {
           const ageMs = Date.now() - lastChunkAtRef.current
           if (ageMs > 8000) {
             streamingControllerRef.current.abort()
           }
         }
-        // If fire time passed → insert proactive message now. Check both
-        // transient and persist buckets — the persist alarm (wake-up
-        // etc.) lives in its own storage and would be invisible if we
-        // only read the transient one.
-        // Clear storage immediately (sync) before the async insert so that
-        // the other event sources that also call handleVisibilityChange
-        // (appStateChange + localNotificationActionPerformed fire at the
-        // same time as visibilitychange) don't re-read the same entry and
-        // insert duplicate messages.
+        // If a tool-scheduled proactive has fired, insert it now.
         const transientPending = readPendingProactive()
         if (transientPending && Date.now() >= transientPending.fireAt) {
           clearPendingProactive()
@@ -879,37 +962,16 @@ const App = () => {
           clearPersistProactive()
           void insertPendingProactiveRef.current(persistPending)
         }
-        // Refresh current session messages: picks up any messages the server
-        // dispatched (proactive_dispatch cron) while the app was closed.
-        const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
-        if (hashMatch && !refreshingSessionRef.current) {
-          refreshingSessionRef.current = true
-          void refreshCurrentSessionRef.current(hashMatch[1]).finally(() => {
-            refreshingSessionRef.current = false
-          })
-        }
-        if (!transientPending && !persistPending) {
-          if (hashMatch && !proactiveNudgePendingRef.current) {
-            proactiveNudgePendingRef.current = true
-            void maybeSendProactiveRef.current(hashMatch[1]).finally(() => {
-              proactiveNudgePendingRef.current = false
-            })
-          }
-        }
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
-    // Capacitor appStateChange is more reliable than visibilitychange
-    // on Android WebView for detecting foreground/background transitions.
     const appStateSubPromise = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       if (isActive) {
-        // Coming to foreground — cancel notification + check pending
+        void supabase?.auth.startAutoRefresh()
         handleVisibilityChange()
       } else {
-        // Going to background — re-arm the local notification with
-        // remaining time so it fires while the user is away. Persist
-        // alarms (wake-up etc.) are kept on their own notification ID
-        // and storage, so handle them in parallel.
+        void supabase?.auth.stopAutoRefresh()
+        // Re-arm local notification so it fires while app is away.
         const transientPending = readPendingProactive()
         if (transientPending && Date.now() < transientPending.fireAt) {
           void scheduleProactiveNotification(
@@ -931,12 +993,6 @@ const App = () => {
       'localNotificationActionPerformed',
       () => handleVisibilityChange(),
     )
-    // Cold-start trigger: on Android, appStateChange(isActive:true) and
-    // visibilitychange both fire before auth resolves, so the listeners above
-    // always miss the initial foreground event. setTimeout(0) defers until
-    // after all effects in this render cycle have run (including
-    // insertPendingProactiveRef and refreshCurrentSessionRef), so refs are
-    // ready to handle any pending localStorage proactives.
     const coldStartId = window.setTimeout(() => handleVisibilityChange(), 0)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
@@ -982,14 +1038,37 @@ const App = () => {
     async (title?: string) => {
       const sessionTitle = title ?? '新会话'
       if (user && supabase) {
-        try {
-          const remoteSession = await createRemoteSession(user.id, sessionTitle)
-          const nextSessions = sortSessions([...sessionsRef.current, remoteSession])
-          applySnapshot(nextSessions, messagesRef.current)
-          return remoteSession
-        } catch (error) {
-          console.warn('创建云端会话失败，已切换本地存储', error)
+        // Optimistic-local-first: create session immediately so navigation
+        // doesn't block on the Supabase round-trip.
+        const localId =
+          globalThis.crypto?.randomUUID?.() ??
+          `${Date.now()}-${Math.random().toString(16).slice(2)}`
+        const now = new Date().toISOString()
+        const optimisticSession: ChatSession = {
+          id: localId,
+          title: sessionTitle,
+          createdAt: now,
+          updatedAt: now,
+          isArchived: false,
+          archivedAt: null,
+          overrideModel: null,
+          overrideReasoning: null,
         }
+        const optimisticSessions = sortSessions([...sessionsRef.current, optimisticSession])
+        applySnapshot(optimisticSessions, messagesRef.current)
+        // Sync to Supabase in background with the same ID so remote and local
+        // are consistent — no need to reconcile IDs after the fact.
+        createRemoteSession(user.id, sessionTitle, localId)
+          .then((remoteSession) => {
+            const nextSessions = sessionsRef.current.map((s) =>
+              s.id === localId ? remoteSession : s,
+            )
+            applySnapshot(sortSessions(nextSessions), messagesRef.current)
+          })
+          .catch((error) => {
+            console.warn('创建云端会话失败，保留本地会话', error)
+          })
+        return optimisticSession
       }
       const newSession = createSession(sessionTitle)
       setSessions((prev) => sortSessions([...prev, newSession]))
@@ -1183,6 +1262,7 @@ const App = () => {
       keepaliveTimerRef.current = null
     }
     if (!keepaliveBodyRef.current) return
+    if (!keepaliveEnabledRef.current) return
     const KEEPALIVE_DELAY_MS = 55 * 60 * 1000
     keepaliveTimerRef.current = window.setTimeout(() => {
       keepaliveTimerRef.current = null
@@ -1228,12 +1308,10 @@ const App = () => {
       options?: {
         skipUser?: boolean
         attachments?: Array<{ type: 'image'; url: string; width?: number; height?: number }>
-        proactiveNudge?: string
       },
     ) => {
       const skipUser = options?.skipUser === true
       const userAttachments = options?.attachments ?? []
-      const proactiveNudge = options?.proactiveNudge
       const fallbackSettings = createDefaultSettings(user?.id ?? 'local')
       const activeSettings = settingsRef.current ?? fallbackSettings
       const effectiveModel = resolveSessionModel(sessionId)
@@ -1254,18 +1332,19 @@ const App = () => {
       } catch (memErr) {
         console.warn('注入核心记忆失败', memErr)
       }
-      // When tools are available, remind the model that tools are REAL
-      // actions. In deep roleplay the model sometimes narrates "好，我设置好提醒了"
-      // without ever emitting the schedule_proactive_message tool call, so
-      // nothing actually gets scheduled (confirmed in prod: assistant turns
-      // claiming a reminder was set with no tool_call in meta). This nudge
-      // is part of the stable cached prefix.
       const willHaveTools = isToolCapableModel(effectiveModel) && Boolean(supabase)
       const toolActionReminder = willHaveTools
         ? '\n\n【工具 = 真实动作，必须真调用】当你打算"待会提醒她 / 晚点联系她 / 叫她起床 / 到点喊她"时，必须真的调用 schedule_proactive_message 工具，拿到 ok 才算数。只在回复里说"我设置好了 / 待会提醒你"却没调用工具，是无效的——不会真的发出任何提醒，她也收不到。放歌、记录健康/经期等同理：先真的调用对应工具，再用你的语气说话。'
         : ''
+      // Emotion system rules go in the cached system prefix (static — only
+      // shifts when this code changes). The per-turn mood values ride in the
+      // last user message (see below), never in system, to protect the cache.
+      // Placed LAST in the system prompt: the mandatory <<MOOD>> output format
+      // is an instruction the model tends to drop when it's buried mid-prompt
+      // under a strong roleplay persona — recency boosts compliance.
+      const moodRulesSection = getMoodEnabled() ? buildMoodRulesSection() : ''
       const systemPrompt =
-        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + toolActionReminder
+        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + buildVoiceSystemSection() + toolActionReminder + moodRulesSection
       const isFirstMessageInSession = !messagesRef.current.some(
         (message) =>
           message.sessionId === sessionId &&
@@ -1274,33 +1353,28 @@ const App = () => {
       )
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
-      // Snapshot current weather (if cached) only on the day's first
-      // user message — Claude doesn't need to see it on every turn,
-      // and it keeps the prompt cleaner. Per-day tracker in localStorage.
-      // If the weather changes later in the day, Claude can fall back to
-      // the web_search tool to grab a fresh reading instead of relying
-      // on this morning snapshot.
-      const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
-      const WEATHER_DATE_KEY = 'nimbus_weather_injected_date'
-      const lastWeatherDate = typeof window !== 'undefined'
-        ? window.localStorage.getItem(WEATHER_DATE_KEY)
-        : null
-      const shouldInjectWeather = lastWeatherDate !== todayCN
-      const weatherSnap = shouldInjectWeather ? peekCachedWeather() : null
-      if (weatherSnap && typeof window !== 'undefined') {
-        window.localStorage.setItem(WEATHER_DATE_KEY, todayCN)
-      }
+      // Inject weather on every user message from the 1-hour cache (no
+      // extra network call — the mount effect keeps the cache warm).
+      // Previously this was once-per-day: morning weather was locked in all
+      // day, so afternoon rain showed as "sunny". Now each message carries
+      // the current cached reading; when the cache refreshes (hourly) the
+      // next message automatically reflects the updated conditions.
+      const weatherSnap = peekCachedWeather()
+      // Ambient phone state (battery/charging/ringer/audio/network) — injected
+      // on every message like weather, from the cache warmed on mount/foreground.
+      const envSnap = peekEnvSnapshot()
 
-      // Health + device snapshot — injected once per day on the first message,
-      // same pattern as weather. Claude naturally notices sleep/steps/period/battery
-      // without needing to call any tool.
+      // Health snapshot — injected once per day on the first message, same
+      // pattern as weather. Claude naturally notices sleep/steps/period without
+      // needing to call any tool. (Battery moved into the per-message env
+      // snapshot above so it stays fresh instead of being a morning value.)
+      const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
       const HEALTH_DATE_KEY = 'nimbus_health_injected_date'
       const lastHealthDate = typeof window !== 'undefined'
         ? window.localStorage.getItem(HEALTH_DATE_KEY)
         : null
       const shouldInjectHealth = lastHealthDate !== todayCN
       let healthSnap: string | null = null
-      let deviceSnap: string | null = null
       if (shouldInjectHealth) {
         // On APK, force a Health Connect sync before reading the snapshot so
         // sleep data from last night is already in Supabase when we query.
@@ -1317,14 +1391,6 @@ const App = () => {
             window.localStorage.setItem(HEALTH_DATE_KEY, todayCN)
           }
         }
-        if (Capacitor.getPlatform() !== 'web') {
-          try {
-            const ds = await getDeviceState()
-            if (ds.battery_percent !== null) {
-              deviceSnap = `🔋${ds.battery_percent}%${ds.is_charging ? ' 充电中' : ''}`
-            }
-          } catch { /* non-fatal */ }
-        }
       }
 
       const userMeta: ChatMessage['meta'] = {
@@ -1335,11 +1401,20 @@ const App = () => {
                 temperatureC: weatherSnap.temperatureC,
                 feelsLikeC: weatherSnap.feelsLikeC,
                 condition: weatherSnap.condition,
+                ...(weatherSnap.city ? { city: weatherSnap.city } : {}),
+                ...(weatherSnap.windKmh > 0 ? { windKmh: weatherSnap.windKmh } : {}),
               },
             }
           : {}),
         ...(healthSnap ? { healthSnapshot: healthSnap } : {}),
-        ...(deviceSnap ? { deviceSnapshot: deviceSnap } : {}),
+        ...(envSnap ? { envSnapshot: envSnap } : {}),
+        ...(() => {
+          // Freeze the AI's current mood narration into this turn's meta — it's
+          // rendered into the payload prefix at send time and replayed verbatim
+          // so the rolling prompt cache stays byte-stable.
+          const narration = getMoodEnabled() ? buildMoodNarration(getMood()) : ''
+          return narration ? { moodNarration: narration } : {}
+        })(),
       }
       const optimisticMessage: ChatMessage = {
         id: clientId,
@@ -1475,6 +1550,10 @@ const App = () => {
           cache_creation_input_tokens?: number
         } | null = null
         let currentRequestDebug: unknown = null
+        // Iteration-1 response latency (request sent → response headers back) —
+        // the relay's first-byte responsiveness. Recorded per chat so the 站子
+        // 健康概览 can show "今天变慢了".
+        let reqLatencyMs: number | null = null
 
         const flushUsageRecord = (failed = false) => {
           if (!user) {
@@ -1504,6 +1583,7 @@ const App = () => {
             source: 'chat',
             provider: getActiveProvider(),
             sessionId,
+            latencyMs: reqLatencyMs ?? undefined,
             rawUsage: lastUsage,
             // request_debug is never read by the UI — it only exists to
             // troubleshoot failures. Keep it only when the request failed (and
@@ -1671,7 +1751,10 @@ const App = () => {
         // (see ChatPage.tsx) instead of being embedded in message content.
         // This keeps the bubble clean and the status always visible at the bottom.
 
-        const buildDisplayContent = () => assistantContent
+        // Strip the private <<MOOD>> self-assessment marker from anything shown
+        // to the user — live during streaming (handles a partial trailing token)
+        // and in the final saved content.
+        const buildDisplayContent = () => stripMoodMarker(assistantContent)
 
         const pushStreamingUpdate = () => {
           const streamingUpdate = updateMessage(messagesRef.current, {
@@ -1746,10 +1829,6 @@ const App = () => {
             },
           )
           const baseMessages: ChatRequestMessage[] = []
-          // Snapshot any pending proactive that's about to be cancelled below
-          // (by clearPendingProactive / cancelProactiveNotification), so we
-          // can surface a system note further down and let the model decide
-          // whether to re-arm.
           const cancelledProactive = skipUser ? null : readPendingProactive()
           // Trim before checking + sending so a whitespace-only system
           // prompt doesn't end up as { role: 'system', content: '   ' }
@@ -1780,16 +1859,35 @@ const App = () => {
             const imageAttachments = messageAttachments.filter((a) => a.type === 'image')
             const stamp = message.role === 'user' ? formatStamp(message.createdAt) : ''
             const weatherMeta = message.role === 'user' ? message.meta?.weather : undefined
-            const weatherStr = weatherMeta
-              ? ` [当时天气] ${weatherMeta.temperatureC}°C ${weatherMeta.condition}`
+            const weatherFeelSuffix =
+              weatherMeta?.feelsLikeC !== undefined &&
+              Math.abs(weatherMeta.temperatureC - weatherMeta.feelsLikeC) >= 3
+                ? ` 体感${weatherMeta.feelsLikeC}°C`
+                : ''
+            const weatherCityPrefix = weatherMeta?.city ? `${weatherMeta.city} ` : ''
+            const weatherWindSuffix = weatherMeta?.windKmh && weatherMeta.windKmh >= 20
+              ? ` 风速${weatherMeta.windKmh}km/h`
               : ''
+            const weatherStr = weatherMeta
+              ? ` [当时天气] ${weatherCityPrefix}${weatherMeta.temperatureC}°C ${weatherMeta.condition}${weatherFeelSuffix}${weatherWindSuffix}`
+              : ''
+            const envMeta = message.role === 'user' ? message.meta?.envSnapshot : undefined
+            const envStr = envMeta ? ` [手机] ${envMeta}` : ''
             const healthMeta = message.role === 'user' ? message.meta?.healthSnapshot : undefined
+            // deviceSnapshot kept for backward-compat with messages written
+            // before battery moved into the per-message env snapshot.
             const deviceMeta = message.role === 'user' ? message.meta?.deviceSnapshot : undefined
             const statusParts = [healthMeta, deviceMeta].filter(Boolean)
             const statusStr = statusParts.length > 0
               ? `\n[TA 今日状态] ${statusParts.join('；')}`
               : ''
-            const prefix = stamp ? `[当前时间] ${stamp}${weatherStr}${statusStr}\n\n` : ''
+            // Frozen mood narration for this user turn (private emotional
+            // context). Stored per-message so replay is byte-stable.
+            const moodMeta = message.role === 'user' ? message.meta?.moodNarration : undefined
+            const moodStr = moodMeta ? `${moodMeta}\n\n` : ''
+            const prefix = stamp
+              ? `[当前时间] ${stamp}${weatherStr}${envStr}${statusStr}\n\n${moodStr}`
+              : moodStr
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []
               const textContent = `${prefix}${message.content}`
@@ -1816,17 +1914,7 @@ const App = () => {
               baseMessages.push({ role: message.role, content } as ChatRequestMessage)
             }
           }
-          // Proactive mode: append a transient system instruction at the
-          // tail so Claude generates a follow-up based on context. Not
-          // stored anywhere — only this request sees it.
-          if (proactiveNudge) {
-            baseMessages.push({ role: 'system', content: proactiveNudge })
-          }
-          // Tell the model when a previously-armed proactive ping was just
-          // cancelled by this user message, so it can decide whether to
-          // re-arm one in its reply. Skip during proactive-nudge mode since
-          // that's already a system-driven turn.
-          if (cancelledProactive && !proactiveNudge) {
+          if (cancelledProactive) {
             const originalFire = new Date(cancelledProactive.fireAt).toLocaleString('zh-CN', {
               hour: '2-digit',
               minute: '2-digit',
@@ -1847,10 +1935,8 @@ const App = () => {
           cancelKeepalive()
           void cancelProactiveNotification()
           clearPendingProactive()
-          // Cancel any unsent server-side proactive pushes too — but only
-          // the transient ones, matching clearPendingProactive above. Persist
-          // entries (wake-up alarms etc.) must survive a chat reply, both in
-          // localStorage and in the server queue, so we scope by persist=false.
+          // Cancel any unsent server-side proactive too — but only transient
+          // ones (persist alarms like wake-up must survive a chat reply).
           if (supabase && user) {
             void supabase
               .from('proactive_queue')
@@ -2042,10 +2128,12 @@ TOOL_SEARCH_HANDOFF,
               `bps=${debugBreakpoints.filter((b) => b.cache_control).map((b) => `${b.role}[${b.idx}]`).join(',')} ` +
               `tools=${Array.isArray(requestBody.tools) ? (requestBody.tools as unknown[]).length : 0} reasoning=${requestBody.reasoning != null}`,
             )
+            const tFetch0 = performance.now()
             const response = await fetchOpenRouter('/chat/completions', {
               body: requestBody,
               signal: controller.signal,
             })
+            if (iteration === 1) reqLatencyMs = Math.round(performance.now() - tFetch0)
             if (!response.ok) {
               const errorText = await response.text()
               throw new Error(errorText || '请求失败')
@@ -2517,15 +2605,16 @@ TOOL_SEARCH_HANDOFF,
                     if (proText && shouldScheduleProactive(delayMin * 60 * 1000)) {
                       const delayMs = delayMin * 60 * 1000
                       const fireAt = Date.now() + delayMs
-                      // Build entry; try to register in proactive_queue for
-                      // server-side dispatch (so message lands in Supabase at
-                      // fire time even if app stays closed).
                       const proEntry: import('./storage/proactiveNotification').PendingProactive = {
                         sessionId,
                         text: proText,
                         fireAt,
                         persist,
                       }
+                      // Register in proactive_queue so the server cron can deliver
+                      // it into Supabase at fire time even if the app stays closed
+                      // (and keep it warm in the keepalive cache). The client claims
+                      // the same row on next open, so only one insert ever happens.
                       if (supabase && user) {
                         const { data: qRow } = await supabase
                           .from('proactive_queue')
@@ -2556,7 +2645,7 @@ TOOL_SEARCH_HANDOFF,
                     } else {
                       resultText = JSON.stringify({
                         ok: false,
-                        reason: proText ? 'quiet_hours' : 'missing_text',
+                        reason: 'missing_text',
                       })
                     }
                   } else if (tc.function.name === 'get_health_status' && supabase) {
@@ -2942,6 +3031,25 @@ TOOL_SEARCH_HANDOFF,
             }
           }
 
+          // Emotion system: parse the private <<MOOD>> self-assessment from the
+          // raw reply, strip it from what we save/show, then apply + persist the
+          // mood update (decay-then-add) in the background. Runs on every path
+          // (stream / non-stream / any provider) because it reads the final
+          // assistantContent. Robust: parse failure just means no update.
+          if (getMoodEnabled()) {
+            try {
+              const assessment = parseMoodMarker(assistantContent)
+              assistantContent = stripMoodMarker(assistantContent)
+              if (assessment) {
+                const nextMood = applyMoodAssessment(getMood(), assessment)
+                commitMood(user?.id ?? null, nextMood)
+              }
+            } catch (moodErr) {
+              console.warn('情绪自评处理失败', moodErr)
+              assistantContent = stripMoodMarker(assistantContent)
+            }
+          }
+
           // Last-resort fallback: if streaming + tool loop + force-final all
           // produced nothing, don't save a ghost empty bubble — surface the
           // failure so the user knows to retry.
@@ -3058,7 +3166,7 @@ TOOL_SEARCH_HANDOFF,
             // every chat just for the keepalive snapshot. Browser/Capacitor
             // HTTP-layer caching usually absorbs the cost when the image
             // origin (e.g. Supabase Storage) sets cache headers.
-            if (supabase && user) {
+            if (supabase && user && keepaliveEnabledRef.current) {
               const cfg = getProviderConfig(activeProvider)
               if (cfg.apiKey && cfg.baseUrl) {
                 const isOR = activeProvider === 'openrouter'
@@ -3100,6 +3208,9 @@ TOOL_SEARCH_HANDOFF,
           // abort (pressing stop) isn't a bug worth persisting debug for.
           const isAbort = error instanceof DOMException && error.name === 'AbortError'
           flushUsageRecord(!isAbort)
+          // Strip any (possibly partial) mood marker from the partial reply so
+          // it's never persisted raw. Don't apply the mood — the turn is incomplete.
+          if (getMoodEnabled()) assistantContent = stripMoodMarker(assistantContent)
           if (isAbort) {
             if (assistantContent.trim().length > 0) {
               // Save the partial reply locally first (instant, offline-safe),
@@ -3182,8 +3293,8 @@ TOOL_SEARCH_HANDOFF,
             pending: false,
           })
           applySnapshot(sessionsRef.current, failedMessages)
-          const errorMessage = error instanceof Error && error.message ? error.message : '回复失败，请稍后重试。'
-          window.alert(errorMessage)
+          const rawError = error instanceof Error && error.message ? error.message : ''
+          setChatError(parseApiError(rawError))
         } finally {
           // Only clear stream state if THIS persist's controller is still
           // active. A regenerate/edit-user-message can abort our stream then
@@ -3261,14 +3372,8 @@ TOOL_SEARCH_HANDOFF,
     ) => {
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
-      const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
-      const WEATHER_DATE_KEY = 'nimbus_weather_injected_date'
-      const lastWeatherDate =
-        typeof window !== 'undefined' ? window.localStorage.getItem(WEATHER_DATE_KEY) : null
-      const weatherSnap = lastWeatherDate !== todayCN ? peekCachedWeather() : null
-      if (weatherSnap && typeof window !== 'undefined') {
-        window.localStorage.setItem(WEATHER_DATE_KEY, todayCN)
-      }
+      const weatherSnap = peekCachedWeather()
+      const envSnap = peekEnvSnapshot()
       const userMeta: ChatMessage['meta'] = {
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(weatherSnap
@@ -3277,9 +3382,16 @@ TOOL_SEARCH_HANDOFF,
                 temperatureC: weatherSnap.temperatureC,
                 feelsLikeC: weatherSnap.feelsLikeC,
                 condition: weatherSnap.condition,
+                ...(weatherSnap.city ? { city: weatherSnap.city } : {}),
+                ...(weatherSnap.windKmh > 0 ? { windKmh: weatherSnap.windKmh } : {}),
               },
             }
           : {}),
+        ...(envSnap ? { envSnapshot: envSnap } : {}),
+        ...(() => {
+          const narration = getMoodEnabled() ? buildMoodNarration(getMood()) : ''
+          return narration ? { moodNarration: narration } : {}
+        })(),
       }
       const clientCreatedAtIso = clientCreatedAt
       const optimisticMessage: ChatMessage = {
@@ -3405,7 +3517,6 @@ TOOL_SEARCH_HANDOFF,
     [user, resolveSessionModel, fallbackSettings],
   )
 
-  // Bind the pre-generated-proactive injector once user is known.
   useEffect(() => {
     insertPendingProactiveRef.current = async (entry) => {
       if (!user || !supabase) {
@@ -3413,10 +3524,10 @@ TOOL_SEARCH_HANDOFF,
         else clearPendingProactive()
         return
       }
-      // If this entry was registered in proactive_queue, try to claim it.
-      // The server-side cron (proactive_dispatch) may have already set
-      // sent=true and inserted the message — in that case refreshCurrentSessionRef
-      // will pick it up and we skip the client-side insert to avoid duplicates.
+      // If registered in proactive_queue, claim the row first. If the server
+      // cron already delivered it (claim fails), the message is already in
+      // Supabase and refreshRemoteSessions will surface it — skip to avoid a
+      // duplicate insert.
       if (entry.queueId) {
         const { data: claimed } = await supabase
           .from('proactive_queue')
@@ -3426,19 +3537,15 @@ TOOL_SEARCH_HANDOFF,
           .select('id')
           .maybeSingle()
         if (!claimed) {
-          // Server already dispatched — message is in Supabase; refresh will show it
-          void refreshCurrentSessionRef.current(entry.sessionId)
+          void refreshRemoteSessions()
+          if (entry.persist) clearPersistProactive()
+          else clearPendingProactive()
           return
         }
       }
-      // Prefer the chat the user is currently looking at; fall back to the
-      // session that generated the pending message.
-      const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
-      const targetSessionId = hashMatch?.[1] ?? entry.sessionId
+      const targetSessionId = entry.sessionId
       try {
         const clientId = createClientId()
-        // Use the scheduled fire time as the display timestamp so the message
-        // appears at the intended time, not when the user happened to open the app.
         const clientCreatedAt = new Date(entry.fireAt).toISOString()
         const { message: saved, updatedAt } = await addRemoteMessage(
           targetSessionId,
@@ -3461,56 +3568,7 @@ TOOL_SEARCH_HANDOFF,
         else clearPendingProactive()
       }
     }
-  }, [applySnapshot, user])
-
-  // Merges server-dispatched messages for a session into local state.
-  // Called on foreground to pick up messages the proactive_dispatch cron
-  // inserted while the app was closed.
-  useEffect(() => {
-    refreshCurrentSessionRef.current = async (sessionId: string) => {
-      if (!user) return
-      const fresh = await fetchSessionRecentMessages(sessionId, 20)
-      if (!fresh.length) return
-      const existingIds = new Set(messagesRef.current.map((m) => m.id))
-      const trulyNew = fresh.filter((m) => !existingIds.has(m.id))
-      if (!trulyNew.length) return
-      const merged = sortMessages([...messagesRef.current, ...trulyNew])
-      applySnapshot(sessionsRef.current, merged)
-    }
-  }, [applySnapshot, user])
-
-  // Bind the proactive-nudge function once sendMessage is available.
-  // Used by the visibility handler above (which can't reference
-  // sendMessage directly due to declaration order).
-  useEffect(() => {
-    maybeSendProactiveRef.current = async (sessionId: string) => {
-      if (!user) return
-      if (streamingControllerRef.current) return
-      const sessionMessages = messagesRef.current
-        .filter((m) => m.sessionId === sessionId)
-        .sort(
-          (a, b) =>
-            new Date(a.clientCreatedAt ?? a.createdAt).getTime() -
-            new Date(b.clientCreatedAt ?? b.createdAt).getTime(),
-        )
-      if (sessionMessages.length === 0) return
-      const last = sessionMessages[sessionMessages.length - 1]
-      if (last.pending) return
-      if (last.role !== 'user') return
-      const elapsedMs = Date.now() - new Date(last.createdAt).getTime()
-      const ONE_HOUR = 60 * 60 * 1000
-      if (elapsedMs < ONE_HOUR) return
-
-      const nudge =
-        '[内部系统提示] 用户已经超过 1 小时没回应你了。请基于之前的对话内容主动找她聊聊——可以是一句关心、续上之前的话题、或者分享你想到的什么。一两句话就好，自然像朋友主动发的消息，不要刻意点出"我注意到你很久没说话"这种话。'
-
-      try {
-        await sendMessage(sessionId, '', { skipUser: true, proactiveNudge: nudge })
-      } catch (err) {
-        console.warn('proactive nudge failed', err)
-      }
-    }
-  }, [sendMessage, user])
+  }, [applySnapshot, refreshRemoteSessions, user])
 
   const regenerateAssistantReply = useCallback(
     async (assistantMessageId: string) => {
@@ -3826,6 +3884,8 @@ TOOL_SEARCH_HANDOFF,
                 onActiveSessionChange={setActiveChatSessionId}
                 onManualCompress={handleManualCompress}
                 onChatPageEnter={prewarmKeepaliveIfStale}
+                keepaliveEnabled={keepaliveEnabled}
+                onToggleKeepalive={handleToggleKeepalive}
                 user={user}
                 toolStatus={toolStatus}
                 remoteStickerPacks={remoteStickerPacks}
@@ -3885,7 +3945,7 @@ TOOL_SEARCH_HANDOFF,
           path="/snacks"
           element={
             <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
-              <MyHomePage user={user} snackAiConfig={snackAiConfig} />
+              <MomentsPage user={user} snackAiConfig={snackAiConfig} syzygyAiConfig={syzygyAiConfig} />
             </RequireAuth>
           }
         />
@@ -3919,6 +3979,15 @@ TOOL_SEARCH_HANDOFF,
         />
       </Routes>
       </Suspense>
+      <ConfirmDialog
+        open={chatError !== null}
+        title="发送失败"
+        description={chatError ?? ''}
+        confirmLabel="好的"
+        cancelLabel=""
+        onConfirm={() => setChatError(null)}
+        onCancel={() => setChatError(null)}
+      />
     </div>
   )
 }
@@ -4021,6 +4090,8 @@ const ChatRoute = ({
   onActiveSessionChange,
   onManualCompress,
   onChatPageEnter,
+  keepaliveEnabled,
+  onToggleKeepalive,
   user,
   toolStatus,
   remoteStickerPacks,
@@ -4060,6 +4131,8 @@ const ChatRoute = ({
   onActiveSessionChange: (sessionId: string) => void
   onManualCompress: (sessionId: string) => Promise<{ ok: boolean; message: string }>
   onChatPageEnter: () => void
+  keepaliveEnabled: boolean
+  onToggleKeepalive: () => void
   user: User | null
   toolStatus: string
   remoteStickerPacks: RemotePackMap
@@ -4210,6 +4283,8 @@ const ChatRoute = ({
           onSelectReasoning(activeSession.id, reasoning)
         }
         onManualCompress={() => onManualCompress(activeSession.id)}
+        keepaliveEnabled={keepaliveEnabled}
+        onToggleKeepalive={onToggleKeepalive}
         user={user}
         toolStatus={toolStatus}
         remoteStickerPacks={remoteStickerPacks}

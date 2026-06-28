@@ -5,6 +5,7 @@ import { fetchUsageLogs, type UsageLogRow } from '../storage/usageStats'
 import { fetchOpenRouter } from '../api/openrouter'
 import { supabase } from '../supabase/client'
 import { estimateTokens } from '../storage/conversationCompression'
+import { getCustomProviderDisplayName, getActiveProvider } from '../storage/apiProvider'
 import './UsagePage.css'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -81,8 +82,6 @@ const formatRelTime = (iso: string): string => {
 // the cache metadata fields at all (even as 0). A relay that strips
 // cache_control from outbound requests or strips usage metadata from inbound
 // responses will show missing fields — that's what we flag.
-const CACHE_PROBE_SYSTEM = 'You are a minimal diagnostic assistant. Reply only with the exact text the user asks for.'
-
 const canaryText = () => `NMBSCANARY${Math.random().toString(36).slice(2, 10).toUpperCase()}`
 
 type OpenAiUsage = {
@@ -99,134 +98,187 @@ const parseCacheFields = (usage: OpenAiUsage | undefined) => ({
   cacheRead: usage?.cache_read_input_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0,
 })
 
+// A long, deterministic English filler so the cached system block exceeds
+// Anthropic's ~1024-token minimum AND is byte-identical across the two probe
+// calls (so the 2nd call can actually READ the cache the 1st wrote).
+const CACHE_FILLER =
+  ('You are a passthrough diagnostic. This block is intentionally long enough to exceed the minimum cacheable size so the upstream provider writes it to its prompt cache, and identical across calls so the second request reads it back. ').repeat(36)
+
+// Headers that fingerprint the upstream. Real Anthropic leaks request-id /
+// anthropic-* / ratelimit; Bedrock leaks x-amzn-*; Cloudflare-fronted relays
+// leak cf-ray; OpenAI-compat shims leak openai-* / x-request-id.
+const collectHeaders = (h: Headers): Record<string, string> => {
+  const out: Record<string, string> = {}
+  try {
+    h.forEach((v, k) => {
+      if (/^(anthropic-|x-amzn|openai-|cf-ray|cf-cache|via|server|request-id|x-request-id|x-ratelimit|x-powered-by|x-served-by)/i.test(k)) {
+        out[k.toLowerCase()] = v.length > 60 ? v.slice(0, 60) + '…' : v
+      }
+    })
+  } catch { /* some platforms restrict header iteration */ }
+  return out
+}
+
+type ChannelSignals = {
+  realCacheHit: boolean | null
+  cacheCreate: number
+  cacheRead: number
+  modelMatch: boolean
+  canaryOk: boolean
+  returnedModel: string | null
+  headers: Record<string, string>
+  injectedCoding: boolean | null
+}
+
+// Best-guess channel category from the collected signals. Deliberately a
+// CATEGORY + confidence, not a brand name — relays hide their true source.
+const guessChannel = (s: ChannelSignals): CheckResult => {
+  const reasons: string[] = []
+  const hk = Object.keys(s.headers)
+  const hasAnthropicHdr = hk.some((k) => k.startsWith('anthropic-') || k === 'request-id')
+  const hasAmazon = hk.some((k) => k.startsWith('x-amzn'))
+  const hasOpenAiHdr = hk.some((k) => k.startsWith('openai-'))
+
+  // Hard red flags first.
+  if (!s.canaryOk || !s.modelMatch) {
+    if (s.returnedModel) reasons.push(`声称返回 ${s.returnedModel}`)
+    reasons.push(s.canaryOk ? 'model 字段与所点不符' : '金丝雀未原样返回（疑被改写/降智/截断）')
+    return { label: '🔍 渠道猜测', status: 'fail', detail: `⚠️ 疑似【偷换模型 / 降智路由】——${reasons.join('；')}。别全信它给你的是满血。` }
+  }
+  if (s.injectedCoding) {
+    reasons.push('无系统提示时仍自带"编程助手/CLI/Claude Code"人设')
+    // 反代 Claude Code 订阅可以照样透传原生缓存——别因为是逆向就断言「无缓存」，
+    // 看实测：缓存真命中就如实说省钱 OK，只是逆向的稳定性/内置提示词隐患还在。
+    const cacheNote = s.realCacheHit
+      ? `好消息：缓存实测真命中（省钱 OK）、模型也是真的。隐患：内置了 Claude Code 提示词（可能干扰角色扮演），且逆向订阅不稳、官方一停就停。`
+      : `这类通常还无原生缓存、内置提示词、官方一停就停。`
+    return { label: '🔍 渠道猜测', status: 'warn', detail: `🧩 疑似【反代订阅·编程工具逆向】（Claude Code / Kiro / Codex 类）——${reasons.join('；')}。${cacheNote}` }
+  }
+
+  if (s.realCacheHit) {
+    if (hasAnthropicHdr) reasons.push('带 anthropic-/request-id 响应头')
+    if (hasAmazon) reasons.push('带 AWS(x-amzn) 头 → 疑 Bedrock')
+    reasons.push('原生缓存真命中（第二次 0.1× 读到）')
+    return { label: '🔍 渠道猜测', status: 'pass', detail: `✅ 像【官方/官转级·真 passthrough】——${reasons.join('；')}。缓存真省钱，保活值得开。${hasAmazon ? '' : hasAnthropicHdr ? '' : '（无明显官方头，可能是认 cache_control 的优质中转）'}` }
+  }
+
+  // Cache didn't really hit.
+  if (s.cacheCreate > 0 && !s.realCacheHit) {
+    reasons.push('写了缓存却读不回（多上游打散 / 模拟缓存）')
+  } else {
+    reasons.push('两次都没有缓存读写（OpenAI 兼容层 / 缓存被剥离）')
+  }
+  if (hasOpenAiHdr) reasons.push('带 openai-* 头')
+  return { label: '🔍 渠道猜测', status: 'warn', detail: `🌀 像【OpenAI 兼容 / 模拟缓存 / 多上游打散】——${reasons.join('；')}。原生 prompt cache 多半失效，长对话省不到钱，保活也别开。` }
+}
+
 async function runApiChecks(model: string, signal: AbortSignal): Promise<CheckResult[]> {
   const results: CheckResult[] = []
   const isClaude = /claude|anthropic/i.test(model)
+  const sig: ChannelSignals = {
+    realCacheHit: null, cacheCreate: 0, cacheRead: 0,
+    modelMatch: true, canaryOk: true, returnedModel: null,
+    headers: {}, injectedCoding: null,
+  }
 
-  // ── Check 1: Connectivity + latency ─────────────────────────────────────
+  // ── Check 1: Connectivity + latency + 响应头指纹 ─────────────────────────
   let latencyMs = 0
   try {
     const t0 = performance.now()
     const r = await fetchOpenRouter('/chat/completions', {
       signal,
-      body: {
-        model,
-        stream: false,
-        max_tokens: 8,
-        messages: [{ role: 'user', content: '回复"ok"' }],
-      },
+      body: { model, stream: false, max_tokens: 8, messages: [{ role: 'user', content: '回复"ok"' }] },
     })
     latencyMs = Math.round(performance.now() - t0)
+    sig.headers = collectHeaders(r.headers)
     if (!r.ok) {
       const text = await r.text().catch(() => '')
       results.push({ label: '连通性', status: 'fail', detail: `HTTP ${r.status}${text ? '：' + text.slice(0, 120) : ''}` })
       return results
     }
-    results.push({ label: '连通性', status: 'pass', detail: `${latencyMs} ms` })
+    results.push({ label: '连通性 + 延迟', status: 'pass', detail: `${latencyMs} ms` })
   } catch (e: unknown) {
     if ((e as { name?: string }).name === 'AbortError') return results
     results.push({ label: '连通性', status: 'fail', detail: String(e) })
     return results
   }
 
-  // ── Check 2: Cache metadata pass-through (Claude only) ──────────────────
+  // ── Check 2: 真实缓存命中（发两次同前缀，看第二次读不读得到）──────────────
   if (!isClaude) {
-    results.push({ label: '缓存字段透传', status: 'skip', detail: '非 Claude 模型，无 prompt cache，跳过' })
+    results.push({ label: '真实缓存命中', status: 'skip', detail: '非 Claude 模型，无 prompt cache，跳过' })
   } else {
     try {
-      const probe = {
-        model,
-        stream: false,
-        max_tokens: 8,
+      const cacheBody = {
+        model, stream: false, max_tokens: 8,
         messages: [
-          {
-            role: 'system',
-            content: [
-              {
-                type: 'text',
-                text: CACHE_PROBE_SYSTEM,
-                cache_control: { type: 'ephemeral' },
-              },
-            ],
-          },
+          { role: 'system', content: [{ type: 'text', text: CACHE_FILLER, cache_control: { type: 'ephemeral' } }] },
           { role: 'user', content: '回复"ok"' },
         ],
+        // OpenAI `user` field → mapped to Anthropic metadata.user_id by the
+        // adapter, pinning both probe calls to the same upstream so the 2nd
+        // can read the cache the 1st wrote (see api/anthropic.ts).
+        user: 'nimbus-diag-probe',
       }
-      const r1 = await fetchOpenRouter('/chat/completions', { signal, body: probe as Record<string, unknown> })
-      if (!r1.ok) {
-        results.push({ label: '缓存字段透传', status: 'warn', detail: `探针请求失败 HTTP ${r1.status}` })
+      const r1 = await fetchOpenRouter('/chat/completions', { signal, body: cacheBody as Record<string, unknown> })
+      const j1 = r1.ok ? ((await r1.json()) as { usage?: OpenAiUsage }) : undefined
+      const c1 = parseCacheFields(j1?.usage)
+      // Read it back up to 2 times — a single sticky-routing fluke (landing on a
+      // different upstream once) would otherwise read as a false "打散". Stop
+      // early on the first real hit; only call "打散" if BOTH retries miss.
+      let bestRead = 0
+      let anyField = c1.hasField
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const rr = await fetchOpenRouter('/chat/completions', { signal, body: cacheBody as Record<string, unknown> })
+        const jj = rr.ok ? ((await rr.json()) as { usage?: OpenAiUsage }) : undefined
+        const cc = parseCacheFields(jj?.usage)
+        anyField = anyField || cc.hasField
+        bestRead = Math.max(bestRead, cc.cacheRead)
+        if (cc.cacheRead > 0) break
+      }
+      sig.cacheCreate = c1.cacheCreate
+      sig.cacheRead = bestRead
+      sig.realCacheHit = bestRead > 0
+      if (bestRead > 0) {
+        results.push({ label: '真实缓存命中', status: 'pass', detail: `✅ 真命中：读到缓存 ${bestRead} tokens（按 0.1× 计费，省 ~90%）。原生 prompt cache 正常工作。` })
+      } else if (c1.cacheCreate > 0) {
+        results.push({ label: '真实缓存命中', status: 'warn', detail: `⚠️ 写了缓存（${c1.cacheCreate}）但连试 2 次都没读到——多上游打散 / 模拟缓存。长对话省不到钱。` })
+      } else if (!anyField) {
+        results.push({ label: '真实缓存命中', status: 'warn', detail: '⚠️ 两次都无缓存字段——走了 OpenAI 兼容层 / 元数据被剥离，原生缓存失效。' })
       } else {
-        const j1 = (await r1.json()) as { usage?: OpenAiUsage; model?: string }
-        const { hasField } = parseCacheFields(j1.usage)
-        if (hasField) {
-          results.push({
-            label: '缓存字段透传',
-            status: 'pass',
-            detail: '响应包含 cache_creation / cache_read 字段，relay 未剥离缓存元数据',
-          })
-        } else {
-          results.push({
-            label: '缓存字段透传',
-            status: 'warn',
-            detail: '响应缺少 cache_creation_input_tokens / cache_read_input_tokens，可能被中间层剥离（prompt cache 将失效）',
-          })
-        }
+        results.push({ label: '真实缓存命中', status: 'warn', detail: '⚠️ 两次都没命中（写=0 读=0）。可能前缀太短或上游不缓存。' })
       }
     } catch (e: unknown) {
       if ((e as { name?: string }).name === 'AbortError') return results
-      results.push({ label: '缓存字段透传', status: 'fail', detail: String(e) })
+      results.push({ label: '真实缓存命中', status: 'fail', detail: String(e) })
     }
   }
 
-  // ── Check 3: Model identity via canary echo ──────────────────────────────
+  // ── Check 3: 模型核验（金丝雀 + model 字段）──────────────────────────────
   try {
     const canary = canaryText()
     const r = await fetchOpenRouter('/chat/completions', {
       signal,
-      body: {
-        model,
-        stream: false,
-        max_tokens: 48,
-        temperature: 0,
-        messages: [{ role: 'user', content: `把以下字符原样输出，不加任何其他内容：${canary}` }],
-      },
+      body: { model, stream: false, max_tokens: 48, temperature: 0, messages: [{ role: 'user', content: `把以下字符原样输出，不加任何其他内容：${canary}` }] },
     })
     if (!r.ok) {
       results.push({ label: '模型核验', status: 'warn', detail: `请求失败 HTTP ${r.status}` })
     } else {
-      const j = (await r.json()) as { usage?: OpenAiUsage; model?: string; choices?: Array<{ message?: { content?: string } }> }
-      const returnedModel = j.model
+      const j = (await r.json()) as { model?: string; choices?: Array<{ message?: { content?: string } }> }
+      const returnedModel = j.model ?? null
       const content = j.choices?.[0]?.message?.content ?? ''
       const canaryMatch = content.includes(canary)
-      const modelMatch =
-        !returnedModel ||
-        returnedModel === model ||
-        returnedModel.replace(/^anthropic\//, '') === model.replace(/^anthropic\//, '')
-
+      const modelMatch = !returnedModel || returnedModel === model || returnedModel.replace(/^anthropic\//, '') === model.replace(/^anthropic\//, '')
+      sig.canaryOk = canaryMatch
+      sig.modelMatch = modelMatch
+      sig.returnedModel = returnedModel
       if (!canaryMatch && !modelMatch) {
-        results.push({
-          label: '模型核验',
-          status: 'fail',
-          detail: `金丝雀未返回（疑似截断/改写），且 model 字段不匹配（请求 ${model}，返回 ${returnedModel ?? '未知'}）`,
-        })
+        results.push({ label: '模型核验', status: 'fail', detail: `金丝雀未返回 + model 字段不符（请求 ${model}，返回 ${returnedModel ?? '未知'}）——疑偷换/降智。` })
       } else if (!canaryMatch) {
-        results.push({
-          label: '模型核验',
-          status: 'warn',
-          detail: `金丝雀字符串未原样返回（模型可能被替换或上下文截断）。返回 model: ${returnedModel ?? '未知'}`,
-        })
+        results.push({ label: '模型核验', status: 'warn', detail: `金丝雀未原样返回（疑被改写/截断）。返回 model：${returnedModel ?? '未知'}` })
       } else if (!modelMatch) {
-        results.push({
-          label: '模型核验',
-          status: 'warn',
-          detail: `金丝雀通过，但 model 字段不符：请求 ${model}，响应声称 ${returnedModel}`,
-        })
+        results.push({ label: '模型核验', status: 'warn', detail: `金丝雀通过，但 model 字段不符：请求 ${model}，响应称 ${returnedModel}` })
       } else {
-        results.push({
-          label: '模型核验',
-          status: 'pass',
-          detail: returnedModel ? `model 字段吻合：${returnedModel}，金丝雀验证通过` : '金丝雀验证通过',
-        })
+        results.push({ label: '模型核验', status: 'pass', detail: returnedModel ? `model 吻合：${returnedModel}，金丝雀通过` : '金丝雀通过' })
       }
     }
   } catch (e: unknown) {
@@ -234,6 +286,47 @@ async function runApiChecks(model: string, signal: AbortSignal): Promise<CheckRe
     results.push({ label: '模型核验', status: 'fail', detail: String(e) })
   }
 
+  // ── Check 4: 响应头指纹 ──────────────────────────────────────────────────
+  const hdrKeys = Object.keys(sig.headers)
+  if (hdrKeys.length === 0) {
+    results.push({ label: '响应头指纹', status: 'warn', detail: '没读到可识别的上游头（中转把头清了，或网页版受 CORS 限制——APK 上更全）。' })
+  } else {
+    const summary = hdrKeys.map((k) => `${k}: ${sig.headers[k]}`).join('\n')
+    results.push({ label: '响应头指纹', status: 'pass', detail: summary })
+  }
+
+  // ── Check 5: 身份注入探测（不发 system，看是否自带编程工具人设）─────────────
+  if (isClaude) {
+    try {
+      const r = await fetchOpenRouter('/chat/completions', {
+        signal,
+        body: { model, stream: false, max_tokens: 80, temperature: 0, messages: [{ role: 'user', content: '一句话：你现在有没有被设定成编程助手 / Claude Code / CLI / IDE 工具？有就说出来，没有就回"无设定"。' }] },
+      })
+      if (r.ok) {
+        const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> }
+        const txt = j.choices?.[0]?.message?.content ?? ''
+        // Require a STRONG coding-identity phrase (not a generic "我能帮你编程"),
+        // and no denial — reduces false positives on official channels.
+        const denies = /无设定|没有被|不是被设|并非|不存在|只是\s*claude|普通\s*claude/i.test(txt)
+        const strongIdentity = /claude\s*code|开发环境|代码助手|编程助手|coding assistant|dev(eloper)?\s*environment|命令行工具|cli\s*工具|cursor|ide\s*助手/i.test(txt)
+        const injected = strongIdentity && !denies
+        sig.injectedCoding = injected
+        results.push({
+          label: '身份注入探测',
+          status: injected ? 'warn' : 'pass',
+          detail: injected
+            ? `自带编程工具人设 → 疑反代 Claude Code / Kiro。模型说：「${txt.slice(0, 60)}」`
+            : '无注入的编程人设（更像直连/官转）。',
+        })
+      }
+    } catch (e: unknown) {
+      if ((e as { name?: string }).name === 'AbortError') return results
+      // 非致命，跳过
+    }
+  }
+
+  // ── 综合：渠道猜测（放最前面）────────────────────────────────────────────
+  results.unshift(guessChannel(sig))
   return results
 }
 
@@ -329,7 +422,33 @@ const UsagePage = ({ user }: UsagePageProps) => {
     return { calls, prompt, completion, total, cached }
   }
 
-  const providerLabel = (id: string) => id === 'openrouter' ? 'OpenRouter' : '中转站'
+  // 中转站显示当前实际名称（从 base URL 推，如 treegpt），换站自动变。
+  const relayName = getCustomProviderDisplayName()
+  const providerLabel = (id: string) => id === 'openrouter' ? 'OpenRouter' : (relayName || '中转站')
+
+  // 站子健康概览：一眼看当前渠道今天行不行。从当前 provider 的近期记录算
+  // 平均首字延迟 + 缓存命中率，给一句话状态。名字按当前 provider 自适应。
+  const healthOverview = useMemo(() => {
+    const provider = getActiveProvider()
+    const mine = rows.filter((r) => r.provider === provider).slice(0, 50)
+    if (mine.length === 0) return null
+    const lat = mine.filter((r) => typeof r.latencyMs === 'number' && (r.latencyMs ?? 0) > 0)
+    const avgLatency = lat.length ? Math.round(lat.reduce((s, r) => s + (r.latencyMs ?? 0), 0) / lat.length) : null
+    const claude = mine.filter((r) => /claude|anthropic/i.test(r.model))
+    const hitRate = claude.length ? claude.filter((r) => r.cachedTokens > 0).length / claude.length : null
+    const reasons: string[] = []
+    let status: 'good' | 'slow' | 'bad' = 'good'
+    if (avgLatency != null && avgLatency >= 12000) { status = 'bad'; reasons.push(`平均首字延迟 ${(avgLatency / 1000).toFixed(1)}s 很慢`) }
+    else if (avgLatency != null && avgLatency >= 6000) { status = 'slow'; reasons.push(`平均首字延迟 ${(avgLatency / 1000).toFixed(1)}s 偏慢`) }
+    if (hitRate != null && claude.length >= 5 && hitRate < 0.1) {
+      if (status === 'good') status = 'slow'
+      reasons.push('缓存几乎不命中（长对话省不到钱）')
+    }
+    return {
+      name: provider === 'openrouter' ? 'OpenRouter' : (relayName || '中转站'),
+      avgLatency, hitRate, sample: mine.length, claudeSample: claude.length, status, reasons,
+    }
+  }, [rows, relayName])
 
   const aggregateBySession = (subset: typeof rows) => {
     const groups = new Map<string, { sessionId: string | null; title: string; calls: number; promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number }>()
@@ -427,6 +546,70 @@ const UsagePage = ({ user }: UsagePageProps) => {
       else health = 'low'
     }
 
+    // ── 中转打散检测 ───────────────────────────────────────────────────────
+    // Signature of a relay load-balancing across multiple upstream Anthropic
+    // accounts: a COLD write that happens shortly after a prior call in the
+    // SAME session — within the 1h cache TTL the cache should still be warm,
+    // so a cold miss means that request landed on a different upstream account
+    // than the one holding the cache. On a stable single-account setup these
+    // are ~0. Many of them = the relay is scattering requests.
+    const SPLIT_GAP_MS = 55 * 60 * 1000 // within cache TTL → cache should be warm
+    const MIN_CACHEABLE = 2000 // ignore tiny prompts that wouldn't cache anyway
+    const bySession = new Map<string, typeof claudeRows>()
+    for (const r of claudeRows) {
+      const key = r.sessionId ?? '__none__'
+      const arr = bySession.get(key)
+      if (arr) arr.push(r)
+      else bySession.set(key, [r])
+    }
+    type SplitMiss = { title: string; at: string; gapMin: number; promptTokens: number }
+    const splitMisses: SplitMiss[] = []
+    for (const [, sessionRows] of bySession) {
+      const sorted = [...sessionRows].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      )
+      for (let i = 1; i < sorted.length; i++) {
+        const cur = sorted[i]
+        if (cur.cachedTokens > 0 || cur.promptTokens < MIN_CACHEABLE) continue // not a cold write
+        // find nearest prior cacheable call in this session
+        const prev = sorted[i - 1]
+        if (prev.promptTokens < MIN_CACHEABLE) continue
+        const gap = new Date(cur.createdAt).getTime() - new Date(prev.createdAt).getTime()
+        if (gap > 0 && gap <= SPLIT_GAP_MS) {
+          splitMisses.push({
+            title: cur.sessionTitle?.trim() || (cur.sessionId ? `会话 ${cur.sessionId.slice(0, 6)}` : '未知会话'),
+            at: cur.createdAt,
+            gapMin: Math.round(gap / 60_000),
+            promptTokens: cur.promptTokens,
+          })
+        }
+      }
+    }
+    splitMisses.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+
+    // ── 每日命中率趋势 ─────────────────────────────────────────────────────
+    const dayKey = (iso: string) => {
+      const d = new Date(iso)
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    }
+    const dayMap = new Map<string, { calls: number; hits: number; cold: number; coldTokens: number }>()
+    for (const r of claudeRows) {
+      const k = dayKey(r.createdAt)
+      const d = dayMap.get(k) ?? { calls: 0, hits: 0, cold: 0, coldTokens: 0 }
+      d.calls++
+      if (r.cachedTokens > 0) d.hits++
+      else if (r.promptTokens >= MIN_CACHEABLE) { d.cold++; d.coldTokens += r.promptTokens }
+      dayMap.set(k, d)
+    }
+    const dailyTrend = Array.from(dayMap.entries())
+      .map(([day, d]) => ({ day, ...d, hitPct: d.calls > 0 ? d.hits / d.calls : 0 }))
+      .sort((a, b) => (a.day < b.day ? 1 : -1))
+      .slice(0, 10)
+
+    // ── 今日冷写 ───────────────────────────────────────────────────────────
+    const todayKey = dayKey(new Date(now).toISOString())
+    const today = dayMap.get(todayKey) ?? { calls: 0, hits: 0, cold: 0, coldTokens: 0 }
+
     return {
       total: claudeRows.length,
       hitCount: claudeRows.filter((r) => r.cachedTokens > 0).length,
@@ -438,6 +621,9 @@ const UsagePage = ({ user }: UsagePageProps) => {
       prev7Calls: prev7.length,
       byProvider,
       health,
+      splitMisses,
+      dailyTrend,
+      today: { ...today, dateKey: todayKey },
     }
   }, [histRows])
 
@@ -511,8 +697,8 @@ const UsagePage = ({ user }: UsagePageProps) => {
   return (
     <main className="usage-page app-shell">
       <header className="page-header-bar">
-        <button type="button" className="ghost" onClick={() => navigate('/')}>返回聊天</button>
-        <h1 className="ui-title">检测中心</h1>
+        <button type="button" className="page-back-btn" onClick={() => navigate('/')}>‹</button>
+        <h1 className="ui-display diag-page-title">Diagnostics</h1>
         {headerRight}
       </header>
 
@@ -552,6 +738,29 @@ const UsagePage = ({ user }: UsagePageProps) => {
 
           {error ? <p className="usage-error">{error}</p> : null}
 
+          {healthOverview && (
+            <div className={`health-overview health-overview--${healthOverview.status}`}>
+              <div className="health-overview__head">
+                <span className="health-overview__dot" aria-hidden="true">
+                  {healthOverview.status === 'good' ? '🟢' : healthOverview.status === 'slow' ? '🟡' : '🔴'}
+                </span>
+                <strong>{healthOverview.name} 近期{healthOverview.status === 'good' ? '正常' : healthOverview.status === 'slow' ? '略慢/留意' : '异常'}</strong>
+              </div>
+              <div className="health-overview__metrics">
+                {healthOverview.avgLatency != null
+                  ? <span>平均首字延迟 <b>{(healthOverview.avgLatency / 1000).toFixed(1)}s</b></span>
+                  : <span>延迟 <b>暂无</b>（新 APK 后的对话才记录）</span>}
+                {healthOverview.hitRate != null
+                  ? <span> · 缓存命中 <b>{Math.round(healthOverview.hitRate * 100)}%</b></span>
+                  : null}
+                <span> · 样本 {healthOverview.sample} 条</span>
+              </div>
+              {healthOverview.reasons.length > 0 && (
+                <div className="health-overview__reasons">⚠️ {healthOverview.reasons.join(' · ')}</div>
+              )}
+            </div>
+          )}
+
           {byProvider.length === 0 ? (
             <p className="usage-empty">这段时间还没有调用记录。</p>
           ) : (
@@ -568,9 +777,12 @@ const UsagePage = ({ user }: UsagePageProps) => {
                     </div>
                     <div className="usage-summary-card">
                       <span className="label">
-                        输入 tokens
+                        输入 tokens（总）
                         {totals.cached > 0 && totals.prompt > 0 ? (
-                          <span className="label-hint">｜命中缓存 {formatTokenCount(totals.cached)}（{Math.round((totals.cached / totals.prompt) * 100)}%）</span>
+                          <span className="label-hint">
+                            ｜命中缓存 {formatTokenCount(totals.cached)}（{Math.round((totals.cached / totals.prompt) * 100)}%·0.1×便宜）
+                            <br />｜真实新增 {formatTokenCount(Math.max(0, totals.prompt - totals.cached))}（非缓存·全价，这才是真花钱的输入）
+                          </span>
                         ) : null}
                       </span>
                       <span className="value">{formatTokenCount(totals.prompt)}</span>
@@ -618,6 +830,45 @@ const UsagePage = ({ user }: UsagePageProps) => {
               )
             })
           )}
+
+          {/* 逐条明细 — 折叠，要和中转站后台日志核对时再点开 */}
+          {rows.length > 0 && (
+            <details className="usage-section diag-detail-fold">
+              <summary>逐条明细（点开·和站子日志对账）· 最近 {Math.min(rows.length, 80)} 条</summary>
+              <p className="usage-footer-note" style={{ textAlign: 'left', margin: '8px 0' }}>
+                精确数字（不缩写），按时间倒序。<strong>缓存读</strong>=便宜 0.1×、<strong>缓存写</strong>=贵 1.25~2×、<strong>输入</strong>=本条总输入。拿这几列去和站子每条日志比，数字对不上就是它在虚报。
+              </p>
+              <div className="usage-table-wrap">
+                <table className="usage-table">
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>时间</th>
+                      <th style={{ textAlign: 'left' }}>模型</th>
+                      <th>输入</th>
+                      <th>输出</th>
+                      <th>缓存读</th>
+                      <th>缓存写</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.slice(0, 80).map((row) => (
+                      <tr key={row.id}>
+                        <td className="model" style={{ whiteSpace: 'nowrap' }}>
+                          {new Date(row.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </td>
+                        <td className="model">{row.model.replace(/^anthropic\//, '')}</td>
+                        <td>{row.promptTokens.toLocaleString()}</td>
+                        <td>{row.completionTokens.toLocaleString()}</td>
+                        <td>{row.cacheRead.toLocaleString()}</td>
+                        <td>{row.cacheWrite.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+
           <p className="usage-footer-note">实际计费请去对应提供商网站查看。这里只展示调用次数、token 用量、缓存命中率。</p>
         </>
       )}
@@ -648,6 +899,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
                 </button>
               )}
             </div>
+            <p className="diag-cost-hint">点一次发 5~6 条小测试请求 · 花费 ≈ 1~2 条普通消息（只在点击时，不后台跑）</p>
           </section>
 
           {checkResults.length > 0 && (
@@ -679,6 +931,78 @@ const UsagePage = ({ user }: UsagePageProps) => {
               <p className="usage-empty">近 30 天无 Claude 对话记录。</p>
             ) : (
               <>
+                {/* 今日冷写提醒 — early warning at the top */}
+                {histStats.today.calls > 0 && (
+                  <div
+                    className={`diag-result-card ${histStats.today.cold >= 3 ? 'diag-warn' : histStats.today.cold > 0 ? '' : 'diag-pass'}`}
+                    style={{ marginBottom: '10px' }}
+                  >
+                    <div className="diag-result-header">
+                      <span className="diag-result-icon">{histStats.today.cold >= 3 ? '!' : histStats.today.cold > 0 ? '○' : '✓'}</span>
+                      <span className="diag-result-label">今日缓存</span>
+                      <span className={`diag-badge ${histStats.today.cold >= 3 ? 'diag-badge-warn' : 'diag-badge-pass'}`}>
+                        {histStats.today.calls > 0 ? `${Math.round((histStats.today.hits / histStats.today.calls) * 100)}% 命中` : '—'}
+                      </span>
+                    </div>
+                    <p className="diag-result-detail">
+                      今日 {histStats.today.calls} 次调用，命中 {histStats.today.hits} 次，
+                      冷写 {histStats.today.cold} 次
+                      {histStats.today.coldTokens > 0 ? `（多读 ~${formatTokenCount(histStats.today.coldTokens)} token）` : ''}。
+                      {histStats.today.cold >= 3 ? ' 冷写偏多，可能中转在打散缓存（见下方检测）。' : ''}
+                    </p>
+                  </div>
+                )}
+
+                {/* 中转打散自动检测 — the headline diagnostic */}
+                <div
+                  className={`diag-result-card ${histStats.splitMisses.length >= 2 ? 'diag-warn' : 'diag-pass'}`}
+                  style={{ marginBottom: '10px' }}
+                >
+                  <div className="diag-result-header">
+                    <span className="diag-result-icon">{histStats.splitMisses.length >= 2 ? '!' : '✓'}</span>
+                    <span className="diag-result-label">中转打散检测</span>
+                    <span className={`diag-badge ${histStats.splitMisses.length >= 2 ? 'diag-badge-warn' : 'diag-badge-pass'}`}>
+                      {histStats.splitMisses.length >= 2 ? '疑似打散' : '正常'}
+                    </span>
+                  </div>
+                  <p className="diag-result-detail">
+                    {histStats.splitMisses.length >= 2 ? (
+                      <>
+                        近 30 天检测到 <strong>{histStats.splitMisses.length}</strong> 次「会话中途冷写」——
+                        同一会话里上一条刚建好缓存，几分钟后的下一条却完全没读到（理应在 1 小时缓存窗口内）。
+                        这是中转把请求<strong>轮询分发到多个上游账号</strong>的典型特征：缓存按账号隔离，请求落到没缓存的账号就冷写。
+                        可联系中转问有没有「固定上游/独享通道」，或缓存敏感时切回 OpenRouter 直连。
+                      </>
+                    ) : (
+                      '未检测到会话中途异常冷写，缓存命中模式正常。偶发的首条冷写（新对话/隔夜缓存过期）属正常现象。'
+                    )}
+                  </p>
+                  {histStats.splitMisses.length >= 2 && (
+                    <div className="usage-table-wrap" style={{ marginTop: '8px' }}>
+                      <table className="usage-table">
+                        <thead>
+                          <tr>
+                            <th>会话</th>
+                            <th>时间</th>
+                            <th>距上次</th>
+                            <th>本次输入</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {histStats.splitMisses.slice(0, 6).map((m, i) => (
+                            <tr key={`${m.at}-${i}`}>
+                              <td className="model">{m.title}</td>
+                              <td>{new Date(m.at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                              <td>{m.gapMin} 分钟</td>
+                              <td>{formatTokenCount(m.promptTokens)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
                 {/* Health banner */}
                 <div className={`diag-result-card ${histHealthCard(histStats.health)}`} style={{ marginBottom: '10px' }}>
                   <div className="diag-result-header">
@@ -747,7 +1071,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
                       <tbody>
                         {histStats.byProvider.map((p) => (
                           <tr key={p.provider}>
-                            <td className="model">{p.provider === 'openrouter' ? 'OpenRouter' : '中转站'}</td>
+                            <td className="model">{p.provider === 'openrouter' ? 'OpenRouter' : (relayName || '中转站')}</td>
                             <td>{p.calls}</td>
                             <td>{p.hits}</td>
                             <td>{p.calls > 0 ? `${Math.round((p.hits / p.calls) * 100)}%` : '—'}</td>
@@ -758,6 +1082,29 @@ const UsagePage = ({ user }: UsagePageProps) => {
                     </table>
                   </div>
                 )}
+
+                {/* 每日命中率趋势 */}
+                {histStats.dailyTrend.length > 1 && (
+                  <div style={{ marginTop: '12px' }}>
+                    <div className="diag-label" style={{ marginBottom: '6px' }}>每日命中率趋势</div>
+                    <div className="hist-day-list">
+                      {histStats.dailyTrend.map((d) => {
+                        const pct = Math.round(d.hitPct * 100)
+                        const tone = pct >= 80 ? 'good' : pct >= 50 ? 'mid' : 'low'
+                        return (
+                          <div key={d.day} className="hist-day-row">
+                            <span className="hist-day-date">{d.day.slice(5)}</span>
+                            <div className="hist-day-bar-wrap">
+                              <div className={`hist-day-bar hist-day-${tone}`} style={{ width: `${Math.max(pct, 3)}%` }} />
+                            </div>
+                            <span className="hist-day-pct">{pct}%</span>
+                            <span className="hist-day-meta">{d.calls} 次{d.cold > 0 ? ` · 冷写 ${d.cold}` : ''}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </section>
@@ -765,9 +1112,13 @@ const UsagePage = ({ user }: UsagePageProps) => {
           <section className="usage-section diag-explainer">
             <h3>检测说明</h3>
             <ul className="diag-explain-list">
-              <li><strong>连通性</strong> — 向当前 provider 发一条最小请求，测量首响应延迟。</li>
-              <li><strong>缓存字段透传</strong>（仅 Claude）— 发送带 cache_control 的请求，检查响应里是否含 cache_creation_input_tokens / cache_read_input_tokens 字段。缺失说明中间层剥离了缓存元数据，prompt cache 将无法正常工作。</li>
-              <li><strong>模型核验</strong> — 发送一个随机金丝雀字符串，要求模型原样返回，并核对 response.model 字段。字符串未返回或 model 字段不符提示可能发生了模型替换或上下文截断。</li>
+              <li><strong>🔍 渠道猜测</strong> — 把下面所有信号综合成一个「类别 + 证据」判断（官方真 passthrough / OpenAI兼容·模拟缓存 / 反代订阅编程工具 / 偷换降智）。<strong>只给类别不给牌子名</strong>——中转故意抹掉上游来源，没有可靠信号能定位是「反重力」还是「Kiro」。</li>
+              <li><strong>连通性 + 延迟</strong> — 发一条最小请求，测首响应延迟、确认通不通。</li>
+              <li><strong>真实缓存命中</strong>（仅 Claude）— 发两次 ≥1024 token 的<strong>相同前缀</strong>（粘同一上游），看第二次有没有真读到缓存。真命中=原生缓存有效、长对话省钱、保活值得开；写了读不到=多上游打散/模拟缓存；全 0=走了 OpenAI 兼容层、缓存被剥离。</li>
+              <li><strong>模型核验</strong> — 发一个随机金丝雀字符串要求原样返回，并核对 response.model。字符串没返回或 model 不符 = 可能偷换模型/降智路由/截断。</li>
+              <li><strong>响应头指纹</strong> — 采集上游会漏的响应头（anthropic-/request-id=直连官方、x-amzn=Bedrock、cf-ray=Cloudflare、openai-=OpenAI兼容）。网页版受 CORS 限只能读到一点，<strong>APK 上更全</strong>。</li>
+              <li><strong>身份注入探测</strong>（仅 Claude）— 不发任何系统提示，问模型「你是不是被设成编程助手/Claude Code/CLI」。它自带编程人设 = 中转反代了别人的 Claude Code 订阅、内置了提示词（这也可能干扰角色扮演）。</li>
+              <li><strong>历史缓存分析 / 中转打散 / 每日趋势</strong>（读历史·免费）— 扫近 30 天记录，看命中率、找「同会话刚建缓存几分钟后又冷写」的打散特征、按天看趋势。不发探针、不花钱。</li>
             </ul>
           </section>
         </div>

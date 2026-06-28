@@ -834,6 +834,22 @@ export const fetchAnthropicAsOpenAi = async (
   return collectAnthropicStreamAsJson(upstream)
 }
 
+// Carry a SAFE allowlist of upstream headers onto our synthesized JSON
+// response so callers (e.g. the API-check panel's 渠道指纹) can read who the
+// upstream really is. Deliberately skips body-framing headers
+// (content-length/encoding, transfer-encoding) — our body is a fresh,
+// uncompressed JSON string, so copying those would corrupt parsing.
+const FINGERPRINT_HEADER_RE = /^(anthropic-|x-amzn|openai-|cf-ray|cf-cache|via$|server$|request-id$|x-request-id$|x-ratelimit|x-powered-by|x-served-by)/i
+const buildJsonHeaders = (upstream: Response): HeadersInit => {
+  const out: Record<string, string> = { 'Content-Type': 'application/json' }
+  try {
+    upstream.headers.forEach((v, k) => {
+      if (FINGERPRINT_HEADER_RE.test(k)) out[k] = v
+    })
+  } catch { /* some platforms restrict header iteration */ }
+  return out
+}
+
 // Drains an Anthropic raw SSE stream end-to-end and returns a single
 // OpenAI-shaped JSON Response. Mirrors the same event handling as
 // translateAnthropicStream but accumulates instead of emitting.
@@ -980,6 +996,6 @@ const collectAnthropicStreamAsJson = async (anthropicResponse: Response): Promis
   }
   return new Response(JSON.stringify(openAiPayload), {
     status: anthropicResponse.status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: buildJsonHeaders(anthropicResponse),
   })
 }

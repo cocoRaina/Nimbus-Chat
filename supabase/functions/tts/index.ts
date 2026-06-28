@@ -2,10 +2,13 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { encodeBase64 } from 'jsr:@std/encoding/base64'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
-// MiniMax T2A v2 proxy. The client (settings page) sends the MiniMax api_key
-// + group_id + voice_id with each request — we never store the key server-side
-// or in the repo. This function exists to (a) dodge the WebView CORS wall and
-// (b) decode MiniMax's hex audio into something the client can play directly.
+// TTS proxy for two providers, picked by the `provider` field:
+//   - 'minimax'    → MiniMax T2A v2 (decode hex audio → base64)
+//   - 'elevenlabs' → ElevenLabs /v1/text-to-speech (mp3 bytes → base64)
+// The client (settings page) sends its own api_key + voice_id with each
+// request — we never store keys server-side or in the repo. This function
+// exists to (a) dodge the WebView CORS wall and (b) normalize each provider's
+// audio into base64 the client can play directly.
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
@@ -35,20 +38,60 @@ Deno.serve(async (req: Request) => {
   }
 
   let p: {
+    provider?: string
     text?: string; voice_id?: string; api_key?: string; group_id?: string
-    base_url?: string; model?: string; speed?: number
+    base_url?: string; model?: string; speed?: number; stability?: number
   }
   try { p = await req.json() } catch { return json({ error: 'invalid JSON' }, 400) }
 
   const text = (p.text ?? '').toString().trim()
   const apiKey = (p.api_key ?? '').toString().trim()
   const voiceId = (p.voice_id ?? '').toString().trim()
+  const provider = (p.provider ?? 'minimax').toString().trim()
+  if (!text) return json({ error: 'text required' }, 400)
+  if (!apiKey || !voiceId) return json({ error: 'api_key and voice_id required' }, 400)
+
+  // ── ElevenLabs branch ───────────────────────────────────────────────────
+  // POST /v1/text-to-speech/{voice_id}, xi-api-key header, returns mp3 bytes
+  // directly (no hex/base64 wrapping like MiniMax). v3 (eleven_v3) renders
+  // inline audio tags like [laughs]/[sighs] for expressive companion speech.
+  if (provider === 'elevenlabs') {
+    const model = (p.model ?? 'eleven_v3').toString().trim()
+    const stability = typeof p.stability === 'number' && p.stability >= 0 && p.stability <= 1
+      ? p.stability : 0.5
+    try {
+      const res = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`,
+        {
+          method: 'POST',
+          headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text,
+            model_id: model,
+            voice_settings: { stability, similarity_boost: 0.75, use_speaker_boost: true },
+          }),
+        },
+      )
+      if (!res.ok) {
+        // ElevenLabs errors come back as JSON; surface the detail.
+        const errBody = await res.json().catch(() => null) as
+          | { detail?: { message?: string; status?: string } | string } | null
+        const detail = errBody?.detail
+        const msg = typeof detail === 'string' ? detail : (detail?.message ?? '')
+        return json({ error: `ElevenLabs ${res.status}${msg ? ': ' + msg : ''}`, detail: errBody })
+      }
+      const buf = new Uint8Array(await res.arrayBuffer())
+      return json({ audio_base64: encodeBase64(buf), mime: 'audio/mp3' })
+    } catch (err) {
+      return json({ error: String(err) })
+    }
+  }
+
+  // ── MiniMax branch (default) ────────────────────────────────────────────
   const groupId = (p.group_id ?? '').toString().trim()
   const baseUrl = ((p.base_url ?? 'https://api.minimax.io').toString().trim()).replace(/\/+$/, '')
   const model = (p.model ?? 'speech-02-turbo').toString().trim()
   const speed = typeof p.speed === 'number' && p.speed > 0 ? p.speed : 1.0
-  if (!text) return json({ error: 'text required' }, 400)
-  if (!apiKey || !voiceId) return json({ error: 'api_key and voice_id required' }, 400)
 
   const url = groupId
     ? `${baseUrl}/v1/t2a_v2?GroupId=${encodeURIComponent(groupId)}`

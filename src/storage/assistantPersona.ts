@@ -3,11 +3,11 @@
 // strong reason to round-trip through supabase since this is purely
 // a presentation choice.
 //
-// Default "哥哥" matches the original hard-coded value so anyone who
-// hasn't renamed sees no change.
+// Default name for the assistant (沈暮). Users who have explicitly renamed
+// in-app keep their stored choice; only those on the default see this.
 
 const STORAGE_KEY = 'nimbus_assistant_name'
-const DEFAULT_NAME = '哥哥'
+const DEFAULT_NAME = '沈暮'
 
 export const getAssistantName = (): string => {
   if (typeof window === 'undefined') return DEFAULT_NAME

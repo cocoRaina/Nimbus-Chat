@@ -1,7 +1,7 @@
 .my-home-page {
   min-height: 100vh;
   min-height: 100dvh;
-  background: var(--page-bg);
+  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
   max-width: 720px;
   margin: 0 auto;
   padding: 12px;
@@ -13,11 +13,16 @@
 .my-home-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
 }
 
 .my-home-header h1 {
-  font-size: 18px;
+  flex: 1;
+  text-align: center;
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #2A3D52;
   margin: 0;
 }
 
@@ -25,19 +30,18 @@
 .profile-header-card {
   position: relative;
   margin-top: 4px;
-  border-radius: 18px;
-  border: 1px solid #DBEAFE;
-  background: #fff;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.62);
   padding: 0 16px 16px;
-  box-shadow: 0 10px 24px rgba(219, 234, 254, 0.25);
+  box-shadow: 0 4px 18px rgba(88, 104, 120, 0.07);
+  backdrop-filter: blur(18px);
 }
 
 .profile-cover-banner {
   height: 120px;
   border-radius: 16px 16px 12px 12px;
-  background-color: #fff;
-  background-image: radial-gradient(circle at 2px 2px, #DBEAFE 2px, transparent 2px);
-  background-size: 14px 14px;
+  background: linear-gradient(135deg, #C5D6EC 0%, #98B5D8 50%, #789EC8 100%);
 }
 
 .profile-avatar-wrap {
@@ -51,9 +55,9 @@
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  border: 6px solid #fff;
-  background: #DBEAFE;
-  box-shadow: 0 8px 18px rgba(92, 92, 92, 0.14);
+  border: 6px solid rgba(255, 255, 255, 0.88);
+  background: rgba(222, 234, 245, 0.45);
+  box-shadow: 0 4px 18px rgba(88, 104, 120, 0.14);
   padding: 0;
   overflow: hidden;
   cursor: pointer;
@@ -69,7 +73,7 @@
   display: block;
   width: 100%;
   height: 100%;
-  background: linear-gradient(140deg, #DBEAFE, #EFF6FF);
+  background: linear-gradient(140deg, #C5D6EC, #DEEAF5);
 }
 
 .profile-avatar-input {
@@ -84,7 +88,7 @@
   height: 22px;
   border-radius: 50%;
   border: none;
-  background: rgba(0, 0, 0, 0.58);
+  background: rgba(42, 61, 82, 0.58);
   color: #fff;
   font-size: 14px;
   line-height: 1;
@@ -99,49 +103,51 @@
 .profile-title {
   margin: 0;
   font-size: 24px;
-  color: #5c5c5c;
+  color: #2A3D52;
   letter-spacing: 0.5px;
 }
 
 .profile-bio {
   margin: 6px 0 0;
-  color: #8f8f8f;
+  color: #586878;
   font-size: 13px;
 }
 
 .my-home-composer {
-  background: #fff;
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.62);
+  border-radius: 20px;
   padding: 10px 12px;
-  border: 1px solid #DBEAFE;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 4px 18px rgba(88, 104, 120, 0.07);
+  backdrop-filter: blur(18px);
   margin-top: 6px;
 }
 
 .my-home-composer textarea {
   width: 100%;
   resize: vertical;
-  border: 1px solid #e0e0e0;
-  border-radius: 10px;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 12px;
   padding: 10px;
   font-size: 14px;
   line-height: 1.5;
   font-family: inherit;
-  color: #5c5c5c;
-  background-color: #f8f9fa;
+  color: #2A3D52;
+  background-color: rgba(244, 248, 252, 0.9);
   background-image: repeating-linear-gradient(
     to bottom,
     transparent 0,
     transparent 27px,
-    rgba(219, 234, 254, 0.55) 27px,
-    rgba(219, 234, 254, 0.55) 29px
+    rgba(197, 214, 236, 0.35) 27px,
+    rgba(197, 214, 236, 0.35) 29px
   );
 }
 
 .my-home-composer textarea:focus,
 .reply-composer textarea:focus {
-  border-color: #DBEAFE;
+  border-color: #98B5D8;
   outline: none;
-  box-shadow: 0 0 0 2px rgba(219, 234, 254, 0.25);
+  box-shadow: 0 0 0 2px rgba(152, 181, 216, 0.18);
 }
 
 .composer-footer {
@@ -158,19 +164,18 @@
   margin-top: 8px;
   padding-bottom: 20px;
   padding: 12px;
-  border-radius: 16px;
-  background-color: #fcfcfc;
-  background-image:
-    radial-gradient(circle at 1px 1px, #DBEAFE 1.5px, transparent 1.5px),
-    radial-gradient(circle at 1px 1px, #ffffff 1px, transparent 1px);
-  background-size: 20px 20px, 10px 10px;
+  border-radius: 20px;
+  background: rgba(222, 234, 245, 0.45);
+  border: 1px solid rgba(88, 104, 120, 0.08);
 }
 
 .post-card {
-  background: #fff;
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.62);
+  border-radius: 20px;
   padding: 12px;
-  border: 1px solid #DBEAFE;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 4px 18px rgba(88, 104, 120, 0.07);
+  backdrop-filter: blur(18px);
   position: relative;
 }
 
@@ -181,7 +186,7 @@
   left: 18px;
   width: 72px;
   height: 14px;
-  background: rgba(219, 234, 254, 0.58);
+  background: rgba(152, 181, 216, 0.32);
   border-radius: 4px;
   transform: rotate(-2deg);
 }
@@ -198,7 +203,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: #a3a3a3;
+  color: #98B5D8;
   font-size: 12px;
 }
 
@@ -208,27 +213,34 @@
 }
 
 .tips {
-  color: #64748b;
+  color: #586878;
   text-align: center;
 }
 
 .compact-action {
   padding: 4px 10px;
-  font-size: 13px;
+  font-size: 0.88rem;
 }
 
 
 .my-home-page .ghost {
-  color: #a3a3a3;
+  color: #789EC8;
+  background: transparent;
+  border: none;
+  font-size: 0.88rem;
   transition: color 0.2s ease;
 }
 
 .my-home-page .ghost:hover {
-  color: #DBEAFE;
+  color: #2A3D52;
 }
 
 .my-home-page .ghost.danger {
-  color: #a3a3a3;
+  color: #98B5D8;
+}
+
+.my-home-page .ghost.danger:hover {
+  color: #dc2626;
 }
 
 
@@ -248,9 +260,9 @@
 .reply-toggle {
   flex: 1;
   min-width: 0;
-  border: 1px solid #e0e0e0;
-  background: #fbfbfb;
-  border-radius: 10px;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  background: rgba(244, 248, 252, 0.9);
+  border-radius: 12px;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -260,13 +272,13 @@
 }
 
 .reply-toggle-main {
-  color: #334155;
+  color: #2A3D52;
   font-size: 13px;
   white-space: nowrap;
 }
 
 .reply-preview {
-  color: #a3a3a3;
+  color: #98B5D8;
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -274,7 +286,7 @@
 }
 
 .reply-chevron {
-  color: #a3a3a3;
+  color: #789EC8;
   font-size: 12px;
 }
 
@@ -283,26 +295,27 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: #fbfbfb;
-  border: 1px solid #f1f1f1;
-  border-radius: 10px;
+  background: rgba(244, 248, 252, 0.7);
+  border: 1px solid rgba(88, 104, 120, 0.08);
+  border-radius: 12px;
   padding: 10px;
 }
 
 .reply-bubble {
-  background: #ffffff;
-  border: 1px solid #ebebeb;
-  border-left: 2px solid #DBEAFE;
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-left: 2px solid #C5D6EC;
+  border-radius: 12px;
   padding: 8px 10px;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+  backdrop-filter: blur(8px);
 }
 
 .reply-bubble.user {
-  background: #EFF6FF;
+  background: rgba(222, 234, 245, 0.55);
 }
 
 .reply-content-wrap {
@@ -313,7 +326,7 @@
 
 .reply-role {
   font-size: 12px;
-  color: #5c5c5c;
+  color: #586878;
   margin-bottom: 4px;
   display: inline-flex;
   align-items: center;
@@ -324,8 +337,8 @@
   display: inline-block;
   padding: 1px 6px;
   border-radius: 999px;
-  background: #DBEAFE;
-  color: #5c5c5c;
+  background: rgba(197, 214, 236, 0.55);
+  color: #586878;
   font-size: 11px;
   line-height: 1.4;
 }
@@ -337,13 +350,13 @@
 }
 
 .reply-bubble.pending {
-  color: #64748b;
+  color: #586878;
 }
 
 .reply-time {
   display: inline-block;
   margin-top: 6px;
-  color: #a3a3a3;
+  color: #98B5D8;
   font-size: 12px;
 }
 
@@ -355,19 +368,20 @@
 .reply-composer textarea {
   flex: 1;
   resize: vertical;
-  border: 1px solid #e0e0e0;
-  border-radius: 10px;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 12px;
   padding: 8px 10px;
   font-size: 14px;
   line-height: 1.5;
   font-family: inherit;
-  background-color: #f8f9fa;
+  color: #2A3D52;
+  background-color: rgba(244, 248, 252, 0.9);
   background-image: repeating-linear-gradient(
     to bottom,
     transparent 0,
     transparent 27px,
-    rgba(219, 234, 254, 0.45) 27px,
-    rgba(219, 234, 254, 0.45) 29px
+    rgba(197, 214, 236, 0.3) 27px,
+    rgba(197, 214, 236, 0.3) 29px
   );
 }
 
@@ -404,11 +418,11 @@
   gap: 4px;
   padding: 3px 10px;
   border-radius: 999px;
-  border: 1px solid #DBEAFE;
-  color: #5c5c5c;
+  border: 1px solid rgba(152, 181, 216, 0.5);
+  color: #586878;
   font-size: 11px;
   line-height: 1.4;
-  background: #DBEAFE;
+  background: rgba(222, 234, 245, 0.55);
 }
 
 .feed-badge::before {
@@ -417,19 +431,30 @@
 }
 
 .post-actions .ghost {
-  color: #a3a3a3;
+  color: #789EC8;
+  background: transparent;
+  border: none;
+  font-size: 0.88rem;
   transition: color 0.2s ease;
 }
 
 .post-actions .ghost:hover {
-  color: #DBEAFE;
+  color: #2A3D52;
+}
+
+.post-actions .ghost.danger {
+  color: #98B5D8;
+}
+
+.post-actions .ghost.danger:hover {
+  color: #dc2626;
 }
 
 .post-actions .primary {
   border-radius: 999px;
-  border: 1px solid #DBEAFE;
-  background: #DBEAFE;
-  color: #5c5c5c;
+  border: none;
+  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  color: #fff;
   transition: transform 0.15s ease, filter 0.15s ease;
 }
 

@@ -1,5 +1,4 @@
 .home-page {
-  transition: none;
   --icon-tile-bg: rgba(255, 255, 255, 0.72);
   align-items: center;
   background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
@@ -18,7 +17,6 @@
   box-shadow: none;
 }
 
-/* home-page scrolls at the top level; inner content div needs no flex stretch or overflow */
 .home-page .app-shell__content {
   flex: none;
   overflow: visible;
@@ -27,22 +25,23 @@
 }
 
 .home-page__content {
-  min-height: 0;
+  flex: 1;
   overflow: auto;
-  /* Let the layout fill the viewport so dock can hug the bottom. */
   display: flex;
   flex-direction: column;
 }
 
 .home-layout {
+  flex: 1;
   width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding-left: 0.5rem;
-  padding-right: 0.5rem;
-  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  align-items: stretch;
+  gap: 0.5rem;
+  padding-left: clamp(14px, 4vw, 20px);
+  padding-right: clamp(14px, 4vw, 20px);
+  padding-top: 1.5rem;
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
 }
 
 .phone-shell {
@@ -57,12 +56,18 @@
   overflow: visible;
 }
 
-/* Center the whole content group vertically so short home screens split
-   their spare space top/bottom instead of pooling it all at the bottom.
-   min-height:100dvh means tall content (edit mode) just grows past the
-   viewport and scrolls — centering only kicks in when there's free space. */
 .home-page:not(.home-page--settings) .phone-shell {
-  justify-content: center;
+  justify-content: flex-start;
+}
+
+@media (max-width: 900px) {
+  .home-page--edit .home-page__content {
+    display: none;
+  }
+  .home-page--edit .phone-shell__content {
+    padding-top: 3rem;
+    justify-content: center;
+  }
 }
 
 .phone-shell__mask {
@@ -75,8 +80,6 @@
   background-image: none !important;
 }
 
-/* .home-page--has-bg: inline backgroundImage style already overrides the gradient */
-
 .phone-shell__content {
   padding: 0 clamp(22px, 5vw, 28px);
   display: flex;
@@ -87,76 +90,7 @@
   overflow: visible;
 }
 
-.home-header {
-  text-align: center;
-  position: relative;
-}
-
-.home-mode-toggle {
-  margin-top: 0.7rem;
-  display: inline-flex;
-  border-radius: 999px;
-  padding: 0.22rem;
-  border: 1px solid rgba(255, 255, 255, 0.58);
-  background: rgba(255, 255, 255, 0.35);
-}
-
-.home-mode-toggle button {
-  border: none;
-  background: transparent;
-  border-radius: 999px;
-  padding: 0.3rem 0.85rem;
-  color: #586878;
-}
-
-.home-mode-toggle button.active {
-  background: rgba(120, 158, 200, 0.15);
-  color: #3D5570;
-}
-
-.home-header h1 {
-  margin: 0;
-  font-size: 3.5rem;
-  line-height: 1;
-  color: #2A3D52;
-}
-
-.home-header p {
-  margin: 0.25rem 0 0;
-  color: #789EC8;
-}
-
-.home-date-label {
-  margin: 0.15rem 0 0;
-  color: #789EC8;
-  font-size: 0.92rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
-.edit-button {
-  position: absolute;
-  top: 0;
-  right: 0;
-  border: 1px solid rgba(197, 214, 236, 0.7);
-  background: rgba(222, 234, 245, 0.45);
-  color: #586878;
-  border-radius: 999px;
-  padding: 0.32rem 0.75rem;
-}
-
-.edit-button-back {
-  right: auto;
-  left: 0;
-}
-
-.home-notice {
-  margin: 0;
-  text-align: center;
-  color: #586878;
-  font-size: 0.9rem;
-}
-
+/* ── Glass card override for home context ──────────────────── */
 .home-page .glass-card {
   border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.75);
@@ -167,756 +101,161 @@
   backdrop-filter: blur(24px);
 }
 
-
-.home-clock-title {
-  font-family: var(--font-rounded);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-.widget-toolbar {
-  padding: 0.8rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-}
-
-.widget-toolbar-header {
+/* ── Top bar ───────────────────────────────────────────────── */
+.home-topbar {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  justify-content: space-between;
+  padding: 0 0.1rem;
+  min-height: 2rem;
 }
 
-.widget-toolbar-label {
-  font-weight: 700;
-  color: #3D5570;
-  font-size: 0.95rem;
-}
-
-.widget-toolbar-count {
-  font-weight: 700;
-  color: #98B5D8;
-  font-variant-numeric: tabular-nums;
-  font-size: 0.9rem;
-}
-
-.widget-toolbar-progress {
-  flex: 1;
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(152, 181, 216, 0.18);
-  overflow: hidden;
-}
-
-.widget-toolbar-progress-fill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #C5D6EC, #789EC8);
-  transition: width 0.2s ease;
-}
-
-.widget-toolbar-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
-}
-
-.widget-toolbar-grid .ghost {
-  width: 100%;
-}
-
-/* "＋ 应用快捷方式" picker — invisible native <select> overlays the
-   label so a tap on the label opens the system app list, same UX
-   pattern as the chat composer's model picker. */
-.widget-shortcut-picker {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
+.home-date-label {
+  margin: 0;
+  color: #789EC8;
   font-size: 0.88rem;
   font-weight: 600;
-  color: #586878;
-  border: 1px solid rgba(197, 214, 236, 0.7);
-  background: rgba(222, 234, 245, 0.6);
-  border-radius: 999px;
-  padding: 0.36rem 0.8rem;
-}
-
-.widget-shortcut-picker select {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-  appearance: none;
-  border: none;
-  background: transparent;
-  font-size: 16px;
-}
-
-.appearance-toolbar,
-.icon-editor-toolbar {
-  padding: 0.75rem;
-  display: grid;
-  gap: 0.6rem;
-}
-
-.appearance-toolbar h2,
-.icon-editor-toolbar h2 {
-  margin: 0;
-  font-size: 0.95rem;
-  color: #2A3D52;
-}
-
-.appearance-toolbar label,
-.icon-editor-toolbar label {
-  display: grid;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-  color: #586878;
-}
-
-.appearance-toolbar input[type="color"],
-.appearance-toolbar input[type="range"],
-.icon-editor-toolbar input,
-.icon-editor-toolbar select {
-  width: 100%;
-  font-size: 16px;
-}
-
-.background-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  flex-wrap: wrap;
-}
-
-.background-controls span {
-  font-size: 0.85rem;
-  color: #586878;
-}
-
-.widget-list-panel {
-  padding: 0.75rem;
-  display: grid;
-  gap: 0.5rem;
-}
-
-.widget-list-panel h2 {
-  margin: 0;
-  font-size: 0.95rem;
-  color: #2A3D52;
-}
-
-.widget-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.4rem;
-}
-
-.widget-list-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.45rem 0.55rem;
-  border-radius: 12px;
-  background: rgba(152, 181, 216, 0.1);
-}
-
-.widget-list-label {
+  letter-spacing: 0.02em;
+  text-align: center;
   flex: 1;
-  font-size: 0.88rem;
-  color: #3D5570;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.widget-list-item select {
-  font-size: 0.85rem;
-  padding: 0.2rem 0.4rem;
-  border-radius: 8px;
-  border: 1px solid rgba(197, 214, 236, 0.7);
-  background: rgba(244, 248, 252, 0.95);
-}
-
-.widget-list-delete {
-  border: none;
-  background: rgba(239, 68, 68, 0.1);
-  color: #b91c1c;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  font-size: 1rem;
-  line-height: 1;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.widget-list-delete:hover {
-  background: rgba(239, 68, 68, 0.18);
-}
-
-.widget-grid {
-  display: grid;
-  /* 3 columns so 9 app shortcut icons fill a clean 3×3 grid.
-     Wide widgets (2x1 — checkin / content widgets) span the full
-     row via .widget-card-wide. */
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.55rem 0.45rem;
-  align-content: start;
-  overflow: visible;
-}
-
-.widget-pages {
-  width: 100%;
-  display: flex;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.widget-pages::-webkit-scrollbar {
-  display: none;
-}
-
-.widget-page {
-  flex: 0 0 100%;
-  scroll-snap-align: center;
-  min-width: 0;
-}
-
-.widget-page-dots {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-}
-
-.widget-page-dots span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: rgba(152, 181, 216, 0.3);
-  cursor: pointer;
-  transition: background 0.18s ease, transform 0.18s ease;
-}
-
-.widget-page-dots span.is-active {
-  background: #789EC8;
-  transform: scale(1.2);
-}
-
-.widget-page-add {
-  border: 1px dashed rgba(152, 181, 216, 0.5);
-  background: transparent;
-  color: #98B5D8;
-  border-radius: 50%;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.home-widget-stage {
-  width: 100%;
-  height: fit-content;
-  align-self: stretch;
-  align-content: start;
-  overflow: visible;
-}
-
-.widget-card {
-  /* Smaller tile size — closer to a phone-home-screen icon than a
-     dashboard card. Content widgets that need more vertical room
-     can grow via min-content. */
-  min-height: 82px;
-  padding: 0.55rem 0.6rem;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 0.35rem;
-  position: relative;
-}
-
-.widget-card-wide {
-  /* Span the full row in the 3-col grid. */
-  grid-column: span 3;
-}
-
-.home-page .glass-card.spacer-card {
+.home-topbar-edit {
   background: transparent;
   border: none;
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
-.widget-controls {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.widget-controls label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 0.78rem;
-  color: #586878;
-}
-
-.widget-controls select {
-  border-radius: 999px;
-  border: 1px solid rgba(197, 214, 236, 0.7);
-  background: rgba(244, 248, 252, 0.9);
-  padding: 0.1rem 0.45rem;
-  font-size: 16px;
-}
-
-/* App-launcher tile widget — mirrors the dock icons stylistically so
-   a sticky-and-swipe-able mini home screen feels consistent. Sized
-   compactly to match the 小红书 reference shot where each tile is
-   noticeably smaller than the chunky dock icons. */
-/* App-shortcut tile rendered as a dock-style icon (rounded tile +
-   label) rather than a widget card. Visually identical to dock icons
-   so the user reads it as "an app" rather than another widget. */
-.shortcut-widget {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  padding: 4px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  color: #2A3D52;
-  text-align: center;
-  font-family: inherit;
-}
-
-.shortcut-widget:active:not(:disabled) {
-  transform: scale(0.96);
-}
-
-.shortcut-emoji {
-  display: inline-grid;
-  place-items: center;
-  width: clamp(46px, 13vw, 60px);
-  aspect-ratio: 1 / 1;
-  border-radius: 18px;
-  background: var(--icon-tile-bg);
-  border: 1px solid rgba(222, 234, 245, 0.8);
-  box-shadow: 0 2px 10px rgba(88, 104, 120, 0.1);
-  font-size: clamp(1.3rem, 4.5vw, 1.7rem);
-  overflow: hidden;
-  line-height: 1;
-}
-
-.shortcut-label {
-  font-size: clamp(0.7rem, 2vw, 0.78rem);
-  font-weight: 500;
-  color: #586878;
-  letter-spacing: 0.01em;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-}
-
-.shortcut-widget--missing {
-  opacity: 0.6;
-  cursor: default;
-}
-
-/* Strip the widget-card chrome when the cell is an app shortcut so
-   the visible chrome is only the rounded icon tile + label. */
-.home-page .glass-card.widget-card:has(.shortcut-widget) {
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-  padding: 0.25rem;
-  min-height: 0;
-}
-
-/* === Content widgets (health / screen-time / period) ===
-   Inline read-outs of today's data, sized to either a 1x1 tile or
-   a 2x1 wide tile. Tap → /health-sync. Edit mode swallows the tap
-   so dragging / resizing still works. */
-.content-widget {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: inherit;
-  color: #2A3D52;
-  text-align: left;
-  font-family: inherit;
-}
-
-.content-widget:hover:not(:disabled) {
-  background: rgba(15, 23, 42, 0.04);
-}
-
-.content-widget:active:not(:disabled) {
-  transform: scale(0.985);
-}
-
-.content-widget__title {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: #98B5D8;
-  letter-spacing: 0.02em;
-}
-
-.content-widget__empty {
-  font-size: 0.78rem;
-  color: #C5D6EC;
-  font-style: italic;
-  align-self: center;
-  margin-top: auto;
-  margin-bottom: auto;
-}
-
-.content-widget__stack {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 2px;
-}
-
-.content-widget__hero {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-}
-
-.content-widget__hero strong {
-  font-size: 1.4rem;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  background: linear-gradient(180deg, #789EC8, #3A6A9F);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  line-height: 1;
-}
-
-.content-widget__hero span {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #98B5D8;
-}
-
-.content-widget__sub {
-  font-size: 0.72rem;
-  color: #98B5D8;
-  font-weight: 500;
-}
-
-.content-widget__grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 4px 10px;
-  margin-top: 2px;
-}
-
-.content-widget__grid > div {
-  display: flex;
-  flex-direction: column;
-}
-
-.content-widget__grid .label {
-  font-size: 0.62rem;
-  color: #98B5D8;
-  letter-spacing: 0.02em;
-}
-
-.content-widget__grid .value {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #586878;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-}
-
-.content-widget__screen-body,
-.content-widget__period-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 2px;
-}
-
-.content-widget__top-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.content-widget__top-list li {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.7rem;
-  color: #586878;
-}
-
-.content-widget__top-list li :first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-right: 6px;
-}
-
-.content-widget__top-list li :last-child {
-  font-weight: 600;
-  color: #98B5D8;
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
-
-/* Soft accent border by widget kind to make each tile distinguishable
-   at a glance even before reading its title. */
-.content-widget--health {
-  box-shadow: inset 0 0 0 1px rgba(244, 114, 182, 0.18);
-  border-radius: var(--radius-card);
-}
-
-.content-widget--screen {
-  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.18);
-  border-radius: var(--radius-card);
-}
-
-.content-widget--period {
-  box-shadow: inset 0 0 0 1px rgba(236, 72, 153, 0.2);
-  border-radius: var(--radius-card);
-}
-
-.spacer-editor {
-  min-height: 60px;
-  border-radius: 14px;
-  border: 1px dashed rgba(152, 181, 216, 0.45);
-  display: grid;
-  place-items: center;
   color: #98B5D8;
   font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.3rem 0.5rem;
+  border-radius: 999px;
+  font-family: inherit;
+  min-width: 3rem;
+  text-align: left;
+  transition: color 0.15s;
 }
 
-.widget-placeholder {
+.home-topbar-edit:hover { color: #586878; }
+
+.home-topbar-settings {
+  background: transparent;
+  border: none;
+  font-size: 1.05rem;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  border-radius: 50%;
+  line-height: 1;
+  min-width: 3rem;
+  text-align: right;
+  transition: opacity 0.15s;
+}
+
+.home-topbar-settings:hover { opacity: 0.65; }
+
+/* ── Couple avatar widget ──────────────────────────────────── */
+.home-couple {
+  padding: 0.95rem 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.home-couple__side {
+  flex-shrink: 0;
+}
+
+.home-couple__avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2.5px solid rgba(197, 214, 236, 0.7);
+  box-shadow: 0 3px 10px rgba(88, 104, 120, 0.13);
+  display: block;
+}
+
+.home-couple__avatar--empty {
+  background: rgba(222, 234, 245, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.home-couple__center {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+}
+
+.home-couple__ecg {
   width: 100%;
-  min-height: 105px;
-  border-radius: 16px;
-  border: 1px solid transparent !important;
-  background: transparent !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  opacity: 0;
-  pointer-events: none;
+  height: 28px;
+  display: block;
 }
 
-.together-inner {
+.home-couple__heart {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+/* ── Hero card ─────────────────────────────────────────────── */
+.home-hero {
+  padding: 1.4rem 1.2rem 1.1rem;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 0.45rem;
-  height: 100%;
-  text-align: left;
+  gap: 0.8rem;
 }
 
-.together-wide {
-  gap: 0.6rem;
-}
-
-.together-date {
-  font-size: 0.92rem;
-  color: #98B5D8;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-.together-wide .together-date {
-  font-size: 1rem;
-}
-
-.together-counter {
+.hero-days {
   display: flex;
   align-items: baseline;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-  color: #586878;
+  gap: 0.55rem;
 }
 
-.together-counter strong {
-  font-size: clamp(2rem, 6.5vw, 2.6rem);
+.hero-days-num {
+  font-size: clamp(3.8rem, 15vw, 5.5rem);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  line-height: 1;
-  background: linear-gradient(180deg, #789EC8, #3A6A9F);
+  line-height: 0.9;
+  background: linear-gradient(180deg, #789EC8 0%, #3A6A9F 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  font-family: var(--font-rounded);
 }
 
-.together-counter-unit {
+.hero-days-label {
   font-size: 1rem;
   font-weight: 700;
   color: #98B5D8;
-}
-
-.together-counter-time {
-  margin-left: auto;
-  font-size: 0.92rem;
-  color: #98B5D8;
-  font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
+  font-family: var(--font-rounded);
+  margin-bottom: 0.25rem;
 }
 
-.together-counter-wide {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.together-counter-wide .together-counter-main {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-}
-
-.together-counter-wide .together-counter-main strong {
-  font-size: clamp(2.4rem, 7vw, 3.2rem);
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  background: linear-gradient(180deg, #789EC8, #3A6A9F);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.together-counter-wide .together-counter-main span {
-  font-size: 1.05rem;
+.hero-days-empty {
+  font-size: 1.6rem;
   font-weight: 700;
-  color: #98B5D8;
-}
-
-.together-counter-wide .together-counter-sub {
-  font-size: 1.05rem;
-  color: #98B5D8;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.06em;
-}
-
-.together-empty {
-  font-size: 0.85rem;
   color: #C5D6EC;
+  font-family: var(--font-rounded);
   font-style: italic;
 }
 
-.together-input {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.75rem;
-  color: #98B5D8;
-}
-
-.together-input input {
-  border: 1px solid rgba(197, 214, 236, 0.7);
-  border-radius: 10px;
-  padding: 6px 8px;
-  background: rgba(244, 248, 252, 0.92);
-  color: #2A3D52;
-  font-size: 0.85rem;
-  font-family: inherit;
-}
-
-.together-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.together-days-pill {
-  background: rgba(152, 181, 216, 0.15);
-  color: #98B5D8;
-  font-weight: 600;
-  font-size: 0.78rem;
-  padding: 3px 10px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-
-.together-counter-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  margin-top: 0.1rem;
-}
-
-.together-counter-headline {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-}
-
-.together-counter-headline strong {
-  font-size: clamp(2rem, 7vw, 3rem);
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  background: linear-gradient(180deg, #789EC8, #3A6A9F);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.together-counter-headline span {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: #98B5D8;
-  letter-spacing: 0.03em;
-}
-
-.together-counter-sub {
-  font-size: 0.85rem;
-  color: #98B5D8;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-}
-
+/* ── Week check-in dots (reused from old code) ─────────────── */
 .together-week {
   display: flex;
   align-items: stretch;
   justify-content: space-between;
   gap: 4px;
-  margin-top: 0.2rem;
 }
 
 .together-week-cell {
@@ -929,8 +268,8 @@
 }
 
 .together-week-dot {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   border: 1.5px solid rgba(197, 214, 236, 0.6);
   background: rgba(244, 248, 252, 0.7);
@@ -938,7 +277,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 700;
   line-height: 1;
   transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
@@ -951,7 +290,7 @@
 }
 
 .together-week-cell.is-today .together-week-dot {
-  box-shadow: 0 0 0 2px rgba(120, 158, 200, 0.3);
+  box-shadow: 0 0 0 2.5px rgba(120, 158, 200, 0.28);
 }
 
 .together-week-label {
@@ -965,15 +304,15 @@
   font-weight: 700;
 }
 
+/* ── Check-in button ───────────────────────────────────────── */
 .together-checkin-btn {
-  margin-top: 0.35rem;
   border: none;
   border-radius: 999px;
-  padding: 8px 12px;
+  padding: 9px 14px;
   background: linear-gradient(135deg, #98B5D8, #789EC8);
   color: #ffffff;
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   letter-spacing: 0.02em;
   cursor: pointer;
   font-family: inherit;
@@ -997,192 +336,231 @@
   color: #C5D6EC;
 }
 
-/* Wide cards have more vertical room — let everything breathe. */
-.together-wide .together-counter-headline strong {
-  font-size: clamp(2.4rem, 8vw, 3.6rem);
-  background: linear-gradient(180deg, #789EC8, #3A6A9F);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.together-wide .together-week-dot {
-  width: 28px;
-  height: 28px;
-  font-size: 0.85rem;
-}
-
-.together-wide .together-week-label {
-  font-size: 0.7rem;
-}
-
-.together-wide .together-checkin-btn {
-  padding: 10px 16px;
-  font-size: 0.95rem;
-}
-
-.checkin-inner {
+/* ── Vertical nav list ─────────────────────────────────────── */
+.home-list {
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
-  height: 100%;
+  overflow: hidden;
 }
 
-.checkin-wide {
+.home-list-row {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.9rem 1.1rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.12s ease, transform 0.1s ease;
+  border-radius: 0;
+  /* Hairline separator between rows */
+  border-bottom: 1px solid rgba(88, 104, 120, 0.1);
+}
+
+.home-list-row:last-child {
+  border-bottom: none;
+}
+
+.home-list-row:hover {
+  background: rgba(152, 181, 216, 0.07);
+}
+
+.home-list-row:active {
+  background: rgba(152, 181, 216, 0.13);
+  transform: scale(0.99);
+}
+
+.home-list-icon {
+  flex-shrink: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.8rem;
-  align-items: stretch;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(222, 234, 245, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 2px 8px rgba(88, 104, 120, 0.1);
+  font-size: 1.35rem;
+  line-height: 1;
 }
 
-.checkin-wide-left {
+.home-list-body {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  min-width: 0;
+  gap: 0.18rem;
 }
 
-.checkin-streak-hero {
+.home-list-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #2A3D52;
+  line-height: 1.2;
+}
+
+.home-list-sub {
+  font-size: 0.76rem;
+  color: #98B5D8;
+  line-height: 1.3;
+}
+
+.home-list-chevron {
+  font-size: 1.25rem;
+  color: #C5D6EC;
+  line-height: 1;
+  flex-shrink: 0;
+  font-weight: 300;
+  margin-right: -0.2rem;
+}
+
+/* ── Footer ────────────────────────────────────────────────── */
+.home-footer {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
   gap: 0.45rem;
-  color: #5c5c5c;
+  padding: 0.25rem 0 0.5rem;
 }
 
-.checkin-streak-hero strong {
-  font-size: 2rem;
-  line-height: 0.95;
-  color: #CBD5E1;
-  font-family: var(--font-rounded);
+.home-footer-link {
+  background: none;
+  border: none;
+  color: #586878;
+  font-size: 0.76rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.2rem 0.25rem;
+  border-radius: 4px;
+  font-family: inherit;
+  transition: color 0.12s;
 }
 
-.checkin-streak-hero span {
-  font-size: 0.82rem;
-  font-weight: 600;
-  margin-bottom: 0.18rem;
+.home-footer-link:hover { color: #586878; }
+
+.home-footer-sep {
+  color: rgba(197, 214, 236, 0.7);
+  font-size: 0.76rem;
+  user-select: none;
 }
 
-.checkin-metrics-mini {
+/* ── Settings page panels ──────────────────────────────────── */
+.home-header {
+  text-align: center;
+  position: relative;
+}
+
+.home-header h1 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #2A3D52;
+}
+
+.edit-button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  background: rgba(222, 234, 245, 0.45);
+  color: #586878;
+  border-radius: 999px;
+  padding: 0.32rem 0.75rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.edit-button-back {
+  right: auto;
+  left: 0;
+}
+
+.home-notice {
+  margin: 0;
+  text-align: center;
+  color: #586878;
+  font-size: 0.9rem;
+}
+
+.home-settings-card {
+  padding: 0.95rem 1rem;
   display: flex;
-  justify-content: flex-start;
-  gap: 0.4rem;
-  color: #5c5c5c;
-  font-size: 0.78rem;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.home-settings-title {
+  font-size: 0.9rem;
+  color: #2A3D52;
+  margin: 0;
+}
+
+.home-settings-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: #586878;
+  font-family: inherit;
+}
+
+.home-settings-card select,
+.home-settings-card input:not([type="file"]) {
+  font-size: 16px;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: rgba(244, 248, 252, 0.92);
+  color: #2A3D52;
+  font-family: inherit;
+  outline: none;
+}
+
+.home-settings-card select:focus,
+.home-settings-card input:focus {
+  border-color: #98B5D8;
+}
+
+.background-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   flex-wrap: wrap;
 }
 
-.checkin-stamp-row {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
+.background-controls span {
+  font-size: 0.85rem;
+  color: #586878;
 }
 
-.checkin-stamp-button {
-  width: 100%;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  border-radius: 999px;
-  padding: 0.56rem 0.9rem;
-  font-size: 0.83rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  color: #475569;
-  background: rgba(15, 23, 42, 0.05);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-}
-
-.checkin-stamp-button.unchecked {
-  background: rgba(15, 23, 42, 0.05);
-  color: #334155;
-}
-
-.checkin-stamp-button.checked {
-  color: #94A3B8;
-  background: rgba(15, 23, 42, 0.04);
-}
-
-.checkin-stamp-button:disabled {
-  opacity: 1;
-  cursor: default;
-}
-
-.weekly-tracker {
-  display: flex;
-  align-items: center;
-  gap: 0.38rem;
-  justify-content: flex-end;
-}
-
-.weekly-day-item {
+.together-input {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.25rem;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: #98B5D8;
 }
 
-.weekly-day-item small {
-  color: #5c5c5c;
-  font-size: 0.58rem;
-  line-height: 1;
+.together-input input {
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: rgba(244, 248, 252, 0.92);
+  color: #2A3D52;
+  font-size: 0.88rem;
+  font-family: inherit;
+  outline: none;
 }
 
-.weekly-dot {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  display: inline-grid;
-  place-items: center;
-  font-size: 0.6rem;
-  font-weight: 700;
+.together-input input:focus {
+  border-color: #98B5D8;
 }
 
-.weekly-dot.unchecked {
-  border: 1px dashed rgba(15, 23, 42, 0.18);
-  color: transparent;
-  background: transparent;
-}
-
-.weekly-dot.checked {
-  border: 1px solid #475569;
-  background: #475569;
-  color: #ffffff;
-}
-
-.weekly-dot.today {
-  box-shadow: 0 0 0 3px rgba(51, 65, 85, 0.18);
-}
-
-.widget-delete {
-  border-radius: 999px;
-  border: none;
-  width: 1.45rem;
-  height: 1.45rem;
-  background: rgba(15, 23, 42, 0.7);
-  color: white;
-  line-height: 1;
-}
-
-.text-widget {
-  margin: 0;
-  color: #0f172a;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.image-widget {
-  width: 100%;
-  height: 100%;
-  min-height: 78px;
-  border-radius: 12px;
-  object-fit: cover;
-}
-
-/* Dock-icon styles (.home-dock / .app-icon-slot / .app-icon-button
-   / .icon-emoji / .icon-label / tile-pop-in animation) lived here
-   when the bottom dock was a thing. Dock removed; shortcut tiles
-   on the home grid use .shortcut-widget / .shortcut-emoji /
-   .shortcut-label instead. */
-
+/* ── Shared button helpers ─────────────────────────────────── */
 .primary,
 .ghost {
   border-radius: 999px;
@@ -1190,21 +568,40 @@
   padding: 0.34rem 0.7rem;
   color: #0f172a;
   background: rgba(255, 255, 255, 0.3);
+  font-family: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
 }
 
+.home-mode-toggle {
+  margin-top: 0.7rem;
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 0.22rem;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.home-mode-toggle button {
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  color: #586878;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.home-mode-toggle button.active {
+  background: rgba(120, 158, 200, 0.15);
+  color: #3D5570;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
 @media (max-width: 420px) {
-  .phone-shell {
-    border-radius: 22px;
-  }
-
   .phone-shell__content {
-    padding: 0.85rem 22px;
+    padding: 0 18px;
   }
-
-  .home-header h1 {
-    font-size: 3rem;
-  }
-
 }
 
 @media (max-width: 900px) {
@@ -1224,13 +621,10 @@
 
   .home-page--settings .phone-shell__content {
     display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
-    grid-template-rows: auto minmax(0, 1fr);
-    grid-template-areas:
-      "preview settings"
-      "preview settings";
+    grid-template-columns: minmax(340px, 0.9fr) minmax(0, 1.1fr);
+    grid-template-areas: "settings preview";
     align-items: start;
-    gap: 1rem;
+    gap: 1.5rem;
   }
 
   .home-page--settings .home-page__header {
@@ -1243,5 +637,21 @@
   .home-page--settings .home-page__content {
     grid-area: preview;
     height: calc(100dvh - 4rem);
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .home-page .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(255, 255, 255, 0.82);
+  }
+}
+
+@media (max-width: 560px) {
+  .home-page .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(255, 255, 255, 0.5);
   }
 }

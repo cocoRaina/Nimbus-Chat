@@ -585,9 +585,7 @@ const MyHomePage = ({ user, snackAiConfig }: MyHomePageProps) => {
   return (
     <div className="my-home-page app-shell__content">
       <header className="my-home-header">
-        <button type="button" className="ghost" onClick={() => navigate('/')}>
-          返回聊天
-        </button>
+        <button type="button" className="page-back-btn" onClick={() => navigate('/')}>‹</button>
         <h1 className="ui-title">{showTrash ? 'mimi 回收站' : 'mimi'}</h1>
         <button
           type="button"

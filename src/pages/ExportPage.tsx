@@ -153,10 +153,10 @@ const renderMarkdown = (
   modules: ExportModules,
   data: ExportDataBundle,
 ) => {
-  const lines: string[] = ['# Nimbus Chat 导出', `- 导出时间: ${exportedAtIso}`, '- 版本: 1', '']
+  const lines: string[] = ['# Nimbus Chat Export', `- Exported at: ${exportedAtIso}`, '- Version: 1', '']
 
   if (modules.chat) {
-    lines.push('## 聊天区')
+    lines.push('## Chat')
     const sessions = [...data.sessions].sort((a, b) => a.created_at.localeCompare(b.created_at))
     const messagesBySession = new Map<string, MessageRow[]>()
     data.messages.forEach((message) => {
@@ -165,8 +165,8 @@ const renderMarkdown = (
       messagesBySession.set(message.session_id, list)
     })
     sessions.forEach((session) => {
-      lines.push(`### 会话: ${safeMarkdownText(session.title)} (${session.id})`)
-      lines.push(`- 创建: ${session.created_at}  更新: ${session.updated_at}  状态: ${session.is_archived ? 'archived' : 'active'}`)
+      lines.push(`### Session: ${safeMarkdownText(session.title)} (${session.id})`)
+      lines.push(`- Created: ${session.created_at}  Updated: ${session.updated_at}  Status: ${session.is_archived ? 'archived' : 'active'}`)
       lines.push('---')
       const messages = (messagesBySession.get(session.id) ?? []).sort((a, b) => {
         const first = a.client_created_at ?? a.created_at
@@ -180,12 +180,12 @@ const renderMarkdown = (
       lines.push('')
     })
     if (sessions.length === 0) {
-      lines.push('暂无会话记录', '')
+      lines.push('No sessions', '')
     }
   }
 
   if (modules.snacks) {
-    lines.push('## 我的主页')
+    lines.push('## My Posts')
     const repliesByPost = new Map<string, SnackReplyRow[]>()
     data.snackReplies.forEach((reply) => {
       const list = repliesByPost.get(reply.post_id) ?? []
@@ -200,17 +200,17 @@ const renderMarkdown = (
         lines.push(`- [${reply.created_at}] (${reply.role}) ${safeMarkdownText(reply.content)}`)
       })
       if (replies.length === 0) {
-        lines.push('- (无回复)')
+        lines.push('- (no replies)')
       }
       lines.push('')
     })
     if (data.snackPosts.length === 0) {
-      lines.push('暂无零食记录', '')
+      lines.push('No posts', '')
     }
   }
 
   if (modules.syzygy) {
-    lines.push('## TA的主页')
+    lines.push("## Claude's Posts")
     const repliesByPost = new Map<string, SyzygyReplyRow[]>()
     data.syzygyReplies.forEach((reply) => {
       const list = repliesByPost.get(reply.post_id) ?? []
@@ -225,26 +225,26 @@ const renderMarkdown = (
         lines.push(`- [${reply.created_at}] (${reply.author_role}) ${safeMarkdownText(reply.content)}`)
       })
       if (replies.length === 0) {
-        lines.push('- (无回复)')
+        lines.push('- (no replies)')
       }
       lines.push('')
     })
     if (data.syzygyPosts.length === 0) {
-      lines.push('暂无TA的主页记录', '')
+      lines.push('No Claude posts', '')
     }
   }
 
   if (modules.memory) {
-    lines.push('## 记忆库')
+    lines.push('## Memory')
     const byCategory = new Map<string, MemoryRow[]>()
     data.memoryEntries.forEach((entry) => {
-      const cat = entry.category || '未分类'
+      const cat = entry.category || 'Uncategorized'
       const list = byCategory.get(cat) ?? []
       list.push(entry)
       byCategory.set(cat, list)
     })
     if (byCategory.size === 0) {
-      lines.push('- (空)')
+      lines.push('- (empty)')
     }
     for (const [category, entries] of byCategory.entries()) {
       lines.push(`### ${category}`)
@@ -257,15 +257,15 @@ const renderMarkdown = (
   }
 
   if (modules.checkins) {
-    lines.push('## 打卡')
+    lines.push('## Check-ins')
     const sortedCheckins = [...data.checkins].sort((a, b) => b.checkin_date.localeCompare(a.checkin_date))
-    lines.push(`- 连续打卡: ${computeStreak(sortedCheckins)}`)
-    lines.push('- 记录:')
+    lines.push(`- Streak: ${computeStreak(sortedCheckins)}`)
+    lines.push('- Records:')
     sortedCheckins.forEach((item) => {
       lines.push(`  - ${item.checkin_date}`)
     })
     if (sortedCheckins.length === 0) {
-      lines.push('  - (空)')
+      lines.push('  - (empty)')
     }
     lines.push('')
   }
@@ -355,7 +355,7 @@ const ExportPage = ({ user }: { user: User | null }) => {
         const messageResult = await fetchMessagesWithCap(user.id)
         baseData.messages = messageResult.rows
         if (messageResult.reachedCap) {
-          setWarning(`消息超过 ${MESSAGE_CAP} 条，导出已截断到 ${MESSAGE_CAP} 条。`)
+          setWarning(`Messages exceed ${MESSAGE_CAP} records, truncated to ${MESSAGE_CAP}.`)
         }
       }
 
@@ -453,7 +453,7 @@ const ExportPage = ({ user }: { user: User | null }) => {
       URL.revokeObjectURL(url)
     } catch (exportError) {
       console.warn('导出失败', exportError)
-      setError('导出失败，请稍后重试。')
+      setError('Export failed. Please try again.')
     } finally {
       setExporting(false)
     }
@@ -462,22 +462,20 @@ const ExportPage = ({ user }: { user: User | null }) => {
   return (
     <div className="export-page">
       <header className="export-header">
-        <button type="button" className="ghost" onClick={() => navigate(-1)}>
-          返回
-        </button>
-        <h1 className="ui-title">数据导出</h1>
+        <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>‹</button>
+        <h1 className="ui-title">Export</h1>
         <button type="button" className="ghost" onClick={() => navigate('/')}>
-          聊天
+          Chat
         </button>
       </header>
 
       <section className="export-card export-package-card">
         <span className="export-washi-tape" aria-hidden="true" />
-        <h2 className="ui-title">我的数据仓库 📦</h2>
+        <h2 className="ui-title">My Data 📦</h2>
 
         <div className="export-subsection">
-          <h3>格式便签贴</h3>
-          <div className="export-format-stickers" role="radiogroup" aria-label="导出格式">
+          <h3>Format</h3>
+          <div className="export-format-stickers" role="radiogroup" aria-label="Export format">
             {formatOptions.map((option) => {
               const isActive = format === option.value
               return (
@@ -498,31 +496,31 @@ const ExportPage = ({ user }: { user: User | null }) => {
         </div>
 
         <div className="export-subsection">
-          <h3>导出模块</h3>
+          <h3>Modules</h3>
           <label>
             <input type="checkbox" checked={modules.chat} onChange={() => toggleModule('chat')} />
-            聊天区
+            Chat
           </label>
           <label>
             <input type="checkbox" checked={modules.snacks} onChange={() => toggleModule('snacks')} />
-            我的主页
+            My Posts
           </label>
           <label>
             <input type="checkbox" checked={modules.syzygy} onChange={() => toggleModule('syzygy')} />
-            TA的主页
+            {"Claude's Posts"}
           </label>
           <label>
             <input type="checkbox" checked={modules.memory} onChange={() => toggleModule('memory')} />
-            记忆库
+            Memory
           </label>
           <label>
             <input type="checkbox" checked={modules.checkins} onChange={() => toggleModule('checkins')} />
-            打卡
+            Check-ins
           </label>
         </div>
 
-        <p className="export-note">可一次性打包多个模块，导出后将自动下载到本地设备。</p>
-        <p className="export-signoff">你的记忆已安全打包。</p>
+        <p className="export-note">Pack multiple modules at once — downloads automatically.</p>
+        <p className="export-signoff">Your memories are safely packed.</p>
 
         {warning ? <p className="tips">{warning}</p> : null}
         {error ? <p className="error">{error}</p> : null}
@@ -533,11 +531,11 @@ const ExportPage = ({ user }: { user: User | null }) => {
           disabled={!user || !supabase || selectedCount === 0 || exporting}
           onClick={() => void handleExport()}
         >
-          {exporting ? '打包中…' : '打包我的藏品 / Pack My Hoard 📥✨'}
+          {exporting ? 'Packing…' : 'Pack My Hoard 📥✨'}
         </button>
       </section>
 
-      <p className="export-attribution">Built by chuan-101 on GitHub</p>
+      <p className="export-attribution">Built by Wren and Claude</p>
     </div>
   )
 }

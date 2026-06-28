@@ -9,6 +9,7 @@ import { Share } from '@capacitor/share'
 import { Clipboard } from '@capacitor/clipboard'
 import { Network } from '@capacitor/network'
 import { getAssistantName, setAssistantName } from '../storage/assistantPersona'
+import MoodOverlay from '../components/MoodOverlay'
 import {
   getActiveProvider,
   getMsuicodeFormat,
@@ -66,6 +67,8 @@ export type ChatPageProps = {
   highReasoningEnabled: boolean
   onSelectReasoning: (reasoning: boolean | null) => void
   onManualCompress: () => Promise<{ ok: boolean; message: string }>
+  keepaliveEnabled: boolean
+  onToggleKeepalive: () => void
   user: User | null
   toolStatus?: string
   remoteStickerPacks?: RemotePackMap
@@ -79,14 +82,11 @@ export type ChatPageProps = {
 // Claude desktop/web app: long replies = one long bubble, short replies =
 // one short bubble. If you want a multi-bubble feel, instruct Claude to
 // drop [NEXT] between bubbles (case-insensitive).
-const splitAssistantContent = (content: string): string[] => {
-  if (!content) return ['']
-  const parts = content
+const splitAssistantContent = (content: string): string[] =>
+  content
     .split(/\[NEXT\]/i)
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
-  return parts.length > 0 ? parts : [content]
-}
 
 // Split an assistant reply into ordered text / voice segments. The model
 // wraps spoken content in [voice]…[/voice]; those become WeChat-style voice
@@ -130,7 +130,13 @@ const splitAssistantSegments = (content: string): MsgSegment[] => {
   for (const t of splitAssistantContent(content.slice(last))) {
     if (t.trim()) segs.push({ type: 'text', text: t })
   }
-  return segs.length > 0 ? segs : [{ type: 'text', text: content }]
+  if (segs.length > 0) return segs
+  // A message that contains nothing but [NEXT] markers (stored as a standalone
+  // DB row) should be invisible rather than rendering "[NEXT]" as text. Require
+  // at least one actual [NEXT] — an EMPTY string must NOT match here, or an
+  // empty/streaming/tool-only assistant turn would get hidden entirely.
+  if (/^\s*(\[NEXT\]\s*)+$/i.test(content)) return []
+  return [{ type: 'text', text: content }]
 }
 
 // Memoised single-message renderer. The chat history can be hundreds of
@@ -160,6 +166,15 @@ const MessageRow = memo(function MessageRow({
       : [{ type: 'text' as const, text: message.content }]
   ).flatMap((seg) => (seg.type === 'text' ? splitStickerSegments(seg.text) : [seg]))
   const isOut = message.role === 'user'
+  // Only fully hide the row when there's genuinely nothing to show — i.e. a
+  // standalone [NEXT] marker. If the turn still carries tool calls, reasoning,
+  // or attachments, keep rendering so those aren't swallowed.
+  const hasExtras =
+    !!reasoningText ||
+    (message.meta?.tool_calls?.length ?? 0) > 0 ||
+    (message.meta?.flow?.length ?? 0) > 0 ||
+    (message.meta?.attachments?.length ?? 0) > 0
+  if (segments.length === 0 && !hasExtras) return null
   return (
     <div
       className={`message ${isOut ? 'out' : 'in'} ${groupWithPrevious ? 'group-with-previous' : ''}`}
@@ -322,12 +337,15 @@ const ChatPage = ({
   highReasoningEnabled,
   onSelectReasoning,
   onManualCompress,
-  user,
+  keepaliveEnabled,
+  onToggleKeepalive,
   toolStatus,
   remoteStickerPacks,
   shareDraft,
   onConsumeShare,
+  user,
 }: ChatPageProps) => {
+  const [moodOpen, setMoodOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [openActionsId, setOpenActionsId] = useState<string | null>(null)
   const [actionsMenuPosition, setActionsMenuPosition] = useState<{ top: number; left: number } | null>(null)
@@ -580,6 +598,16 @@ const ChatPage = ({
   // state because we only need it during the post-render measurement.
   const actionsAnchorRef = useRef<DOMRect | null>(null)
   const navigate = useNavigate()
+
+  // Grow the composer textarea to fit its content (reset to auto first so it
+  // also shrinks back when text is deleted or the draft is cleared on send).
+  // The visible cap comes from CSS max-height; past that it scrolls.
+  useLayoutEffect(() => {
+    const el = composerInputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [draft])
 
   const submitDraft = async () => {
     const trimmed = draft.trim()
@@ -1065,6 +1093,14 @@ const ChatPage = ({
         </div>
         <div className="header-actions" ref={headerMenuRef}>
           <button
+            type="button"
+            className="ghost chat-header-icon"
+            aria-label="沈暮的心"
+            onClick={() => setMoodOpen(true)}
+          >
+            💗
+          </button>
+          <button
             ref={headerMenuButtonRef}
             type="button"
             className="ghost chat-header-icon"
@@ -1125,6 +1161,14 @@ const ChatPage = ({
                   >
                     {compressing ? '⏳ 压缩中…' : '📦 手动压缩对话'}
                   </button>
+                  <label className="header-menu-toggle">
+                    <input
+                      type="checkbox"
+                      checked={keepaliveEnabled}
+                      onChange={onToggleKeepalive}
+                    />
+                    <span>🔥 缓存保活</span>
+                  </label>
                   <button
                     type="button"
                     onClick={() => {
@@ -1615,6 +1659,12 @@ const ChatPage = ({
           autoFocus
         />
       </ConfirmDialog>
+
+      <MoodOverlay
+        open={moodOpen}
+        onClose={() => setMoodOpen(false)}
+        userId={user?.id ?? null}
+      />
 
       {showCameraModal && createPortal(
         <div className="camera-modal" onClick={closeCameraModal}>

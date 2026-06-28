@@ -38,9 +38,19 @@ export type ChatMessage = {
       temperatureC: number
       condition: string
       feelsLikeC?: number
+      city?: string
+      windKmh?: number
     }
     healthSnapshot?: string
     deviceSnapshot?: string
+    // Frozen mood narration for this user turn (the AI's private emotional
+    // state when this message was sent). Rendered into the payload prefix at
+    // send time like the weather/env snapshots — kept per-message so replay is
+    // byte-stable and doesn't break the rolling prompt cache.
+    moodNarration?: string
+    // Per-message ambient phone state: battery + charging + ringer + audio
+    // output + Wi-Fi/cellular, e.g. "🔋32%充电中 · 静音 · 蓝牙:AirPods · Wi-Fi".
+    envSnapshot?: string
     tool_calls?: Array<{
       name: string
       args: unknown

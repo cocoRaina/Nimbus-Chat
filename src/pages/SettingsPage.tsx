@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import ConfirmDialog from '../components/ConfirmDialog'
+import LocalAvatar from '../components/LocalAvatar'
 import { fetchOpenRouterModels } from '../api/openrouter'
 import type { UserSettings } from '../types'
 import { supabase } from '../supabase/client'
@@ -32,15 +33,9 @@ import {
   type ProviderId,
   type RelayPreset,
 } from '../storage/apiProvider'
-import {
-  clearSandboxConfig,
-  getSandboxEndpoint,
-  getSandboxToken,
-  saveSandboxEndpoint,
-  saveSandboxToken,
-} from '../storage/sandbox'
-import { getTtsConfig, saveTtsConfig, DEFAULT_TTS_BASE } from '../storage/ttsConfig'
+import { getTtsConfig, saveTtsConfig, commitTtsConfig, hydrateTtsConfig, readbackTtsActive, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
 const TTS_MODELS = ['speech-2.8-turbo', 'speech-2.8-hd']
+const EL_MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_turbo_v2_5']
 import {
   DEFAULT_SNACK_SYSTEM_OVERLAY,
   DEFAULT_SYZYGY_POST_PROMPT,
@@ -111,14 +106,32 @@ const SettingsPage = ({
   const [msuicodeApiKeyStatus, setMsuicodeApiKeyStatus] = useState<'idle' | 'saved'>('idle')
   const [msuicodeFormat, setMsuicodeFormatState] = useState<ApiFormat>(() => getMsuicodeFormat())
   const [msuicodeBaseUrlInput, setMsuicodeBaseUrlInput] = useState(() => getMsuicodeBaseUrl())
+  const [avatarSectionExpanded, setAvatarSectionExpanded] = useState(false)
   const [ttsSectionExpanded, setTtsSectionExpanded] = useState(false)
   const [ttsDraft, setTtsDraft] = useState(() => getTtsConfig())
   const [ttsApiKeyVisible, setTtsApiKeyVisible] = useState(false)
-  const [ttsStatus, setTtsStatus] = useState<'idle' | 'saved'>('idle')
-  const [sandboxSectionExpanded, setSandboxSectionExpanded] = useState(false)
-  const [sandboxEndpointInput, setSandboxEndpointInput] = useState(() => getSandboxEndpoint())
-  const [sandboxTokenInput, setSandboxTokenInput] = useState(() => getSandboxToken())
-  const [sandboxStatus, setSandboxStatus] = useState<'idle' | 'saved'>('idle')
+  const [ttsStatus, setTtsStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  // Diagnostic readback after Save: what the durable store actually holds.
+  const [ttsCheck, setTtsCheck] = useState<
+    { native: boolean; provider: string; voiceLen: number; keyLen: number } | null
+  >(null)
+  const [ttsError, setTtsError] = useState<string | null>(null)
+  // Write-through: persist each TTS field to localStorage as it changes, not
+  // only on the Save click. Filling these often means alt-tabbing to ElevenLabs
+  // to copy the key/voice id; Android can reclaim the WebView in the background
+  // and reload, wiping any draft that lived only in React state. Saving on every
+  // change means a reload re-reads the same values instead of losing them.
+  const patchTts = useCallback((patch: Partial<TtsConfig>) => {
+    setTtsDraft((d) => ({ ...d, ...patch }))
+    saveTtsConfig(patch)
+    setTtsStatus('saved')
+  }, [])
+  // On native, the WebView's localStorage may have dropped a recent write; pull
+  // the durable Preferences copy back into the sync mirror, then refresh the
+  // draft so re-opening this page shows what was actually saved.
+  useEffect(() => {
+    void hydrateTtsConfig().then(() => setTtsDraft(getTtsConfig()))
+  }, [])
   // Friendly label for the custom provider, derived from its base URL hostname.
   const customProviderName = useMemo(
     () => deriveProviderDisplayName(msuicodeBaseUrlInput || DEFAULT_MSUICODE_BASE),
@@ -266,7 +279,7 @@ const SettingsPage = ({
       setCatalogStatus('loading')
       setCatalogError(null)
     }, 0)
-    fetchOpenRouterModels()
+    fetchOpenRouterModels({ forceRefresh: catalogReloadKey > 0 })
       .then((models) => {
         if (!active) {
           return
@@ -358,21 +371,6 @@ const SettingsPage = ({
     setRelayPresets(getRelayPresets())
   }
 
-  const handleSaveSandboxConfig = () => {
-    const ep = sandboxEndpointInput.trim()
-    if (!ep) return
-    saveSandboxEndpoint(ep)
-    saveSandboxToken(sandboxTokenInput.trim())
-    setSandboxEndpointInput(ep)
-    setSandboxStatus('saved')
-  }
-
-  const handleClearSandboxConfig = () => {
-    clearSandboxConfig()
-    setSandboxEndpointInput('')
-    setSandboxTokenInput('')
-    setSandboxStatus('idle')
-  }
 
   const catalogMap = useMemo(() => {
     return new Map(catalog.map((model) => [model.id, model.name ?? model.id]))
@@ -655,6 +653,31 @@ const SettingsPage = ({
       settings.memoryExtractProvider !== draftExtractProvider
     : false
 
+  // The on/off switch is a KILL switch — persist it immediately (like the
+  // keepalive / mood toggles) instead of needing the explicit save button.
+  // The old draft-only behaviour is why "我关了还在提取" happened: the user
+  // flipped the UI but never saved, so the stored value stayed true and the
+  // runtime kept extracting. Save the current draft model/provider alongside
+  // so the settings→draft reset effect is a no-op (no half-edit loss).
+  const handleToggleAutoExtract = async (checked: boolean) => {
+    setDraftAutoExtractEnabled(checked)
+    setExtractStatus('idle')
+    if (!settings) return
+    const nextSettings = buildNextSettings({
+      autoMemoryExtractEnabled: checked,
+      memoryExtractModel: draftExtractModel,
+      memoryExtractProvider: draftExtractProvider,
+    })
+    if (!nextSettings) return
+    try {
+      await onSaveSettings(nextSettings)
+      setExtractStatus('saved')
+    } catch (error) {
+      console.warn('保存自动提取开关失败', error)
+      setExtractStatus('error')
+    }
+  }
+
   const handleSaveExtractSettings = async () => {
     if (!settings || !hasUnsavedExtract) return
     const nextSettings = buildNextSettings({
@@ -893,6 +916,39 @@ const SettingsPage = ({
           <span className="settings-ribbon-icon">☁</span>
           <span className="settings-ribbon-line" />
         </div>
+
+        <div className="settings-group" role="list">
+      <section className="settings-section" role="listitem">
+        <button
+          type="button"
+          className="collapse-header"
+          onClick={() => setAvatarSectionExpanded((current) => !current)}
+          aria-expanded={avatarSectionExpanded}
+        >
+          <span className="section-title">
+            <span className="section-icon" aria-hidden="true">🖼️</span>
+            <h2 className="ui-title">头像</h2>
+            <p>点击上传，右上角 × 删除。</p>
+          </span>
+          <span className="collapse-indicator" aria-hidden="true">›</span>
+        </button>
+        {avatarSectionExpanded ? (
+          <div className="accordion-content">
+            <div className="settings-avatar-section">
+              <div className="settings-avatar-item">
+                <span className="settings-avatar-label">我的头像</span>
+                <LocalAvatar storageKey="my-homepage-avatar" alt="kitten" />
+              </div>
+              <div className="settings-avatar-item">
+                <span className="settings-avatar-label">Claude 头像</span>
+                <LocalAvatar storageKey="syzygy-homepage-avatar" alt="Claude" />
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
+        </div>
+
         <div className="settings-group" role="list">
       <section className="settings-section" role="listitem">
         <button
@@ -1139,8 +1195,8 @@ const SettingsPage = ({
         >
           <span className="section-title">
             <span className="section-icon" aria-hidden="true">🔊</span>
-            <h2 className="ui-title">语音（TTS · MiniMax）</h2>
-            <p>开启后，AI 用 [voice]…[/voice] 包起来的内容会显示成语音条（点播才合成，可转文字）。</p>
+            <h2 className="ui-title">语音（TTS · MiniMax / ElevenLabs）</h2>
+            <p>开启后，AI 用 [voice]…[/voice] 包起来的内容会显示成语音条（点播才合成，可转文字）。两家供应商二选一，各自的配置分开保存。</p>
           </span>
           <span className="collapse-indicator" aria-hidden="true">›</span>
         </button>
@@ -1150,139 +1206,137 @@ const SettingsPage = ({
               <input
                 type="checkbox"
                 checked={ttsDraft.enabled}
-                onChange={(e) => { setTtsDraft((d) => ({ ...d, enabled: e.target.checked })); setTtsStatus('idle') }}
+                onChange={(e) => patchTts({ enabled: e.target.checked })}
               />
               <span>开启语音条</span>
             </label>
-            <label htmlFor="tts-voice-id">Voice ID</label>
-            <input id="tts-voice-id" type="text" value={ttsDraft.voiceId}
-              onChange={(e) => { setTtsDraft((d) => ({ ...d, voiceId: e.target.value })); setTtsStatus('idle') }}
-              placeholder="moss_audio_..." />
-            <label htmlFor="tts-api-key">API Key</label>
-            <div className="model-select-row">
-              <input id="tts-api-key" type={ttsApiKeyVisible ? 'text' : 'password'} value={ttsDraft.apiKey}
-                onChange={(e) => { setTtsDraft((d) => ({ ...d, apiKey: e.target.value })); setTtsStatus('idle') }}
-                placeholder="MiniMax API Key（仅存本地）" />
-              <button type="button" className="ghost small" onClick={() => setTtsApiKeyVisible((v) => !v)}>
-                {ttsApiKeyVisible ? '隐藏' : '显示'}
-              </button>
-            </div>
-            <label htmlFor="tts-group-id">GroupId（MiniMax 控制台，可能必填）</label>
-            <input id="tts-group-id" type="text" value={ttsDraft.groupId}
-              onChange={(e) => { setTtsDraft((d) => ({ ...d, groupId: e.target.value })); setTtsStatus('idle') }}
-              placeholder="留空先试，报错再填" />
-            <label htmlFor="tts-base-url">Base URL</label>
-            <input id="tts-base-url" type="text" value={ttsDraft.baseUrl}
-              onChange={(e) => { setTtsDraft((d) => ({ ...d, baseUrl: e.target.value })); setTtsStatus('idle') }}
-              placeholder={DEFAULT_TTS_BASE} />
-            <span className="settings-hint">国际版 {DEFAULT_TTS_BASE}；国内账号用 https://api.minimaxi.com</span>
-            <label htmlFor="tts-model">模型</label>
-            <select id="tts-model" value={ttsDraft.model}
-              onChange={(e) => { setTtsDraft((d) => ({ ...d, model: e.target.value })); setTtsStatus('idle') }}>
-              {(TTS_MODELS.includes(ttsDraft.model) ? TTS_MODELS : [ttsDraft.model, ...TTS_MODELS]).map((m) => (
-                <option key={m} value={m}>
-  {
-    m === 'speech-2.8-turbo'
-      ? `${m}（快·便宜，推荐）`
-      : m === 'speech-2.8-hd'
-        ? `${m}（高质量·贵）`
-        : m
-  }
-</option>
-              ))}
+
+            <label htmlFor="tts-provider">供应商</label>
+            <select id="tts-provider" value={ttsDraft.provider}
+              onChange={(e) => patchTts({ provider: e.target.value as TtsProvider })}>
+              <option value="minimax">MiniMax（中文最稳·按量便宜）</option>
+              <option value="elevenlabs">ElevenLabs（最真实·会笑会叹气·免费档够轻量用）</option>
             </select>
+
+            {ttsDraft.provider === 'elevenlabs' ? (
+              <>
+                <label htmlFor="tts-el-voice-id">Voice ID</label>
+                <input id="tts-el-voice-id" type="text" value={ttsDraft.elVoiceId}
+                  onChange={(e) => patchTts({ elVoiceId: e.target.value })}
+                  placeholder="从 ElevenLabs 语音库复制（如 21m00Tcm...）" />
+                <label htmlFor="tts-el-api-key">API Key</label>
+                <div className="model-select-row">
+                  <input id="tts-el-api-key" type={ttsApiKeyVisible ? 'text' : 'password'} value={ttsDraft.elApiKey}
+                    onChange={(e) => patchTts({ elApiKey: e.target.value })}
+                    placeholder="sk_...（仅存本地）" />
+                  <button type="button" className="ghost small" onClick={() => setTtsApiKeyVisible((v) => !v)}>
+                    {ttsApiKeyVisible ? '隐藏' : '显示'}
+                  </button>
+                </div>
+                <label htmlFor="tts-el-model">模型</label>
+                <select id="tts-el-model" value={ttsDraft.elModel}
+                  onChange={(e) => patchTts({ elModel: e.target.value })}>
+                  {(EL_MODELS.includes(ttsDraft.elModel) ? EL_MODELS : [ttsDraft.elModel, ...EL_MODELS]).map((m) => (
+                    <option key={m} value={m}>
+                      {
+                        m === 'eleven_v3'
+                          ? `${m}（最有感情·支持 [laughs] 等语气，推荐）`
+                          : m === 'eleven_multilingual_v2'
+                            ? `${m}（稳定·省积分）`
+                            : m === 'eleven_turbo_v2_5'
+                              ? `${m}（最快最省）`
+                              : m
+                      }
+                    </option>
+                  ))}
+                </select>
+                <label htmlFor="tts-el-stability">情绪稳定度（{ttsDraft.elStability}）</label>
+                <select id="tts-el-stability" value={String(ttsDraft.elStability)}
+                  onChange={(e) => patchTts({ elStability: Number(e.target.value) })}>
+                  <option value="0">0 · Creative（最放飞·最有情绪）</option>
+                  <option value="0.5">0.5 · Natural（自然·推荐）</option>
+                  <option value="1">1 · Robust（最稳·像念稿）</option>
+                </select>
+                <span className="settings-hint">v3 可在文本里写 [laughs]/[sighs]/[whispers] 等标签触发语气；积分用完到下月重置，免费档不会自动扣费。</span>
+              </>
+            ) : (
+              <>
+                <label htmlFor="tts-voice-id">Voice ID</label>
+                <input id="tts-voice-id" type="text" value={ttsDraft.voiceId}
+                  onChange={(e) => patchTts({ voiceId: e.target.value })}
+                  placeholder="moss_audio_..." />
+                <label htmlFor="tts-api-key">API Key</label>
+                <div className="model-select-row">
+                  <input id="tts-api-key" type={ttsApiKeyVisible ? 'text' : 'password'} value={ttsDraft.apiKey}
+                    onChange={(e) => patchTts({ apiKey: e.target.value })}
+                    placeholder="MiniMax API Key（仅存本地）" />
+                  <button type="button" className="ghost small" onClick={() => setTtsApiKeyVisible((v) => !v)}>
+                    {ttsApiKeyVisible ? '隐藏' : '显示'}
+                  </button>
+                </div>
+                <label htmlFor="tts-group-id">GroupId（MiniMax 控制台，可能必填）</label>
+                <input id="tts-group-id" type="text" value={ttsDraft.groupId}
+                  onChange={(e) => patchTts({ groupId: e.target.value })}
+                  placeholder="留空先试，报错再填" />
+                <label htmlFor="tts-base-url">Base URL</label>
+                <input id="tts-base-url" type="text" value={ttsDraft.baseUrl}
+                  onChange={(e) => patchTts({ baseUrl: e.target.value })}
+                  placeholder={DEFAULT_TTS_BASE} />
+                <span className="settings-hint">国际版 {DEFAULT_TTS_BASE}；国内账号用 https://api.minimaxi.com</span>
+                <label htmlFor="tts-model">模型</label>
+                <select id="tts-model" value={ttsDraft.model}
+                  onChange={(e) => patchTts({ model: e.target.value })}>
+                  {(TTS_MODELS.includes(ttsDraft.model) ? TTS_MODELS : [ttsDraft.model, ...TTS_MODELS]).map((m) => (
+                    <option key={m} value={m}>
+                      {
+                        m === 'speech-2.8-turbo'
+                          ? `${m}（快·便宜，推荐）`
+                          : m === 'speech-2.8-hd'
+                            ? `${m}（高质量·贵）`
+                            : m
+                      }
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
+
             <div className="system-prompt-actions">
               <button type="button" className="primary"
-                onClick={() => { saveTtsConfig(ttsDraft); setTtsStatus('saved') }}
-                disabled={!ttsDraft.voiceId.trim() || !ttsDraft.apiKey.trim()}>
-                保存
+                disabled={ttsStatus === 'saving'}
+                onClick={() => {
+                  setTtsStatus('saving')
+                  setTtsError(null)
+                  setTtsCheck(null)
+                  void (async () => {
+                    try {
+                      await commitTtsConfig(ttsDraft)
+                      // Read it straight back out of durable storage to prove it landed.
+                      setTtsCheck(await readbackTtsActive())
+                      setTtsStatus('saved')
+                    } catch (e) {
+                      setTtsError(e instanceof Error ? e.message : String(e))
+                      setTtsStatus('idle')
+                    }
+                  })()
+                }}>
+                {ttsStatus === 'saving' ? '保存中…' : '保存'}
               </button>
-              {ttsStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
+              {ttsStatus === 'saved' ? <span className="system-prompt-status">已保存 ✓</span> : null}
             </div>
+            {ttsCheck ? (
+              <span className="settings-hint">
+                存储自检 → 原生存储:{ttsCheck.native ? '开' : '关(localStorage)'}｜
+                供应商:{ttsCheck.provider}｜Voice ID:{ttsCheck.voiceLen}位｜API Key:{ttsCheck.keyLen}位
+                {ttsCheck.voiceLen > 0 && ttsCheck.keyLen > 0 ? '（已落盘✓）' : '（写入失败❌）'}
+              </span>
+            ) : null}
+            {ttsError ? <span className="voice-bar__err">保存出错：{ttsError}</span> : null}
+            <span className="settings-hint">边填边会自动保存；填完点一下「保存」更稳妥（确保写进系统存储，关 App 也不丢）。</span>
           </div>
         ) : null}
       </section>
 
-      <section className="settings-section" role="listitem">
-        <button
-          type="button"
-          className="collapse-header"
-          onClick={() => setSandboxSectionExpanded((current) => !current)}
-          aria-expanded={sandboxSectionExpanded}
-        >
-          <span className="section-title">
-            <span className="section-icon" aria-hidden="true">🧪</span>
-            <h2 className="ui-title">代码沙盒</h2>
-            <p>给 Claude 一个能跑 Python/JS 的环境。配你 Mac mini / VPS 的地址，没配的话 run_code 工具会报错。</p>
-          </span>
-          <span className="collapse-indicator" aria-hidden="true">›</span>
-        </button>
-        {sandboxSectionExpanded ? (
-          <div className="accordion-content">
-            <label htmlFor="sandbox-endpoint">Sandbox endpoint</label>
-            <input
-              id="sandbox-endpoint"
-              type="text"
-              value={sandboxEndpointInput}
-              onChange={(event) => {
-                setSandboxEndpointInput(event.target.value)
-                setSandboxStatus('idle')
-              }}
-              placeholder="https://your-macmini.example.com"
-            />
-            <label htmlFor="sandbox-token">Sandbox token（可选）</label>
-            <input
-              id="sandbox-token"
-              type="password"
-              value={sandboxTokenInput}
-              onChange={(event) => {
-                setSandboxTokenInput(event.target.value)
-                setSandboxStatus('idle')
-              }}
-              placeholder="用 X-Sandbox-Token header 校验你服务端的身份"
-            />
-            <div className="system-prompt-actions">
-              <button
-                type="button"
-                className="primary"
-                onClick={handleSaveSandboxConfig}
-                disabled={!sandboxEndpointInput.trim()}
-              >
-                保存
-              </button>
-              <button
-                type="button"
-                className="ghost danger"
-                onClick={handleClearSandboxConfig}
-                disabled={!sandboxEndpointInput.trim() && !sandboxTokenInput.trim()}
-              >
-                清除
-              </button>
-              {sandboxStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
-            </div>
-            <details style={{ marginTop: 10 }}>
-              <summary style={{ cursor: 'pointer', opacity: 0.7 }}>📑 服务端契约（给以后写 Mac mini 服务用）</summary>
-              <pre style={{ fontSize: 11, opacity: 0.75, marginTop: 8, whiteSpace: 'pre-wrap' }}>{`POST {endpoint}/run
-Headers:
-  Content-Type: application/json
-  X-Sandbox-Token: <你设的token>   （可选）
-Body:
-  { "language": "python"|"javascript", "code": "...", "timeout_seconds": 30 }
-
-Response (success):
-  {
-    "ok": true,
-    "stdout": "...",
-    "stderr": "...",
-    "exit_code": 0,
-    "duration_ms": 123,
-    "files": [ { "name":"out.png","url":"...","mime":"image/png" } ]
-  }
-Response (error): { "ok": false, "error": "..." }`}</pre>
-            </details>
-          </div>
-        ) : null}
-      </section>
       <section className="settings-section" role="listitem">
         <button
           type="button"
@@ -1361,15 +1415,27 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
 
             <div className="section-title nested-prompt-title">
               <h2 className="ui-title">{activeProvider === 'msuicode' ? customProviderName : 'OpenRouter'} 模型库</h2>
-              <p>搜索并启用你想使用的模型。</p>
+              <p>搜索并启用你想使用的模型。换了分组/站点后点刷新。</p>
             </div>
-            <input
-              className="search-input"
-              type="search"
-              placeholder="搜索模型名称或 ID"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-            />
+            <div className="model-select-row">
+              <input
+                className="search-input"
+                type="search"
+                placeholder="搜索模型名称或 ID"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="ghost small"
+                disabled={catalogStatus === 'loading'}
+                onClick={() => setCatalogReloadKey((v) => v + 1)}
+                title="重新从服务器拉取模型列表"
+              >
+                {catalogStatus === 'loading' ? '…' : '↺ 刷新'}
+              </button>
+            </div>
             {catalogStatus === 'loading' ? (
               <div className="catalog-status">正在加载模型库...</div>
             ) : null}
@@ -1680,8 +1746,7 @@ Response (error): { "ok": false, "error": "..." }`}</pre>
                   type="checkbox"
                   checked={draftAutoExtractEnabled}
                   onChange={(event) => {
-                    setDraftAutoExtractEnabled(event.target.checked)
-                    setExtractStatus('idle')
+                    void handleToggleAutoExtract(event.target.checked)
                   }}
                 />
                 <span>{draftAutoExtractEnabled ? '已开启' : '已关闭'}</span>

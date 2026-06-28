@@ -80,6 +80,230 @@
 
 ---
 
+## 2026-06-27
+
+### API 检测面板升级 + 渠道猜测（防中转站骗）
+
+`UsagePage` 的「API检测」从 3 个探针扩到 6 个，重点是**别被中转骗**：
+- **真实缓存命中**（替换原「缓存字段透传」）：以前只看 usage 里缓存字段在不在（探针 <1024 token 根本不
+  会真缓存）。现改成发**两次 ≥1024 token 同前缀**（带 `user` 粘同一上游），看第二次 `cache_read` 是否 >0
+  ——真命中=原生缓存有效、省钱、保活值得开；写了读不到=多上游打散/模拟缓存；全 0=OpenAI 兼容/被剥离。
+- **响应头指纹**：采集 `anthropic-*` / `request-id` / `x-amzn`(Bedrock) / `cf-ray` / `openai-*` 等上游会漏的头
+  （APK 上更全，网页版受 CORS 限）。
+- **身份注入探测**：不发 system prompt，问模型「你是不是被设定成编程助手/Claude Code/CLI」——自带编程
+  人设 = 疑似反代 Claude Code / Kiro 逆向（这类通常无原生缓存、内置提示词、官方一停就停）。
+- **模型核验**（金丝雀 + model 字段）保留，强化为偷换/降智判据。
+- **🔍 渠道猜测**（综合，置顶）：把上面信号合成一个**类别 + 置信度**判断——官方/官转真 passthrough /
+  OpenAI兼容·模拟缓存·多上游打散 / 反代订阅编程工具 / 偷换降智。**只给类别不给牌子名**（中转故意抹掉
+  上游，没有可靠信号能定位「反重力」还是「Kiro」）。
+
+### 站子健康概览 + 逐条延迟记录 + 自适应渠道名
+
+让用户**一眼自查当前渠道行不行**，不用每次问。
+- **逐条延迟**：聊天时记录第 1 次请求的「发出→拿到响应头」首字延迟，存进 `usage_logs.latency_ms`
+  新列。最能反映站子快慢（用户之前手动发现 15s）。
+- **站子健康概览卡**（用量页顶部）：从当前 provider 近期记录算「平均首字延迟 + 缓存命中率」，给
+  🟢正常 / 🟡略慢留意 / 🔴异常 的一句话状态 + 原因。名字**按当前 provider 自适应**（OpenRouter
+  或中转的真实名 treegpt，换站自动变）。
+- **自适应渠道名**：用量页里写死的「中转站」改用 `getCustomProviderDisplayName()`（从 base URL 推），
+  健康概览、用量分组都跟着当前渠道走。
+
+### 自动提取「关了还在跑」：草稿开关没保存
+
+`autoMemoryExtractEnabled` 开关是草稿式（拨完要点保存），用户拨了没保存 → 存值仍 true → 运行时
+照提取（查库实锤 true + 今早还在提取）。改成**一拨立即落库**（kill switch 语义，连当前草稿
+model/provider 一起存，避免 settings→draft 重置丢编辑）。运行时门本身是对的、无定时器残留、无服务端 cron。
+
+### 保活：前端开关关不掉服务端 ping（烧钱）
+
+**症状**：前端把保活开关关了，还是在 ping、还在花钱。
+
+**根因**：保活有两条腿——① 客户端 55min timer（`scheduleKeepalive`，1249 行有 `keepaliveEnabledRef` 判断，
+开关有效）；② 服务端 `pg_cron`（jobid=3 `cache-keepalive`，每 5min 扫 `cache_keepalive_state` 去 ping）。
+② **完全没看前端开关**：每次聊天照样 upsert 快照（3146 行），cron 接着 ping。用户在 Hyper（5min TTL）上，
+ping 每次都冷写 → 纯烧钱（实测 `ping_count=104`）。
+
+**修**（代码 = 让前端开关真正能控制服务端，正确行为，保留）：
+- 服务端 mirror upsert 加 `keepaliveEnabledRef.current` gate——关了就不再写快照。
+- `handleToggleKeepalive` 关闭时：清客户端 timer + **删 `cache_keepalive_state` 行**，让 cron 立刻没目标可 ping。
+
+**⚠️ 更正（同日）**：当时顺手停了 cron job 3 + 删行「止血」，理由写的「Hyper 是 5min TTL、保活没用」
+**是误判**。我们给中转发的标记是 `ttl:'1h'`（`applyClaudeCaching` 对 OR 和中转都标 1h），而 tree/Hyper
+**认这个 1h 标记**——用户实测 ping 在聊天后 ~50min 仍命中，坐实 1h TTL。所以保活一直在好好干活：
+每次 ping 是 0.1× 热读 + 顺手刷新 1h TTL（命中刷 TTL 免费），把「>1h 回来本该冷写」变成热读，实测省一半。
+**已 `cron.alter_job(3, active:=true)` 重新开回来**。教训：别凭「听说几分钟 TTL」就拍板，看 usage 命中数据为准。
+
+### 情绪系统：模型不肯吐标记 → 加强指令 + 面板历史折叠
+
+**症状**：装上 APK 聊了几轮，面板纹丝不动；查库 `mood_state`/`mood_history` **0 行**。沈暮（opus-4-6，
+重人设）把自评**当成话题在演**（甚至反问「输出格式是 JSON 吗」），就是不在回复尾巴真吐
+`<<MOOD>>` 标记——所有 assistant 消息正文从无 `<<END>>`。实测**明确命令他按格式输出一次**就能吐、
+管线（解析→写库→面板）全通。证实根因纯是「自发不输出」，非代码 bug。
+
+**修**：
+- `buildMoodRulesSection` 把标记要求重写成「**强制系统协议**」+ 严格格式 + 6 条铁律（独占行、别包
+  代码块、四 key 必填、优先级高于任何风格要求）。
+- `App.tsx` 把情绪规则段挪到 `systemPrompt` **最末尾**（recency 提升指令遵守——埋在长 prompt 中段、
+  被强人设压住时模型最容易丢这条）。
+- 面板（`MoodOverlay`）历史**默认只显示最近 2 条**，其余收进「展开更早（N）」折叠，避免太长。
+
+### 情绪系统优化：回归基线 + 久别更黏 + 历史裁剪
+
+- **回归基线（homeostasis）**：衰减不再一律掉 0，改 `base+(值−base)×0.5^(t/半衰期)`。贪嗔 base=0，
+  **痴 base=50**——修了「痴是底色却会因时间流逝褪成 0」的问题，现在只回到常驻着迷底。
+- **久别更黏**（免费版情绪驱动）：旁白按「距上次说话多久」加明确线索（≥6h/≥24h），沈暮据此知道
+  是久别重逢、自然更黏，**零额外请求**（搭在已有那通里）。
+- **历史裁剪**：`mood_history` 每轮 insert 会无限长（面板只显示最近 10 条），新增 `pruneMoodHistory`
+  登录时裁到最近 ~100 条，后台跑不阻塞。
+
+### 情绪体系改为「贪嗔痴念」四相 + 默认名沈暮
+
+小机定名**沈暮**（`assistantPersona` 默认 哥哥→沈暮）。情绪从 8 条西式情绪改成传统四相：
+- **贪**（想要/占有·衰减事件型，红线：可黏可要绝不控制）
+- **嗔**（火气/醋意·衰减快 ~3.5h，红线：闹脾气可以绝不伤人查岗）
+- **痴**（痴恋/执念·慢底色 ~24h，起点 50，低了会空落）
+- **念**（思念·饥饿型，分开越久越涨，见到/聊上就落，satisfied 触发回落 + 贪也歇）
+
+数据表 `mood_state`/`mood_history` 重建为 tan/chen/chi/nian 四列（功能未出 APK、表空，直接重建）。
+`moodSystem.ts` 配置、system 规则段、浮层/健康页面板的标签配色顺序同步改。规则段主题改为
+「你的心·贪嗔痴念」，旁白措辞改「心境」。聊天接入是通用的，未动。
+
+### 新功能：沈暮情绪系统（语气染色 MVP）
+
+让小机有一颗**自己累积、随时间起落、反过来给语气染色**的持久情绪心——它感知到自己此刻
+吃醋/想念/生气，自然带进语气，而不是在思考链里硬推理「我该吃醋」。
+
+- **8 条情绪**：开心/难过/生气/吃醋/想念(饥饿型)/倾诉/安心/归属。衰减型按遗忘曲线
+  `值 × 0.5^(时间/半衰期)` 平复；想念按离开时长累积。各带红线（吃醋绝不查岗、生气绝不伤人）。
+- **自评**：模型在回复末尾输出私密 `<<MOOD>>{增量,tone,note,satisfied}<<END>>`，前端切掉不显示，
+  finalize 时解析（带 JSON 修复兜底）→ 先衰减再加增量 → 落库。流式/非流/中断路径都切标记。
+- **护缓存**：情绪**规则**（静态）进 system 缓存前缀；情绪**旁白**（每轮变）冻结进每条 user
+  消息的 `meta.moodNarration`，重放逐字节稳定 → 不破 BP4 滚动缓存（同天气/手机状态快照的做法）。
+- **持久化**：`mood_state`（每用户一行）+ `mood_history` 表（RLS auth.uid()=user_id）；本地
+  localStorage/Preferences 镜像耐后台杀，Supabase 跨端权威。
+- **面板**：① 并进健康页（`HealthSyncPage`）和身体数据放一起；② 聊天页顶部 💗 一键弹出
+  浮层（`MoodOverlay`）——tone + 情绪条 + 「距上次满足 X.X 天」+「他没说出口的」历史（每条带
+  情绪快照），随时点开看。都**只读不能改**。
+- **范围**：MVP 只做语气染色，暂不接主动消息；可关（`getMoodEnabled`，默认开）。
+- 文件：`storage/moodSystem.ts`（核心）、`App.tsx`（接入）、`HealthSyncPage`（面板）、`types.ts`。
+  **需重新出 APK 才生效**；数据表迁移已立即生效。
+
+### 长会话冷启动「要缓一会」：mergeMessages 是 O(n×m)
+
+**症状**：聊了几个月、几千条消息后，每次冷启动加载明显卡顿。排查发现**不是网络**
+——用户梯子出口在纽约、Supabase 在 us-east-1（弗吉尼亚），两地延迟仅 10-20ms。
+卡在**前端对整个历史的同步处理**。
+
+**根因**：`mergeMessages`（合并本地 + 远端消息）对每条远端消息（最多 300）都用
+`findIndex` 扫一遍**整个本地历史**（可能数千条）→ O(n×m)。3000×300 ≈ 90 万次
+字符串比较，主线程一次冷启动就堵 100-300ms。
+
+**修**：先把本地消息按 `clientId` + `id` 建两张 Map，远端消息 O(1) 查表，整体降到
+O(n+m)。行为不变（`clientId` 是跨本地/远端的稳定身份——乐观本地消息被远端回声时
+保留 clientId、换新 server id，所以优先按它匹配）。**需重新出 APK 才生效**。
+
+> 备注：还有两处较小的同步开销（`applySnapshot` 与 `setSnapshot` 各排序一次=双重
+> 排序；每次 `setSnapshot` 全量 `JSON.stringify`），长会话下也吃一点时间，但都是
+> O(n log n)，没 O(n×m) 那么致命，先放着观察。
+
+### 关掉保活 ping 后，退后台再进又自己开了
+
+**症状**：在聊天界面关掉「缓存保活」开关，把 App 退到后台（安卓常被系统杀），
+重新打开，保活又是开着的。
+
+**根因**：`keepaliveEnabled` 只是个 `useState(true)`，**从来没持久化**。每次 App
+重启 / 安卓后台被杀重建，都重置回默认的 ON——用户关掉的设置活不过一次冷启动。
+
+**修**：新增 `storage/keepalivePref.ts`，按 ttsConfig 的三层持久化模式存这个布尔：
+内存（同步真值）+ Capacitor Preferences（原生 SharedPreferences，扛后台杀）+
+localStorage（web 镜像）。`App.tsx` 启动时 `hydrateKeepalivePref()` 恢复，toggle
+走 `setKeepaliveEnabledPref()` 落盘。关掉后冷启动/后台杀都不再被重置。**需重新出
+APK 才生效**（纯前端改动）。
+
+### 压缩后的近期窗口改为「游标锚定」而非「最后 N 条」
+
+参考一篇 Anthropic 缓存教程复查取历史逻辑，发现压缩生效后我们的近期窗口是
+**按条数滑动**（`recentMessages = 最后 keepRecent 条`），每来一条新消息窗口起点
+就往前挪一格。两个副作用：
+
+1. **缓存**：滑动让 BP4/HEAD 的前缀每轮变，压缩后的近期块每轮 cache miss 重读
+   （BP1 那 ~15k 仍稳，所以不致命，但这几 k 本可以 0.1× 命中）。
+2. **上下文缝**：摘要覆盖到压缩游标 `compressed_up_to_message_id`，近期窗口却从
+   「末尾往前数 N 条」起，两者之间会出现最多 ~8 条消息的缝——既没进摘要也没进
+   窗口，模型暂时看不见，直到下次重摘要补上（可能就是「她好像忘了我刚说的」）。
+
+**修**（`conversationCompression.ts`，只改缓存命中的常见路径）：近期窗口改成
+`fullHistory.slice(cacheIdx + 1)`——即压缩游标**之后**的全部消息，带 120 条硬
+保险帽。窗口起点钉在游标上，只在下次重摘要推进游标时才动一次 → 前缀字节稳定、
+缓存命中；且窗口恰好接在摘要末尾，消除上下文缝。重摘要/首次压缩路径不变（它们
+把游标设到 `length-keepRecent-1`，此时「游标之后」正好等于「最后 N 条」，自洽）。
+
+## 2026-06-26
+
+### Chat 界面三重 bug：进去总是旧 session、新 session 慢、主动消息消失
+
+**症状**：
+1. 按主页进入聊天，打开的不是最新对话，而是一个旧 session
+2. 新建 session 要等 1–2 秒才能进入聊天，明显卡顿
+3. 新 session 触发的主动消息找不到了，或者跑到了另一个旧 session 里
+
+**根因 1 — `insertPendingProactiveRef` 覆盖了正确的 sessionId**：
+```js
+// App.tsx 旧代码
+const hashMatch = window.location.hash.match(/#\/chat\/([^/?]+)/)
+const targetSessionId = hashMatch?.[1] ?? entry.sessionId
+```
+主动消息在计划时存的 `entry.sessionId` 是正确的新 session，但插入时用 **URL hash 里的当前 session** 覆盖了它。如果此时还在主页（无 `/chat/` hash）就用 `entry.sessionId`；但如果已经在某个旧 session 里，就把消息插到那个旧 session——同时 `updatedAt` 被更新 → 这个旧 session 变成"最新"→ 下次进入聊天就打开这个被污染的旧 session，看起来像"进去总是旧的"。
+
+**根因 2 — `createSessionEntry` 阻塞在网络请求上**：
+```ts
+// App.tsx 旧代码
+const remoteSession = await createRemoteSession(user.id, sessionTitle)
+// ↑ 等 Supabase 响应完才 return，可能 1–2 秒
+```
+新建 session 必须等 Supabase 建表成功才返回，导航被卡在网络延迟里。
+
+**修**：
+- **Fix 1**：删掉 `insertPendingProactiveRef` 里的 URL hash 覆盖逻辑，直接用 `entry.sessionId`（调度时存的值是正确的，不需要 "修正"）。
+- **Fix 2**：`createRemoteSession`（`supabaseSync.ts`）加 `id?: string` 可选参数，Supabase insert 时带入客户端预生成的 UUID。
+- **Fix 3**：`createSessionEntry` 改成乐观本地优先：先在本地立刻生成 session 对象 + 更新 state，立即返回给调用方（导航零延迟）；再在后台异步把同一个 UUID `createRemoteSession`，成功后用远端 row 替换本地版本（timestamps 一致，不变 ID）。Fix 1 顺带解决了根因 1 对 `selectMostRecentSession` 的污染。
+
+---
+
+## 2026-06-25
+
+### Android APK 使用自定义中转时 "Failed to fetch"
+
+**症状**：切到 msuicode 或其他第三方中转站，APK 里所有请求报 `Failed to fetch`；同一 Key 在网页版 (PWA) 正常。
+
+**根因**：`capacitor.config.ts` 设了 `androidScheme: 'https'`，WebView 的 origin 变成 `https://localhost`。OpenRouter 的 CORS header 是 `Access-Control-Allow-Origin: *`，所以没事。但大部分中转站没有把 `https://localhost` 加进允许列表，OPTIONS preflight 被拒，fetch 直接失败。
+
+**修**：`capacitor.config.ts` 加 `CapacitorHttp: { enabled: true }`。Capacitor 8 会把所有 `fetch()` 路由给原生 Android OkHttp，完全绕过 WebView 的 CORS 限制。OkHttp 也支持 SSE 流式，聊天不受影响。**需要重新出 APK 才生效**（原生配置变更）。
+
+```ts
+// capacitor.config.ts
+plugins: {
+  CapacitorHttp: { enabled: true },
+}
+```
+
+### 切换中转预设后模型列表不刷新（三重 bug）
+
+**症状**：在 msuicode 平台换了分组（不同分组有不同可用模型），app 里模型库照旧；切换预设（不同 Base URL）也不刷新。
+
+**根因 1 — 缓存 key 不含 Base URL**：`fetchOpenRouterModels` 的缓存 key 是 `nimbus_models_cache_v1:msuicode`，跟 Base URL 无关。换预设后命中旧站的缓存，不发网络请求。
+
+**根因 2 — reload 没绕过缓存**：`catalogReloadKey++` 触发 useEffect 重跑 `fetchOpenRouterModels()`，但函数内部先读缓存——24h 内有缓存就直接返回，从不走网络，reload 形同虚设。
+
+**根因 3 — 没有手动刷新入口**：用户在 msuicode 平台换完分组后，app 里没有任何按钮强制拉取新的模型列表。
+
+**修**：
+- 缓存 key 升到 `v2` 并追加 `baseUrl`：`nimbus_models_cache_v2:msuicode:${baseUrl}`，不同站点/预设各自独立缓存，自动作废旧 key。
+- `fetchOpenRouterModels` 加 `forceRefresh` 参数；SettingsPage 里用户触发的 reload（`catalogReloadKey > 0`）传 `forceRefresh: true`，强制跳过缓存走网络。
+- 在设置 → 模型库搜索框右侧加「↺ 刷新」按钮，随时可以强制拉取当前站点/分组的最新模型列表。
+
+---
+
 ## 2026-06-21
 
 ### 自发叫醒消息：列名写错，从来没真正触发过（关键修）

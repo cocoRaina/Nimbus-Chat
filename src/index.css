@@ -117,6 +117,19 @@ html.no-fx .app-shell {
   background: #f8fafc !important;
 }
 
+/* ── Shared chevron back button (replaces text "Back to Chat" etc.) ─ */
+.page-back-btn {
+  background: transparent;
+  border: none;
+  color: #789EC8;
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.4rem;
+  min-width: 2rem;
+  font-family: inherit;
+}
+
 html.no-fx .chat-page,
 html.no-fx .rp-room-dashboard-page,
 html.no-fx .rp-rooms-page {
