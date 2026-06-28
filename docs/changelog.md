@@ -127,6 +127,42 @@ allow 一次，或者换用重新连接的 MCP server（旧 server id `08053c26.
   `<<MOOD>>` 标记驱动）。
 - **去掉情绪 emoji**：`VoiceRecordBubble` 不再显示 emoji 情绪标记，保持气泡简洁。
 
+### 缓存「数据有问题」排查 → 真凶是 `meta.provider` 写死，不是缓存机制
+
+用户怀疑缓存读写数据有问题，逐条拉 `usage_logs` 的 `cache_read_input_tokens` /
+`cache_creation_input_tokens` 对账。**结论：缓存机制本身健康**，几笔大冷写都有正当原因：
+
+| 时间 | 冷写量 | 真因 |
+|---|---|---|
+| 12:39 | 207k | 距上次聊天 **62 分钟** > 1h TTL，缓存过期，全量重建 |
+| 13:56 | 301k | 又一个 62 分钟间隔，再过期一次 |
+| 14:36 | 283k | **重装 APP** → 本地设置重置 → `thinking`/budget 参数变 → 落到不同缓存链（thinking 差 22 token 就分链，见 caching.md §9） |
+
+前两笔是用户**主动关掉保活**的预期代价（gap >1h 必冷写）；第三笔是重装的必然结果。都不是 bug。
+
+**真 bug — `meta.provider` 写死 `'openrouter'`（4 处）**：排查时发现 DB 里所有助手消息
+`meta.provider` 都是 `openrouter`，但实际走的是 `msuicode`（金瓜瓜）。源头是旧的单 provider
+时代遗留的硬编码，散在 4 处：
+- `App.tsx` 乐观更新的助手消息（`provider: 'openrouter'`）
+- `App.tsx` `buildAssistantMeta`（**真正落库的那处**，第一次只改了乐观更新漏了它）
+- `App.tsx` offline 兜底消息
+- `MyHomePage.tsx` 零食回复 `createSnackReply` + `recordUsage`
+
+全部改成 `getActiveProvider()`。**对缓存/路由无影响**（路由一直靠 `getActiveProvider()`，
+不读这个 meta），但历史记录、用量统计、站子健康卡的 provider 归属此前全记错。旧数据不回填，
+新包装上后记的就对了。
+
+> 教训：排查"缓存数据有问题"先 SQL 对账 read/write/uncached 三项，能一眼区分"机制坏了"
+> （read 恒 0 / write 恒等于全量）vs"正常过期/换链"（read 非零、uncached 只剩百来 token）。
+
+### 语音不进缓存（确认，非改动）
+
+用户问语音会不会污染缓存。代码确认：① 音频文件（webm url）+ `waveform[]` 数组**不发给 AI**
+——`baseMessages` 构建时只 filter `type==='image'` 的附件，语音附件被跳过；② 转写文字
+`[语音] xxx（语气：x）` 会进缓存前缀，但 `stopAndSend` 里是 **`await transcribeVoice` 完成
+后才 `onSendMessage`**，发送瞬间 content 即终值，落库即固定，replay 逐字节稳定。**语音对缓存
+是健康的**，不破坏前缀。
+
 ---
 
 ## 2026-06-27
