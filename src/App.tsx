@@ -1441,7 +1441,7 @@ const App = () => {
         clientCreatedAt: assistantClientCreatedAt,
         meta: {
           model: effectiveModel,
-          provider: 'openrouter',
+          provider: getActiveProvider(),
           streaming: true,
           params: paramsSnapshot,
         },
@@ -1471,7 +1471,7 @@ const App = () => {
             createdAt: assistantClientCreatedAt,
             clientId: assistantClientId,
             clientCreatedAt: assistantClientCreatedAt,
-            meta: { model: 'offline', provider: 'openrouter' },
+            meta: { model: 'offline', provider: getActiveProvider() },
             pending: false,
           }
           const localNextMessages = sortMessages([...localMessages, assistantMessage])
