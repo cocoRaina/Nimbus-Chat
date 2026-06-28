@@ -1471,31 +1471,29 @@ const ChatPage = ({
           </button>
           {/* 中间：按住说话条（语音模式）或文字输入框（文字模式） */}
           {voiceMode ? (
-            recordState === 'recording' ? (
-              <div className="composer-hold-bar composer-hold-bar--recording">
-                <span className="composer-recording-dot" aria-hidden="true" />
-                <span className="composer-hold-bar-text">
-                  {Math.floor(recordDurationMs / 1000)}″ · 松手发送，上划取消
-                </span>
-              </div>
-            ) : recordState === 'sending' ? (
-              <div className="composer-hold-bar composer-hold-bar--sending">
+            // 保持同一个 div 不销毁，只换 class 和内容，确保 pointer capture 不断
+            <div
+              className={`composer-hold-bar${recordState === 'recording' ? ' composer-hold-bar--recording' : recordState === 'sending' ? ' composer-hold-bar--sending' : ''}`}
+              onPointerDown={recordState === 'idle' ? () => { void startRecording() } : undefined}
+              onPointerUp={recordState === 'recording' ? stopAndSend : undefined}
+              onPointerCancel={recordState === 'recording' ? cancelRecording : undefined}
+              role="button"
+              aria-label={recordState === 'idle' ? '按住说话' : recordState === 'recording' ? '松手发送' : '发送中'}
+              tabIndex={0}
+            >
+              {recordState === 'recording' ? (
+                <>
+                  <span className="composer-recording-dot" aria-hidden="true" />
+                  <span className="composer-hold-bar-text">
+                    {Math.floor(recordDurationMs / 1000)}″ · 松手发送
+                  </span>
+                </>
+              ) : recordState === 'sending' ? (
                 <span className="composer-hold-bar-text">发送中…</span>
-              </div>
-            ) : (
-              <div
-                className="composer-hold-bar"
-                onPointerDown={() => { void startRecording() }}
-                onPointerUp={stopAndSend}
-                onPointerCancel={cancelRecording}
-                onPointerLeave={cancelRecording}
-                role="button"
-                aria-label="按住说话"
-                tabIndex={0}
-              >
+              ) : (
                 <span className="composer-hold-bar-text">按住说话</span>
-              </div>
-            )
+              )}
+            </div>
           ) : (
             <textarea
               ref={composerInputRef}
