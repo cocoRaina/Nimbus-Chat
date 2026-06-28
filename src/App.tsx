@@ -3447,11 +3447,17 @@ TOOL_SEARCH_HANDOFF,
       // 语音情绪：仅作为括号文字追加到消息内容末尾，让沈暮自然感知语气；
       // 不影响贪嗔痴念心情面板数值（那由沈暮自评 <<MOOD>> 驱动）。
       const EMOTION_ZH: Record<string, string> = {
-        HAPPY: '开心', SAD: '难过', ANGRY: '有点生气',
+        HAPPY: '开心', SAD: '难过', ANGRY: '有点生气', NEUTRAL: '平静',
         SURPRISED: '惊讶', FEARFUL: '有点担心', DISGUSTED: '不太舒服',
       }
+      const voiceAtt = options?.attachments?.find(a => a.type === 'voice')
       const emotionLabel = options?.voiceEmotion ? EMOTION_ZH[options.voiceEmotion] : null
-      const finalContent = emotionLabel ? `${content}（语气：${emotionLabel}）` : content
+      // Prefix with [语音] so the AI knows this came from voice input.
+      // The text content is hidden in ChatPage when there's a voice attachment — the bubble shows it.
+      const baseContent = voiceAtt
+        ? (content === '[语音消息]' ? '[语音消息]' : `[语音] ${content}`)
+        : content
+      const finalContent = emotionLabel ? `${baseContent}（语气：${emotionLabel}）` : baseContent
       persistUserMessage(sessionId, finalContent, options?.attachments ?? [])
       armBatchTimer(sessionId)
     },

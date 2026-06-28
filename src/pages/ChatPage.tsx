@@ -286,7 +286,7 @@ const MessageRow = memo(function MessageRow({
               <div className="assistant-markdown">
                 <MarkdownRenderer content={chunk} />
               </div>
-            ) : (
+            ) : message.meta?.attachments?.some(a => a.type === 'voice') ? null : (
               <p>{chunk}</p>
             )}
           </div>
