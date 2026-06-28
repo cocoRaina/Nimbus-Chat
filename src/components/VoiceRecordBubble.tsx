@@ -1,25 +1,6 @@
 import { useRef, useState } from 'react'
 import './VoiceRecordBubble.css'
 
-const EMOTION_EMOJI: Record<string, string> = {
-  HAPPY: '😊',
-  SAD: '😢',
-  ANGRY: '😠',
-  NEUTRAL: '😐',
-  SURPRISED: '😮',
-  FEARFUL: '😨',
-  DISGUSTED: '😒',
-}
-
-const EMOTION_ZH: Record<string, string> = {
-  HAPPY: '开心',
-  SAD: '有点难过',
-  ANGRY: '生气',
-  NEUTRAL: '平静',
-  SURPRISED: '惊讶',
-  FEARFUL: '担心',
-  DISGUSTED: '不开心',
-}
 
 // Deterministic waveform heights seeded by URL so they're stable on re-render
 function makeWaveBars(seed: string, count = 22): number[] {
@@ -45,8 +26,6 @@ export default function VoiceRecordBubble({ url, duration, transcription, emotio
   const bars = makeWaveBars(url)
 
   const durationSec = duration ? Math.round(duration / 1000) : null
-  const emotionEmoji = emotion ? (EMOTION_EMOJI[emotion] ?? '') : ''
-  const emotionZh = emotion ? (EMOTION_ZH[emotion] ?? emotion) : ''
 
   const togglePlay = () => {
     if (!audioRef.current) {
@@ -79,11 +58,6 @@ export default function VoiceRecordBubble({ url, duration, transcription, emotio
       </div>
       <div className="vrb-info">
         {durationSec !== null && <span className="vrb-duration">{durationSec}″</span>}
-        {emotionEmoji && (
-          <span className="vrb-emotion" title={emotionZh} aria-label={emotionZh}>
-            {emotionEmoji}
-          </span>
-        )}
         {transcription && (
           <button
             className="vrb-transcript-btn"

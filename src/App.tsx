@@ -3444,10 +3444,15 @@ TOOL_SEARCH_HANDOFF,
         voiceEmotion?: string
       },
     ): Promise<void> => {
-      // B: voice emotion → mood system (connects automatically when merged with main branch
-      // that has moodSystem.ts; the emotion is stored in meta.attachments[].emotion regardless)
-      // When mood system is available: import { voiceEmotionToMoodDeltas, applyMoodAssessment, commitMood } from './storage/moodSystem'
-      persistUserMessage(sessionId, content, options?.attachments ?? [])
+      // 语音情绪：仅作为括号文字追加到消息内容末尾，让沈暮自然感知语气；
+      // 不影响贪嗔痴念心情面板数值（那由沈暮自评 <<MOOD>> 驱动）。
+      const EMOTION_ZH: Record<string, string> = {
+        HAPPY: '开心', SAD: '难过', ANGRY: '有点生气',
+        SURPRISED: '惊讶', FEARFUL: '有点担心', DISGUSTED: '不太舒服',
+      }
+      const emotionLabel = options?.voiceEmotion ? EMOTION_ZH[options.voiceEmotion] : null
+      const finalContent = emotionLabel ? `${content}（语气：${emotionLabel}）` : content
+      persistUserMessage(sessionId, finalContent, options?.attachments ?? [])
       armBatchTimer(sessionId)
     },
     [persistUserMessage, armBatchTimer],
