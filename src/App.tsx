@@ -1424,6 +1424,16 @@ const App = () => {
           return narration ? { moodNarration: narration } : {}
         })(),
       }
+      // Kick off caption generation immediately when images are sent — don't
+      // wait for the lazy path in the request-builder loop. Images that get
+      // compressed out of recentMessages before their caption is ready would
+      // never get another chance otherwise.
+      for (const att of userAttachments) {
+        if (att.type === 'image') {
+          void ensureImageCaption(att.url, effectiveModel, getActiveProvider(), user?.id)
+        }
+      }
+
       const optimisticMessage: ChatMessage = {
         id: clientId,
         sessionId,
