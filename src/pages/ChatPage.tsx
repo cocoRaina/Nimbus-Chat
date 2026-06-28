@@ -1471,12 +1471,14 @@ const ChatPage = ({
           </button>
           {/* 中间：按住说话条（语音模式）或文字输入框（文字模式） */}
           {voiceMode ? (
-            // 保持同一个 div 不销毁，只换 class 和内容，确保 pointer capture 不断
+            // 保持同一个 div 不销毁，只换 class 和内容，确保 pointer capture 不断。
+            // 事件函数始终挂着（不做条件赋值），避免 Android WebView re-render 时
+            // 浏览器移除 listener 导致 pointerup/touchend 丢失。
             <div
               className={`composer-hold-bar${recordState === 'recording' ? ' composer-hold-bar--recording' : recordState === 'sending' ? ' composer-hold-bar--sending' : ''}`}
-              onPointerDown={recordState === 'idle' ? () => { void startRecording() } : undefined}
-              onPointerUp={recordState === 'recording' ? stopAndSend : undefined}
-              onPointerCancel={recordState === 'recording' ? cancelRecording : undefined}
+              onPointerDown={() => { if (recordState === 'idle') void startRecording() }}
+              onPointerUp={() => { if (recordState === 'recording') stopAndSend() }}
+              onPointerCancel={() => { if (recordState === 'recording') cancelRecording() }}
               role="button"
               aria-label={recordState === 'idle' ? '按住说话' : recordState === 'recording' ? '松手发送' : '发送中'}
               tabIndex={0}
