@@ -155,6 +155,31 @@ allow 一次，或者换用重新连接的 MCP server（旧 server id `08053c26.
 > 教训：排查"缓存数据有问题"先 SQL 对账 read/write/uncached 三项，能一眼区分"机制坏了"
 > （read 恒 0 / write 恒等于全量）vs"正常过期/换链"（read 非零、uncached 只剩百来 token）。
 
+### 图片描述缓存上云：根治「重装后历史图把 context 撑到 60 万」
+
+接上条排查继续深挖：用户单次请求 `prompt_tokens` 高达 **60 万**，但 346 条消息正文加起来
+才 **7.8 万字符**（~6 万 token）。差的 50 万 token 全是 **3 张图**——12:38 发 2 张、12:54
+发 1 张（改提示词 + 画像）。图本身不大（243/195/163 KB，上传时已压到 1568px@0.85），但
+中转（金瓜瓜）**按 base64 字符数计图片 token**（Anthropic 官方只算 ~1600/张），一张 243KB
+图 base64 后 ~32 万字符 → 被算成几十万 token。
+
+**为什么图一直不被文字描述替换**（`imageCaptions.ts` 本有「图发一次→之后用 `[图片:描述]`
+文字代替」的机制）：
+1. **描述缓存只存手机 localStorage** → 14:36 重装 APP 清空，图退回原图。
+2. 更早的铁证：13:56、13:57（**重装前**、无新图）仍 60 万，说明描述在金瓜瓜下**从没生成
+   成功**——`ensureImageCaption` 失败时 `catch {}` **静默吞错**，于是永远没描述、永远发原图。
+
+**修**（`imageCaptions.ts` + `App.tsx` + 迁移 `20260628160000_add_image_captions.sql`）：
+- **上云**：新建 `image_captions` 表（`user_id`+`url_hash` PK，RLS `auth.uid()=user_id`）。
+  描述生成后 localStorage + 云端双写；登录时 `syncImageCaptionsFromCloud` 把云端灌回本地。
+  **重装/换设备不再丢**，图一旦变文字就永久是文字。
+- **不再静默吞错**：生成失败时 `console.warn` 打出 status + body，暴露「金瓜瓜下带图 caption
+  请求是否失败」这个之前看不见的问题，便于下一步定位是否要给 caption 请求换省 token 的路径。
+- localStorage 仍是同步热路径（每轮构建请求时读），云端只做持久化兜底，不增加每轮延迟。
+
+> 注意：旧会话里那 3 张图已经「沉」在历史里，装新包后**第一次**重新聊会触发一次描述生成
+> （成功的话），之后该会话 context 才回落；或直接开新会话甩掉这 60 万。
+
 ### 语音不进缓存（确认，非改动）
 
 用户问语音会不会污染缓存。代码确认：① 音频文件（webm url）+ `waveform[]` 数组**不发给 AI**

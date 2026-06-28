@@ -1,5 +1,6 @@
 import { fetchOpenRouter } from '../api/openrouter'
 import type { ProviderId } from './apiProvider'
+import { supabase } from '../supabase/client'
 
 // Image → short text description cache. Why this exists: every turn we
 // re-send every historical image in the conversation, which on a cache
@@ -12,6 +13,15 @@ import type { ProviderId } from './apiProvider'
 // cached text description instead. If captioning ever fails, there's no
 // cache entry and we just keep sending the real image — i.e. graceful
 // fallback to the previous behavior, no message/DB changes involved.
+//
+// Storage is TWO-TIER: localStorage (synchronous, read every turn while
+// building the request) backed by a Supabase table (image_captions). The
+// local-only design lost every caption on APK reinstall / device switch,
+// so historical images reverted to raw base64 — on a relay that bills
+// images by base64 size this re-inflated context to hundreds of thousands
+// of tokens. The cloud tier survives reinstall: syncImageCaptionsFromCloud
+// re-hydrates localStorage on startup, and every new caption is mirrored
+// up so it's never lost again.
 
 const STORAGE_KEY = 'nimbus_image_captions_v1'
 const MAX_ENTRIES = 300
@@ -57,11 +67,52 @@ export const getImageCaption = (url: string): string | null => {
   return readMap()[hashUrl(url)] ?? null
 }
 
-export const setImageCaption = (url: string, caption: string) => {
+// Write to localStorage immediately (so this turn's later reads hit it) and
+// mirror to the cloud so it survives reinstall. The cloud write is fire-and-
+// forget — local cache is the hot path; cloud is the durability backstop.
+export const setImageCaption = (url: string, caption: string, userId?: string) => {
   if (!url || !caption) return
+  const key = hashUrl(url)
   const map = readMap()
-  map[hashUrl(url)] = caption
+  map[key] = caption
   writeMap(map)
+  if (userId && supabase) {
+    void supabase
+      .from('image_captions')
+      .upsert({ user_id: userId, url_hash: key, caption }, { onConflict: 'user_id,url_hash' })
+      .then(({ error }) => {
+        if (error) console.warn('图片描述写云失败', error)
+      })
+  }
+}
+
+// Pull every cloud caption for this user into localStorage. Call on startup /
+// login so a freshly reinstalled app re-learns the descriptions it generated
+// before — without this, historical images revert to raw base64 every turn.
+export const syncImageCaptionsFromCloud = async (userId: string): Promise<void> => {
+  if (!userId || !supabase) return
+  try {
+    const { data, error } = await supabase
+      .from('image_captions')
+      .select('url_hash, caption')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(MAX_ENTRIES)
+    if (error) {
+      console.warn('图片描述云端同步失败', error)
+      return
+    }
+    if (!data || data.length === 0) return
+    // Cloud wins on conflict (it's the durable source of truth); merge so we
+    // don't drop any local-only entries written before the first sync lands.
+    const map = readMap()
+    for (const row of data) {
+      if (row.url_hash && row.caption) map[row.url_hash] = row.caption
+    }
+    writeMap(map)
+  } catch (err) {
+    console.warn('图片描述云端同步异常', err)
+  }
 }
 
 const inFlight = new Set<string>()
@@ -70,12 +121,15 @@ const CAPTION_PROMPT =
   '用一两句简洁中文客观描述这张图片的关键内容（人物/场景/动作/画面/可见文字），作为后续对话的上下文参考。只描述，不要寒暄、不要评价、不要追问。'
 
 // Generate + cache a caption once. Safe to call every turn: no-ops if it's
-// already cached or already in flight. All errors are swallowed — on
-// failure the caller keeps sending the real image and we retry next turn.
+// already cached or already in flight. On failure the caller keeps sending
+// the real image and we retry next turn — but failures are now LOGGED (they
+// used to be silently swallowed, which hid the case where every caption
+// request failed on a relay and historical images stayed raw forever).
 export const ensureImageCaption = async (
   url: string,
   model: string,
   provider: ProviderId,
+  userId?: string,
 ): Promise<void> => {
   if (!url || !model) return
   const key = hashUrl(url)
@@ -101,14 +155,21 @@ export const ensureImageCaption = async (
         ],
       },
     })
-    if (!response.ok) return
+    if (!response.ok) {
+      // Surface relay/model failures instead of swallowing them — a caption
+      // request that keeps 4xx-ing is exactly why an image never gets
+      // replaced by text and keeps re-inflating context.
+      console.warn(`图片描述生成失败 status=${response.status}`, await response.text().catch(() => ''))
+      return
+    }
     const payload = (await response.json()) as Record<string, unknown>
     const choice = (payload.choices as Array<Record<string, unknown>> | undefined)?.[0]
     const message = (choice?.message as Record<string, unknown> | undefined) ?? {}
     const text = typeof message.content === 'string' ? message.content.trim() : ''
-    if (text) setImageCaption(url, text)
-  } catch {
-    // keep sending the image; try again next turn
+    if (text) setImageCaption(url, text, userId)
+    else console.warn('图片描述生成返回空内容')
+  } catch (err) {
+    console.warn('图片描述生成异常', err)
   } finally {
     inFlight.delete(key)
   }

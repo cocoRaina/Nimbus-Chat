@@ -91,7 +91,7 @@ import { resolveModelId } from './utils/modelResolver'
 import { fetchOpenRouter } from './api/openrouter'
 import { convertOpenAiRequestToAnthropic } from './api/anthropic'
 import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './storage/apiProvider'
-import { ensureImageCaption, getImageCaption } from './storage/imageCaptions'
+import { ensureImageCaption, getImageCaption, syncImageCaptionsFromCloud } from './storage/imageCaptions'
 import {
   buildStickerSystemSection,
   setRemoteStickerCache,
@@ -630,6 +630,14 @@ const App = () => {
     // Restore the AI's persisted mood (local-first; Supabase override on login).
     void hydrateMood()
   }, [])
+
+  // Re-hydrate image captions from the cloud on login. Without this a freshly
+  // reinstalled app has an empty local caption cache, so every historical image
+  // reverts to raw base64 and re-inflates context (hundreds of k tokens on a
+  // relay that bills images by base64 size). See storage/imageCaptions.ts.
+  useEffect(() => {
+    if (user) void syncImageCaptionsFromCloud(user.id)
+  }, [user])
 
   useEffect(() => {
     sessionsRef.current = sessions
@@ -1905,7 +1913,7 @@ const App = () => {
                   blocks.push({ type: 'text', text: `[图片：${caption}]` })
                 } else {
                   blocks.push({ type: 'image_url', image_url: { url: att.url } })
-                  void ensureImageCaption(att.url, effectiveModel, getActiveProvider())
+                  void ensureImageCaption(att.url, effectiveModel, getActiveProvider(), user?.id)
                 }
               }
               baseMessages.push({ role: 'user', content: blocks })
