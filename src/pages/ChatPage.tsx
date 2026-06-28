@@ -1415,16 +1415,7 @@ const ChatPage = ({
           >
             <span aria-hidden="true">🧷</span>
           </button>
-          <button
-            type="button"
-            className={`composer-icon-btn${recordState === 'recording' ? ' composer-icon-btn--recording' : ''}`}
-            aria-label={recordState === 'recording' ? '停止录音' : '语音输入'}
-            title={recordState === 'recording' ? '停止录音' : '语音输入'}
-            disabled={recordState === 'transcribing' || uploading}
-            onClick={recordState === 'recording' ? stopRecording : () => { void startRecording() }}
-          >
-            <span aria-hidden="true">{recordState === 'recording' ? '⏹' : '🎤'}</span>
-          </button>
+          {/* 微信式右侧按钮：空时=🎤，有内容=➤，录音中=⏹，转录中=⌛，AI生成中=■ */}
           {isStreaming ? (
             <button
               type="button"
@@ -1434,14 +1425,38 @@ const ChatPage = ({
             >
               <span aria-hidden="true">■</span>
             </button>
-          ) : (
+          ) : recordState === 'recording' ? (
+            <button
+              type="button"
+              className="composer-send-btn composer-send-btn--recording"
+              aria-label="停止录音"
+              onClick={stopRecording}
+            >
+              <span aria-hidden="true">⏹</span>
+            </button>
+          ) : recordState === 'transcribing' ? (
+            <button type="button" className="composer-send-btn" disabled aria-label="转录中">
+              <span aria-hidden="true">⌛</span>
+            </button>
+          ) : draft.trim().length > 0 || pendingAttachments.length > 0 || pendingVoice !== null ? (
             <button
               type="submit"
               className="composer-send-btn"
               aria-label="发送"
-              disabled={uploading || (draft.trim().length === 0 && pendingAttachments.length === 0)}
+              disabled={uploading}
             >
               <span aria-hidden="true">➤</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="composer-icon-btn"
+              aria-label="语音输入"
+              title="语音输入"
+              disabled={uploading}
+              onClick={() => { void startRecording() }}
+            >
+              <span aria-hidden="true">🎤</span>
             </button>
           )}
         </div>

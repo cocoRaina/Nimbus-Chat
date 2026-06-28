@@ -1307,6 +1307,12 @@
   font-size: 13px;
 }
 
+.composer-send-btn--recording {
+  background: linear-gradient(135deg, #F87171, #DC2626);
+  font-size: 13px;
+  animation: composer-mic-pulse 0.7s ease-in-out infinite alternate;
+}
+
 .composer-toggle input {
   appearance: none;
   width: 14px;
@@ -1565,15 +1571,6 @@
 }
 
 /* ── Voice recording composer state ────────────────────────── */
-.composer-icon-btn--recording {
-  color: #ff4d4f;
-  animation: composer-mic-pulse 0.8s ease-in-out infinite alternate;
-}
-@keyframes composer-mic-pulse {
-  from { opacity: 1; }
-  to   { opacity: 0.5; }
-}
-
 .composer-recording-indicator {
   flex: 1;
   display: flex;
@@ -1591,7 +1588,11 @@
   border-radius: 50%;
   background: #ff4d4f;
   flex-shrink: 0;
-  animation: composer-mic-pulse 0.6s ease-in-out infinite alternate;
+  animation: vrec-dot-blink 0.6s ease-in-out infinite alternate;
+}
+@keyframes vrec-dot-blink {
+  from { opacity: 1; }
+  to   { opacity: 0.3; }
 }
 
 .composer-recording-time {
