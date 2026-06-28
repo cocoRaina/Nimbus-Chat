@@ -1727,7 +1727,7 @@ const App = () => {
         const buildAssistantMeta = (streaming: boolean): ChatMessage['meta'] => {
           const meta: ChatMessage['meta'] = {
             model: actualModel,
-            provider: 'openrouter',
+            provider: getActiveProvider(),
             streaming,
             params: paramsSnapshot,
           }

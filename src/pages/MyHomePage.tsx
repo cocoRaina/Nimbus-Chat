@@ -6,6 +6,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import LocalAvatar from '../components/LocalAvatar'
 import { fetchOpenRouter } from '../api/openrouter'
+import { getActiveProvider } from '../storage/apiProvider'
 import { recordUsage } from '../storage/usageStats'
 import type { SnackPost, SnackReply } from '../types'
 import {
@@ -482,6 +483,7 @@ const MyHomePage = ({ user, snackAiConfig }: MyHomePageProps) => {
           usage.prompt_tokens_details?.cached_tokens ?? usage.cache_read_input_tokens ?? 0,
         ),
         source: 'snacks',
+        provider: getActiveProvider(),
       })
     }
 
@@ -557,7 +559,7 @@ const MyHomePage = ({ user, snackAiConfig }: MyHomePageProps) => {
       }))
 
       await createSnackReply(post.id, 'assistant', result.content, {
-        provider: 'openrouter',
+        provider: getActiveProvider(),
         model: result.model,
         reasoning_text: result.reasoningText,
       })
