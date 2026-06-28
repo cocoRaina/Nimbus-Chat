@@ -3448,7 +3448,7 @@ TOOL_SEARCH_HANDOFF,
       // 不影响贪嗔痴念心情面板数值（那由沈暮自评 <<MOOD>> 驱动）。
       const EMOTION_ZH: Record<string, string> = {
         HAPPY: '开心', SAD: '难过', ANGRY: '有点生气', NEUTRAL: '平静',
-        SURPRISED: '惊讶', FEARFUL: '有点担心', DISGUSTED: '不太舒服',
+        SURPRISE: '惊讶', FEAR: '有点担心', DISGUST: '不太舒服',
       }
       const voiceAtt = options?.attachments?.find(a => a.type === 'voice')
       const emotionLabel = options?.voiceEmotion ? EMOTION_ZH[options.voiceEmotion] : null
