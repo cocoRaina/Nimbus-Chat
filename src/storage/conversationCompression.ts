@@ -54,7 +54,7 @@ const estimateMessagesTokens = (messages: ChatMessage[]): number => {
     // Image attachments cost real tokens but carry no text — count them so
     // the trigger fires on time for chats with lots of images.
     for (const att of msg.meta?.attachments ?? []) {
-      total += estimateImageTokens(att)
+      if (att.type === 'image') total += estimateImageTokens(att)
     }
   }
   // overhead per message for role + formatting

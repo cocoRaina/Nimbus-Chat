@@ -1563,3 +1563,43 @@
   align-items: center;
   justify-content: center;
 }
+
+/* ── Voice recording composer state ────────────────────────── */
+.composer-icon-btn--recording {
+  color: #ff4d4f;
+  animation: composer-mic-pulse 0.8s ease-in-out infinite alternate;
+}
+@keyframes composer-mic-pulse {
+  from { opacity: 1; }
+  to   { opacity: 0.5; }
+}
+
+.composer-recording-indicator {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  font-size: 14px;
+  color: #ff4d4f;
+  min-height: 36px;
+}
+
+.composer-recording-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff4d4f;
+  flex-shrink: 0;
+  animation: composer-mic-pulse 0.6s ease-in-out infinite alternate;
+}
+
+.composer-recording-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  min-width: 24px;
+}
+
+.composer-recording-label {
+  opacity: 0.75;
+}

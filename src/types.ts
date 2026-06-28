@@ -9,6 +9,10 @@ export type ChatSession = {
   overrideReasoning?: boolean | null
 }
 
+export type MessageAttachment =
+  | { type: 'image'; url: string; width?: number; height?: number }
+  | { type: 'voice'; url: string; duration?: number; transcription?: string; emotion?: string }
+
 export type ChatMessage = {
   id: string
   sessionId: string
@@ -29,12 +33,7 @@ export type ChatMessage = {
       top_p?: number
       max_tokens?: number
     }
-    attachments?: Array<{
-      type: 'image'
-      url: string
-      width?: number
-      height?: number
-    }>
+    attachments?: MessageAttachment[]
     weather?: {
       temperatureC: number
       condition: string

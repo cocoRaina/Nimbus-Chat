@@ -1,38 +1,65 @@
-# 语音消息（TTS · MiniMax）
+# 语音功能（TTS 输出 + 语音消息输入）
 
-> AI 可以"说话"：把要发声的内容用 `[voice]…[/voice]` 包起来，前端渲染成微信式**语音条**（点播才合成、可转文字）。语音输入(🎤)已移除，改用输入法自带的语音转文字。
-> 相关代码：`supabase/functions/tts/index.ts`、`src/components/VoiceBubble.tsx`、`src/storage/ttsConfig.ts`、`src/pages/ChatPage.tsx`（`[voice]` 解析）、设置页 🔊 语音区。
+---
 
-## 工作方式
+## A — 语音消息录入（用户发语音）
 
-1. **小机自主决定**：系统提示词里约定——想用语音表达时,把内容包进 `[voice]…[/voice]`。无需 function calling,任何模型/中转通用(和 `[NEXT]` 分气泡同一套路)。
-2. **前端解析**：`splitAssistantSegments` 把回复切成有序的 text / voice 段。voice 段渲染成 `VoiceBubble`。
-3. **点播才合成**：点 ▶ 才调 `tts` Edge Function 合成 + 播放;合成后按文本缓存(`audioCache`),重播不再扣费。「转文字」展开 `[voice]` 原文(零成本)。
-4. **未配置时优雅降级**：`isTtsReady()` 为 false 时,`[voice]` 内容当普通文字显示,不会出现坏的播放器。
-
-## `tts` Edge Function
-
-- 代理 MiniMax **T2A v2**(`/v1/t2a_v2`),把返回的 **hex 音频转成 base64** 给前端播放。
-- key / voice_id / group_id 由**前端从设置页发来**,服务端不存、仓库不留。
-- **失败也返回 200 + 真实原因**(MiniMax 的 `base_resp.status_msg`)——否则 `supabase.functions.invoke` 会把任何非 2xx 压成笼统的 "non-2xx status code",看不到真因。
-
-## 设置（设置页 → 🔊 语音）
-
-| 字段 | 说明 |
+| 模块 | 文件 |
 |---|---|
-| 开启语音条 | 总开关 |
-| Voice ID | MiniMax 音色 id(克隆得到,如 `moss_audio_…` / 国内自定义 `keke20260607`) |
-| API Key | MiniMax key(仅存本地 localStorage) |
-| GroupId | MiniMax 控制台;部分接口必填,留空报错再填 |
-| Base URL | 国际版 `https://api.minimax.io`(默认)/ 国内 `https://api.minimaxi.com` |
-| 模型 | `speech-2.8-hd/speech-2.8-turbo` |
+| 录音 + 上传 | `src/storage/voiceRecorder.ts` |
+| 转录 Edge Function | `supabase/functions/transcribe-voice/index.ts` |
+| 录音气泡 UI | `src/components/VoiceRecordBubble.tsx/css` |
+| 入口（录音按钮） | `src/pages/ChatPage.tsx`（🎤 按钮 + `startRecording`/`stopRecording`） |
+| 附件类型扩展 | `src/types.ts` → `MessageAttachment` union |
+| Android 权限 | `android/app/src/main/AndroidManifest.xml` → `RECORD_AUDIO` |
 
-## 克隆音色（国内版用 API）
+### 流程
 
-国内版网页不一定能克隆,可走 API:① `POST /v1/files/upload`(`purpose=voice_clone`)拿 `file_id` → ② `POST /v1/voice_clone`(`file_id` + 自定义 `voice_id`)。voice_id 命名:≥8 位、字母+数字、字母开头。样本音频可从 ElevenLabs Voice Design 导出。
+1. 用户点 **🎤** → `startRecording()` 调 `getUserMedia({ audio: true })` + `MediaRecorder`
+2. Composer 文本框换成红色「录音中」指示条（时间计数）
+3. 再次点 ⏹ → `stopRecording()` → blob 上传 Supabase Storage `voice-recordings/{userId}/{ts}.webm`
+4. 调 `transcribe-voice` Edge Function → SiliconFlow SenseVoiceSmall → 返回 `{ text, emotion }`
+5. 转录文字填入 Composer 让用户复查，同时 `pendingVoice` 存下 `{url, durationMs, transcription, emotion}`
+6. 用户点发送 → `submitDraft` 把 `type:'voice'` 附件塞进 `allAttachments`，一起发出
 
-## 系统提示词片段（贴进人设让小机会用）
+### 气泡渲染（VoiceRecordBubble）
 
-```
-当你想用"语音"表达(亲密、短句、哄睡、撒娇等)时,把要"说出口"的内容用 [voice]…[/voice] 包起来,例如:[voice]早点睡,我守着你。[/voice]。正经的长内容、列表、代码用普通文字。一条消息里可以混用。
-```
+- 播放键（▶/⏸）+ 仿波形（22 根柱子，高度由 URL 作种子确定性生成）+ 时长 + 情绪 emoji
+- 转录文字作副标题
+- 播放调 `new Audio(url)`，无需 Edge Function
+
+### 情绪映射（B — SenseVoice → 贪嗔痴念）
+
+SenseVoiceSmall 返回情绪标签（HAPPY / SAD / ANGRY / NEUTRAL / SURPRISED…）。
+目前情绪存在 `meta.attachments[].emotion`，**情绪→心情系统** 的 delta 注入留在
+App.tsx `queueUserMessage` 注释里（`voiceEmotion` 参数已透传），
+等合并 `main`（有 `moodSystem.ts`）后取消注释即可激活。
+
+---
+
+## B — TTS 语音播放（AI 回复）
+
+AI 可以"说话"：把要发声的内容用 `[voice]…[/voice]` 包起来，前端渲染成微信式**语音条**（点播才合成、可转文字）。
+
+| 模块 | 文件 |
+|---|---|
+| 播放气泡 | `src/components/VoiceBubble.tsx/css` |
+| Edge Function | `supabase/functions/tts/index.ts` |
+| 配置 | `src/storage/ttsConfig.ts` |
+
+AI 回复里 `[voice]…[/voice]` 标记 → `splitAssistantSegments()` → `VoiceBubble`（点击合成+播放）。
+支持 MiniMax T2A v2 或 ElevenLabs，key 由用户在设置里填，不落服务端。
+
+---
+
+## 配置要点
+
+- `SILICONFLOW_API_KEY`：Supabase secrets 里配，Edge Function 读取。SenseVoiceSmall 当前免费。
+- `voice-recordings` bucket：已创建（public，用户路径 RLS）。
+- Android `RECORD_AUDIO` + `MODIFY_AUDIO_SETTINGS` 权限：已在 AndroidManifest 声明。
+
+## 踩坑
+
+- SenseVoice 返回 `<|HAPPY|><|zh|>…实际文字` 或 `HAPPY|实际文字`，Edge Function 里统一剥掉标签再返回 `{ text, emotion }`。
+- MediaRecorder 在 Android WebView 支持 `audio/webm;codecs=opus`（首选）或 `audio/ogg;codecs=opus`，`getBestMimeType()` 运行时探测。
+- 录音气泡的波形是**伪随机静态**（URL 作 seed），不是真实振幅——避免 Web Audio API 解码开销。

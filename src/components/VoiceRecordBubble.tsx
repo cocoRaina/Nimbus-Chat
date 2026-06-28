@@ -1,0 +1,90 @@
+import { useRef, useState } from 'react'
+import './VoiceRecordBubble.css'
+
+const EMOTION_EMOJI: Record<string, string> = {
+  HAPPY: '😊',
+  SAD: '😢',
+  ANGRY: '😠',
+  NEUTRAL: '😐',
+  SURPRISED: '😮',
+  FEARFUL: '😨',
+  DISGUSTED: '😒',
+}
+
+const EMOTION_ZH: Record<string, string> = {
+  HAPPY: '开心',
+  SAD: '有点难过',
+  ANGRY: '生气',
+  NEUTRAL: '平静',
+  SURPRISED: '惊讶',
+  FEARFUL: '担心',
+  DISGUSTED: '不开心',
+}
+
+// Deterministic waveform heights seeded by URL so they're stable on re-render
+function makeWaveBars(seed: string, count = 22): number[] {
+  let h = 0
+  return Array.from({ length: count }, (_, i) => {
+    const code = seed.charCodeAt(i % seed.length) || 50
+    h = ((h * 31 + code + i * 13) % 60) + 18
+    return h
+  })
+}
+
+export type VoiceRecordBubbleProps = {
+  url: string
+  duration?: number    // ms
+  transcription?: string
+  emotion?: string
+}
+
+export default function VoiceRecordBubble({ url, duration, transcription, emotion }: VoiceRecordBubbleProps) {
+  const [playing, setPlaying] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const bars = makeWaveBars(url)
+
+  const durationSec = duration ? Math.round(duration / 1000) : null
+  const emotionEmoji = emotion ? (EMOTION_EMOJI[emotion] ?? '') : ''
+  const emotionZh = emotion ? (EMOTION_ZH[emotion] ?? emotion) : ''
+
+  const togglePlay = () => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio(url)
+      audioRef.current.onended = () => setPlaying(false)
+      audioRef.current.onerror = () => setPlaying(false)
+    }
+    if (playing) {
+      audioRef.current.pause()
+      setPlaying(false)
+    } else {
+      void audioRef.current.play()
+      setPlaying(true)
+    }
+  }
+
+  return (
+    <div className="vrb">
+      <button className="vrb-play" onClick={togglePlay} aria-label={playing ? '暂停' : '播放录音'}>
+        <span aria-hidden="true">{playing ? '⏸' : '▶'}</span>
+      </button>
+      <div className="vrb-waveform" aria-hidden="true">
+        {bars.map((h, i) => (
+          <div
+            key={i}
+            className={`vrb-bar${playing ? ' vrb-bar--playing' : ''}`}
+            style={{ height: `${h}%`, animationDelay: `${(i * 0.06).toFixed(2)}s` }}
+          />
+        ))}
+      </div>
+      <div className="vrb-info">
+        {durationSec !== null && <span className="vrb-duration">{durationSec}″</span>}
+        {emotionEmoji && (
+          <span className="vrb-emotion" title={emotionZh} aria-label={emotionZh}>
+            {emotionEmoji}
+          </span>
+        )}
+      </div>
+      {transcription && <p className="vrb-transcript">{transcription}</p>}
+    </div>
+  )
+}

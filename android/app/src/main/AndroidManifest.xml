@@ -122,6 +122,10 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <!-- Microphone: voice message recording via MediaRecorder in the WebView.
+         Android 9+ requires this even for WebView-initiated getUserMedia. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- Haptics: VIBRATE is normal-protection (auto-granted) but
          declared so the Capacitor plugin's runtime check doesn't warn,

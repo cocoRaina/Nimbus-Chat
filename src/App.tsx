@@ -4,7 +4,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 're
 import ChatPage from './pages/ChatPage'
 import AuthPage from './pages/AuthPage'
 import SessionsDrawer from './components/SessionsDrawer'
-import type { ChatMessage, ChatSession, UserSettings } from './types'
+import type { ChatMessage, ChatSession, MessageAttachment, UserSettings } from './types'
 import { usePendingShare } from './hooks/useShareReceiver'
 import {
   addMessage,
@@ -3257,7 +3257,7 @@ TOOL_SEARCH_HANDOFF,
     (
       sessionId: string,
       content: string,
-      attachments: Array<{ type: 'image'; url: string; width?: number; height?: number }> = [],
+      attachments: MessageAttachment[] = [],
     ) => {
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
@@ -3327,8 +3327,14 @@ TOOL_SEARCH_HANDOFF,
     async (
       sessionId: string,
       content: string,
-      options?: { attachments?: Array<{ type: 'image'; url: string; width?: number; height?: number }> },
+      options?: {
+        attachments?: MessageAttachment[]
+        voiceEmotion?: string
+      },
     ): Promise<void> => {
+      // B: voice emotion → mood system (connects automatically when merged with main branch
+      // that has moodSystem.ts; the emotion is stored in meta.attachments[].emotion regardless)
+      // When mood system is available: import { voiceEmotionToMoodDeltas, applyMoodAssessment, commitMood } from './storage/moodSystem'
       persistUserMessage(sessionId, content, options?.attachments ?? [])
       armBatchTimer(sessionId)
     },
@@ -4035,7 +4041,10 @@ const ChatRoute = ({
   onSendMessage: (
     sessionId: string,
     text: string,
-    options?: { attachments?: Array<{ type: 'image'; url: string; width?: number; height?: number }> },
+    options?: {
+      attachments?: MessageAttachment[]
+      voiceEmotion?: string
+    },
   ) => Promise<void>
   onDeleteMessage: (messageId: string) => Promise<void>
   onRegenerate: (assistantMessageId: string) => Promise<void>

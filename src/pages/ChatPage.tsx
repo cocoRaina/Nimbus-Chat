@@ -14,10 +14,11 @@ import {
   getMsuicodeFormat,
   getOpenRouterFormat,
 } from '../storage/apiProvider'
-import type { ChatMessage, ChatSession } from '../types'
+import type { ChatMessage, ChatSession, MessageAttachment } from '../types'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import VoiceBubble from '../components/VoiceBubble'
+import VoiceRecordBubble from '../components/VoiceRecordBubble'
 import {
   type Sticker,
   type RemotePackMap,
@@ -45,7 +46,10 @@ export type ChatPageProps = {
   onOpenDrawer: () => void
   onSendMessage: (
     text: string,
-    options?: { attachments?: Array<{ type: 'image'; url: string; width?: number; height?: number }> },
+    options?: {
+      attachments?: MessageAttachment[]
+      voiceEmotion?: string
+    },
   ) => Promise<void>
   onDeleteMessage: (messageId: string) => void | Promise<void>
   onRegenerate: (assistantMessageId: string) => void | Promise<void>
@@ -228,9 +232,8 @@ const MessageRow = memo(function MessageRow({
             })()}
             {isFirst && message.meta?.attachments && message.meta.attachments.length > 0 ? (
               <div className="message-attachments">
-                {message.meta.attachments
-                  .filter((att) => att.type === 'image')
-                  .map((att, attIdx) => (
+                {message.meta.attachments.map((att, attIdx) =>
+                  att.type === 'image' ? (
                     <a
                       key={`${message.id}-att-${attIdx}`}
                       href={att.url}
@@ -240,7 +243,16 @@ const MessageRow = memo(function MessageRow({
                     >
                       <img src={att.url} alt="附件图片" loading="lazy" />
                     </a>
-                  ))}
+                  ) : att.type === 'voice' ? (
+                    <VoiceRecordBubble
+                      key={`${message.id}-att-${attIdx}`}
+                      url={att.url}
+                      duration={att.duration}
+                      transcription={att.transcription}
+                      emotion={att.emotion}
+                    />
+                  ) : null,
+                )}
               </div>
             ) : null}
             {seg.type === 'sticker' ? (
@@ -310,6 +322,7 @@ const ChatPage = ({
   highReasoningEnabled,
   onSelectReasoning,
   onManualCompress,
+  user,
   toolStatus,
   remoteStickerPacks,
   shareDraft,
@@ -358,6 +371,20 @@ const ChatPage = ({
   >([])
   const [uploading, setUploading] = useState(false)
   const [compressing, setCompressing] = useState(false)
+  // Voice recording state (A: recording, B: transcribing, C: idle)
+  type RecordState = 'idle' | 'recording' | 'transcribing'
+  const [recordState, setRecordState] = useState<RecordState>('idle')
+  const [recordDurationMs, setRecordDurationMs] = useState(0)
+  const [pendingVoice, setPendingVoice] = useState<{
+    url: string
+    durationMs: number
+    transcription: string
+    emotion?: string
+  } | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordChunksRef = useRef<Blob[]>([])
+  const recordStartRef = useRef<number>(0)
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Lazy load: only render the last N messages on entry. The full
   // history is in the prop, but rendering 500+ bubbles + their
   // markdown was the source of the "进入会卡" the user reported.
@@ -425,6 +452,7 @@ const ChatPage = ({
       setCompressing(false)
     }
   }, [compressing, onManualCompress])
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   // Separate input with capture="environment" so tapping the 拍照 button
   // jumps straight into the camera on Android instead of routing through
@@ -432,6 +460,59 @@ const ChatPage = ({
   // and defeat the point of having a dedicated camera shortcut).
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
   const stickerInputRef = useRef<HTMLInputElement | null>(null)
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      const { getBestMimeType } = await import('../storage/voiceRecorder')
+      const mimeType = getBestMimeType()
+      const mr = new MediaRecorder(stream, { mimeType })
+      recordChunksRef.current = []
+      mr.ondataavailable = (e) => { if (e.data.size > 0) recordChunksRef.current.push(e.data) }
+      mediaRecorderRef.current = mr
+      recordStartRef.current = Date.now()
+      mr.start(200)
+      setRecordState('recording')
+      setRecordDurationMs(0)
+      recordTimerRef.current = setInterval(() => {
+        setRecordDurationMs(Date.now() - recordStartRef.current)
+      }, 200)
+    } catch {
+      // Permission denied or no mic
+    }
+  }
+
+  const stopRecording = () => {
+    const mr = mediaRecorderRef.current
+    if (!mr || recordState !== 'recording') return
+    if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
+    mr.onstop = async () => {
+      const durationMs = Date.now() - recordStartRef.current
+      mr.stream.getTracks().forEach((t) => t.stop())
+      const mimeType = mr.mimeType || 'audio/webm'
+      const blob = new Blob(recordChunksRef.current, { type: mimeType })
+      mediaRecorderRef.current = null
+      setRecordState('transcribing')
+      try {
+        const { uploadVoiceRecording, transcribeVoice } = await import('../storage/voiceRecorder')
+        const userId = user?.id
+        if (!userId || !blob.size) throw new Error('未登录或录音为空')
+        const { url } = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)
+        const { text, emotion } = await transcribeVoice(url)
+        setPendingVoice({ url, durationMs, transcription: text, emotion: emotion ?? undefined })
+        setDraft(text)
+        composerInputRef.current?.focus()
+      } catch (err) {
+        console.error('转录失败', err)
+        setDraft('（语音转录失败，请重试）')
+        setPendingVoice(null)
+      } finally {
+        setRecordState('idle')
+        setRecordDurationMs(0)
+      }
+    }
+    mr.stop()
+  }
 
   const handleSendSticker = (name: string) => {
     setShowStickerTray(false)
@@ -480,7 +561,7 @@ const ChatPage = ({
 
   const submitDraft = async () => {
     const trimmed = draft.trim()
-    if (!trimmed && pendingAttachments.length === 0) {
+    if (!trimmed && pendingAttachments.length === 0 && !pendingVoice) {
       return
     }
     buzz()
@@ -492,14 +573,16 @@ const ChatPage = ({
         .join('\n')
       payload = payload ? `${quoteBlock}\n\n${payload}` : quoteBlock
     }
-    const attachments = pendingAttachments.map(({ type, url, width, height }) => ({
+    const imageAttachments: MessageAttachment[] = pendingAttachments.map(({ type, url, width, height }) => ({
       type,
       url,
       width,
       height,
     }))
+    const voice = pendingVoice
     setQuoted(null)
     setPendingAttachments([])
+    setPendingVoice(null)
     setDraft('')
     if (editingMessageId) {
       const idToEdit = editingMessageId
@@ -507,7 +590,22 @@ const ChatPage = ({
       await onEditUserMessage(idToEdit, payload)
       return
     }
-    await onSendMessage(payload || '（已附图）', attachments.length > 0 ? { attachments } : undefined)
+    const allAttachments: MessageAttachment[] = [
+      ...imageAttachments,
+      ...(voice
+        ? [{ type: 'voice' as const, url: voice.url, duration: voice.durationMs, transcription: voice.transcription, emotion: voice.emotion }]
+        : []),
+    ]
+    const hasContent = payload || allAttachments.length > 0
+    if (!hasContent) return
+    await onSendMessage(
+      payload || (voice ? voice.transcription || '（语音消息）' : '（已附图）'),
+      allAttachments.length > 0
+        ? { attachments: allAttachments, ...(voice?.emotion ? { voiceEmotion: voice.emotion } : {}) }
+        : voice?.emotion
+        ? { voiceEmotion: voice.emotion }
+        : undefined,
+    )
   }
 
   const handleEdit = (message: ChatMessage) => {
@@ -1275,25 +1373,39 @@ const ChatPage = ({
           >
             <span aria-hidden="true">＋</span>
           </button>
-          <textarea
-            className="composer-line-input"
-            placeholder="输入你的消息"
-            rows={1}
-            value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value)
-              onComposerActivity?.()
-            }}
-            onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) {
-                return
-              }
-              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault()
-                void submitDraft()
-              }
-            }}
-          />
+          {recordState === 'recording' ? (
+            <div className="composer-recording-indicator">
+              <span className="composer-recording-dot" aria-hidden="true" />
+              <span className="composer-recording-time">{Math.floor(recordDurationMs / 1000)}″</span>
+              <span className="composer-recording-label">录音中</span>
+            </div>
+          ) : recordState === 'transcribing' ? (
+            <div className="composer-recording-indicator">
+              <span className="composer-recording-label">转录中…</span>
+            </div>
+          ) : (
+            <textarea
+              ref={composerInputRef}
+              className="composer-line-input"
+              placeholder="输入你的消息"
+              rows={1}
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value)
+                onComposerActivity?.()
+                if (!event.target.value) setPendingVoice(null)
+              }}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) {
+                  return
+                }
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  void submitDraft()
+                }
+              }}
+            />
+          )}
           <button
             type="button"
             className={`composer-icon-btn${showStickerTray ? ' composer-icon-btn--active' : ''}`}
@@ -1302,6 +1414,16 @@ const ChatPage = ({
             onClick={() => { setShowStickerTray((v) => !v); setOpenAttachMenu(false) }}
           >
             <span aria-hidden="true">🧷</span>
+          </button>
+          <button
+            type="button"
+            className={`composer-icon-btn${recordState === 'recording' ? ' composer-icon-btn--recording' : ''}`}
+            aria-label={recordState === 'recording' ? '停止录音' : '语音输入'}
+            title={recordState === 'recording' ? '停止录音' : '语音输入'}
+            disabled={recordState === 'transcribing' || uploading}
+            onClick={recordState === 'recording' ? stopRecording : () => { void startRecording() }}
+          >
+            <span aria-hidden="true">{recordState === 'recording' ? '⏹' : '🎤'}</span>
           </button>
           {isStreaming ? (
             <button
