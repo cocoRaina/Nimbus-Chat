@@ -562,14 +562,28 @@ const ChatPage = ({
         const { uploadVoiceRecording, transcribeVoice } = await import('../storage/voiceRecorder')
         const userId = user?.id
         if (!userId) throw new Error('未登录')
+
+        // 上传（失败直接报错给用户）
         const { url } = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)
-        const { text, emotion } = await transcribeVoice(url)
+
+        // 转录（失败不阻断发送，降级为空文字）
+        let text = ''
+        let emotion: string | null = null
+        try {
+          const t = await transcribeVoice(url)
+          text = t.text
+          emotion = t.emotion
+        } catch (transcribeErr) {
+          console.warn('语音转录失败，继续发送', transcribeErr)
+        }
+
         await onSendMessage(text || '[语音消息]', {
-          attachments: [{ type: 'voice' as const, url, duration: durationMs, transcription: text, emotion: emotion ?? undefined, waveform }],
+          attachments: [{ type: 'voice' as const, url, duration: durationMs, transcription: text || undefined, emotion: emotion ?? undefined, waveform }],
           ...(emotion ? { voiceEmotion: emotion } : {}),
         })
       } catch (err) {
         console.error('语音发送失败', err)
+        setUploadErrorDialog(true)
       } finally {
         setRecordState('idle')
         setRecordDurationMs(0)
@@ -1655,7 +1669,7 @@ const ChatPage = ({
       <ConfirmDialog
         open={uploadErrorDialog}
         title="上传失败"
-        description="图片上传失败，请重试"
+        description="发送失败，请检查网络或 Supabase 配置后重试"
         confirmLabel="确定"
         cancelLabel=""
         onConfirm={() => setUploadErrorDialog(false)}
