@@ -1570,6 +1570,46 @@
   justify-content: center;
 }
 
+/* ── 按住说话条（语音模式） ────────────────────────────────── */
+.composer-hold-bar {
+  flex: 1;
+  min-height: 38px;
+  border-radius: 19px;
+  background: rgba(15, 23, 42, 0.045);
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: background 0.15s ease;
+}
+
+.composer-hold-bar:active,
+.composer-hold-bar--recording {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.composer-hold-bar--sending {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.2);
+  cursor: default;
+}
+
+.composer-hold-bar-text {
+  font-size: 15px;
+  color: var(--text-main);
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.composer-hold-bar--recording .composer-hold-bar-text {
+  color: #ff4d4f;
+  opacity: 0.9;
+}
+
 /* ── Voice recording composer state ────────────────────────── */
 .composer-recording-indicator {
   flex: 1;

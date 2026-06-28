@@ -40,6 +40,7 @@ export type VoiceRecordBubbleProps = {
 
 export default function VoiceRecordBubble({ url, duration, transcription, emotion }: VoiceRecordBubbleProps) {
   const [playing, setPlaying] = useState(false)
+  const [showTranscript, setShowTranscript] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const bars = makeWaveBars(url)
 
@@ -83,8 +84,17 @@ export default function VoiceRecordBubble({ url, duration, transcription, emotio
             {emotionEmoji}
           </span>
         )}
+        {transcription && (
+          <button
+            className="vrb-transcript-btn"
+            onClick={() => setShowTranscript((v) => !v)}
+            aria-label={showTranscript ? '隐藏文字' : '转文字'}
+          >
+            {showTranscript ? '收起' : '转文字'}
+          </button>
+        )}
       </div>
-      {transcription && <p className="vrb-transcript">{transcription}</p>}
+      {showTranscript && transcription && <p className="vrb-transcript">{transcription}</p>}
     </div>
   )
 }

@@ -371,16 +371,11 @@ const ChatPage = ({
   >([])
   const [uploading, setUploading] = useState(false)
   const [compressing, setCompressing] = useState(false)
-  // Voice recording state (A: recording, B: transcribing, C: idle)
-  type RecordState = 'idle' | 'recording' | 'transcribing'
+  // 微信式：左键切换语音/文字模式；按住说话条录音后直发，不预填输入框
+  const [voiceMode, setVoiceMode] = useState(false)
+  type RecordState = 'idle' | 'recording' | 'sending'
   const [recordState, setRecordState] = useState<RecordState>('idle')
   const [recordDurationMs, setRecordDurationMs] = useState(0)
-  const [pendingVoice, setPendingVoice] = useState<{
-    url: string
-    durationMs: number
-    transcription: string
-    emotion?: string
-  } | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordChunksRef = useRef<Blob[]>([])
   const recordStartRef = useRef<number>(0)
@@ -461,7 +456,9 @@ const ChatPage = ({
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
   const stickerInputRef = useRef<HTMLInputElement | null>(null)
 
+  // 开始录音（按住说话 pointerDown）
   const startRecording = async () => {
+    if (recordState !== 'idle') return
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       const { getBestMimeType } = await import('../storage/voiceRecorder')
@@ -478,11 +475,12 @@ const ChatPage = ({
         setRecordDurationMs(Date.now() - recordStartRef.current)
       }, 200)
     } catch {
-      // Permission denied or no mic
+      // 权限拒绝或无麦克风
     }
   }
 
-  const stopRecording = () => {
+  // 停止并直接发送（松手）
+  const stopAndSend = () => {
     const mr = mediaRecorderRef.current
     if (!mr || recordState !== 'recording') return
     if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
@@ -492,26 +490,50 @@ const ChatPage = ({
       const mimeType = mr.mimeType || 'audio/webm'
       const blob = new Blob(recordChunksRef.current, { type: mimeType })
       mediaRecorderRef.current = null
-      setRecordState('transcribing')
+      recordChunksRef.current = []
+
+      // 太短（< 0.8s）= 手滑，忽略
+      if (!blob.size || durationMs < 800) {
+        setRecordState('idle')
+        setRecordDurationMs(0)
+        return
+      }
+
+      setRecordState('sending')
       try {
         const { uploadVoiceRecording, transcribeVoice } = await import('../storage/voiceRecorder')
         const userId = user?.id
-        if (!userId || !blob.size) throw new Error('未登录或录音为空')
+        if (!userId) throw new Error('未登录')
         const { url } = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)
+        // 转录在后台完成，结果存进 attachment，Claude 读转录文字
         const { text, emotion } = await transcribeVoice(url)
-        setPendingVoice({ url, durationMs, transcription: text, emotion: emotion ?? undefined })
-        setDraft(text)
-        composerInputRef.current?.focus()
+        await onSendMessage(text || '[语音消息]', {
+          attachments: [{ type: 'voice' as const, url, duration: durationMs, transcription: text, emotion: emotion ?? undefined }],
+          ...(emotion ? { voiceEmotion: emotion } : {}),
+        })
       } catch (err) {
-        console.error('转录失败', err)
-        setDraft('（语音转录失败，请重试）')
-        setPendingVoice(null)
+        console.error('语音发送失败', err)
       } finally {
         setRecordState('idle')
         setRecordDurationMs(0)
       }
     }
     mr.stop()
+  }
+
+  // 取消录音（上滑或 pointerCancel）
+  const cancelRecording = () => {
+    const mr = mediaRecorderRef.current
+    if (!mr) return
+    if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
+    mr.onstop = () => {
+      mr.stream.getTracks().forEach((t) => t.stop())
+      mediaRecorderRef.current = null
+      recordChunksRef.current = []
+    }
+    mr.stop()
+    setRecordState('idle')
+    setRecordDurationMs(0)
   }
 
   const handleSendSticker = (name: string) => {
@@ -561,7 +583,7 @@ const ChatPage = ({
 
   const submitDraft = async () => {
     const trimmed = draft.trim()
-    if (!trimmed && pendingAttachments.length === 0 && !pendingVoice) {
+    if (!trimmed && pendingAttachments.length === 0) {
       return
     }
     buzz()
@@ -579,10 +601,8 @@ const ChatPage = ({
       width,
       height,
     }))
-    const voice = pendingVoice
     setQuoted(null)
     setPendingAttachments([])
-    setPendingVoice(null)
     setDraft('')
     if (editingMessageId) {
       const idToEdit = editingMessageId
@@ -590,21 +610,11 @@ const ChatPage = ({
       await onEditUserMessage(idToEdit, payload)
       return
     }
-    const allAttachments: MessageAttachment[] = [
-      ...imageAttachments,
-      ...(voice
-        ? [{ type: 'voice' as const, url: voice.url, duration: voice.durationMs, transcription: voice.transcription, emotion: voice.emotion }]
-        : []),
-    ]
-    const hasContent = payload || allAttachments.length > 0
+    const hasContent = payload || imageAttachments.length > 0
     if (!hasContent) return
     await onSendMessage(
-      payload || (voice ? voice.transcription || '（语音消息）' : '（已附图）'),
-      allAttachments.length > 0
-        ? { attachments: allAttachments, ...(voice?.emotion ? { voiceEmotion: voice.emotion } : {}) }
-        : voice?.emotion
-        ? { voiceEmotion: voice.emotion }
-        : undefined,
+      payload || '（已附图）',
+      imageAttachments.length > 0 ? { attachments: imageAttachments } : undefined,
     )
   }
 
@@ -1357,32 +1367,48 @@ const ChatPage = ({
           <div className="offline-banner" role="status">📡 已离线 — 发送会等到网络恢复后再尝试</div>
         ) : null}
         <div className="composer-row composer-line-row">
-          {/* The "+" used to wrap a hidden <select> for model switching;
-              that moved into the header gear menu (less crowding, model
-              switching is a session-level thing rather than per-tap).
-              Now "+" pops a small two-item sheet — 拍照 vs 从相册 —
-              triggering the corresponding hidden file input. The sheet
-              auto-closes on click-outside via the effect below. */}
+          {/* 左侧：语音/文字模式切换 */}
           <button
             type="button"
-            className={`composer-icon-btn${openAttachMenu ? ' composer-icon-btn--active' : ''}`}
-            aria-label="附加图片"
-            title="附加图片"
-            onClick={() => { setOpenAttachMenu((v) => !v); setShowStickerTray(false) }}
-            disabled={uploading}
+            className="composer-icon-btn"
+            aria-label={voiceMode ? '切换到文字输入' : '切换到语音输入'}
+            title={voiceMode ? '切换到文字' : '切换到语音'}
+            onClick={() => {
+              setVoiceMode((v) => !v)
+              setShowStickerTray(false)
+              setOpenAttachMenu(false)
+            }}
+            disabled={recordState !== 'idle'}
           >
-            <span aria-hidden="true">＋</span>
+            <span aria-hidden="true">{voiceMode ? '⌨️' : '🔊'}</span>
           </button>
-          {recordState === 'recording' ? (
-            <div className="composer-recording-indicator">
-              <span className="composer-recording-dot" aria-hidden="true" />
-              <span className="composer-recording-time">{Math.floor(recordDurationMs / 1000)}″</span>
-              <span className="composer-recording-label">录音中</span>
-            </div>
-          ) : recordState === 'transcribing' ? (
-            <div className="composer-recording-indicator">
-              <span className="composer-recording-label">转录中…</span>
-            </div>
+          {/* 中间：按住说话条（语音模式）或文字输入框（文字模式） */}
+          {voiceMode ? (
+            recordState === 'recording' ? (
+              <div className="composer-hold-bar composer-hold-bar--recording">
+                <span className="composer-recording-dot" aria-hidden="true" />
+                <span className="composer-hold-bar-text">
+                  {Math.floor(recordDurationMs / 1000)}″ · 松手发送，上划取消
+                </span>
+              </div>
+            ) : recordState === 'sending' ? (
+              <div className="composer-hold-bar composer-hold-bar--sending">
+                <span className="composer-hold-bar-text">发送中…</span>
+              </div>
+            ) : (
+              <div
+                className="composer-hold-bar"
+                onPointerDown={() => { void startRecording() }}
+                onPointerUp={stopAndSend}
+                onPointerCancel={cancelRecording}
+                onPointerLeave={cancelRecording}
+                role="button"
+                aria-label="按住说话"
+                tabIndex={0}
+              >
+                <span className="composer-hold-bar-text">按住说话</span>
+              </div>
+            )
           ) : (
             <textarea
               ref={composerInputRef}
@@ -1393,7 +1419,6 @@ const ChatPage = ({
               onChange={(event) => {
                 setDraft(event.target.value)
                 onComposerActivity?.()
-                if (!event.target.value) setPendingVoice(null)
               }}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing) {
@@ -1406,16 +1431,19 @@ const ChatPage = ({
               }}
             />
           )}
-          <button
-            type="button"
-            className={`composer-icon-btn${showStickerTray ? ' composer-icon-btn--active' : ''}`}
-            aria-label="表情包"
-            title="表情包"
-            onClick={() => { setShowStickerTray((v) => !v); setOpenAttachMenu(false) }}
-          >
-            <span aria-hidden="true">🧷</span>
-          </button>
-          {/* 微信式右侧按钮：空时=🎤，有内容=➤，录音中=⏹，转录中=⌛，AI生成中=■ */}
+          {/* 贴纸按钮仅文字模式显示 */}
+          {!voiceMode && (
+            <button
+              type="button"
+              className={`composer-icon-btn${showStickerTray ? ' composer-icon-btn--active' : ''}`}
+              aria-label="表情包"
+              title="表情包"
+              onClick={() => { setShowStickerTray((v) => !v); setOpenAttachMenu(false) }}
+            >
+              <span aria-hidden="true">🧷</span>
+            </button>
+          )}
+          {/* 右侧：AI停止 > 取消录音 > 发送中 > 发送 > 附件 */}
           {isStreaming ? (
             <button
               type="button"
@@ -1428,17 +1456,17 @@ const ChatPage = ({
           ) : recordState === 'recording' ? (
             <button
               type="button"
-              className="composer-send-btn composer-send-btn--recording"
-              aria-label="停止录音"
-              onClick={stopRecording}
+              className="composer-icon-btn"
+              aria-label="取消录音"
+              onClick={cancelRecording}
             >
-              <span aria-hidden="true">⏹</span>
+              <span aria-hidden="true">✕</span>
             </button>
-          ) : recordState === 'transcribing' ? (
-            <button type="button" className="composer-send-btn" disabled aria-label="转录中">
+          ) : recordState === 'sending' ? (
+            <button type="button" className="composer-send-btn" disabled aria-label="发送中">
               <span aria-hidden="true">⌛</span>
             </button>
-          ) : draft.trim().length > 0 || pendingAttachments.length > 0 || pendingVoice !== null ? (
+          ) : !voiceMode && (draft.trim().length > 0 || pendingAttachments.length > 0) ? (
             <button
               type="submit"
               className="composer-send-btn"
@@ -1447,18 +1475,18 @@ const ChatPage = ({
             >
               <span aria-hidden="true">➤</span>
             </button>
-          ) : (
+          ) : !voiceMode ? (
             <button
               type="button"
-              className="composer-icon-btn"
-              aria-label="语音输入"
-              title="语音输入"
+              className={`composer-icon-btn${openAttachMenu ? ' composer-icon-btn--active' : ''}`}
+              aria-label="附加图片"
+              title="附加图片"
+              onClick={() => { setOpenAttachMenu((v) => !v); setShowStickerTray(false) }}
               disabled={uploading}
-              onClick={() => { void startRecording() }}
             >
-              <span aria-hidden="true">🎤</span>
+              <span aria-hidden="true">➕</span>
             </button>
-          )}
+          ) : null}
         </div>
       </form>
       {openActionsId && actionsMenuPosition

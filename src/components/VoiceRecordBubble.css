@@ -90,6 +90,23 @@
   line-height: 1;
 }
 
+.vrb-transcript-btn {
+  background: rgba(255, 255, 255, 0.18);
+  border: none;
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: inherit;
+  opacity: 0.8;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.vrb-transcript-btn:active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .vrb-transcript {
   grid-column: 1 / -1;
   grid-row: 2;
