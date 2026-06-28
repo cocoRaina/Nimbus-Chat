@@ -22,14 +22,17 @@ function parseTranscription(text: string): { cleanText: string; emotion: string 
   // SenseVoice emotion tags (7 primary + unknown + meaningful audio events)
   const EMOTION_TAGS = /^(HAPPY|SAD|ANGRY|NEUTRAL|SURPRISED|FEARFUL|DISGUSTED|LAUGHTER|CRY|Unknown_Emo)$/i
   let emotion: string | null = null
+  let hasSetEmotion = false
   let cleaned = text
 
-  // Strip <|TAG|> angle-bracket markers; capture the first meaningful emotion/event tag
+  // Strip <|TAG|> angle-bracket markers; capture the first meaningful emotion/event tag.
+  // Use a separate flag so NEUTRAL (which maps to null) doesn't leave the slot open for
+  // a later tag to overwrite it.
   cleaned = cleaned.replace(/<\|([^|]+)\|>/g, (_, tag: string) => {
-    if (EMOTION_TAGS.test(tag) && !emotion) {
+    if (!hasSetEmotion && EMOTION_TAGS.test(tag)) {
       const upper = tag.toUpperCase()
-      // Unknown_Emo and NEUTRAL → treat as no emotion
       emotion = (upper === 'UNKNOWN_EMO' || upper === 'NEUTRAL') ? null : upper
+      hasSetEmotion = true
     }
     return ''
   })
