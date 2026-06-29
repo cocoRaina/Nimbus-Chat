@@ -50,6 +50,7 @@ import {
   fetchHealthSnapshot,
   fetchRemoteMessages,
   fetchRemoteSessions,
+  fetchSessionRecentMessages,
   listLockedMemories,
   renameRemoteSession,
   updateMemory,
@@ -959,6 +960,37 @@ const App = () => {
     }
     void refreshRemoteSessions()
   }, [drawerOpen, refreshRemoteSessions])
+
+  // Live-refresh the open chat so server-delivered messages — proactive nudges
+  // from the dispatch cron, or messages sent from another device — appear
+  // without the user having to background→foreground or send something. Polls
+  // ONLY the active session's recent messages (≤20 rows) every 10s while the
+  // app is in the foreground, and only re-renders when a genuinely new message
+  // arrived (mergeMessages dedupes, so a pure repeat leaves the length equal).
+  // Realtime/WebSocket was avoided on purpose: it drops on every background in
+  // the Capacitor WebView; a short poll is simpler and more reliable here.
+  useEffect(() => {
+    if (!user || !supabase || !activeChatSessionId) return
+    const sid = activeChatSessionId
+    const tick = async () => {
+      if (document.visibilityState !== 'visible') return
+      if (streamingControllerRef.current) return // don't fight an in-flight stream
+      try {
+        const recent = await fetchSessionRecentMessages(sid, 20)
+        if (recent.length === 0) return
+        const merged = mergeMessages(messagesRef.current, recent)
+        if (merged.length !== messagesRef.current.length) {
+          applySnapshot(sessionsRef.current, merged)
+        }
+      } catch (err) {
+        console.warn('聊天实时刷新轮询失败', err)
+      }
+    }
+    const id = window.setInterval(() => {
+      void tick()
+    }, 10000)
+    return () => window.clearInterval(id)
+  }, [user, activeChatSessionId, applySnapshot])
 
   useEffect(() => {
     if (!user) {
