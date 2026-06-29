@@ -196,12 +196,24 @@ const circadianBase = (hour: number): number => {
 
 // 从情绪值推算生理体征：不需要模型额外输出，情绪是输入、生理是衍生结果。
 // 嗔对心率影响最大（愤怒/醋意是最强生理激活），体温也跟嗔走。
-// 基线随昼夜节律变化：凌晨 ~52 bpm，日间 ~68 bpm，情绪加成叠在基线上。
+// 基线随昼夜节律变化；夜间断联超过1小时后基线随对话间隔继续下沉（入睡）。
 export const computeVitals = (state: MoodState, now = Date.now()): Vitals => {
   const s = decayMoodToNow(state, now)
-  const base = circadianBase(new Date(now).getHours())
+  const hour = new Date(now).getHours()
+  let base = circadianBase(hour)
+
+  // 睡眠状态修正：22点到早上7点之间，断联超过1小时后基线随时间继续下沉。
+  // 断联5小时达到最深（睡眠基线 ~46 bpm）；早上来第一句话时时钟已过7点，
+  // isRestHour=false，修正自动解除，心率回到日间基线——即「自然醒来」。
+  const isRestHour = hour >= 22 || hour < 7
+  const gapH = Math.max(0, (now - state.updatedAt) / 3_600_000)
+  if (isRestHour && gapH > 1) {
+    const sleepDepth = Math.min(1, (gapH - 1) / 4)  // 1-5h 内渐入深睡
+    base = Math.max(46, base - sleepDepth * 10)
+  }
+
   const bpm = Math.round(
-    Math.max(48, Math.min(120,
+    Math.max(46, Math.min(120,
       base + s.chen * 0.45 + s.tan * 0.18 + s.nian * 0.12 + (s.chi - 50) * 0.08
     ))
   )
