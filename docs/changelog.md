@@ -80,6 +80,77 @@
 
 ---
 
+## 2026-06-29
+
+### 流式回复卡死「正在输入…」、收不到回复
+
+**症状**：偶发——回复一直显示「正在输入…」，内容看不到，但模型其实已经回了（连
+情绪自评 `<<MOOD>>` 都生成了）。
+
+**根因**：中转连接若在前台**中途挂住**（socket 不关、不再发数据、也不发 `[DONE]`
+帧），`reader.read()` 会永远 await → 流式循环走不到收尾 → `isStreaming` 永不置回
+false → 「正在输入…」永久卡住；而空内容的流式占位泡又被刻意隐藏，所以连空泡泡都
+看不到。原本有「停滞就 abort」的能力，但**只挂在 app 切回前台的事件上**
+（`visibilitychange` + 8s），app 一直开着时没有任何持续超时。
+
+**修**（`App.tsx` 流式 persist）：开流时起一个**持续运行的看门狗**，每 4s 检查距上次
+收到数据是否超过 `STREAM_STALL_MS`(45s)，超了就 `controller.abort()` —— 复用同一套
+已验证的 abort 机制，落进 catch 后保存已收到的部分、清掉 `isStreaming`，并弹一句
+「网络中断、已保留部分、请重发」（用 `streamStalled` 标志和用户主动按停止区分）。
+工具执行天然没有 chunk，执行完重置停滞计时避免误触发；finally 统一清理 interval。
+
+### 发送后蹦「空白气泡」、停一会儿才回复
+
+**症状**：发完消息先蹦一个空白助手气泡，停顿后才开始回字。
+
+**根因**：乐观助手占位泡（`content:''` / `meta.streaming` / `pending`）在用户点发送时
+**立刻**插进列表，但隐藏它的条件只看全局 `isStreaming` —— 而 `isStreaming` 要等
+`persist()` 里的异步前置（对话压缩、构建请求）跑完才置 true。这段空档里占位泡没被
+隐藏 → 露出空白气泡。
+
+**修**（`ChatPage.tsx`）：隐藏条件改看**占位泡自身**的 `meta.streaming`/`pending`，覆盖
+整个「已发送、未开始流式」窗口；新增 `awaitingReply` 派生量驱动头部「正在输入…」，
+发送瞬间即有反馈。
+
+### 主动消息「慢」：三个叠加的延迟来源
+
+**症状**：主动消息会出来，但很慢；点通知进来也慢。
+
+诊断先排除了「不显示」——拉最近 25 条对账发现**没显示的全都是「到点时用户正活跃」
+被防唠叨规则故意跳过的**（`delivered=false ⟺ user_active=true`，符合设计，未改）。真
+问题是延迟，三个来源：
+
+1. **服务端 `proactive_dispatch` cron 每 5min 才跑**：到点消息最多晚 ~5min 才写库
+   （数据：fire 15:00:53 → 实际 15:05:01）。→ `cron.alter_job` 把 schedule 从 `*/5` 提到
+   `* * * * *`（每分钟）。纯 DB 零 token、~43k 调用/月远在免费额度内。**已即时生效**。
+2. **待在 App 里时无实时刷新**：`refreshRemoteSessions` 只刷会话列表、不拉消息；服务端
+   写库后要等用户切后台/开侧栏/发消息才显示。→ 加**前台轻量轮询**：每 10s 只拉当前会话
+   最近 20 条 + `mergeMessages`（并集、只增不减），仅长度变化才 `applySnapshot`，仅
+   `visibilityState==='visible'` 且非流式中执行。故意不用 Realtime（Capacitor WebView 切
+   后台必断 WebSocket，短轮询更稳）。
+3. **点通知进来仍慢**：用户点通知→前台→认领队列行，但 cron 多半已抢先投递（认领失败），
+   原代码认领失败**只调 `refreshRemoteSessions`（不拉消息）** → 服务端写好的消息没进内存。
+   → 认领失败时改为直接 `fetchSessionRecentMessages` 拉该会话最近 20 条合并，点通知即时显示。
+
+> 主动消息进上下文确认：`sessionMessages` 过滤只排除空内容/流式中，**不排除**
+> `meta.model==='proactive'`，所以投递的主动消息是会话里正常的 assistant 消息，下一轮
+> 照常进对话历史；派发函数还把它追加进 `cache_keepalive_state.body` 保持热缓存。
+
+### 图片描述缓存：上云后的三个后续修复
+
+承 06-28 的「描述缓存上云」，复查发现三处并修掉：① `syncImageCaptionsFromCloud` 查询
+按 `created_at DESC` 取最新 300 条，但 `writeMap` 溢出时砍开头 → 按 DESC 插入会让最新描述
+排在开头、`>300` 张图时反被淘汰 → 改**倒序插入**让最新落尾保留；② 灌回云端的 `useEffect`
+依赖 `[user]` 无身份守卫，token 每次刷新换新 `user` 引用 → 全表重拉，加 `syncedCaptionsUserRef`
+每用户只同步一次；③ 生成失败原来只 `console.warn`、用户看不见 → `ensureImageCaption` 加
+`onError` 回调弹 `ConfirmDialog`（模块级 `failureNotified` 去重，每图每会话只弹一次）。
+
+> 运维坑：容器里有一条**陈旧的本地 `main`**（与远端 main 无共同祖先，merge 报「unrelated
+> histories」）。所有改动实际基于 `origin/main`，用 `git push origin <branch>:main` 快进推送，
+> 没碰那条假 main。
+
+---
+
 ## 2026-06-28
 
 ### 语音消息「发送中 → 没反应」：三个叠加根因
