@@ -419,7 +419,7 @@ src/
 │   ├── stickers.ts            # 表情包：共享贴纸集（[sticker:名字]，名称用反引号包裹防注入）
 │   ├── ttsConfig.ts           # TTS 配置（MiniMax/ElevenLabs，内存缓存 + 原生 Preferences 持久化）
 │   ├── voiceRecorder.ts       # MediaRecorder 录音 + 上传 voice-recordings bucket + transcribeVoice() 调 Edge Function
-│   ├── imageCaptions.ts       # 图片→文字描述缓存（历史图片转述省 token，保 prompt cache 稳定）
+│   ├── imageCaptions.ts       # 图片→文字描述缓存（历史图片转述省 token，保 prompt cache 稳定）；本地 + 云端双写（image_captions 表，重装/换设备不丢，每用户登录同步一次）；生成失败弹窗提醒（多为模型/中转不支持读图）
 │   ├── imageUpload.ts         # 图片压缩 + Supabase Storage 上传
 │   └── periodWidget.ts        # 把经期数据推给原生桌面小组件（PeriodWidget plugin 桥）
 └── supabase/

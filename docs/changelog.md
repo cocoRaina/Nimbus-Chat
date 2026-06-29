@@ -180,6 +180,20 @@ allow 一次，或者换用重新连接的 MCP server（旧 server id `08053c26.
 > 注意：旧会话里那 3 张图已经「沉」在历史里，装新包后**第一次**重新聊会触发一次描述生成
 > （成功的话），之后该会话 context 才回落；或直接开新会话甩掉这 60 万。
 
+#### 复查上条引入的三个小问题（后续修）
+
+复查上面的上云改动，发现并修掉三处：
+- **云端同步淘汰顺序反了**：`syncImageCaptionsFromCloud` 查询按 `created_at DESC` 取最新
+  300 条，但 `writeMap` 溢出时砍**开头**（最先插入的）。原来按 DESC 顺序插入 → 最新描述排在
+  开头、`>300` 张图时反被淘汰，最近的图退回 base64。改为**倒序插入**，最新落到尾部得以保留。
+- **每次 token 刷新都重拉全表**：灌回云端的 `useEffect` 依赖 `[user]` 无身份守卫，Supabase
+  每次刷新 token 换新 `user` 引用 → 全表 SELECT + 重写 localStorage 反复触发。比照
+  `lastLoadedUserIdRef` 加 `syncedCaptionsUserRef`，**每用户只同步一次**。
+- **生成失败用户看不见**：上条把静默吞错改成 `console.warn`，但用户不看控制台。现在
+  `ensureImageCaption` 加 `onError` 回调 → 弹 `ConfirmDialog` 提醒「该图会继续发原图、较费
+  token，多为模型/中转不支持读图」。**每张图每会话只弹一次**（模块级 `failureNotified` 去重），
+  成功生成则清除标记，不会每轮骚扰。
+
 ### 语音不进缓存（确认，非改动）
 
 用户问语音会不会污染缓存。代码确认：① 音频文件（webm url）+ `waveform[]` 数组**不发给 AI**
