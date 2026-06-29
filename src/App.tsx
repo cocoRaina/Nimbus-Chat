@@ -503,6 +503,9 @@ const isToolCapableModel = (model: string) =>
 
 const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
 
+const IMAGE_CAPTION_FAIL_MESSAGE =
+  '图片描述生成失败：这张图会继续以原图发送，比较费 token。多半是当前模型或中转不支持读图，换一个支持视觉的模型重发一次即可。'
+
 const App = () => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -520,6 +523,12 @@ const App = () => {
   const [sessionsReady, setSessionsReady] = useState(false)
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null)
   const [chatError, setChatError] = useState<string | null>(null)
+  // Warning shown when an image's text-description (caption) fails to generate,
+  // so the user knows that image keeps being sent as raw, token-heavy base64.
+  const [imageCaptionWarning, setImageCaptionWarning] = useState<string | null>(null)
+  // Guards the cloud caption-sync effect from re-firing a full-table fetch on
+  // every Supabase token refresh (same pattern as lastLoadedUserIdRef below).
+  const syncedCaptionsUserRef = useRef<string | null>(null)
   // Tracks which user.id we've already done the initial remote load for.
   // Supabase fires onAuthStateChange on every token refresh (same user, new
   // object reference) which re-runs the loadRemote effect. We only want to
@@ -636,7 +645,13 @@ const App = () => {
   // reverts to raw base64 and re-inflates context (hundreds of k tokens on a
   // relay that bills images by base64 size). See storage/imageCaptions.ts.
   useEffect(() => {
-    if (user) void syncImageCaptionsFromCloud(user.id)
+    // Only sync once per user — Supabase re-emits `user` (new object ref) on
+    // every ~hourly token refresh; without this guard each refresh re-fetched
+    // the whole image_captions table and rewrote localStorage.
+    if (user && syncedCaptionsUserRef.current !== user.id) {
+      syncedCaptionsUserRef.current = user.id
+      void syncImageCaptionsFromCloud(user.id)
+    }
   }, [user])
 
   useEffect(() => {
@@ -1430,7 +1445,9 @@ const App = () => {
       // never get another chance otherwise.
       for (const att of userAttachments) {
         if (att.type === 'image') {
-          void ensureImageCaption(att.url, effectiveModel, getActiveProvider(), user?.id)
+          void ensureImageCaption(att.url, effectiveModel, getActiveProvider(), user?.id, () =>
+            setImageCaptionWarning(IMAGE_CAPTION_FAIL_MESSAGE),
+          )
         }
       }
 
@@ -1923,7 +1940,9 @@ const App = () => {
                   blocks.push({ type: 'text', text: `[图片：${caption}]` })
                 } else {
                   blocks.push({ type: 'image_url', image_url: { url: att.url } })
-                  void ensureImageCaption(att.url, effectiveModel, getActiveProvider(), user?.id)
+                  void ensureImageCaption(att.url, effectiveModel, getActiveProvider(), user?.id, () =>
+                    setImageCaptionWarning(IMAGE_CAPTION_FAIL_MESSAGE),
+                  )
                 }
               }
               baseMessages.push({ role: 'user', content: blocks })
@@ -4017,6 +4036,15 @@ TOOL_SEARCH_HANDOFF,
         cancelLabel=""
         onConfirm={() => setChatError(null)}
         onCancel={() => setChatError(null)}
+      />
+      <ConfirmDialog
+        open={imageCaptionWarning !== null}
+        title="图片描述未生成"
+        description={imageCaptionWarning ?? ''}
+        confirmLabel="知道了"
+        cancelLabel=""
+        onConfirm={() => setImageCaptionWarning(null)}
+        onCancel={() => setImageCaptionWarning(null)}
       />
     </div>
   )

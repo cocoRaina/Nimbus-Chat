@@ -105,8 +105,14 @@ export const syncImageCaptionsFromCloud = async (userId: string): Promise<void> 
     if (!data || data.length === 0) return
     // Cloud wins on conflict (it's the durable source of truth); merge so we
     // don't drop any local-only entries written before the first sync lands.
+    // Insert OLDEST-first: the query is created_at DESC (so .limit keeps the
+    // newest MAX_ENTRIES), but writeMap evicts by insertion order and keeps the
+    // tail. If we inserted newest-first, an overflow (local + cloud > 300) would
+    // drop exactly the most-recent captions — reverting the newest images back
+    // to raw base64, the opposite of what we want. So land the newest at the tail.
     const map = readMap()
-    for (const row of data) {
+    for (let i = data.length - 1; i >= 0; i -= 1) {
+      const row = data[i]
       if (row.url_hash && row.caption) map[row.url_hash] = row.caption
     }
     writeMap(map)
@@ -116,6 +122,21 @@ export const syncImageCaptionsFromCloud = async (userId: string): Promise<void> 
 }
 
 const inFlight = new Set<string>()
+
+// Url-hashes we've already surfaced a failure to the user for. A model/relay
+// that can't read images fails captioning on EVERY turn for the same image, so
+// without this the popup would fire every send. Warn once per image instead.
+const failureNotified = new Set<string>()
+
+const notifyFailure = (
+  key: string,
+  status: number | undefined,
+  onError?: (status?: number) => void,
+) => {
+  if (!onError || failureNotified.has(key)) return
+  failureNotified.add(key)
+  onError(status)
+}
 
 const CAPTION_PROMPT =
   '用一两句简洁中文客观描述这张图片的关键内容（人物/场景/动作/画面/可见文字），作为后续对话的上下文参考。只描述，不要寒暄、不要评价、不要追问。'
@@ -130,6 +151,10 @@ export const ensureImageCaption = async (
   model: string,
   provider: ProviderId,
   userId?: string,
+  // Called (at most once per image per session) when captioning fails, so the
+  // UI can warn the user that this image keeps being sent as raw, token-heavy
+  // base64 — usually because the active model/relay can't read images.
+  onError?: (status?: number) => void,
 ): Promise<void> => {
   if (!url || !model) return
   const key = hashUrl(url)
@@ -160,16 +185,24 @@ export const ensureImageCaption = async (
       // request that keeps 4xx-ing is exactly why an image never gets
       // replaced by text and keeps re-inflating context.
       console.warn(`图片描述生成失败 status=${response.status}`, await response.text().catch(() => ''))
+      notifyFailure(key, response.status, onError)
       return
     }
     const payload = (await response.json()) as Record<string, unknown>
     const choice = (payload.choices as Array<Record<string, unknown>> | undefined)?.[0]
     const message = (choice?.message as Record<string, unknown> | undefined) ?? {}
     const text = typeof message.content === 'string' ? message.content.trim() : ''
-    if (text) setImageCaption(url, text, userId)
-    else console.warn('图片描述生成返回空内容')
+    if (text) {
+      setImageCaption(url, text, userId)
+      // Recovered — allow a fresh warning if it ever fails again later.
+      failureNotified.delete(key)
+    } else {
+      console.warn('图片描述生成返回空内容')
+      notifyFailure(key, undefined, onError)
+    }
   } catch (err) {
     console.warn('图片描述生成异常', err)
+    notifyFailure(key, undefined, onError)
   } finally {
     inFlight.delete(key)
   }
