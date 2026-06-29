@@ -53,11 +53,24 @@
 }
 
 .mood-ov__vitals {
-  margin: 0 0 14px;
+  margin: 0 0 6px;
   font-size: 0.8rem;
   color: #8ba2bb;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+}
+
+.mood-ov__chord {
+  margin: 0 0 14px;
+  font-size: 0.8rem;
+  color: #8ba2bb;
+}
+.mood-ov__chord-name {
+  font-weight: 700;
+  color: #789ec8;
+  margin-right: 6px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
 }
 
 .mood-ov__bars {

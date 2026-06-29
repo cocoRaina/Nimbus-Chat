@@ -8,6 +8,7 @@ import {
   decayMoodToNow,
   fetchMoodHistory,
   computeVitals,
+  computeChordColor,
   type MoodKey,
   type MoodState,
   type MoodHistoryRow,
@@ -87,9 +88,16 @@ const MoodOverlay = ({ open, onClose, userId }: Props) => {
           <>
             {mood.tone ? <p className="mood-ov__tone">「{mood.tone}」</p> : null}
 
-            {(() => { const v = computeVitals(mood); return (
-              <p className="mood-ov__vitals">💓 {v.bpm} bpm · 🌡 {v.tempC.toFixed(1)} °C</p>
-            ) })()}
+            {(() => {
+              const v = computeVitals(mood)
+              const c = computeChordColor(mood)
+              return (
+                <>
+                  <p className="mood-ov__vitals">💓 {v.bpm} bpm · 🌡 {v.tempC.toFixed(1)} °C</p>
+                  <p className="mood-ov__chord"><span className="mood-ov__chord-name">{c.chord}</span>{c.description}</p>
+                </>
+              )
+            })()}
 
             <div className="mood-ov__bars">
               {ORDER.map((k) => {
