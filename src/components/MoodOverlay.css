@@ -52,6 +52,14 @@
   font-style: italic;
 }
 
+.mood-ov__vitals {
+  margin: 0 0 14px;
+  font-size: 0.8rem;
+  color: #8ba2bb;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
 .mood-ov__bars {
   display: flex;
   flex-direction: column;

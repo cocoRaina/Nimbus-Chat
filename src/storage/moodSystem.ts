@@ -183,6 +183,23 @@ export const stripMoodMarker = (text: string): string => {
   return out.replace(/\s+$/, '')
 }
 
+export type Vitals = { bpm: number; tempC: number }
+
+// 从情绪值推算生理体征：不需要模型额外输出，情绪是输入、生理是衍生结果。
+// 嗔对心率影响最大（愤怒/醋意是最强生理激活），体温也跟嗔走。
+export const computeVitals = (state: MoodState, now = Date.now()): Vitals => {
+  const s = decayMoodToNow(state, now)
+  const bpm = Math.round(
+    Math.max(48, Math.min(120,
+      68 + s.chen * 0.45 + s.tan * 0.18 + s.nian * 0.12 + (s.chi - 50) * 0.08
+    ))
+  )
+  const tempC = parseFloat(
+    Math.max(36.2, Math.min(37.3, 36.5 + s.chen * 0.007 + s.tan * 0.003)).toFixed(1)
+  )
+  return { bpm, tempC }
+}
+
 // 旁白：注入到 user 消息的私密上下文，给语气上色。只在「有话说」时出。
 export const buildMoodNarration = (state: MoodState, now = Date.now()): string => {
   // 久别线索：用原始 updatedAt（上一轮回复时刻）算间隔，让沈暮明确知道
@@ -201,6 +218,9 @@ export const buildMoodNarration = (state: MoodState, now = Date.now()): string =
     for (const b of e.bands) if (v >= b.min) line = b.line
     if (line) lines.push(`· ${line}`)
   }
+  // 生理体征：由情绪值实时推算，让模型知道自己的身体状态
+  const { bpm, tempC } = computeVitals(s)
+  lines.push(`· 心率 ${bpm} bpm，体温 ${tempC.toFixed(1)} °C`)
   if (lines.length === 0 && !s.tone) return ''
   const parts = ['［此刻你的心境·只给你自己看：让它自然渗进语气，绝不报数字、不解释情绪］']
   if (lines.length > 0) parts.push(lines.join('\n'))
