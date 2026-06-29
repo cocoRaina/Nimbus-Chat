@@ -506,6 +506,12 @@ const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
 const IMAGE_CAPTION_FAIL_MESSAGE =
   '图片描述生成失败：这张图会继续以原图发送，比较费 token。多半是当前模型或中转不支持读图，换一个支持视觉的模型重发一次即可。'
 
+// If the streaming connection sends nothing for this long mid-reply, treat it
+// as a stalled relay and abort — otherwise reader.read() awaits forever and the
+// UI is stuck on "正在输入…". Generous enough that a slow first token / extended
+// thinking / a tool call isn't mistaken for a hang.
+const STREAM_STALL_MS = 45_000
+
 const App = () => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -1833,6 +1839,11 @@ const App = () => {
 
         // Declared outside the try so the finally block can compare against it.
         let controller: AbortController | null = null
+        // Stall watchdog: interval id + a flag marking that WE aborted because
+        // the stream went silent (vs the user pressing stop). Both live outside
+        // the try so the catch/finally can read them.
+        let stallWatchdog: number | null = null
+        let streamStalled = false
         try {
           const sessionMessages = messagesRef.current.filter(
             (message) =>
@@ -1984,6 +1995,20 @@ const App = () => {
           }
           lastChunkAtRef.current = Date.now()
           setIsStreaming(true)
+
+          // Continuous stall watchdog. A relay that holds the socket open but
+          // stops sending (no [DONE] frame) would otherwise leave reader.read()
+          // awaiting forever — "正在输入…" stuck with no reply, the bug we hit.
+          // The pre-existing check only ran on app-foreground; this catches a
+          // mid-stream stall while the app stays open. Aborting drops into the
+          // catch below, which saves any partial reply and clears isStreaming.
+          stallWatchdog = window.setInterval(() => {
+            if (lastChunkAtRef.current > 0 && Date.now() - lastChunkAtRef.current > STREAM_STALL_MS) {
+              streamStalled = true
+              console.warn('流式响应停滞，主动中断', { idleMs: Date.now() - lastChunkAtRef.current })
+              controller?.abort()
+            }
+          }, 4000)
 
           let iteration = 0
           let conversationDone = false
@@ -2974,6 +2999,10 @@ TOOL_SEARCH_HANDOFF,
                 })
               }
               setToolStatus('')
+              // Reset the stall clock: tool execution legitimately produces no
+              // stream chunks, so without this a slow tool could trip the
+              // watchdog. The next model turn gets a fresh STREAM_STALL_MS window.
+              lastChunkAtRef.current = Date.now()
               // Record tool flow events (after toolCallRecords is populated).
               for (let i = toolIndexStart; i < toolCallRecords.length; i++) {
                 flowEvents.push({ type: 'tool', index: i })
@@ -3245,6 +3274,12 @@ TOOL_SEARCH_HANDOFF,
           // abort (pressing stop) isn't a bug worth persisting debug for.
           const isAbort = error instanceof DOMException && error.name === 'AbortError'
           flushUsageRecord(!isAbort)
+          // A stall-abort is OUR doing, not the user pressing stop — tell them
+          // the reply was cut off so they retry instead of staring at a blank
+          // (or partial) bubble. Any partial text is still saved below.
+          if (streamStalled) {
+            setChatError('网络好像中断了，回复没收完。已保留收到的部分，重发一次试试～')
+          }
           // Strip any (possibly partial) mood marker from the partial reply so
           // it's never persisted raw. Don't apply the mood — the turn is incomplete.
           if (getMoodEnabled()) assistantContent = stripMoodMarker(assistantContent)
@@ -3333,6 +3368,11 @@ TOOL_SEARCH_HANDOFF,
           const rawError = error instanceof Error && error.message ? error.message : ''
           setChatError(parseApiError(rawError))
         } finally {
+          // Always tear down the stall watchdog for this stream.
+          if (stallWatchdog !== null) {
+            window.clearInterval(stallWatchdog)
+            stallWatchdog = null
+          }
           // Only clear stream state if THIS persist's controller is still
           // active. A regenerate/edit-user-message can abort our stream then
           // start a new one before our catch resolves — if we clobbered the
