@@ -3658,7 +3658,21 @@ TOOL_SEARCH_HANDOFF,
           .select('id')
           .maybeSingle()
         if (!claimed) {
-          void refreshRemoteSessions()
+          // The server cron already delivered this one (we lost the claim race),
+          // so the message is in Supabase but NOT in our in-memory list yet.
+          // refreshRemoteSessions only refreshes the SESSION list, not messages —
+          // that's exactly why tapping the notification still felt slow (the
+          // proactive only surfaced on the next full load / poll). Pull this
+          // session's recent messages and merge so it shows up immediately.
+          try {
+            const recent = await fetchSessionRecentMessages(entry.sessionId, 20)
+            const merged = mergeMessages(messagesRef.current, recent)
+            if (merged.length !== messagesRef.current.length) {
+              applySnapshot(sessionsRef.current, merged)
+            }
+          } catch (err) {
+            console.warn('拉取已投递主动消息失败', err)
+          }
           if (entry.persist) clearPersistProactive()
           else clearPendingProactive()
           return
