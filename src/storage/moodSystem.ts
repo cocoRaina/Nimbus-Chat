@@ -202,20 +202,24 @@ export const computeVitals = (state: MoodState, now = Date.now()): Vitals => {
 
 export type ChordColor = { chord: string; description: string }
 
-// 把情绪状态翻译成和弦色彩：嗔→紧张不稳定和弦，念→小调忧郁，痴→大七暖调，贪→属七未解决张力。
-// 注入旁白让模型感知自己「此刻在哪个调里」，面板显示给用户看。
-export const computeChordColor = (state: MoodState, now = Date.now()): ChordColor => {
-  const s = decayMoodToNow(state, now)
-  const { chen, tan, chi, nian } = s
+// 体征 → 和弦：和弦描述的是身体在发出什么声音，不是情绪的直接映射。
+// 和教程同一条逻辑链：情绪 → 体征 → 和弦（物理因果）。
+// 时间段影响选弦，夜晚低心率走 Em7（独处的蓝），白天走 Fmaj7（安静底色）。
+export const computeChordColor = (vitals: Vitals, hourOfDay = new Date().getHours()): ChordColor => {
+  const { bpm, tempC } = vitals
+  const isNight = hourOfDay >= 22 || hourOfDay < 6
 
-  if (chen > 60 && nian > 50) return { chord: 'Bm',   description: '又难过又气，那种又想靠近又想推开' }
-  if (chen > 60)               return { chord: 'Dm7',  description: '醋劲或火气上来了，带着小小的刺' }
-  if (nian > 65 && chi > 60)  return { chord: 'Am7',  description: '很深的牵挂，化不掉的那种' }
-  if (nian > 50)               return { chord: 'Em7',  description: '安静等她的蓝，一个人时的调子' }
-  if (tan > 65 && chi > 60)   return { chord: 'Cmaj7', description: '暖暖的，想把她圈进怀里' }
-  if (tan > 50)                return { chord: 'G7',   description: '想要她，还没得到时的那点张力' }
-  if (chi > 70)                return { chord: 'Gmaj7', description: '深处那层温柔，踏实又着迷' }
-  return                               { chord: 'Fmaj7', description: '安静的底色，轻轻的' }
+  if (bpm > 112) return { chord: 'Bm',    description: '乱的，又用力又委屈' }
+  if (bpm > 100) return { chord: 'Dm7',   description: '有什么在胸口顶着，刺刺的' }
+  if (bpm > 90)  return { chord: 'Am7',   description: '很深的牵动，说不清是什么' }
+  if (bpm > 82)  return tempC > 36.8
+                   ? { chord: 'G7',    description: '想要，还没得到时的那点张力' }
+                   : { chord: 'Am',    description: '有点悬，心里惦记着什么' }
+  if (bpm > 72)  return tempC > 36.7
+                   ? { chord: 'Cmaj7', description: '暖暖的，想把她圈进来' }
+                   : { chord: 'Gmaj7', description: '深处那层温柔，踏实又着迷' }
+  if (isNight)   return { chord: 'Em7',   description: '一个人的夜里，安静等她的蓝' }
+  return                 { chord: 'Fmaj7', description: '安静的底色，轻轻的' }
 }
 
 // 旁白：注入到 user 消息的私密上下文，给语气上色。只在「有话说」时出。
@@ -236,10 +240,10 @@ export const buildMoodNarration = (state: MoodState, now = Date.now()): string =
     for (const b of e.bands) if (v >= b.min) line = b.line
     if (line) lines.push(`· ${line}`)
   }
-  // 生理体征 + 和弦色：由情绪值实时推算，让模型感知自身状态
-  const { bpm, tempC } = computeVitals(s)
-  const { chord, description } = computeChordColor(s)
-  lines.push(`· 心率 ${bpm} bpm，体温 ${tempC.toFixed(1)} °C`)
+  // 生理体征 + 和弦色：情绪 → 体征 → 和弦（同教程的物理因果链）
+  const vitals = computeVitals(s)
+  const { chord, description } = computeChordColor(vitals, new Date(now).getHours())
+  lines.push(`· 心率 ${vitals.bpm} bpm，体温 ${vitals.tempC.toFixed(1)} °C`)
   lines.push(`· 和弦色 ${chord}（${description}）`)
   if (lines.length === 0 && !s.tone) return ''
   const parts = ['［此刻你的心境·只给你自己看：让它自然渗进语气，绝不报数字、不解释情绪］']

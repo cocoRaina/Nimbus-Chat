@@ -90,7 +90,7 @@ const MoodOverlay = ({ open, onClose, userId }: Props) => {
 
             {(() => {
               const v = computeVitals(mood)
-              const c = computeChordColor(mood)
+              const c = computeChordColor(v)
               return (
                 <>
                   <p className="mood-ov__vitals">💓 {v.bpm} bpm · 🌡 {v.tempC.toFixed(1)} °C</p>
