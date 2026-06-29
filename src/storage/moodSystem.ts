@@ -185,13 +185,24 @@ export const stripMoodMarker = (text: string): string => {
 
 export type Vitals = { bpm: number; tempC: number }
 
+// 昼夜节律基线：心率静息值随时间起落，深夜低、日间高。
+const circadianBase = (hour: number): number => {
+  if (hour < 5)  return 52  // 深夜/睡眠期
+  if (hour < 7)  return 58  // 苏醒期
+  if (hour < 20) return 68  // 日间活跃
+  if (hour < 22) return 62  // 傍晚放松
+  return 55                  // 入夜收敛
+}
+
 // 从情绪值推算生理体征：不需要模型额外输出，情绪是输入、生理是衍生结果。
 // 嗔对心率影响最大（愤怒/醋意是最强生理激活），体温也跟嗔走。
+// 基线随昼夜节律变化：凌晨 ~52 bpm，日间 ~68 bpm，情绪加成叠在基线上。
 export const computeVitals = (state: MoodState, now = Date.now()): Vitals => {
   const s = decayMoodToNow(state, now)
+  const base = circadianBase(new Date(now).getHours())
   const bpm = Math.round(
     Math.max(48, Math.min(120,
-      68 + s.chen * 0.45 + s.tan * 0.18 + s.nian * 0.12 + (s.chi - 50) * 0.08
+      base + s.chen * 0.45 + s.tan * 0.18 + s.nian * 0.12 + (s.chi - 50) * 0.08
     ))
   )
   const tempC = parseFloat(
