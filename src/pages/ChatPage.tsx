@@ -437,6 +437,18 @@ const ChatPage = ({
     [messages, displayLimit],
   )
   const hiddenCount = messages.length - displayedMessages.length
+  // "正在输入…" should show from the instant the user sends — not only once
+  // streaming actually starts. The optimistic assistant bubble is empty +
+  // pending during the async pre-flight (compression / request build) before
+  // isStreaming flips; show the indicator (and keep that empty bubble hidden)
+  // for that whole window so there's no blank-bubble gap.
+  const awaitingReply = useMemo(() => {
+    if (isStreaming) return true
+    const last = displayedMessages[displayedMessages.length - 1]
+    return Boolean(
+      last && last.role === 'assistant' && last.pending && !last.content?.trim(),
+    )
+  }, [isStreaming, displayedMessages])
   // Preserve the user's visible content when "加载更早" expands the window
   // upward — without this, the new older messages would shove the scroll
   // position downward and the user's current view would jump.
@@ -1140,7 +1152,7 @@ const ChatPage = ({
         ) : null}
         <div className="header-title">
           <h1 className="ui-title">{assistantName}</h1>
-          {isStreaming ? (
+          {awaitingReply ? (
             <span className="chat-typing-subtitle" aria-live="polite">
               正在输入<span className="chat-typing-dots" aria-hidden="true">
                 <i />
@@ -1269,13 +1281,18 @@ const ChatPage = ({
             // Same-sender messages within 1 min hug each other tight.
             const groupWithPrevious =
               !!prev && prev.role === message.role && !showSeparator && gapMs < 60 * 1000
-            // Skip the empty streaming placeholder — the typing
-            // indicator below handles this state visually.
+            // Skip the empty streaming placeholder — the typing indicator
+            // below handles this state visually. Keyed off the placeholder's
+            // OWN streaming/pending flags, not just the global isStreaming:
+            // the optimistic assistant bubble is inserted the moment you hit
+            // send, but isStreaming only flips true after the async pre-flight
+            // (compression, request build) finishes — so relying on isStreaming
+            // alone left a blank bubble showing during that gap.
             if (
-              isStreaming &&
               index === displayedMessages.length - 1 &&
               message.role === 'assistant' &&
-              !message.content?.trim()
+              !message.content?.trim() &&
+              (isStreaming || message.meta?.streaming || message.pending)
             ) {
               return showSeparator ? (
                 <TimeSeparator key={message.id} timestamp={message.createdAt} />
