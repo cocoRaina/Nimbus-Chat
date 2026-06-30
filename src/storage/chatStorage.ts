@@ -159,6 +159,10 @@ const ensureSessionFields = (session: ChatSession): ChatSession => ({
   archivedAt: session.archivedAt ?? null,
 })
 
+// Keep the local IDB snapshot bounded. Supabase has everything; local is
+// just a fast-start cache. 2000 messages ≈ 2MB worst-case, won't budge.
+const MAX_LOCAL_MESSAGES = 2000
+
 const sortSessions = (sessions: ChatSession[]) =>
   [...sessions].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -185,7 +189,11 @@ export const loadSnapshot = (): StorageSnapshot => {
 
 export const setSnapshot = (next: StorageSnapshot) => {
   snapshot.sessions = sortSessions(next.sessions.map(ensureSessionFields))
-  snapshot.messages = sortMessages(next.messages.map(ensureMessageFields))
+  let msgs = sortMessages(next.messages.map(ensureMessageFields))
+  // Cap local cache. Keep the newest MAX_LOCAL_MESSAGES; older ones live in
+  // Supabase and are fetched on demand. Prevents unbounded IDB growth.
+  if (msgs.length > MAX_LOCAL_MESSAGES) msgs = msgs.slice(msgs.length - MAX_LOCAL_MESSAGES)
+  snapshot.messages = msgs
   scheduleWrite()
 }
 
