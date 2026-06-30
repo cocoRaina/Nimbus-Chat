@@ -22,6 +22,8 @@
 
 参考实现:[`chatboxai/capacitor-stream-http`](https://github.com/chatboxai/capacitor-stream-http)(为防它没人维护,直接 vendor 进仓库,不加外部依赖)。
 
+**后续(同日):首版插件在真机上「转半天啥也不出」**——请求发出去但 chunk 回不来,加上插件设了无限读超时,结果无限转圈。原生没法在这边真机测,所以加了**首字超时兜底**:`nativeStreamFetchOrThrow` 只在 10s 内确认收到第一个字节才采用原生流式;否则抛错,`anthropic.ts`/`openrouter.ts` 自动**退回 buffered fetch**(能用、只是不流式)。保证:**聊天永远不会卡死在坏掉的原生路径上**——最坏「等几秒→一大坨」,绝不无限转。插件正常时照样逐字流。(注:cheap 号池如 68886868.xyz 还会因账号并发上限返回 `500 Concurrency limit exceeded`,那是中转侧限制,跟流式无关。)
+
 ### Anthropic /v1/messages 400 全家桶
 
 `src/api/anthropic.ts`。OpenRouter 和直连 relay（msuicode 等）都会把上游 Anthropic 400 包成 `{"error":{"type":"bad_response_status_code", ...}}`，看不到真正的错误体，必须按下面 checklist 一条条排：

@@ -3,7 +3,7 @@
 // Translates OpenAI request body → Anthropic body, then back-translates
 // the Anthropic SSE stream → OpenAI-shaped SSE chunks on the fly.
 
-import { nativeStreamFetch, isNativeStreamAvailable } from '../native/streamHttp'
+import { nativeStreamFetchOrThrow, isNativeStreamAvailable } from '../native/streamHttp'
 
 type OpenAiMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -821,24 +821,35 @@ export const fetchAnthropicAsOpenAi = async (
     headers['anthropic-version'] = '2023-06-01'
     headers['anthropic-dangerous-direct-browser-access'] = 'true'
   }
-  // On native, a streaming chat MUST use the StreamHttp plugin: CapacitorHttp
-  // (kept on for CORS bypass) buffers window.fetch, so plain fetch here would
-  // arrive as one lump. The plugin bypasses CORS AND streams. Non-streaming
-  // calls and web keep plain fetch (CapacitorHttp/browser handle those fine).
-  const useNativeStream = wantsStream && isNativeStreamAvailable()
-  const upstream = useNativeStream
-    ? await nativeStreamFetch(endpoint, {
+  const bodyJson = JSON.stringify(anthropicBody)
+
+  // On native, a streaming chat tries the StreamHttp plugin first: CapacitorHttp
+  // (kept on for CORS bypass) buffers window.fetch, so plain fetch here arrives
+  // as one lump. The plugin bypasses CORS AND streams. But it's unproven on real
+  // devices, so nativeStreamFetchOrThrow only commits to it once the first byte
+  // is confirmed — if it stalls, we fall through to the buffered fetch below
+  // (works, just not live). The chat can never hang on a broken native path.
+  if (wantsStream && isNativeStreamAvailable()) {
+    try {
+      const upstream = await nativeStreamFetchOrThrow(endpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify(anthropicBody),
+        body: bodyJson,
         signal,
       })
-    : await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(anthropicBody),
-        signal,
-      })
+      if (!upstream.ok) return upstream
+      return translateAnthropicStream(upstream)
+    } catch {
+      // native streaming stalled/failed — fall back to the buffered path.
+    }
+  }
+
+  const upstream = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: bodyJson,
+    signal,
+  })
   if (!upstream.ok) {
     return upstream
   }

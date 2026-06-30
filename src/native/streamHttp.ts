@@ -164,3 +164,77 @@ export const nativeStreamFetch = async (
 
   return new Response(stream, { status: result.status, headers })
 }
+
+// Safety net around nativeStreamFetch. The native plugin is unproven on real
+// devices — if it hangs (request out, nothing back) the app would spin forever.
+// This resolves a streaming Response ONLY after the first byte is confirmed
+// within `firstByteMs`; if the plugin stalls/errors/never delivers, it throws
+// so the caller can fall back to the buffered fetch (which works, just doesn't
+// stream). Guarantee: the chat can never hang on a broken native path.
+export const nativeStreamFetchOrThrow = async (
+  url: string,
+  init: {
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    signal?: AbortSignal | null
+  } = {},
+  firstByteMs = 10000,
+): Promise<Response> => {
+  const ctl = new AbortController()
+  const ext = init.signal
+  if (ext) {
+    if (ext.aborted) ctl.abort()
+    else ext.addEventListener('abort', () => ctl.abort(), { once: true })
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      ctl.abort() // tears down the native stream (cancelStream) via the signal
+      reject(new Error('native stream first-byte timeout'))
+    }, firstByteMs)
+  })
+
+  const attempt = (async (): Promise<Response> => {
+    const resp = await nativeStreamFetch(url, { ...init, signal: ctl.signal })
+    const reader = resp.body!.getReader()
+    // Block until the first chunk actually arrives — this is what proves the
+    // native path is alive. A hang here is caught by the timeout race below.
+    const first = await reader.read()
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        if (!first.done && first.value) c.enqueue(first.value)
+        if (first.done) {
+          c.close()
+          return
+        }
+        void (async () => {
+          try {
+            for (;;) {
+              const { done, value } = await reader.read()
+              if (done) break
+              if (value) c.enqueue(value)
+            }
+            c.close()
+          } catch (e) {
+            c.error(e)
+          }
+        })()
+      },
+      cancel(reason) {
+        void reader.cancel(reason)
+      },
+    })
+    return new Response(stream, { status: resp.status, headers: resp.headers })
+  })()
+
+  // Don't let the losing branch's rejection surface as unhandled.
+  attempt.catch(() => {})
+
+  try {
+    return await Promise.race([attempt, timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
