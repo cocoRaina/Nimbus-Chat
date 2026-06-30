@@ -55,9 +55,9 @@ const HomeCoupleCard = () => {
   return (
     <section className="home-couple glass-card">
       <div className="home-couple__side">
-        {myAvatar
-          ? <img src={myAvatar} alt="我" className="home-couple__avatar" />
-          : <div className="home-couple__avatar home-couple__avatar--empty">🐱</div>}
+        {claudeAvatar
+          ? <img src={claudeAvatar} alt="Claude" className="home-couple__avatar" />
+          : <div className="home-couple__avatar home-couple__avatar--empty">🤍</div>}
       </div>
       <div className="home-couple__center">
         <svg viewBox="0 0 90 28" className="home-couple__ecg" aria-hidden="true">
@@ -69,9 +69,9 @@ const HomeCoupleCard = () => {
         <span className="home-couple__heart" aria-hidden="true">🩷</span>
       </div>
       <div className="home-couple__side">
-        {claudeAvatar
-          ? <img src={claudeAvatar} alt="Claude" className="home-couple__avatar" />
-          : <div className="home-couple__avatar home-couple__avatar--empty">🤍</div>}
+        {myAvatar
+          ? <img src={myAvatar} alt="我" className="home-couple__avatar" />
+          : <div className="home-couple__avatar home-couple__avatar--empty">🐱</div>}
       </div>
     </section>
   )
