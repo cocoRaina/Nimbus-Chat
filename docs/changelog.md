@@ -10,6 +10,10 @@
 
 ### 聊天数据 localStorage 存满、QuotaExceededError（2026-06-30）
 
+> 同日追加：本地 IDB 加了 2000 条消息硬上限（`MAX_LOCAL_MESSAGES`），超出自动裁掉最老的。Supabase 保有完整历史，本地只是快启动缓存，2000 条 ≈ 2MB 封顶，永不暴涨。
+
+
+
 **症状**：上传头像或正常使用时弹「本地存储已满」；`localStorage.setItem` 抛 `QuotaExceededError`，新消息可能写不进去。
 
 **根因**：`chatStorage.ts` 把**所有会话 + 所有消息**序列化成一个 JSON 塞进单个 localStorage key（`hamster-nest.chat-data.v1`）。Android WebView 的 localStorage 硬上限约 5MB，对话积累到一定量后必然触发。注意：头像已经压缩到 20-40KB、聊天图片存 Supabase Storage（只存 URL），真正占地方的是历史消息文本本身。
