@@ -8,200 +8,170 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+
+import okhttp3.Call;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 
 /**
  * Native streaming HTTP for the chat request — the ONE thing CapacitorHttp
- * can't do.
+ * can't do (it buffers window.fetch entirely, killing SSE streaming).
  *
- * Why this exists: capacitor.config has CapacitorHttp enabled so relay calls
- * bypass the WebView CORS wall (most 中转 don't allow the https://localhost
- * origin). But CapacitorHttp's patched fetch BUFFERS the whole response before
- * handing it to JS — it never streams. That made chat replies (thinking + text)
- * arrive as one lump after a long blank "正在输入…", on every provider, because
- * the breakage was at the native-HTTP layer, not the relay.
+ * v2: switched from HttpURLConnection to OkHttp.
+ * HttpURLConnection had two fatal flaws for SSE on Android:
+ *   1. Auto-adds Accept-Encoding: gzip. The gzip decompressor buffers the
+ *      ENTIRE compressed stream before outputting anything — no chunks
+ *      arrive until the LLM finishes and the server closes the connection.
+ *   2. On HTTP/2, Android's built-in H2 framing can batch DATA frames,
+ *      causing similar stalls independent of gzip.
+ * OkHttp handles both correctly out of the box. Its ResponseBody.byteStream()
+ * delivers bytes as they arrive off the socket.
  *
- * This plugin does its own native HTTP (HttpURLConnection, chunked read) so it
- * BOTH bypasses CORS (native layer, no WebView origin enforcement) AND streams
- * the body chunk-by-chunk back to JS via listener events. JS wraps those events
- * in a ReadableStream Response (see src/native/streamHttp.ts), so the existing
- * SSE parser is unchanged. It's a direct plugin call, not window.fetch, so
- * CapacitorHttp doesn't intercept it — the two coexist cleanly.
- *
- * Contract (JS side generates streamId to correlate events):
- *   startStream({ streamId, url, method, headers, body }) -> { status, headers }
+ * Contract (unchanged from v1 — JS side is identical):
+ *   startStream({ streamId, url, method, headers, body }) → { status, headers }
  *     then emits: "streamChunk" { streamId, chunk(base64) }
  *                 "streamEnd"   { streamId }
  *                 "streamError" { streamId, error }
  *   cancelStream({ streamId })
- *
- * Chunks are base64 of the RAW bytes (not a decoded string): a UTF-8 multibyte
- * char can straddle a read boundary, so we never decode natively — JS does it
- * with a streaming TextDecoder that handles partial sequences.
  */
 @CapacitorPlugin(name = "StreamHttp")
 public class StreamHttpPlugin extends Plugin {
 
-    // Live connections, keyed by the JS-supplied streamId, so cancelStream can
-    // abort the right one. A request also flips its own cancelled flag.
-    private final Map<String, HttpURLConnection> connections = new ConcurrentHashMap<>();
-    private final Map<String, Boolean> cancelled = new ConcurrentHashMap<>();
+    private final OkHttpClient httpClient = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            // No read timeout: a streaming relay can sit quiet between tokens
+            // (esp. during extended thinking). JS-side stall watchdog handles stalls.
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build();
+
+    // Live OkHttp calls keyed by streamId so cancelStream can reach them.
+    private final Map<String, Call> activeCalls = new ConcurrentHashMap<>();
 
     @PluginMethod
-    public void startStream(final PluginCall call) {
-        final String streamId = call.getString("streamId");
-        final String url = call.getString("url");
+    public void startStream(final PluginCall pluginCall) {
+        final String streamId = pluginCall.getString("streamId");
+        final String url = pluginCall.getString("url");
         if (streamId == null || url == null) {
-            call.reject("streamId and url are required");
+            pluginCall.reject("streamId and url are required");
             return;
         }
-        final String method = call.getString("method", "POST");
-        final JSObject headers = call.getObject("headers");
-        final String body = call.getString("body");
+        final String method = pluginCall.getString("method", "POST");
+        final JSObject headers = pluginCall.getObject("headers");
+        final String body = pluginCall.getString("body");
 
-        cancelled.put(streamId, false);
+        new Thread(() -> {
+            // Tracks whether startStream's JS promise has been settled, so the
+            // IOException catch can decide between reject (not yet resolved) vs
+            // streamError event (already resolved, mid-stream failure).
+            boolean[] resolved = { false };
+            Call call = null;
+            try {
+                Request.Builder reqBuilder = new Request.Builder().url(url);
 
-        // Network must be off the main thread.
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                HttpURLConnection conn = null;
-                // Tracks whether startStream's promise has been settled, so the
-                // catch can decide between rejecting the await vs emitting an
-                // error event (PluginCall has no portable isResolved()).
-                boolean[] resolved = { false };
-                try {
-                    // If cancelStream already fired before this thread started, bail
-                    // immediately rather than opening a connection we'll never use.
-                    if (Boolean.TRUE.equals(cancelled.get(streamId))) {
-                        call.reject("cancelled before connect");
-                        return;
-                    }
-
-                    conn = (HttpURLConnection) new URL(url).openConnection();
-                    // Register in map IMMEDIATELY so cancelStream can call
-                    // conn.disconnect() at any point — including during the
-                    // TCP/TLS handshake below. Previously this happened after
-                    // getOutputStream() wrote the body, leaving a multi-second
-                    // window where cancel couldn't reach the live connection.
-                    connections.put(streamId, conn);
-
-                    conn.setRequestMethod(method);
-                    conn.setConnectTimeout(30000);
-                    // No read timeout: a streaming relay can sit quiet between
-                    // tokens (esp. during extended thinking) without it being a
-                    // hang. The JS-side stall watchdog handles real stalls.
-                    conn.setReadTimeout(0);
-                    conn.setDoInput(true);
-                    // Disable gzip: HttpURLConnection auto-negotiates
-                    // Accept-Encoding: gzip and transparently decompresses, but
-                    // the gzip decompressor buffers the ENTIRE compressed stream
-                    // before outputting anything — SSE chunks are held until the
-                    // server closes the connection (exactly the "一大坨" symptom
-                    // we're trying to fix). Forcing identity encoding means the
-                    // relay sends raw bytes that stream through immediately.
-                    conn.setRequestProperty("Accept-Encoding", "identity");
-
-                    if (headers != null) {
-                        Iterator<String> keys = headers.keys();
-                        while (keys.hasNext()) {
-                            String k = keys.next();
-                            conn.setRequestProperty(k, headers.optString(k));
+                // Copy caller-supplied headers first, then override Accept-Encoding
+                // so the relay can't send gzip even if our headers include it.
+                if (headers != null) {
+                    Iterator<String> keys = headers.keys();
+                    while (keys.hasNext()) {
+                        String k = keys.next();
+                        String v = headers.optString(k);
+                        if (v != null && !v.isEmpty()) {
+                            reqBuilder.header(k, v);
                         }
                     }
+                }
+                // Force identity encoding: gzip decompressors buffer the ENTIRE
+                // compressed stream before outputting — kills SSE streaming.
+                reqBuilder.header("Accept-Encoding", "identity");
 
-                    if (body != null && !"GET".equalsIgnoreCase(method)) {
-                        conn.setDoOutput(true);
-                        byte[] out = body.getBytes(StandardCharsets.UTF_8);
-                        conn.setFixedLengthStreamingMode(out.length);
-                        OutputStream os = conn.getOutputStream();
-                        os.write(out);
-                        os.flush();
-                        os.close();
-                    }
+                // Build request body (POST only).
+                RequestBody requestBody = null;
+                if (body != null && !"GET".equalsIgnoreCase(method)) {
+                    requestBody = RequestBody.create(
+                            body.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                            MediaType.parse("application/json; charset=utf-8"));
+                }
+                reqBuilder.method(method, requestBody);
 
-                    conn.connect();
+                call = httpClient.newCall(reqBuilder.build());
+                // Register before execute() so cancelStream can reach it at any point.
+                activeCalls.put(streamId, call);
 
-                    int status = conn.getResponseCode();
-
-                    // Hand back status + response headers immediately so JS can
-                    // build the Response (content-type drives the SSE path).
+                try (Response response = call.execute()) {
+                    // Resolve the startStream JS promise with status + response headers.
                     JSObject respHeaders = new JSObject();
-                    for (Map.Entry<String, List<String>> e : conn.getHeaderFields().entrySet()) {
-                        if (e.getKey() == null || e.getValue() == null || e.getValue().isEmpty()) continue;
-                        respHeaders.put(e.getKey().toLowerCase(), e.getValue().get(0));
+                    for (String name : response.headers().names()) {
+                        String value = response.header(name);
+                        if (value != null) respHeaders.put(name.toLowerCase(), value);
                     }
                     JSObject ret = new JSObject();
-                    ret.put("status", status);
+                    ret.put("status", response.code());
                     ret.put("headers", respHeaders);
-                    call.resolve(ret);
+                    pluginCall.resolve(ret);
                     resolved[0] = true;
 
-                    InputStream is = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
-                    if (is == null) {
+                    ResponseBody responseBody = response.body();
+                    if (responseBody == null) {
                         emitEnd(streamId);
                         return;
                     }
 
+                    // Stream body bytes to JS as base64 chunks.
+                    // OkHttp's byteStream() delivers bytes as they arrive off the
+                    // socket — no buffering, no gzip decompressor stall.
+                    InputStream is = responseBody.byteStream();
                     byte[] buf = new byte[8192];
                     int n;
                     while ((n = is.read(buf)) != -1) {
-                        if (Boolean.TRUE.equals(cancelled.get(streamId))) break;
                         if (n == 0) continue;
                         JSObject ev = new JSObject();
                         ev.put("streamId", streamId);
                         ev.put("chunk", Base64.encodeToString(buf, 0, n, Base64.NO_WRAP));
                         notifyListeners("streamChunk", ev);
                     }
-                    is.close();
                     emitEnd(streamId);
-                } catch (Exception ex) {
-                    if (Boolean.TRUE.equals(cancelled.get(streamId))) {
-                        // Aborted by JS (user pressed stop / new stream) — not an
-                        // error worth surfacing; the JS side already moved on.
-                        emitEnd(streamId);
-                    } else {
-                        // If startStream hasn't resolved yet, reject it so the JS
-                        // caller's await throws; if it has, surface via the error
-                        // event instead (the ReadableStream errors mid-flight).
-                        if (!resolved[0]) {
-                            call.reject(ex.getMessage() != null ? ex.getMessage() : "stream failed");
-                        }
-                        JSObject ev = new JSObject();
-                        ev.put("streamId", streamId);
-                        ev.put("error", ex.getMessage() != null ? ex.getMessage() : "stream failed");
-                        notifyListeners("streamError", ev);
-                    }
-                } finally {
-                    if (conn != null) {
-                        try { conn.disconnect(); } catch (Exception ignored) {}
-                    }
-                    connections.remove(streamId);
-                    cancelled.remove(streamId);
                 }
+
+            } catch (IOException ex) {
+                // OkHttp throws IOException on cancel — not a user-visible error.
+                if (call != null && call.isCanceled()) {
+                    emitEnd(streamId);
+                    return;
+                }
+                // Real network/protocol failure.
+                String msg = ex.getMessage() != null ? ex.getMessage() : "stream failed";
+                if (!resolved[0]) {
+                    pluginCall.reject(msg);
+                }
+                JSObject ev = new JSObject();
+                ev.put("streamId", streamId);
+                ev.put("error", msg);
+                notifyListeners("streamError", ev);
+            } finally {
+                activeCalls.remove(streamId);
             }
         }).start();
     }
 
     @PluginMethod
-    public void cancelStream(PluginCall call) {
-        String streamId = call.getString("streamId");
+    public void cancelStream(PluginCall pluginCall) {
+        String streamId = pluginCall.getString("streamId");
         if (streamId != null) {
-            cancelled.put(streamId, true);
-            HttpURLConnection conn = connections.get(streamId);
-            if (conn != null) {
-                try { conn.disconnect(); } catch (Exception ignored) {}
-            }
+            Call call = activeCalls.get(streamId);
+            if (call != null) call.cancel();
         }
-        call.resolve();
+        pluginCall.resolve();
     }
 
     private void emitEnd(String streamId) {
