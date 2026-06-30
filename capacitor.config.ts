@@ -16,11 +16,19 @@ const config: CapacitorConfig = {
   },
   plugins: {
     CapacitorHttp: {
-      // Route all fetch() calls through native Android HTTP (OkHttp) to
-      // bypass WebView CORS restrictions. Without this, any relay whose
-      // CORS policy doesn't allow origin https://localhost (Capacitor's
-      // WebView origin) will fail with "Failed to fetch". Capacitor 5+
-      // supports streaming SSE through native HTTP so chat is unaffected.
+      // Stays ON for CORS bypass: most 中转 don't allow the WebView origin
+      // (https://localhost), so without native HTTP their requests fail with
+      // "Failed to fetch". This routes window.fetch through native OkHttp,
+      // bypassing the WebView CORS wall.
+      //
+      // CAVEAT (the trap an earlier comment got wrong): CapacitorHttp's native
+      // fetch does NOT stream — it buffers the whole response, so the chat
+      // reply used to arrive as "一大坨" after a long blank "正在输入…". The fix
+      // is NOT to disable this (that would reintroduce "Failed to fetch" on
+      // CORS-less relays). Instead the streaming chat request goes through the
+      // StreamHttp plugin (android/.../StreamHttpPlugin.java + src/native/
+      // streamHttp.ts), which does its own native HTTP that bypasses CORS AND
+      // streams. Everything else keeps using this buffered native fetch.
       enabled: true,
     },
     SplashScreen: {

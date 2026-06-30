@@ -3,6 +3,8 @@
 // Translates OpenAI request body → Anthropic body, then back-translates
 // the Anthropic SSE stream → OpenAI-shaped SSE chunks on the fly.
 
+import { nativeStreamFetch, isNativeStreamAvailable } from '../native/streamHttp'
+
 type OpenAiMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content:
@@ -819,12 +821,24 @@ export const fetchAnthropicAsOpenAi = async (
     headers['anthropic-version'] = '2023-06-01'
     headers['anthropic-dangerous-direct-browser-access'] = 'true'
   }
-  const upstream = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(anthropicBody),
-    signal,
-  })
+  // On native, a streaming chat MUST use the StreamHttp plugin: CapacitorHttp
+  // (kept on for CORS bypass) buffers window.fetch, so plain fetch here would
+  // arrive as one lump. The plugin bypasses CORS AND streams. Non-streaming
+  // calls and web keep plain fetch (CapacitorHttp/browser handle those fine).
+  const useNativeStream = wantsStream && isNativeStreamAvailable()
+  const upstream = useNativeStream
+    ? await nativeStreamFetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(anthropicBody),
+        signal,
+      })
+    : await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(anthropicBody),
+        signal,
+      })
   if (!upstream.ok) {
     return upstream
   }

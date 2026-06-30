@@ -1,6 +1,7 @@
 import { getProviderConfig, PROVIDER_MISSING_KEY_MESSAGE, type ProviderId } from '../storage/apiProvider'
 import { OPENROUTER_MISSING_KEY_MESSAGE } from '../storage/openrouterKey'
 import { fetchAnthropicAsOpenAi } from './anthropic'
+import { nativeStreamFetch, isNativeStreamAvailable } from '../native/streamHttp'
 
 type FetchOptions = {
   body?: Record<string, unknown>
@@ -70,12 +71,27 @@ export const fetchOpenRouter = async (
     )
   }
 
+  // OpenAI-compat streaming on native: route through the StreamHttp plugin for
+  // the same reason as the Anthropic path — CapacitorHttp (kept on for CORS)
+  // buffers window.fetch, killing the stream. Non-stream / web fall through to
+  // plain fetch.
+  const wantsStream = body != null && (body as { stream?: unknown }).stream === true
+  const reqHeaders = {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  }
+  if (wantsStream && path === '/chat/completions' && isNativeStreamAvailable()) {
+    return nativeStreamFetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: reqHeaders,
+      body: JSON.stringify(body),
+      signal,
+    })
+  }
+
   return fetch(`${baseUrl}${path}`, {
     method: body ? 'POST' : 'GET',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers: reqHeaders,
     body: body ? JSON.stringify(body) : undefined,
     signal,
   })

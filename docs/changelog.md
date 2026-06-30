@@ -8,6 +8,20 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### APK 聊天「不流式、一大坨出来」(2026-06-30)
+
+**症状**:APK 里聊天回复(思考链 + 正文)要等很久,然后**一次性整坨蹦出来**,不是逐字流式。换 OR、换好几个中转都一样;浏览器 PWA 版却完全正常逐字流。用户感受成「首字很慢、忽快忽慢」(其实是思考 + 整篇生成全做完才显示)。
+
+**排查弯路**(都不是根因):缓存冷启动 → 保活被关 → 中转攒包。逐一排掉:`applyClaudeCaching` 标记正确、保活 cron 在跑(只是 `cache_keepalive_state` 空了)、我们的 SSE 解析每 50ms 刷 UI 都没问题。
+
+**根因**:`capacitor.config.ts` 的 `CapacitorHttp: { enabled: true }`。它把所有 `window.fetch` 劫持到原生 OkHttp 来绕 WebView 的 CORS 墙(大多数中转不允许 `https://localhost` origin,不绕就 `Failed to fetch`)。但**原生那条 fetch 不支持流式——它把整个响应 buffer 完才交给 JS**。所以 `getReader()` 一次性拿到整坨。是**环境级**(native HTTP 层),跟 provider/中转/缓存全无关 → 解释了「OR 也不流式」「好几个中转都这样」「浏览器正常」。当初开它时那句注释「OkHttp 支持 SSE 流式」是错的。
+
+**为什么不能直接关 CapacitorHttp**:关了 → CORS-less 中转立刻 `Failed to fetch`。绕 CORS(只有原生 HTTP 能做)和流式(原生 fetch 又不支持)在 CapacitorHttp 里互斥。
+
+**修**:vendor 一个最小原生插件 `StreamHttpPlugin.java`(`HttpURLConnection` chunked read,POST + 自定义头 + body),它自己做原生 HTTP——**既绕 CORS 又逐块流式**,通过 listener 事件把 chunk(base64 原始字节)推给 JS。`src/native/streamHttp.ts` 把事件包成一个 `ReadableStream` 的 `Response`,下游 SSE 解析一行不改。接入点:`anthropic.ts` / `openrouter.ts` 里,**仅当** `wantsStream && 原生平台** 时用 `nativeStreamFetch` 替掉 `window.fetch`;非流式 + 网页版照旧。`CapacitorHttp` **保持开着**(其它所有请求继续靠它绕 CORS,零回归)。**需要重新出 APK 才生效**(原生改动)。
+
+参考实现:[`chatboxai/capacitor-stream-http`](https://github.com/chatboxai/capacitor-stream-http)(为防它没人维护,直接 vendor 进仓库,不加外部依赖)。
+
 ### Anthropic /v1/messages 400 全家桶
 
 `src/api/anthropic.ts`。OpenRouter 和直连 relay（msuicode 等）都会把上游 Anthropic 400 包成 `{"error":{"type":"bad_response_status_code", ...}}`，看不到真正的错误体，必须按下面 checklist 一条条排：
