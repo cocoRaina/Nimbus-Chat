@@ -1,11 +1,141 @@
 import type { ChatMessage, ChatSession } from '../types'
 
-const STORAGE_KEY = 'hamster-nest.chat-data.v1'
+const DB_NAME = 'nimbus-chat'
+const DB_VERSION = 1
+const STORE = 'snapshot'
+const SNAPSHOT_KEY = 'main'
+// Old localStorage key — read once for migration then removed.
+const LS_LEGACY_KEY = 'hamster-nest.chat-data.v1'
 
 type StorageSnapshot = {
   sessions: ChatSession[]
   messages: ChatMessage[]
 }
+
+// ─── IndexedDB helpers ────────────────────────────────────────────────────────
+
+let db: IDBDatabase | null = null
+
+const openDb = (): Promise<IDBDatabase> =>
+  new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION)
+    req.onupgradeneeded = (e) => {
+      const d = (e.target as IDBOpenDBRequest).result
+      if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE)
+    }
+    req.onsuccess = (e) => resolve((e.target as IDBOpenDBRequest).result)
+    req.onerror = () => reject(req.error)
+  })
+
+const idbGet = (key: string): Promise<StorageSnapshot | undefined> =>
+  new Promise((resolve, reject) => {
+    if (!db) { resolve(undefined); return }
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(key)
+    req.onsuccess = () => resolve(req.result as StorageSnapshot | undefined)
+    req.onerror = () => reject(req.error)
+  })
+
+const idbPut = (key: string, value: StorageSnapshot): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (!db) { reject(new Error('db not open')); return }
+    const req = db.transaction(STORE, 'readwrite').objectStore(STORE).put(value, key)
+    req.onsuccess = () => resolve()
+    req.onerror = () => reject(req.error)
+  })
+
+// ─── In-memory snapshot (source of truth between writes) ─────────────────────
+
+const snapshot: StorageSnapshot = { sessions: [], messages: [] }
+
+// ─── Startup: open IDB, migrate from localStorage if needed ──────────────────
+
+const initPromise = (async () => {
+  try {
+    db = await openDb()
+    let data = await idbGet(SNAPSHOT_KEY)
+
+    if (!data) {
+      // First run after migration — pull whatever is in localStorage.
+      const raw = typeof localStorage !== 'undefined'
+        ? localStorage.getItem(LS_LEGACY_KEY)
+        : null
+      if (raw) {
+        try {
+          data = JSON.parse(raw) as StorageSnapshot
+          await idbPut(SNAPSHOT_KEY, data)
+          // Free up the old localStorage quota immediately.
+          localStorage.removeItem(LS_LEGACY_KEY)
+        } catch { /* corrupt — start fresh */ }
+      }
+    }
+
+    if (data) {
+      snapshot.sessions = Array.isArray(data.sessions) ? data.sessions : []
+      snapshot.messages = Array.isArray(data.messages) ? data.messages : []
+    }
+  } catch (err) {
+    console.warn('IndexedDB 不可用，回退到 localStorage', err)
+    // Fallback: keep reading/writing localStorage (old behaviour).
+    db = null
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(LS_LEGACY_KEY)
+      if (raw) {
+        try {
+          const data = JSON.parse(raw) as StorageSnapshot
+          snapshot.sessions = Array.isArray(data.sessions) ? data.sessions : []
+          snapshot.messages = Array.isArray(data.messages) ? data.messages : []
+        } catch { /* */ }
+      }
+    }
+  }
+})()
+
+// Await this before reading the snapshot for the first time.
+export const waitForStorage = (): Promise<void> => initPromise
+
+// ─── Write helpers ────────────────────────────────────────────────────────────
+
+let pendingWrite: ReturnType<typeof setTimeout> | null = null
+
+const writeNow = () => {
+  if (pendingWrite) {
+    clearTimeout(pendingWrite)
+    pendingWrite = null
+  }
+  const payload: StorageSnapshot = {
+    sessions: snapshot.sessions,
+    messages: snapshot.messages,
+  }
+  if (db) {
+    void idbPut(SNAPSHOT_KEY, payload).catch((err) => {
+      console.warn('IDB 写入失败', err)
+      // Last-resort fallback.
+      try { localStorage.setItem(LS_LEGACY_KEY, JSON.stringify(payload)) } catch { /* */ }
+    })
+  } else {
+    try { localStorage.setItem(LS_LEGACY_KEY, JSON.stringify(payload)) } catch { /* */ }
+  }
+}
+
+const scheduleWrite = () => {
+  if (pendingWrite) return
+  pendingWrite = setTimeout(() => {
+    pendingWrite = null
+    writeNow()
+  }, 150)
+}
+
+// Flush the debounced write on page hide so the last messages aren't lost
+// when Android kills the WebView while backgrounded.
+if (typeof window !== 'undefined') {
+  const flushIfPending = () => { if (pendingWrite) writeNow() }
+  window.addEventListener('pagehide', flushIfPending)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushIfPending()
+  })
+}
+
+// ─── Sort helpers ─────────────────────────────────────────────────────────────
 
 const createId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -29,69 +159,6 @@ const ensureSessionFields = (session: ChatSession): ChatSession => ({
   archivedAt: session.archivedAt ?? null,
 })
 
-const readSnapshot = (): StorageSnapshot => {
-  if (typeof localStorage === 'undefined') {
-    return { sessions: [], messages: [] }
-  }
-  const raw = localStorage.getItem(STORAGE_KEY)
-  if (!raw) {
-    return { sessions: [], messages: [] }
-  }
-  try {
-    const parsed = JSON.parse(raw) as StorageSnapshot
-    return {
-      sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
-      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
-    }
-  } catch (error) {
-    console.warn('Failed to parse chat storage', error)
-    return { sessions: [], messages: [] }
-  }
-}
-
-const snapshot: StorageSnapshot = readSnapshot()
-let pendingWrite: ReturnType<typeof setTimeout> | null = null
-
-const writeNow = () => {
-  if (typeof localStorage === 'undefined') return
-  if (pendingWrite) {
-    clearTimeout(pendingWrite)
-    pendingWrite = null
-  }
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
-  } catch (error) {
-    console.warn('Failed to persist chat storage', error)
-  }
-}
-
-const scheduleWrite = () => {
-  if (typeof localStorage === 'undefined') {
-    return
-  }
-  if (pendingWrite) {
-    return
-  }
-  pendingWrite = setTimeout(() => {
-    pendingWrite = null
-    writeNow()
-  }, 150)
-}
-
-// Flush the 150ms-debounced write synchronously when the page is being
-// hidden/unloaded. On Android the WebView can be killed while backgrounded,
-// which would otherwise drop the last messages written within the debounce
-// window — and offline that localStorage copy is the only copy.
-if (typeof window !== 'undefined') {
-  const flushIfPending = () => {
-    if (pendingWrite) writeNow()
-  }
-  window.addEventListener('pagehide', flushIfPending)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') flushIfPending()
-  })
-}
-
 const sortSessions = (sessions: ChatSession[]) =>
   [...sessions].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -105,11 +172,11 @@ const sortMessages = (messages: ChatMessage[]) =>
       new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   )
 
+// ─── Public API (same interface as before) ────────────────────────────────────
+
 export const loadSnapshot = (): StorageSnapshot => {
   snapshot.sessions = sortSessions(snapshot.sessions.map(ensureSessionFields))
   snapshot.messages = sortMessages(snapshot.messages.map(ensureMessageFields))
-  // Already normalized + sorted above — hand back fresh arrays so callers
-  // can't mutate the module-level snapshot, without redoing the work.
   return {
     sessions: [...snapshot.sessions],
     messages: [...snapshot.messages],
@@ -142,15 +209,11 @@ export const createSession = (title?: string): ChatSession => {
 export const renameSession = (sessionId: string, title: string): ChatSession | null => {
   let updatedSession: ChatSession | null = null
   snapshot.sessions = snapshot.sessions.map((session) => {
-    if (session.id !== sessionId) {
-      return session
-    }
+    if (session.id !== sessionId) return session
     updatedSession = { ...session, title }
     return updatedSession
   })
-  if (!updatedSession) {
-    return null
-  }
+  if (!updatedSession) return null
   scheduleWrite()
   return updatedSession
 }
@@ -168,10 +231,8 @@ export const addMessage = (
   },
 ): { message: ChatMessage; session: ChatSession } | null => {
   const now = options?.createdAt ?? new Date().toISOString()
-  const sessionIndex = snapshot.sessions.findIndex((session) => session.id === sessionId)
-  if (sessionIndex === -1) {
-    return null
-  }
+  const sessionIndex = snapshot.sessions.findIndex((s) => s.id === sessionId)
+  if (sessionIndex === -1) return null
   const clientId = options?.clientId ?? createId()
   const clientCreatedAt = options?.clientCreatedAt ?? now
   const message: ChatMessage = {
@@ -195,13 +256,13 @@ export const addMessage = (
 }
 
 export const deleteMessage = (messageId: string) => {
-  snapshot.messages = snapshot.messages.filter((message) => message.id !== messageId)
+  snapshot.messages = snapshot.messages.filter((m) => m.id !== messageId)
   scheduleWrite()
 }
 
 export const deleteSession = (sessionId: string) => {
-  snapshot.sessions = snapshot.sessions.filter((session) => session.id !== sessionId)
-  snapshot.messages = snapshot.messages.filter((message) => message.sessionId !== sessionId)
+  snapshot.sessions = snapshot.sessions.filter((s) => s.id !== sessionId)
+  snapshot.messages = snapshot.messages.filter((m) => m.sessionId !== sessionId)
   scheduleWrite()
 }
 
@@ -211,15 +272,11 @@ export const updateSessionOverride = (
 ): ChatSession | null => {
   let updatedSession: ChatSession | null = null
   snapshot.sessions = snapshot.sessions.map((session) => {
-    if (session.id !== sessionId) {
-      return session
-    }
+    if (session.id !== sessionId) return session
     updatedSession = { ...session, overrideModel }
     return updatedSession
   })
-  if (!updatedSession) {
-    return null
-  }
+  if (!updatedSession) return null
   scheduleWrite()
   return updatedSession
 }
@@ -230,15 +287,11 @@ export const updateSessionReasoningOverride = (
 ): ChatSession | null => {
   let updatedSession: ChatSession | null = null
   snapshot.sessions = snapshot.sessions.map((session) => {
-    if (session.id !== sessionId) {
-      return session
-    }
+    if (session.id !== sessionId) return session
     updatedSession = { ...session, overrideReasoning }
     return updatedSession
   })
-  if (!updatedSession) {
-    return null
-  }
+  if (!updatedSession) return null
   scheduleWrite()
   return updatedSession
 }
@@ -250,15 +303,11 @@ export const setSessionArchiveState = (
   let updatedSession: ChatSession | null = null
   const archivedAt = isArchived ? new Date().toISOString() : null
   snapshot.sessions = snapshot.sessions.map((session) => {
-    if (session.id !== sessionId) {
-      return session
-    }
+    if (session.id !== sessionId) return session
     updatedSession = { ...session, isArchived, archivedAt }
     return updatedSession
   })
-  if (!updatedSession) {
-    return null
-  }
+  if (!updatedSession) return null
   scheduleWrite()
   return updatedSession
 }

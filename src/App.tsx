@@ -32,6 +32,7 @@ import {
   setSnapshot,
   updateSessionOverride,
   updateSessionReasoningOverride,
+  waitForStorage,
 } from './storage/chatStorage'
 import {
   createDefaultSettings,
@@ -265,7 +266,9 @@ const updateMessage = (messages: ChatMessage[], next: ChatMessage) =>
     ),
   )
 
-const initialSnapshot = loadSnapshot()
+// Storage init is now async (IndexedDB). Start with empty state; the
+// useEffect below fills it once IDB has loaded (~10–50 ms on device).
+const initialSnapshot = { sessions: [] as ChatSession[], messages: [] as ChatMessage[] }
 
 type StreamingToolCall = {
   id: string
@@ -637,6 +640,19 @@ const App = () => {
   // localStorage mirror on every app/WebView load, so chat voice bubbles and
   // the settings page see what was actually saved even if a recent localStorage
   // write was lost to an Android background kill.
+  // Load chat data from IndexedDB. IDB is async so we start with empty state
+  // and fill in once it's ready (~10-50ms). Supabase sync overwrites shortly
+  // after, so the window where the user sees local-only data is very brief.
+  useEffect(() => {
+    void waitForStorage().then(() => {
+      const snap = loadSnapshot()
+      if (snap.sessions.length > 0 || snap.messages.length > 0) {
+        setSessions(snap.sessions)
+        setMessages(snap.messages)
+      }
+    })
+  }, [])
+
   useEffect(() => {
     void hydrateTtsConfig()
     // Restore the persisted keepalive on/off state. Without this it defaulted
