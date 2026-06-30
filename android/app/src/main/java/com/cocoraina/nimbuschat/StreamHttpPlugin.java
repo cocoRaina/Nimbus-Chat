@@ -79,7 +79,21 @@ public class StreamHttpPlugin extends Plugin {
                 // error event (PluginCall has no portable isResolved()).
                 boolean[] resolved = { false };
                 try {
+                    // If cancelStream already fired before this thread started, bail
+                    // immediately rather than opening a connection we'll never use.
+                    if (Boolean.TRUE.equals(cancelled.get(streamId))) {
+                        call.reject("cancelled before connect");
+                        return;
+                    }
+
                     conn = (HttpURLConnection) new URL(url).openConnection();
+                    // Register in map IMMEDIATELY so cancelStream can call
+                    // conn.disconnect() at any point — including during the
+                    // TCP/TLS handshake below. Previously this happened after
+                    // getOutputStream() wrote the body, leaving a multi-second
+                    // window where cancel couldn't reach the live connection.
+                    connections.put(streamId, conn);
+
                     conn.setRequestMethod(method);
                     conn.setConnectTimeout(30000);
                     // No read timeout: a streaming relay can sit quiet between
@@ -115,7 +129,6 @@ public class StreamHttpPlugin extends Plugin {
                     }
 
                     conn.connect();
-                    connections.put(streamId, conn);
 
                     int status = conn.getResponseCode();
 

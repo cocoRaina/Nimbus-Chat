@@ -89,7 +89,10 @@ export const fetchOpenRouter = async (
         signal,
       })
     } catch {
-      // native streaming stalled/failed — fall through to plain fetch.
+      // Native streaming stalled/failed. Give cancelStream ~500 ms to close
+      // the TCP connection before retrying on the buffered path, otherwise
+      // the relay sees two concurrent connections and can concurrency-limit us.
+      await new Promise((r) => setTimeout(r, 500))
     }
   }
 

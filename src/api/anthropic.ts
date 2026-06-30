@@ -840,7 +840,11 @@ export const fetchAnthropicAsOpenAi = async (
       if (!upstream.ok) return upstream
       return translateAnthropicStream(upstream)
     } catch {
-      // native streaming stalled/failed — fall back to the buffered path.
+      // Native streaming stalled/failed. cancelStream is an async Capacitor
+      // call — give it ~500 ms to reach Java and close the TCP connection
+      // before we retry on the buffered path. Without this the relay sees two
+      // concurrent connections and can 429/concurrency-limit the second one.
+      await new Promise((r) => setTimeout(r, 500))
     }
   }
 
