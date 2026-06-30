@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { readStreamLog, clearStreamLog } from '../native/streamDebug'
-import { isNativeStreamAvailable } from '../native/streamHttp'
 import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -1995,68 +1993,7 @@ const SettingsPage = ({
         onConfirm={handleSaveAndLeave}
       />
 
-      {isNativeStreamAvailable() ? <StreamDebugPanel /> : null}
     </div>
-  )
-}
-
-function StreamDebugPanel() {
-  const [open, setOpen] = useState(false)
-  const [log, setLog] = useState('')
-  const [copied, setCopied] = useState(false)
-
-  const refresh = () => {
-    const entries = readStreamLog()
-    setLog(entries.length === 0 ? '（暂无日志，发一条消息后再刷新）' : entries.map((e) => `${e.t} ${e.msg}`).join('\n'))
-  }
-
-  return (
-    <section className="settings-section" role="listitem" style={{ marginTop: 16 }}>
-      <button
-        type="button"
-        className="collapse-header"
-        onClick={() => { setOpen((v) => !v); if (!open) refresh() }}
-        aria-expanded={open}
-      >
-        <span className="section-title">
-          <span className="section-icon" aria-hidden="true">🔍</span>
-          <h2 className="ui-title">流式调试日志</h2>
-          <p>用于诊断 APK 聊天回复问题。</p>
-        </span>
-        <span className="collapse-indicator" aria-hidden="true">›</span>
-      </button>
-      {open ? (
-        <div className="accordion-content" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <textarea
-            readOnly
-            value={log}
-            rows={12}
-            style={{ fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }}
-          />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" onClick={refresh}>刷新</button>
-            <button
-              type="button"
-              onClick={() => {
-                void navigator.clipboard.writeText(log).then(() => {
-                  setCopied(true)
-                  setTimeout(() => setCopied(false), 2000)
-                })
-              }}
-            >
-              {copied ? '已复制 ✓' : '复制日志'}
-            </button>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => { clearStreamLog(); refresh() }}
-            >
-              清除
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </section>
   )
 }
 

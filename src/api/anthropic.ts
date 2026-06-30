@@ -4,7 +4,6 @@
 // the Anthropic SSE stream → OpenAI-shaped SSE chunks on the fly.
 
 import { nativeStreamFetchOrThrow, isNativeStreamAvailable } from '../native/streamHttp'
-import { streamLog } from '../native/streamDebug'
 
 type OpenAiMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -831,7 +830,6 @@ export const fetchAnthropicAsOpenAi = async (
   // is confirmed — if it stalls, we fall through to the buffered fetch below
   // (works, just not live). The chat can never hang on a broken native path.
   if (wantsStream && isNativeStreamAvailable()) {
-    streamLog(`native attempt: ${endpoint}`)
     try {
       const upstream = await nativeStreamFetchOrThrow(endpoint, {
         method: 'POST',
@@ -839,20 +837,14 @@ export const fetchAnthropicAsOpenAi = async (
         body: bodyJson,
         signal,
       })
-      if (!upstream.ok) {
-        streamLog(`upstream error: status=${upstream.status}`)
-        return upstream
-      }
-      streamLog('native ok — translating stream')
+      if (!upstream.ok) return upstream
       return translateAnthropicStream(upstream)
-    } catch (e) {
-      streamLog(`native failed: ${String(e)} — fallback in 500ms`)
+    } catch {
       // Native streaming stalled/failed. cancelStream is an async Capacitor
       // call — give it ~500 ms to reach Java and close the TCP connection
       // before we retry on the buffered path. Without this the relay sees two
       // concurrent connections and can 429/concurrency-limit the second one.
       await new Promise((r) => setTimeout(r, 500))
-      streamLog('fallback: using CapacitorHttp buffered fetch')
     }
   }
 

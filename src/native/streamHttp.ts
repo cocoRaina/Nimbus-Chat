@@ -1,5 +1,4 @@
 import { registerPlugin, Capacitor, type PluginListenerHandle } from '@capacitor/core'
-import { streamLog } from './streamDebug'
 
 // Bridge to the native StreamHttpPlugin (Android). It does native HTTP with
 // chunked reads so the chat request BOTH bypasses the WebView CORS wall (most
@@ -104,12 +103,9 @@ export const nativeStreamFetch = async (
     cleanup()
   }
 
-  let chunkCount = 0
   listeners.push(
     await StreamHttp.addListener('streamChunk', (data) => {
       if (data.streamId !== streamId || !controllerRef) return
-      chunkCount++
-      if (chunkCount === 1) streamLog(`first chunk received [${streamId.slice(0, 8)}]`)
       try {
         controllerRef.enqueue(base64ToBytes(data.chunk))
       } catch {
@@ -120,14 +116,12 @@ export const nativeStreamFetch = async (
   listeners.push(
     await StreamHttp.addListener('streamEnd', (data) => {
       if (data.streamId !== streamId) return
-      streamLog(`streamEnd (chunks=${chunkCount}) [${streamId.slice(0, 8)}]`)
       closeOnce(() => controllerRef?.close())
     }),
   )
   listeners.push(
     await StreamHttp.addListener('streamError', (data) => {
       if (data.streamId !== streamId) return
-      streamLog(`streamError: ${data.error} [${streamId.slice(0, 8)}]`)
       closeOnce(() => controllerRef?.error(new Error(data.error || 'native stream error')))
     }),
   )
@@ -149,7 +143,6 @@ export const nativeStreamFetch = async (
     )
   }
 
-  streamLog(`startStream → ${url.replace(/^https?:\/\/[^/]+/, '')} [${streamId.slice(0, 8)}]`)
   let result: StartStreamResult
   try {
     result = await StreamHttp.startStream({
@@ -159,9 +152,7 @@ export const nativeStreamFetch = async (
       headers: init.headers ?? {},
       body: init.body,
     })
-    streamLog(`startStream resolved: status=${result.status} [${streamId.slice(0, 8)}]`)
   } catch (err) {
-    streamLog(`startStream rejected: ${String(err)} [${streamId.slice(0, 8)}]`)
     cleanup()
     throw err
   }
@@ -200,7 +191,6 @@ export const nativeStreamFetchOrThrow = async (
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      streamLog(`first-byte timeout after ${firstByteMs}ms — aborting native stream`)
       ctl.abort() // tears down the native stream (cancelStream) via the signal
       reject(new Error('native stream first-byte timeout'))
     }, firstByteMs)
