@@ -8,6 +8,28 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### 聊天数据 localStorage 存满、QuotaExceededError（2026-06-30）
+
+**症状**：上传头像或正常使用时弹「本地存储已满」；`localStorage.setItem` 抛 `QuotaExceededError`，新消息可能写不进去。
+
+**根因**：`chatStorage.ts` 把**所有会话 + 所有消息**序列化成一个 JSON 塞进单个 localStorage key（`hamster-nest.chat-data.v1`）。Android WebView 的 localStorage 硬上限约 5MB，对话积累到一定量后必然触发。注意：头像已经压缩到 20-40KB、聊天图片存 Supabase Storage（只存 URL），真正占地方的是历史消息文本本身。
+
+**修**：`chatStorage.ts` 完整迁移到 **IndexedDB**（底层 SQLite，存在 App 私有目录，容量 = 手机闪存剩余空间，实际无限）。
+- 打开 `nimbus-chat` IDB，`snapshot` object store，单条 `main` key 存整个 snapshot
+- **自动迁移**：首次启动新版时若 IDB 为空，读取 localStorage 旧数据写入 IDB，迁移完立刻 `removeItem` 释放 localStorage 空间
+- 写失败时降级回 localStorage（极少数不支持 IDB 的环境）
+- `App.tsx` 改为异步初始化：启动时先空 state，`waitForStorage()` resolve（~10-50ms）后填入本地数据，Supabase 同步随后覆盖，用户感知不到空窗期
+
+**本地储存的东西**（供参考）：
+
+| key / store | 存什么 | 大小 |
+|---|---|---|
+| IDB `nimbus-chat` | 所有会话 + 消息文本 | 主要大头，现在无上限 |
+| `nimbus_image_captions_v1` | 图片文字描述缓存（最多 300 条） | < 100KB |
+| `my-homepage-avatar` / `syzygy-homepage-avatar` | 头像（256px JPEG） | ~20-40KB 各 |
+| `nimbus_user_settings` 等 | 各类设置、API key、TTS 配置 | 极小 |
+| Supabase Storage（不在本地） | 聊天里发的图片原图 | 不占本地 |
+
 ### APK 聊天「不流式、一大坨出来」(2026-06-30)
 
 **症状**:APK 里聊天回复(思考链 + 正文)要等很久,然后**一次性整坨蹦出来**,不是逐字流式。换 OR、换好几个中转都一样;浏览器 PWA 版却完全正常逐字流。用户感受成「首字很慢、忽快忽慢」(其实是思考 + 整篇生成全做完才显示)。
