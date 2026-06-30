@@ -24,6 +24,27 @@
 
 **后续(同日):首版插件在真机上「转半天啥也不出」**——请求发出去但 chunk 回不来,加上插件设了无限读超时,结果无限转圈。原生没法在这边真机测,所以加了**首字超时兜底**:`nativeStreamFetchOrThrow` 只在 10s 内确认收到第一个字节才采用原生流式;否则抛错,`anthropic.ts`/`openrouter.ts` 自动**退回 buffered fetch**(能用、只是不流式)。保证:**聊天永远不会卡死在坏掉的原生路径上**——最坏「等几秒→一大坨」,绝不无限转。插件正常时照样逐字流。(注:cheap 号池如 68886868.xyz 还会因账号并发上限返回 `500 Concurrency limit exceeded`,那是中转侧限制,跟流式无关。)
 
+**再后续(同日):加了兜底之后真机仍然不流式，HttpURLConnection 有两个 SSE 致命缺陷**
+
+用户装上新 APK 确认：不卡死了，但还是「一大坨」，走的是兜底 buffered 路径，原生流式从来没真正工作过。
+
+排查到 `HttpURLConnection` 有两个对 Android SSE 致命的已知 bug：
+
+1. **自动 gzip 压缩**：`HttpURLConnection` 默认加 `Accept-Encoding: gzip`，gzip 解压器要攒满整个压缩流才能输出——相当于在 Java 层把整个响应 buffer 了一遍，chunk 一个都到不了 JS，直到模型生成完毕服务端关连接才一次性放出。即使加了 `setRequestProperty("Accept-Encoding", "identity")` 强制禁 gzip，仍有下一个问题。
+2. **HTTP/2 DATA 帧批处理**：Android 内置的 H2 实现会把多个 DATA 帧合批后再交给应用层，同样造成 chunk 积压，和 gzip 是独立的两个坑。
+
+参考：`RangerRick/capacitor-eventsource` 和 LaunchDarkly `okhttp-eventsource` 都因同样原因弃用了 `HttpURLConnection`，改用 OkHttp（已是 Capacitor 传递依赖，不加新包）。
+
+**同日最终修法**：`StreamHttpPlugin.java` 完整重写为 OkHttp：
+
+- `OkHttpClient` 配置：connectTimeout 30s，readTimeout 0（streaming relay 两 token 之间可以静默，JS 侧有 45s 看门狗兜），writeTimeout 30s
+- `activeCalls: ConcurrentHashMap<String, Call>`：在 `call.execute()` **之前**就 `put`，确保 `cancelStream` 在 TCP 握手窗口内也能 `call.cancel()`（旧 `HttpURLConnection` 版本是握手完才 put，cancel 窗口有漏洞，兜底 fetch 与旧连接并发 → relay 并发限制 → 两条都挂）
+- `reqBuilder.header("Accept-Encoding", "identity")` 仍然保留（在 caller headers 之后覆盖，防 relay 带 gzip header 进来）
+- `responseBody.byteStream()` 直接拿 socket 字节流，OkHttp 自己处理 H2 帧，chunk 逐块到 JS
+- `call.isCanceled()` 检测取消（OkHttp cancel 会在 `execute()` 或 `read()` 抛 `IOException`，比 `conn.disconnect()` 干净）
+
+用户确认流式修好（「修好了！」），首字延迟也同步改善——之前要等整个响应才出字，现在模型开始生成就出字，和浏览器 PWA 体验一致。
+
 ### Anthropic /v1/messages 400 全家桶
 
 `src/api/anthropic.ts`。OpenRouter 和直连 relay（msuicode 等）都会把上游 Anthropic 400 包成 `{"error":{"type":"bad_response_status_code", ...}}`，看不到真正的错误体，必须按下面 checklist 一条条排：
