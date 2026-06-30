@@ -87,6 +87,14 @@ public class StreamHttpPlugin extends Plugin {
                     // hang. The JS-side stall watchdog handles real stalls.
                     conn.setReadTimeout(0);
                     conn.setDoInput(true);
+                    // Disable gzip: HttpURLConnection auto-negotiates
+                    // Accept-Encoding: gzip and transparently decompresses, but
+                    // the gzip decompressor buffers the ENTIRE compressed stream
+                    // before outputting anything — SSE chunks are held until the
+                    // server closes the connection (exactly the "一大坨" symptom
+                    // we're trying to fix). Forcing identity encoding means the
+                    // relay sends raw bytes that stream through immediately.
+                    conn.setRequestProperty("Accept-Encoding", "identity");
 
                     if (headers != null) {
                         Iterator<String> keys = headers.keys();
