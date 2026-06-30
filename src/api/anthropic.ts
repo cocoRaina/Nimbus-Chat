@@ -3,7 +3,7 @@
 // Translates OpenAI request body → Anthropic body, then back-translates
 // the Anthropic SSE stream → OpenAI-shaped SSE chunks on the fly.
 
-import { nativeStreamFetchOrThrow, isNativeStreamAvailable } from '../native/streamHttp'
+import { nativeStreamFetchOrThrow, nativeStreamFetch, isNativeStreamAvailable } from '../native/streamHttp'
 
 type OpenAiMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -111,7 +111,15 @@ const fetchImageAsBase64 = async (
   url: string,
 ): Promise<{ mediaType: string; data: string } | null> => {
   try {
-    const resp = await fetch(url)
+    // CapacitorHttp patches window.fetch on Android for CORS bypass, but its
+    // synthetic Response doesn't properly support arrayBuffer() on binary
+    // payloads — the bytes come back garbled, producing an invalid base64
+    // string that the API silently drops. nativeStreamFetch bypasses
+    // CapacitorHttp entirely (raw OkHttp) and returns a real ReadableStream
+    // whose arrayBuffer() works correctly.
+    const resp = isNativeStreamAvailable()
+      ? await nativeStreamFetch(url, { method: 'GET' })
+      : await fetch(url)
     if (!resp.ok) return null
     const mediaType = (resp.headers.get('content-type') ?? 'image/jpeg').split(';')[0].trim()
     const buf = await resp.arrayBuffer()
