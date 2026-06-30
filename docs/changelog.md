@@ -8,6 +8,23 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### 图片描述缓存替掉原图，API「看不到图片」（2026-06-30）
+
+**症状**：用户发图片后 Claude 回答像没看见图片，提问「第一次发图片不是原件吗」。进一步确认：换图仍然一样，之前（前天 = 2026-06-28）还好用。
+
+**根因**：图片描述（caption）系统的历史 + 云同步组合造成。
+
+1. 图片描述流程：每张图第一次发出时，同步发原图给模型、异步生成文字描述（`ensureImageCaption`），缓存到 `nimbus_image_captions_v1`（localStorage）；之后在 API payload 里用 `[图片：描述]` 代替真图，省 token。
+2. **2026-06-28 修了 `syncImageCaptionsFromCloud`**：Session 启动时从 Supabase 下载历史描述写入本地缓存。目的是跨设备/重装后不重复生成，副作用是**以前发过的图片 URL，在这个 session 里也立刻命中缓存**。
+3. App.tsx 消息构建循环里，**对所有消息**（包括当前这条正在发的）都调用 `getImageCaption(att.url)`，只要命中就换成文字。所以即使是「本次发的图片」，只要该 URL 以前发过且描述已同步到本地，模型也永远看不到图片原件。
+4. 额外问题：如果历史描述本身就是「无法查看图片」（在 nativeStreamFetch 修好之前用 garbled base64 生成的坏描述），那坏描述被当作事实永久缓存，之后每次发同张图都告诉模型「无法查看」。
+
+**修**：`App.tsx` 消息构建循环改用 `for let i` 加 `lastUserMsgIdx` 标记，**最后一条用户消息（当前发送的那轮）强制跳过描述缓存、始终发真图**；只有历史轮才用缓存描述节省 token。`isCurrentTurn ? null : getImageCaption(att.url)`。
+
+**启示**：
+- Caption 系统的「首次发原图」假设，在引入跨 session 描述同步之后就失效了——必须靠「是否是当前轮」而非「本地有没有缓存」来判断。
+- 坏描述一旦上传 Supabase，会被其他 session 永久继承。这次 OkHttp 修好了 base64 获取，新描述生成应该正确；旧坏描述如需清理可直接删 `nimbus_image_captions_v1` localStorage 条目或删 Supabase 里的 `image_captions` 行。
+
 ### 聊天数据 localStorage 存满、QuotaExceededError（2026-06-30）
 
 > 同日追加：本地 IDB 加了 2000 条消息硬上限（`MAX_LOCAL_MESSAGES`），超出自动裁掉最老的。Supabase 保有完整历史，本地只是快启动缓存，2000 条 ≈ 2MB 封顶，永不暴涨。

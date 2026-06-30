@@ -1948,7 +1948,19 @@ const App = () => {
               ? ''
               : d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
           }
-          for (const message of compressionOutcome.recentMessages) {
+          // Find the last user message — that's the current turn. Its images
+          // must always be sent as real pixels, never replaced by a cached
+          // caption. Captions are only used for historical turns so we avoid
+          // re-uploading the same image on every subsequent message.
+          // (syncImageCaptionsFromCloud now pre-populates captions from past
+          // sessions, so without this guard every re-sent image would appear
+          // to the model as a text stub on the very next session.)
+          const lastUserMsgIdx = compressionOutcome.recentMessages.reduce(
+            (acc, msg, i) => (msg.role === 'user' ? i : acc), -1
+          )
+          for (let msgIdx = 0; msgIdx < compressionOutcome.recentMessages.length; msgIdx++) {
+            const message = compressionOutcome.recentMessages[msgIdx]
+            const isCurrentTurn = msgIdx === lastUserMsgIdx
             const messageAttachments = message.meta?.attachments ?? []
             const imageAttachments = messageAttachments.filter((a) => a.type === 'image')
             const stamp = message.role === 'user' ? formatStamp(message.createdAt) : ''
@@ -1989,12 +2001,14 @@ const App = () => {
                 blocks.push({ type: 'text', text: textContent })
               }
               for (const att of imageAttachments) {
-                // Send the cached text description if we have one (every turn
-                // after the first); otherwise send the real image and kick
-                // off captioning so later turns send text instead. The
-                // original image stays in storage for display — only what we
-                // send the model changes. See storage/imageCaptions.ts.
-                const caption = getImageCaption(att.url)
+                // For historical turns: use the cached text description to
+                // avoid resending large image data on every message.
+                // For the current turn: always send the real image even if a
+                // caption exists — cloud sync (syncImageCaptionsFromCloud)
+                // pre-populates captions from past sessions, so without this
+                // guard a previously-sent image would be replaced by its
+                // (possibly stale) caption before the model ever sees it again.
+                const caption = isCurrentTurn ? null : getImageCaption(att.url)
                 if (caption) {
                   blocks.push({ type: 'text', text: `[图片：${caption}]` })
                 } else {
