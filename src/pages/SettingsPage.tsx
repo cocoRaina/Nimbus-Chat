@@ -12,9 +12,9 @@ import {
   saveOpenRouterApiKey,
 } from '../storage/openrouterKey'
 import {
-  clearQWeatherKey,
-  getQWeatherKey,
-  saveQWeatherKey,
+  clearQWeatherCredential,
+  getQWeatherCredential,
+  saveQWeatherCredential,
 } from '../storage/qweatherKey'
 import { peekCachedWeather, fetchCurrentWeather, type WeatherSnapshot } from '../storage/weather'
 import {
@@ -115,9 +115,11 @@ const SettingsPage = ({
   const [avatarSectionExpanded, setAvatarSectionExpanded] = useState(false)
   const [ttsSectionExpanded, setTtsSectionExpanded] = useState(false)
   const [weatherSectionExpanded, setWeatherSectionExpanded] = useState(false)
-  const [qweatherKeyInput, setQWeatherKeyInput] = useState(() => getQWeatherKey())
-  const [qweatherKeyVisible, setQWeatherKeyVisible] = useState(false)
-  const [qweatherKeyStatus, setQWeatherKeyStatus] = useState<'idle' | 'saved'>('idle')
+  const [qweatherPem, setQweatherPem] = useState(() => getQWeatherCredential()?.privateKeyPem ?? '')
+  const [qweatherPemVisible, setQweatherPemVisible] = useState(false)
+  const [qweatherKid, setQweatherKid] = useState(() => getQWeatherCredential()?.credentialId ?? '')
+  const [qweatherSub, setQweatherSub] = useState(() => getQWeatherCredential()?.projectId ?? '')
+  const [qweatherCredStatus, setQweatherCredStatus] = useState<'idle' | 'saved'>('idle')
   const [weatherSnap, setWeatherSnap] = useState<WeatherSnapshot | null>(() => peekCachedWeather())
   const [weatherRefreshing, setWeatherRefreshing] = useState(false)
   const [ttsDraft, setTtsDraft] = useState(() => getTtsConfig())
@@ -1365,38 +1367,53 @@ const SettingsPage = ({
         </button>
         {weatherSectionExpanded ? (
           <div className="accordion-content">
-            <label htmlFor="qweather-key">和风天气 API Key</label>
+            <span className="settings-hint">在和风天气控制台 → 项目管理 → 凭据，找到「凭据ID」和「项目ID」，「API KEY」字段里下载 Ed25519 私钥 PEM。</span>
+
+            <label htmlFor="qweather-pem">私钥（API KEY · PEM 格式）</label>
             <div className="model-select-row">
               <input
-                id="qweather-key"
-                type={qweatherKeyVisible ? 'text' : 'password'}
-                value={qweatherKeyInput}
-                onChange={(e) => {
-                  setQWeatherKeyInput(e.target.value)
-                  setQWeatherKeyStatus('idle')
-                }}
-                placeholder="仅存本地，不上传"
+                id="qweather-pem"
+                type={qweatherPemVisible ? 'text' : 'password'}
+                value={qweatherPem}
+                onChange={(e) => { setQweatherPem(e.target.value); setQweatherCredStatus('idle') }}
+                placeholder="-----BEGIN PRIVATE KEY-----..."
               />
-              <button
-                type="button"
-                className="ghost small"
-                onClick={() => setQWeatherKeyVisible((v) => !v)}
-              >
-                {qweatherKeyVisible ? '隐藏' : '显示'}
+              <button type="button" className="ghost small" onClick={() => setQweatherPemVisible((v) => !v)}>
+                {qweatherPemVisible ? '隐藏' : '显示'}
               </button>
             </div>
+
+            <label htmlFor="qweather-kid">凭据ID（kid）</label>
+            <input
+              id="qweather-kid"
+              type="text"
+              value={qweatherKid}
+              onChange={(e) => { setQweatherKid(e.target.value); setQweatherCredStatus('idle') }}
+              placeholder="如 CA5CN4E7H8"
+            />
+
+            <label htmlFor="qweather-sub">项目ID（sub）</label>
+            <input
+              id="qweather-sub"
+              type="text"
+              value={qweatherSub}
+              onChange={(e) => { setQweatherSub(e.target.value); setQweatherCredStatus('idle') }}
+              placeholder="控制台「项目管理」页面的项目 ID"
+            />
+
             <div className="system-prompt-actions">
               <button
                 type="button"
                 className="primary"
                 onClick={() => {
-                  const v = qweatherKeyInput.trim()
-                  if (!v) return
-                  saveQWeatherKey(v)
-                  setQWeatherKeyInput(v)
-                  setQWeatherKeyStatus('saved')
+                  const pem = qweatherPem.trim()
+                  const kid = qweatherKid.trim()
+                  const sub = qweatherSub.trim()
+                  if (!pem || !kid || !sub) return
+                  saveQWeatherCredential({ privateKeyPem: pem, credentialId: kid, projectId: sub })
+                  setQweatherCredStatus('saved')
                 }}
-                disabled={!qweatherKeyInput.trim()}
+                disabled={!qweatherPem.trim() || !qweatherKid.trim() || !qweatherSub.trim()}
               >
                 保存
               </button>
@@ -1404,15 +1421,17 @@ const SettingsPage = ({
                 type="button"
                 className="ghost danger"
                 onClick={() => {
-                  clearQWeatherKey()
-                  setQWeatherKeyInput('')
-                  setQWeatherKeyStatus('idle')
+                  clearQWeatherCredential()
+                  setQweatherPem('')
+                  setQweatherKid('')
+                  setQweatherSub('')
+                  setQweatherCredStatus('idle')
                 }}
-                disabled={!qweatherKeyInput.trim()}
+                disabled={!qweatherPem.trim() && !qweatherKid.trim() && !qweatherSub.trim()}
               >
                 清除
               </button>
-              {qweatherKeyStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
+              {qweatherCredStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
             </div>
 
             <label>当前天气缓存</label>
