@@ -41,13 +41,29 @@ export const clearQWeatherCredential = () => {
 export const generateQWeatherJWT = async (c: QWeatherCredential): Promise<string> => {
   const { sign } = await import('@noble/ed25519')
 
-  const pemContents = c.privateKeyPem
-    .replace(/-----BEGIN PRIVATE KEY-----/g, '')
-    .replace(/-----END PRIVATE KEY-----/g, '')
-    .replace(/\s/g, '')
-  const pkcs8 = Uint8Array.from(atob(pemContents), ch => ch.charCodeAt(0))
-  // PKCS8 Ed25519: 48-byte DER, last 32 bytes are the raw private key seed.
-  const seed = pkcs8.slice(-32)
+  // Strip any PEM header/footer (handles BEGIN PRIVATE KEY, BEGIN OPENSSH PRIVATE KEY, etc.)
+  const b64 = c.privateKeyPem.replace(/-----[^-]+-----/g, '').replace(/\s/g, '')
+  const der = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))
+
+  // Extract Ed25519 seed from PKCS8 DER:
+  // Scan for OCTET STRING tag (0x04) with length 0x20 (32), take the 32 bytes following.
+  // Standard PKCS8 Ed25519 (48 bytes): bytes 14-15 are "04 20", seed at bytes 16-47.
+  let seed: Uint8Array | null = null
+  for (let i = 0; i <= der.length - 34; i++) {
+    if (der[i] === 0x04 && der[i + 1] === 0x20) {
+      seed = der.slice(i + 2, i + 34)
+      break
+    }
+  }
+  // Fallback: if decoded bytes are exactly 32, assume raw seed (no PKCS8 wrapper).
+  if (!seed && der.length === 32) seed = der
+
+  if (!seed) {
+    throw new Error(
+      `私钥格式错误：解码后 ${der.length} 字节，找不到 32 字节 Ed25519 seed。` +
+      `请粘贴完整 PEM 文件内容（含 -----BEGIN PRIVATE KEY----- 头尾行）。`
+    )
+  }
 
   const b64url = (source: Uint8Array | string): string => {
     const encoded = typeof source === 'string'
