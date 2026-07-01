@@ -9,11 +9,16 @@ export type QWeatherCredential = {
 const load = (): QWeatherCredential | null => {
   if (typeof window === 'undefined') return null
   const pem = window.localStorage.getItem(KEY_PREFIX + 'pem') ?? ''
+  if (!pem) return null
   const kid = window.localStorage.getItem(KEY_PREFIX + 'kid') ?? ''
   const sub = window.localStorage.getItem(KEY_PREFIX + 'sub') ?? ''
-  if (!pem || !kid || !sub) return null
   return { privateKeyPem: pem, credentialId: kid, projectId: sub }
 }
+
+// Returns true if the stored key is a plain hex API key (not an Ed25519 PEM).
+// Plain hex keys use ?key= URL param auth; PEM keys use JWT Bearer auth.
+export const isHexApiKey = (s: string): boolean =>
+  /^[0-9a-fA-F]+$/.test(s.trim()) && s.trim().length <= 64
 
 export const getQWeatherCredential = (): QWeatherCredential | null => load()
 

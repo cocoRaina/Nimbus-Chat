@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import { Geolocation } from '@capacitor/geolocation'
-import { getQWeatherCredential, generateQWeatherJWT } from './qweatherKey'
+import { getQWeatherCredential, generateQWeatherJWT, isHexApiKey, type QWeatherCredential } from './qweatherKey'
 
 // Primary: QWeather (和风天气) — accurate for China, JWT auth (Ed25519).
 // Fallback: Open-Meteo — no key, global NWP model.
@@ -103,20 +103,31 @@ const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | nu
   })
 }
 
+// Build fetch options (url suffix + headers) for QWeather API.
+// Hex key → ?key= URL param; PEM → JWT Bearer header.
+const buildQWeatherFetchArgs = async (
+  cred: QWeatherCredential,
+): Promise<{ keyParam: string; headers: Record<string, string> }> => {
+  const raw = cred.privateKeyPem.trim()
+  if (isHexApiKey(raw)) {
+    return { keyParam: `&key=${raw}`, headers: {} }
+  }
+  const jwt = await generateQWeatherJWT(cred)
+  return { keyParam: '', headers: { Authorization: `Bearer ${jwt}` } }
+}
+
 // QWeather GeoAPI reverse-geocode: coords → Chinese city name.
 const qweatherReverseGeocode = async (
   lat: number,
   lon: number,
-  jwt: string,
+  cred: QWeatherCredential,
 ): Promise<string | null> => {
   try {
+    const { keyParam, headers } = await buildQWeatherFetchArgs(cred)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 4000)
-    const url = `https://geoapi.qweather.com/v2/city/lookup?location=${lon},${lat}`
-    const r = await fetch(url, {
-      signal: controller.signal,
-      headers: { Authorization: `Bearer ${jwt}` },
-    })
+    const url = `https://geoapi.qweather.com/v2/city/lookup?location=${lon},${lat}${keyParam}`
+    const r = await fetch(url, { signal: controller.signal, headers })
     clearTimeout(timer)
     if (!r.ok) return null
     const d = (await r.json()) as { location?: Array<{ name?: string; adm2?: string; adm1?: string }> }
@@ -147,20 +158,18 @@ const fallbackReverseGeocode = async (lat: number, lon: number): Promise<string 
   }
 }
 
-// QWeather weather-now API with JWT Bearer auth.
+// QWeather weather-now API. Supports both hex ?key= param and JWT Bearer auth.
 const fetchQWeather = async (
   lat: number,
   lon: number,
-  jwt: string,
+  cred: QWeatherCredential,
 ): Promise<{ data: { temperatureC: number; feelsLikeC: number; condition: string; windKmh: number } | null; error: string | null }> => {
   try {
+    const { keyParam, headers } = await buildQWeatherFetchArgs(cred)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 6000)
-    const url = `https://devapi.qweather.com/v7/weather/now?location=${lon},${lat}`
-    const r = await fetch(url, {
-      signal: controller.signal,
-      headers: { Authorization: `Bearer ${jwt}` },
-    })
+    const url = `https://devapi.qweather.com/v7/weather/now?location=${lon},${lat}${keyParam}`
+    const r = await fetch(url, { signal: controller.signal, headers })
     clearTimeout(timer)
     if (!r.ok) {
       return { data: null, error: `HTTP ${r.status}` }
@@ -237,12 +246,10 @@ export const fetchCurrentWeather = async (
   let source: 'qweather' | 'open-meteo' = 'open-meteo'
   let qweatherError: string | null = null
   let wx = null
-  let jwt: string | null = null
 
   if (cred) {
     try {
-      jwt = await generateQWeatherJWT(cred)
-      const result = await fetchQWeather(lat, lon, jwt)
+      const result = await fetchQWeather(lat, lon, cred)
       if (result.data) {
         wx = result.data
         source = 'qweather'
@@ -250,7 +257,7 @@ export const fetchCurrentWeather = async (
         qweatherError = result.error
       }
     } catch (e) {
-      qweatherError = `JWT生成失败: ${String(e)}`
+      qweatherError = String(e)
     }
   }
   if (!wx) wx = await fetchOpenMeteo(lat, lon)
@@ -259,8 +266,8 @@ export const fetchCurrentWeather = async (
   let city: string | null = null
   if (cityOverride) {
     city = ('city' in cityOverride ? (cityOverride.city ?? null) : null)
-  } else if (jwt && source === 'qweather') {
-    city = await qweatherReverseGeocode(lat, lon, jwt)
+  } else if (source === 'qweather' && cred) {
+    city = await qweatherReverseGeocode(lat, lon, cred)
     if (!city) city = await fallbackReverseGeocode(lat, lon)
   } else {
     city = await fallbackReverseGeocode(lat, lon)

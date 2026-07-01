@@ -1367,9 +1367,9 @@ const SettingsPage = ({
         </button>
         {weatherSectionExpanded ? (
           <div className="accordion-content">
-            <span className="settings-hint">在和风天气控制台 → 项目管理 → 凭据，找到「凭据ID」和「项目ID」，「API KEY」字段里下载 Ed25519 私钥 PEM。</span>
+            <span className="settings-hint">控制台凭据页显示的16进制 API Key 直接粘贴即可。如果是 Ed25519 凭据，需粘贴完整 PEM 私钥文件内容（含 -----BEGIN PRIVATE KEY----- 头尾），并额外填写凭据ID和项目ID。</span>
 
-            <label htmlFor="qweather-pem">私钥（API KEY · PEM 格式）</label>
+            <label htmlFor="qweather-pem">API Key（和风天气）</label>
             <div className="model-select-row">
               <input
                 id="qweather-pem"
@@ -1383,22 +1383,22 @@ const SettingsPage = ({
               </button>
             </div>
 
-            <label htmlFor="qweather-kid">凭据ID（kid）</label>
+            <label htmlFor="qweather-kid">凭据ID（kid，Ed25519 凭据才需要填）</label>
             <input
               id="qweather-kid"
               type="text"
               value={qweatherKid}
               onChange={(e) => { setQweatherKid(e.target.value); setQweatherCredStatus('idle') }}
-              placeholder="如 CA5CN4E7H8"
+              placeholder="如 CA5CN4E7H8（普通 API Key 可留空）"
             />
 
-            <label htmlFor="qweather-sub">项目ID（sub）</label>
+            <label htmlFor="qweather-sub">项目ID（sub，Ed25519 凭据才需要填）</label>
             <input
               id="qweather-sub"
               type="text"
               value={qweatherSub}
               onChange={(e) => { setQweatherSub(e.target.value); setQweatherCredStatus('idle') }}
-              placeholder="控制台「项目管理」页面的项目 ID"
+              placeholder="控制台项目 ID（普通 API Key 可留空）"
             />
 
             <div className="system-prompt-actions">
@@ -1413,7 +1413,7 @@ const SettingsPage = ({
                   saveQWeatherCredential({ privateKeyPem: pem, credentialId: kid, projectId: sub })
                   setQweatherCredStatus('saved')
                 }}
-                disabled={!qweatherPem.trim() || !qweatherKid.trim() || !qweatherSub.trim()}
+                disabled={!qweatherPem.trim()}
               >
                 保存
               </button>
