@@ -36,26 +36,23 @@ export const clearQWeatherCredential = () => {
 }
 
 // Generate a short-lived Ed25519 JWT for QWeather API calls.
-// TTL is 5 minutes; caller should regenerate on each request (cheap).
+// Uses @noble/ed25519 (pure JS) for Android WebView compatibility —
+// WebCrypto Ed25519 is only available in Chrome 113+; older WebViews throw NotSupportedError.
 export const generateQWeatherJWT = async (c: QWeatherCredential): Promise<string> => {
+  const { sign } = await import('@noble/ed25519')
+
   const pemContents = c.privateKeyPem
     .replace(/-----BEGIN PRIVATE KEY-----/g, '')
     .replace(/-----END PRIVATE KEY-----/g, '')
     .replace(/\s/g, '')
-  const binaryDer = Uint8Array.from(atob(pemContents), ch => ch.charCodeAt(0))
+  const pkcs8 = Uint8Array.from(atob(pemContents), ch => ch.charCodeAt(0))
+  // PKCS8 Ed25519: 48-byte DER, last 32 bytes are the raw private key seed.
+  const seed = pkcs8.slice(-32)
 
-  const privateKey = await crypto.subtle.importKey(
-    'pkcs8',
-    binaryDer.buffer,
-    { name: 'Ed25519' },
-    false,
-    ['sign'],
-  )
-
-  const b64url = (source: ArrayBuffer | string): string => {
+  const b64url = (source: Uint8Array | string): string => {
     const encoded = typeof source === 'string'
       ? btoa(unescape(encodeURIComponent(source)))
-      : btoa(String.fromCharCode(...new Uint8Array(source)))
+      : btoa(String.fromCharCode(...source))
     return encoded.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
   }
 
@@ -63,10 +60,6 @@ export const generateQWeatherJWT = async (c: QWeatherCredential): Promise<string
   const header = b64url(JSON.stringify({ alg: 'EdDSA', kid: c.credentialId }))
   const payload = b64url(JSON.stringify({ sub: c.projectId, iat: now, exp: now + 300 }))
   const message = `${header}.${payload}`
-  const sig = await crypto.subtle.sign(
-    { name: 'Ed25519' },
-    privateKey,
-    new TextEncoder().encode(message),
-  )
+  const sig = await sign(new TextEncoder().encode(message), seed)
   return `${message}.${b64url(sig)}`
 }
