@@ -772,18 +772,21 @@ const ChatPage = ({
       try {
         const { Camera } = await import('@capacitor/camera')
         // takePhoto replaces the deprecated getPhoto in @capacitor/camera v8
+        console.log('[camera] takePhoto start')
         const media = await Camera.takePhoto({ quality: 90 })
+        console.log('[camera] takePhoto result', { webPath: media.webPath, uri: media.uri })
         const src = media.webPath ?? media.uri
-        if (!src) return
+        if (!src) { console.warn('[camera] no src in media result'); return }
         const res = await fetch(src)
         const blob = await res.blob()
+        console.log('[camera] blob size', blob.size)
         const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' })
         const dt = new DataTransfer()
         dt.items.add(file)
         void handleFilePick(dt.files)
         return
-      } catch {
-        // user cancelled — do nothing
+      } catch (e) {
+        console.warn('[camera] takePhoto cancelled or failed', e)
         return
       }
     }
@@ -809,7 +812,9 @@ const ChatPage = ({
       try {
         const { Camera } = await import('@capacitor/camera')
         // chooseFromGallery replaces the deprecated pickImages in @capacitor/camera v8
+        console.log('[gallery] chooseFromGallery start')
         const result = await Camera.chooseFromGallery({ allowMultipleSelection: true, quality: 90 })
+        console.log('[gallery] picked count', result.results.length, result.results.map(r => ({ webPath: r.webPath, uri: r.uri })))
         if (!result.results.length) return
         const dt = new DataTransfer()
         for (let i = 0; i < result.results.length; i++) {
@@ -818,14 +823,17 @@ const ChatPage = ({
           // (capacitor://localhost/_capacitor_file_/...) — fetch works because
           // CapacitorHttp only patches http/https, not the capacitor:// scheme.
           const src = media.webPath ?? media.uri
-          if (!src) continue
+          if (!src) { console.warn('[gallery] no src for item', i); continue }
+          console.log('[gallery] fetching item', i, src)
           const res = await fetch(src)
           const blob = await res.blob()
+          console.log('[gallery] item', i, 'blob size', blob.size)
           dt.items.add(new File([blob], `pick_${Date.now()}_${i}.jpg`, { type: 'image/jpeg' }))
         }
+        console.log('[gallery] DataTransfer files count', dt.files.length)
         if (dt.files.length) void handleFilePick(dt.files)
-      } catch {
-        // User cancelled or fetch failed — fall back to HTML file input.
+      } catch (e) {
+        console.warn('[gallery] chooseFromGallery failed, falling back', e)
         fileInputRef.current?.click()
       }
       return
