@@ -8,6 +8,24 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### 和风天气一直 403：认证方式 + API Host 全用错了（2026-07-01）
+
+**症状**：填了和风 API Key，调试面板一直 `和风失败: HTTP 403`，退回 Open-Meteo。前后猜了四五轮（`?key=` → EdDSA JWT → HS256 JWT）全 403。
+
+**根因**（两个独立错误叠加，翻文档才定位到）：
+1. **认证放错位置**：新版和风的 API Key 要放**请求头** `X-QW-Api-Key: <key>`，不是 URL 参数 `?key=`。（Ed25519 凭据才用 `Authorization: Bearer <JWT>`。）
+2. **API Host 用错**：`devapi.qweather.com` / `geoapi.qweather.com` 是**旧的公共共享域名，2026 起逐步停用**，新账号必须用控制台「设置」页里分配的**专属 API Host**（形如 `abc123.qweatherapi.com`）。共享域名对新凭据直接 403。
+
+**另一个坑**：Android WebView（< Chrome 113）不支持 WebCrypto 的 Ed25519（`crypto.subtle.importKey({name:'Ed25519'})` 抛 `NotSupportedError`）。若用 Ed25519 凭据，改用纯 JS 的 `@noble/ed25519` 签名（PKCS8 DER 里扫 `04 20` 标记取 32 字节 seed）。但普通 hex API Key 根本不用签名，直接走 header 最省事。
+
+**修**：
+- `weather.ts`：请求改用专属 API Host + header 认证。hex key → `X-QW-Api-Key`；PEM → `Authorization: Bearer <EdDSA JWT>`
+- 新版 Host 的路径：天气 `{host}/v7/weather/now`，地名 `{host}/geo/v2/city/lookup`（注意是 `/geo/v2/` 不是 `/v2/`）
+- `qweatherKey.ts`：`QWeatherCredential` 加 `apiHost` 字段；`isHexApiKey()` 判断走哪套认证；`normalizeApiHost()` 剥 scheme/斜杠
+- 设置页新增「API Host」输入栏（第一栏），并把凭据ID/项目ID 标注为「Ed25519 才需填」
+
+**正确用法**（普通凭据）：控制台设置页 API Host → 填第一栏；凭据页 hex API Key → 填第二栏；其余留空。
+
 ### 天气数据不准：定位偏 + Open-Meteo 精度不足（2026-07-01）
 
 **症状**：沈暮报的温度和天气状况整体与实际偏差大。

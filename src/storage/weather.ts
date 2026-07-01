@@ -1,11 +1,18 @@
 import { Capacitor } from '@capacitor/core'
 import { Geolocation } from '@capacitor/geolocation'
-import { getQWeatherCredential, generateQWeatherJWT, isHexApiKey, type QWeatherCredential } from './qweatherKey'
+import { getQWeatherCredential, generateQWeatherJWT, isHexApiKey, normalizeApiHost, type QWeatherCredential } from './qweatherKey'
 
-// Primary: QWeather (和风天气) — accurate for China, JWT auth (Ed25519).
+// Primary: QWeather (和风天气) — accurate for China.
+// Auth: hex API KEY via X-QW-Api-Key header, OR Ed25519 JWT via Bearer.
+// Requests MUST go to the developer's custom API Host (xxx.qweatherapi.com);
+// the legacy shared domains devapi/geoapi.qweather.com are being shut down (403).
 // Fallback: Open-Meteo — no key, global NWP model.
-// https://dev.qweather.com/docs/api/weather/weather-now/
+// https://dev.qweather.com/docs/configuration/api-config/
 // https://open-meteo.com/
+
+// Legacy shared host, used only if the user hasn't set a custom API Host yet.
+const LEGACY_HOST = 'devapi.qweather.com'
+const LEGACY_GEO_HOST = 'geoapi.qweather.com'
 
 const STORAGE_KEY = 'nimbus_weather_cache_v1'
 const TTL_MS = 60 * 60 * 1000 // 1 hour
@@ -103,18 +110,31 @@ const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | nu
   })
 }
 
-// Build fetch options for QWeather API based on credential type:
+// Build auth headers for QWeather API based on credential type:
 // - Hex key → X-QW-Api-Key header (per QWeather docs: not ?key= URL param)
 // - PEM key → EdDSA JWT Bearer
-const buildQWeatherFetchArgs = async (
+const buildQWeatherHeaders = async (
   cred: QWeatherCredential,
-): Promise<{ keyParam: string; headers: Record<string, string> }> => {
+): Promise<Record<string, string>> => {
   const raw = cred.privateKeyPem.trim()
   if (isHexApiKey(raw)) {
-    return { keyParam: '', headers: { 'X-QW-Api-Key': raw } }
+    return { 'X-QW-Api-Key': raw }
   }
   const jwt = await generateQWeatherJWT(cred)
-  return { keyParam: '', headers: { Authorization: `Bearer ${jwt}` } }
+  return { Authorization: `Bearer ${jwt}` }
+}
+
+// Resolve the weather-now base host: custom API Host if set, else legacy.
+const weatherHost = (cred: QWeatherCredential): string =>
+  normalizeApiHost(cred.apiHost) || LEGACY_HOST
+
+// GeoAPI path differs by host: on a custom host it's /geo/v2/city/lookup;
+// the legacy shared domain is geoapi.qweather.com/v2/city/lookup.
+const geoLookupUrl = (cred: QWeatherCredential, lat: number, lon: number): string => {
+  const host = normalizeApiHost(cred.apiHost)
+  return host
+    ? `https://${host}/geo/v2/city/lookup?location=${lon},${lat}`
+    : `https://${LEGACY_GEO_HOST}/v2/city/lookup?location=${lon},${lat}`
 }
 
 // QWeather GeoAPI reverse-geocode: coords → Chinese city name.
@@ -124,11 +144,10 @@ const qweatherReverseGeocode = async (
   cred: QWeatherCredential,
 ): Promise<string | null> => {
   try {
-    const { keyParam, headers } = await buildQWeatherFetchArgs(cred)
+    const headers = await buildQWeatherHeaders(cred)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 4000)
-    const url = `https://geoapi.qweather.com/v2/city/lookup?location=${lon},${lat}${keyParam}`
-    const r = await fetch(url, { signal: controller.signal, headers })
+    const r = await fetch(geoLookupUrl(cred, lat, lon), { signal: controller.signal, headers })
     clearTimeout(timer)
     if (!r.ok) return null
     const d = (await r.json()) as { location?: Array<{ name?: string; adm2?: string; adm1?: string }> }
@@ -166,10 +185,10 @@ const fetchQWeather = async (
   cred: QWeatherCredential,
 ): Promise<{ data: { temperatureC: number; feelsLikeC: number; condition: string; windKmh: number } | null; error: string | null }> => {
   try {
-    const { keyParam, headers } = await buildQWeatherFetchArgs(cred)
+    const headers = await buildQWeatherHeaders(cred)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 6000)
-    const url = `https://devapi.qweather.com/v7/weather/now?location=${lon},${lat}${keyParam}`
+    const url = `https://${weatherHost(cred)}/v7/weather/now?location=${lon},${lat}`
     const r = await fetch(url, { signal: controller.signal, headers })
     clearTimeout(timer)
     if (!r.ok) {

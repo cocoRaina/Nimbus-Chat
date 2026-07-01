@@ -115,6 +115,7 @@ const SettingsPage = ({
   const [avatarSectionExpanded, setAvatarSectionExpanded] = useState(false)
   const [ttsSectionExpanded, setTtsSectionExpanded] = useState(false)
   const [weatherSectionExpanded, setWeatherSectionExpanded] = useState(false)
+  const [qweatherHost, setQweatherHost] = useState(() => getQWeatherCredential()?.apiHost ?? '')
   const [qweatherPem, setQweatherPem] = useState(() => getQWeatherCredential()?.privateKeyPem ?? '')
   const [qweatherPemVisible, setQweatherPemVisible] = useState(false)
   const [qweatherKid, setQweatherKid] = useState(() => getQWeatherCredential()?.credentialId ?? '')
@@ -1367,7 +1368,16 @@ const SettingsPage = ({
         </button>
         {weatherSectionExpanded ? (
           <div className="accordion-content">
-            <span className="settings-hint">控制台凭据页显示的16进制 API Key 直接粘贴即可。如果是 Ed25519 凭据，需粘贴完整 PEM 私钥文件内容（含 -----BEGIN PRIVATE KEY----- 头尾），并额外填写凭据ID和项目ID。</span>
+            <span className="settings-hint">先在和风控制台「设置」页找到你的专属 API Host（形如 abc123.qweatherapi.com），填到下面第一栏——旧的 devapi 公共域名已停用，不填会 403。然后把凭据页的16进制 API Key 粘到第二栏即可。（Ed25519 凭据才需要填 PEM 私钥 + 凭据ID + 项目ID。）</span>
+
+            <label htmlFor="qweather-host">API Host（控制台「设置」页）</label>
+            <input
+              id="qweather-host"
+              type="text"
+              value={qweatherHost}
+              onChange={(e) => { setQweatherHost(e.target.value); setQweatherCredStatus('idle') }}
+              placeholder="如 abc123def.qweatherapi.com"
+            />
 
             <label htmlFor="qweather-pem">API Key（和风天气）</label>
             <div className="model-select-row">
@@ -1407,10 +1417,13 @@ const SettingsPage = ({
                 className="primary"
                 onClick={() => {
                   const pem = qweatherPem.trim()
-                  const kid = qweatherKid.trim()
-                  const sub = qweatherSub.trim()
-                  if (!pem || !kid || !sub) return
-                  saveQWeatherCredential({ privateKeyPem: pem, credentialId: kid, projectId: sub })
+                  if (!pem) return
+                  saveQWeatherCredential({
+                    privateKeyPem: pem,
+                    credentialId: qweatherKid.trim(),
+                    projectId: qweatherSub.trim(),
+                    apiHost: qweatherHost.trim(),
+                  })
                   setQweatherCredStatus('saved')
                 }}
                 disabled={!qweatherPem.trim()}
@@ -1422,12 +1435,13 @@ const SettingsPage = ({
                 className="ghost danger"
                 onClick={() => {
                   clearQWeatherCredential()
+                  setQweatherHost('')
                   setQweatherPem('')
                   setQweatherKid('')
                   setQweatherSub('')
                   setQweatherCredStatus('idle')
                 }}
-                disabled={!qweatherPem.trim() && !qweatherKid.trim() && !qweatherSub.trim()}
+                disabled={!qweatherPem.trim() && !qweatherKid.trim() && !qweatherSub.trim() && !qweatherHost.trim()}
               >
                 清除
               </button>

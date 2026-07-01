@@ -1,9 +1,10 @@
 const KEY_PREFIX = 'nimbus_qweather_v2_'
 
 export type QWeatherCredential = {
-  privateKeyPem: string  // Ed25519 private key PEM from console "API KEY" field
-  credentialId: string   // 凭据ID (kid in JWT header)
-  projectId: string      // 项目ID (sub in JWT payload)
+  privateKeyPem: string  // Ed25519 private key PEM, OR plain hex API KEY from console
+  credentialId: string   // 凭据ID (kid in JWT header) — Ed25519 only
+  projectId: string      // 项目ID (sub in JWT payload) — Ed25519 only
+  apiHost: string        // custom API Host, e.g. abc123.qweatherapi.com (from console 设置)
 }
 
 const load = (): QWeatherCredential | null => {
@@ -12,38 +13,17 @@ const load = (): QWeatherCredential | null => {
   if (!pem) return null
   const kid = window.localStorage.getItem(KEY_PREFIX + 'kid') ?? ''
   const sub = window.localStorage.getItem(KEY_PREFIX + 'sub') ?? ''
-  return { privateKeyPem: pem, credentialId: kid, projectId: sub }
+  const host = window.localStorage.getItem(KEY_PREFIX + 'host') ?? ''
+  return { privateKeyPem: pem, credentialId: kid, projectId: sub, apiHost: host }
 }
 
 // Returns true if the stored key is a plain hex API key (not an Ed25519 PEM).
 export const isHexApiKey = (s: string): boolean =>
   /^[0-9a-fA-F]+$/.test(s.trim()) && s.trim().length <= 64
 
-// HS256 JWT for hex API keys. QWeather new accounts reject ?key= but accept
-// a Bearer JWT signed with HMAC-SHA256 using the hex key as the secret.
-export const generateQWeatherHS256JWT = async (c: QWeatherCredential): Promise<string> => {
-  const hex = c.privateKeyPem.trim()
-  const pairs = hex.match(/.{1,2}/g) ?? []
-  const keyBytes = Uint8Array.from(pairs, b => parseInt(b, 16))
-
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  )
-
-  const b64url = (source: Uint8Array | string): string => {
-    const encoded = typeof source === 'string'
-      ? btoa(unescape(encodeURIComponent(source)))
-      : btoa(String.fromCharCode(...source))
-    return encoded.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-  }
-
-  const now = Math.floor(Date.now() / 1000)
-  const header = b64url(JSON.stringify({ alg: 'HS256', kid: c.credentialId }))
-  const payload = b64url(JSON.stringify({ sub: c.projectId || c.credentialId, iat: now, exp: now + 300 }))
-  const message = `${header}.${payload}`
-  const sig = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(message))
-  return `${message}.${b64url(new Uint8Array(sig))}`
-}
+// Normalize a user-entered API Host into a bare hostname (strip scheme/trailing slash).
+export const normalizeApiHost = (raw: string): string =>
+  raw.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
 
 export const getQWeatherCredential = (): QWeatherCredential | null => load()
 
@@ -54,6 +34,7 @@ export const saveQWeatherCredential = (c: QWeatherCredential) => {
   window.localStorage.setItem(KEY_PREFIX + 'pem', c.privateKeyPem.trim())
   window.localStorage.setItem(KEY_PREFIX + 'kid', c.credentialId.trim())
   window.localStorage.setItem(KEY_PREFIX + 'sub', c.projectId.trim())
+  window.localStorage.setItem(KEY_PREFIX + 'host', normalizeApiHost(c.apiHost))
 }
 
 export const clearQWeatherCredential = () => {
@@ -61,6 +42,7 @@ export const clearQWeatherCredential = () => {
   window.localStorage.removeItem(KEY_PREFIX + 'pem')
   window.localStorage.removeItem(KEY_PREFIX + 'kid')
   window.localStorage.removeItem(KEY_PREFIX + 'sub')
+  window.localStorage.removeItem(KEY_PREFIX + 'host')
   // also clear old v1 key if present
   window.localStorage.removeItem('nimbus_qweather_key_v1')
 }
