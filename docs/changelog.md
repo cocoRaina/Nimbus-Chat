@@ -8,6 +8,25 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### Android 相册只能选一张图（2026-07-01）
+
+**症状**：点「从相册」后只能选一张图，系统选择器没有多选模式。
+
+**根因**：`@capacitor/camera` v8 做了破坏性改版，旧 API 全部废弃：
+- `Camera.getPhoto()` → 废弃，换 `Camera.takePhoto()`
+- `Camera.pickImages()` → 废弃，换 `Camera.chooseFromGallery({ allowMultipleSelection: true })`
+- 返回类型也变：旧版 `GalleryPhoto` 有 `webPath: string`（必有）和 `format`；新版 `MediaResult` 有 `webPath?: string` 和 `uri?: string`（两者都可能为 undefined，需 `??` 兜底）
+
+第一次修用了 `pickImages`（也是废弃 API），测出来还是单选，才发现 v8 完全换了另一套函数名。
+
+**修**：
+- `openNativeCamera`：改用 `Camera.takePhoto({ quality: 90 })`，用 `media.webPath ?? media.uri` 取路径
+- `openNativeGallery`：改用 `Camera.chooseFromGallery({ allowMultipleSelection: true, quality: 90 })`，遍历 `result.results`（`MediaResult[]`）取每张图
+
+**结果**：系统相册打开时进入多选模式，可一次选多张图片一起发。
+
+---
+
 ### 图片描述缓存替掉原图，API「看不到图片」（2026-06-30）
 
 **症状**：用户发图片后 Claude 回答像没看见图片，提问「第一次发图片不是原件吗」。进一步确认：换图仍然一样，之前（前天 = 2026-06-28）还好用。
