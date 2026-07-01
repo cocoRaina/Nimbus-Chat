@@ -802,6 +802,38 @@ const ChatPage = ({
     }
   }
 
+  // On Android, use Camera.pickImages() so the native multi-select gallery
+  // intent fires. Triggering the HTML <input multiple> via .click() goes
+  // through Android's file chooser but Capacitor doesn't forward the
+  // multiple-file selection correctly — only one image comes back.
+  const openNativeGallery = async () => {
+    setOpenAttachMenu(false)
+    if (Capacitor.getPlatform() === 'android') {
+      try {
+        const { Camera } = await import('@capacitor/camera')
+        const result = await Camera.pickImages({ quality: 90 })
+        if (!result.photos.length) return
+        const dt = new DataTransfer()
+        for (let i = 0; i < result.photos.length; i++) {
+          const photo = result.photos[i]
+          // webPath is served by Capacitor's local WebView handler
+          // (capacitor://localhost/_capacitor_file_/...) — fetch works because
+          // CapacitorHttp only patches http/https, not the capacitor:// scheme.
+          const res = await fetch(photo.webPath)
+          const blob = await res.blob()
+          const ext = photo.format ?? 'jpeg'
+          dt.items.add(new File([blob], `pick_${Date.now()}_${i}.${ext}`, { type: `image/${ext}` }))
+        }
+        void handleFilePick(dt.files)
+      } catch {
+        // User cancelled or fetch failed — fall back to HTML file input.
+        fileInputRef.current?.click()
+      }
+      return
+    }
+    fileInputRef.current?.click()
+  }
+
   // Web-only in-app camera (used as fallback when @capacitor/camera unavailable)
   const [showCameraModal, setShowCameraModal] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -1472,10 +1504,7 @@ const ChatPage = ({
               <button
                 type="button"
                 className="attach-panel__tile"
-                onClick={() => {
-                  setOpenAttachMenu(false)
-                  fileInputRef.current?.click()
-                }}
+                onClick={() => void openNativeGallery()}
               >
                 <span className="attach-panel__tile-icon">🖼</span>
                 <span className="attach-panel__tile-label">从相册</span>

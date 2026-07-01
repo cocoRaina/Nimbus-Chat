@@ -480,6 +480,14 @@ const DiariesTab = () => {
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { setPage(0) }, [search])
 
+  // Re-fetch when the user returns to the app (e.g. after Claude wrote a
+  // diary in a background proactive session or while another tab was active).
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') void refresh() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [refresh])
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     if (!term) return items
@@ -546,7 +554,9 @@ const DiariesTab = () => {
           </div>
         </div>
 
-        {filtered.length === 0 && !showNew ? (
+        {loading && items.length === 0 ? (
+          <p className="memory-vault-empty">加载中…</p>
+        ) : filtered.length === 0 && !showNew ? (
           <p className="memory-vault-empty">{items.length === 0 ? 'No diaries yet. Tap + to write one.' : '没有匹配。'}</p>
         ) : (
           <ul className="memory-vault-items">
