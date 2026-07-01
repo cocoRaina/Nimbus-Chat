@@ -1,8 +1,8 @@
 import { Capacitor } from '@capacitor/core'
 import { Geolocation } from '@capacitor/geolocation'
-import { getQWeatherKey } from './qweatherKey'
+import { getQWeatherCredential, generateQWeatherJWT } from './qweatherKey'
 
-// Primary: QWeather (和风天气) — accurate for China, requires free API key.
+// Primary: QWeather (和风天气) — accurate for China, JWT auth (Ed25519).
 // Fallback: Open-Meteo — no key, global NWP model.
 // https://dev.qweather.com/docs/api/weather/weather-now/
 // https://open-meteo.com/
@@ -47,7 +47,7 @@ export type WeatherSnapshot = {
   lat: number
   lon: number
   source?: 'qweather' | 'open-meteo'
-  qweatherError?: string   // debug: why QWeather failed (http status / api code)
+  qweatherError?: string
 }
 
 export const peekCachedWeather = (): WeatherSnapshot | null => readCache()
@@ -85,7 +85,7 @@ const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | nu
       const pos = await Geolocation.getCurrentPosition({
         enableHighAccuracy: true,
         timeout: 10000,
-        maximumAge: 10 * 60 * 1000, // 10 min — short enough to catch city-level moves
+        maximumAge: 10 * 60 * 1000,
       })
       return { lat: pos.coords.latitude, lon: pos.coords.longitude }
     } catch (err) {
@@ -103,18 +103,20 @@ const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | nu
   })
 }
 
-// QWeather GeoAPI: reverse-geocode coords to Chinese city name.
-// Returns locality (区/县) > city (市) > province as fallback.
+// QWeather GeoAPI reverse-geocode: coords → Chinese city name.
 const qweatherReverseGeocode = async (
   lat: number,
   lon: number,
-  key: string,
+  jwt: string,
 ): Promise<string | null> => {
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 4000)
-    const url = `https://geoapi.qweather.com/v2/city/lookup?location=${lon},${lat}&key=${key}`
-    const r = await fetch(url, { signal: controller.signal })
+    const url = `https://geoapi.qweather.com/v2/city/lookup?location=${lon},${lat}`
+    const r = await fetch(url, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${jwt}` },
+    })
     clearTimeout(timer)
     if (!r.ok) return null
     const d = (await r.json()) as { location?: Array<{ name?: string; adm2?: string; adm1?: string }> }
@@ -126,7 +128,7 @@ const qweatherReverseGeocode = async (
   }
 }
 
-// Fallback reverse-geocode (no key needed). BigDataCloud is CORS-safe from browsers.
+// Fallback reverse-geocode (no key). BigDataCloud is CORS-safe.
 const fallbackReverseGeocode = async (lat: number, lon: number): Promise<string | null> => {
   try {
     const controller = new AbortController()
@@ -145,18 +147,20 @@ const fallbackReverseGeocode = async (lat: number, lon: number): Promise<string 
   }
 }
 
-// QWeather weather-now API. Free tier uses devapi.qweather.com.
-// Returns { data, error } so the caller can record why it failed.
+// QWeather weather-now API with JWT Bearer auth.
 const fetchQWeather = async (
   lat: number,
   lon: number,
-  key: string,
+  jwt: string,
 ): Promise<{ data: { temperatureC: number; feelsLikeC: number; condition: string; windKmh: number } | null; error: string | null }> => {
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 6000)
-    const url = `https://devapi.qweather.com/v7/weather/now?location=${lon},${lat}&key=${key}`
-    const r = await fetch(url, { signal: controller.signal })
+    const url = `https://devapi.qweather.com/v7/weather/now?location=${lon},${lat}`
+    const r = await fetch(url, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${jwt}` },
+    })
     clearTimeout(timer)
     if (!r.ok) {
       return { data: null, error: `HTTP ${r.status}` }
@@ -228,32 +232,35 @@ export const fetchCurrentWeather = async (
   if (!coords) return cached ?? null
 
   const { lat, lon } = coords
-  const qkey = getQWeatherKey()
+  const cred = getQWeatherCredential()
 
-  // Try QWeather first (better accuracy for China), fall back to Open-Meteo.
   let source: 'qweather' | 'open-meteo' = 'open-meteo'
   let qweatherError: string | null = null
   let wx = null
-  if (qkey) {
-    const result = await fetchQWeather(lat, lon, qkey)
-    if (result.data) {
-      wx = result.data
-      source = 'qweather'
-    } else {
-      qweatherError = result.error
+  let jwt: string | null = null
+
+  if (cred) {
+    try {
+      jwt = await generateQWeatherJWT(cred)
+      const result = await fetchQWeather(lat, lon, jwt)
+      if (result.data) {
+        wx = result.data
+        source = 'qweather'
+      } else {
+        qweatherError = result.error
+      }
+    } catch (e) {
+      qweatherError = `JWT生成失败: ${String(e)}`
     }
   }
   if (!wx) wx = await fetchOpenMeteo(lat, lon)
-
   if (!wx) return cached ?? null
 
-  // Resolve city name: QWeather GeoAPI > BigDataCloud > null.
-  // For cityOverride, trust the caller's label.
   let city: string | null = null
   if (cityOverride) {
     city = ('city' in cityOverride ? (cityOverride.city ?? null) : null)
-  } else if (qkey) {
-    city = await qweatherReverseGeocode(lat, lon, qkey)
+  } else if (jwt && source === 'qweather') {
+    city = await qweatherReverseGeocode(lat, lon, jwt)
     if (!city) city = await fallbackReverseGeocode(lat, lon)
   } else {
     city = await fallbackReverseGeocode(lat, lon)
