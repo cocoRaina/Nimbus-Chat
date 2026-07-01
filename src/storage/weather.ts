@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import { Geolocation } from '@capacitor/geolocation'
-import { getQWeatherCredential, generateQWeatherJWT, isHexApiKey, type QWeatherCredential } from './qweatherKey'
+import { getQWeatherCredential, generateQWeatherJWT, generateQWeatherHS256JWT, isHexApiKey, type QWeatherCredential } from './qweatherKey'
 
 // Primary: QWeather (和风天气) — accurate for China, JWT auth (Ed25519).
 // Fallback: Open-Meteo — no key, global NWP model.
@@ -103,13 +103,19 @@ const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | nu
   })
 }
 
-// Build fetch options (url suffix + headers) for QWeather API.
-// Hex key → ?key= URL param; PEM → JWT Bearer header.
+// Build fetch options for QWeather API based on credential type:
+// - Hex key + credentialId → HS256 JWT Bearer (new accounts require JWT, not ?key=)
+// - Hex key, no credentialId → ?key= URL param (legacy fallback)
+// - PEM key → EdDSA JWT Bearer
 const buildQWeatherFetchArgs = async (
   cred: QWeatherCredential,
 ): Promise<{ keyParam: string; headers: Record<string, string> }> => {
   const raw = cred.privateKeyPem.trim()
   if (isHexApiKey(raw)) {
+    if (cred.credentialId) {
+      const jwt = await generateQWeatherHS256JWT(cred)
+      return { keyParam: '', headers: { Authorization: `Bearer ${jwt}` } }
+    }
     return { keyParam: `&key=${raw}`, headers: {} }
   }
   const jwt = await generateQWeatherJWT(cred)
