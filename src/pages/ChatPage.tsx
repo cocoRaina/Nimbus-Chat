@@ -770,15 +770,12 @@ const ChatPage = ({
     setOpenAttachMenu(false)
     if (Capacitor.getPlatform() === 'android') {
       try {
-        const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera')
-        const photo = await Camera.getPhoto({
-          quality: 90,
-          allowEditing: false,
-          resultType: CameraResultType.DataUrl,
-          source: CameraSource.Camera,
-        })
-        if (!photo.dataUrl) return
-        const res = await fetch(photo.dataUrl)
+        const { Camera } = await import('@capacitor/camera')
+        // takePhoto replaces the deprecated getPhoto in @capacitor/camera v8
+        const media = await Camera.takePhoto({ quality: 90 })
+        const src = media.webPath ?? media.uri
+        if (!src) return
+        const res = await fetch(src)
         const blob = await res.blob()
         const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' })
         const dt = new DataTransfer()
@@ -802,29 +799,31 @@ const ChatPage = ({
     }
   }
 
-  // On Android, use Camera.pickImages() so the native multi-select gallery
-  // intent fires. Triggering the HTML <input multiple> via .click() goes
-  // through Android's file chooser but Capacitor doesn't forward the
+  // On Android, use Camera.chooseFromGallery() so the native multi-select
+  // gallery intent fires. Triggering the HTML <input multiple> via .click()
+  // goes through Android's file chooser but Capacitor doesn't forward the
   // multiple-file selection correctly — only one image comes back.
   const openNativeGallery = async () => {
     setOpenAttachMenu(false)
     if (Capacitor.getPlatform() === 'android') {
       try {
         const { Camera } = await import('@capacitor/camera')
-        const result = await Camera.pickImages({ quality: 90 })
-        if (!result.photos.length) return
+        // chooseFromGallery replaces the deprecated pickImages in @capacitor/camera v8
+        const result = await Camera.chooseFromGallery({ allowMultipleSelection: true, quality: 90 })
+        if (!result.results.length) return
         const dt = new DataTransfer()
-        for (let i = 0; i < result.photos.length; i++) {
-          const photo = result.photos[i]
+        for (let i = 0; i < result.results.length; i++) {
+          const media = result.results[i]
           // webPath is served by Capacitor's local WebView handler
           // (capacitor://localhost/_capacitor_file_/...) — fetch works because
           // CapacitorHttp only patches http/https, not the capacitor:// scheme.
-          const res = await fetch(photo.webPath)
+          const src = media.webPath ?? media.uri
+          if (!src) continue
+          const res = await fetch(src)
           const blob = await res.blob()
-          const ext = photo.format ?? 'jpeg'
-          dt.items.add(new File([blob], `pick_${Date.now()}_${i}.${ext}`, { type: `image/${ext}` }))
+          dt.items.add(new File([blob], `pick_${Date.now()}_${i}.jpg`, { type: 'image/jpeg' }))
         }
-        void handleFilePick(dt.files)
+        if (dt.files.length) void handleFilePick(dt.files)
       } catch {
         // User cancelled or fetch failed — fall back to HTML file input.
         fileInputRef.current?.click()
