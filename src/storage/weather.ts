@@ -46,6 +46,7 @@ export type WeatherSnapshot = {
   city: string | null
   lat: number
   lon: number
+  source?: 'qweather' | 'open-meteo'
 }
 
 export const peekCachedWeather = (): WeatherSnapshot | null => readCache()
@@ -222,9 +223,13 @@ export const fetchCurrentWeather = async (
   const qkey = getQWeatherKey()
 
   // Try QWeather first (better accuracy for China), fall back to Open-Meteo.
-  const wx = qkey
-    ? ((await fetchQWeather(lat, lon, qkey)) ?? (await fetchOpenMeteo(lat, lon)))
-    : await fetchOpenMeteo(lat, lon)
+  let source: 'qweather' | 'open-meteo' = 'open-meteo'
+  let wx = null
+  if (qkey) {
+    wx = await fetchQWeather(lat, lon, qkey)
+    if (wx) source = 'qweather'
+  }
+  if (!wx) wx = await fetchOpenMeteo(lat, lon)
 
   if (!wx) return cached ?? null
 
@@ -246,6 +251,7 @@ export const fetchCurrentWeather = async (
     city,
     lat,
     lon,
+    source,
   }
   if (!cityOverride) writeCache(snap)
   return snap

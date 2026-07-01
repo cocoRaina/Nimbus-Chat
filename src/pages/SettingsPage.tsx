@@ -16,6 +16,7 @@ import {
   getQWeatherKey,
   saveQWeatherKey,
 } from '../storage/qweatherKey'
+import { peekCachedWeather, fetchCurrentWeather, type WeatherSnapshot } from '../storage/weather'
 import {
   DEFAULT_MSUICODE_BASE,
   clearMsuicodeApiKey,
@@ -117,6 +118,8 @@ const SettingsPage = ({
   const [qweatherKeyInput, setQWeatherKeyInput] = useState(() => getQWeatherKey())
   const [qweatherKeyVisible, setQWeatherKeyVisible] = useState(false)
   const [qweatherKeyStatus, setQWeatherKeyStatus] = useState<'idle' | 'saved'>('idle')
+  const [weatherSnap, setWeatherSnap] = useState<WeatherSnapshot | null>(() => peekCachedWeather())
+  const [weatherRefreshing, setWeatherRefreshing] = useState(false)
   const [ttsDraft, setTtsDraft] = useState(() => getTtsConfig())
   const [ttsApiKeyVisible, setTtsApiKeyVisible] = useState(false)
   const [ttsStatus, setTtsStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
@@ -1410,6 +1413,38 @@ const SettingsPage = ({
                 清除
               </button>
               {qweatherKeyStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
+            </div>
+
+            <label>当前天气缓存</label>
+            {weatherSnap ? (
+              <div className="settings-hint" style={{ fontFamily: 'monospace', lineHeight: 1.7 }}>
+                <div>来源：{weatherSnap.source === 'qweather' ? '✅ 和风天气' : '⚠️ Open-Meteo（未用 key）'}</div>
+                <div>坐标：{weatherSnap.lat.toFixed(4)}, {weatherSnap.lon.toFixed(4)}</div>
+                <div>城市：{weatherSnap.city ?? '未知'}</div>
+                <div>天气：{weatherSnap.temperatureC}°C {weatherSnap.condition}</div>
+                <div>刷新于：{new Date(weatherSnap.fetchedAt).toLocaleTimeString('zh-CN')}</div>
+              </div>
+            ) : (
+              <p className="settings-hint">暂无缓存（沈暮开口前不会主动定位）</p>
+            )}
+            <div className="system-prompt-actions">
+              <button
+                type="button"
+                className="ghost small"
+                disabled={weatherRefreshing}
+                onClick={async () => {
+                  setWeatherRefreshing(true)
+                  window.localStorage.removeItem('nimbus_weather_cache_v1')
+                  try {
+                    const snap = await fetchCurrentWeather()
+                    setWeatherSnap(snap)
+                  } finally {
+                    setWeatherRefreshing(false)
+                  }
+                }}
+              >
+                {weatherRefreshing ? '定位中…' : '强制刷新'}
+              </button>
             </div>
           </div>
         ) : null}
