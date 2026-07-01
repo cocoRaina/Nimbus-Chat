@@ -472,7 +472,10 @@ const DiariesTab = () => {
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null)
-    try { setItems(await listDiaries()) }
+    try {
+      setItems(await listDiaries())
+      setPage(0) // jump back to newest entries after every refresh
+    }
     catch (e) { console.warn('加载日记失败', e); setError('Load failed') }
     finally { setLoading(false) }
   }, [])
