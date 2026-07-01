@@ -1356,11 +1356,12 @@ const SettingsPage = ({
           <span className="section-title">
             <span className="section-icon" aria-hidden="true">🌤️</span>
             <h2 className="ui-title">天气</h2>
+            <p>填入和风天气 Key 后精度更好（国内数据源）；不填自动用 Open-Meteo。</p>
           </span>
-          <span className="collapse-arrow">{weatherSectionExpanded ? '▲' : '▼'}</span>
+          <span className="collapse-indicator" aria-hidden="true">›</span>
         </button>
         {weatherSectionExpanded ? (
-          <div className="settings-section-body">
+          <div className="accordion-content">
             <label htmlFor="qweather-key">和风天气 API Key</label>
             <div className="model-select-row">
               <input
@@ -1371,7 +1372,7 @@ const SettingsPage = ({
                   setQWeatherKeyInput(e.target.value)
                   setQWeatherKeyStatus('idle')
                 }}
-                placeholder="填入后优先用和风天气（国内精度更好）"
+                placeholder="仅存本地，不上传"
               />
               <button
                 type="button"
@@ -1410,10 +1411,6 @@ const SettingsPage = ({
               </button>
               {qweatherKeyStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
             </div>
-            <span className="settings-hint">
-              不填则自动用 Open-Meteo（免费、无 key，精度稍差）。和风天气免费版申请：
-              <a href="https://dev.qweather.com" target="_blank" rel="noopener noreferrer">dev.qweather.com</a>
-            </span>
           </div>
         ) : null}
       </section>
