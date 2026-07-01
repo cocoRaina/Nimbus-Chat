@@ -47,6 +47,7 @@ export type WeatherSnapshot = {
   lat: number
   lon: number
   source?: 'qweather' | 'open-meteo'
+  qweatherError?: string   // debug: why QWeather failed (http status / api code)
 }
 
 export const peekCachedWeather = (): WeatherSnapshot | null => readCache()
@@ -145,33 +146,40 @@ const fallbackReverseGeocode = async (lat: number, lon: number): Promise<string 
 }
 
 // QWeather weather-now API. Free tier uses devapi.qweather.com.
-// Returns null on any error so the caller falls back to Open-Meteo.
+// Returns { data, error } so the caller can record why it failed.
 const fetchQWeather = async (
   lat: number,
   lon: number,
   key: string,
-): Promise<{ temperatureC: number; feelsLikeC: number; condition: string; windKmh: number } | null> => {
+): Promise<{ data: { temperatureC: number; feelsLikeC: number; condition: string; windKmh: number } | null; error: string | null }> => {
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 6000)
     const url = `https://devapi.qweather.com/v7/weather/now?location=${lon},${lat}&key=${key}`
     const r = await fetch(url, { signal: controller.signal })
     clearTimeout(timer)
-    if (!r.ok) return null
+    if (!r.ok) {
+      return { data: null, error: `HTTP ${r.status}` }
+    }
     const d = (await r.json()) as {
       code?: string
       now?: { temp?: string; feelsLike?: string; text?: string; windSpeed?: string }
     }
-    if (d.code !== '200' || !d.now) return null
+    if (d.code !== '200' || !d.now) {
+      return { data: null, error: `API code ${d.code ?? '?'}` }
+    }
     const now = d.now
     return {
-      temperatureC: Math.round(Number(now.temp ?? 0)),
-      feelsLikeC: Math.round(Number(now.feelsLike ?? 0)),
-      condition: now.text ?? '未知天气',
-      windKmh: Math.round(Number(now.windSpeed ?? 0)),
+      data: {
+        temperatureC: Math.round(Number(now.temp ?? 0)),
+        feelsLikeC: Math.round(Number(now.feelsLike ?? 0)),
+        condition: now.text ?? '未知天气',
+        windKmh: Math.round(Number(now.windSpeed ?? 0)),
+      },
+      error: null,
     }
-  } catch {
-    return null
+  } catch (e) {
+    return { data: null, error: String(e) }
   }
 }
 
@@ -224,10 +232,16 @@ export const fetchCurrentWeather = async (
 
   // Try QWeather first (better accuracy for China), fall back to Open-Meteo.
   let source: 'qweather' | 'open-meteo' = 'open-meteo'
+  let qweatherError: string | null = null
   let wx = null
   if (qkey) {
-    wx = await fetchQWeather(lat, lon, qkey)
-    if (wx) source = 'qweather'
+    const result = await fetchQWeather(lat, lon, qkey)
+    if (result.data) {
+      wx = result.data
+      source = 'qweather'
+    } else {
+      qweatherError = result.error
+    }
   }
   if (!wx) wx = await fetchOpenMeteo(lat, lon)
 
@@ -252,6 +266,7 @@ export const fetchCurrentWeather = async (
     lat,
     lon,
     source,
+    ...(qweatherError ? { qweatherError } : {}),
   }
   if (!cityOverride) writeCache(snap)
   return snap

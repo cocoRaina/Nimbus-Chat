@@ -1418,7 +1418,7 @@ const SettingsPage = ({
             <label>当前天气缓存</label>
             {weatherSnap ? (
               <div className="settings-hint" style={{ fontFamily: 'monospace', lineHeight: 1.7 }}>
-                <div>来源：{weatherSnap.source === 'qweather' ? '✅ 和风天气' : '⚠️ Open-Meteo（未用 key）'}</div>
+                <div>来源：{weatherSnap.source === 'qweather' ? '✅ 和风天气' : `⚠️ Open-Meteo${weatherSnap.qweatherError ? `（和风失败: ${weatherSnap.qweatherError}）` : '（未填 key）'}`}</div>
                 <div>坐标：{weatherSnap.lat.toFixed(4)}, {weatherSnap.lon.toFixed(4)}</div>
                 <div>城市：{weatherSnap.city ?? '未知'}</div>
                 <div>天气：{weatherSnap.temperatureC}°C {weatherSnap.condition}</div>
