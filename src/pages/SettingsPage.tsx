@@ -12,6 +12,11 @@ import {
   saveOpenRouterApiKey,
 } from '../storage/openrouterKey'
 import {
+  clearQWeatherKey,
+  getQWeatherKey,
+  saveQWeatherKey,
+} from '../storage/qweatherKey'
+import {
   DEFAULT_MSUICODE_BASE,
   clearMsuicodeApiKey,
   deriveProviderDisplayName,
@@ -108,6 +113,10 @@ const SettingsPage = ({
   const [msuicodeBaseUrlInput, setMsuicodeBaseUrlInput] = useState(() => getMsuicodeBaseUrl())
   const [avatarSectionExpanded, setAvatarSectionExpanded] = useState(false)
   const [ttsSectionExpanded, setTtsSectionExpanded] = useState(false)
+  const [weatherSectionExpanded, setWeatherSectionExpanded] = useState(false)
+  const [qweatherKeyInput, setQWeatherKeyInput] = useState(() => getQWeatherKey())
+  const [qweatherKeyVisible, setQWeatherKeyVisible] = useState(false)
+  const [qweatherKeyStatus, setQWeatherKeyStatus] = useState<'idle' | 'saved'>('idle')
   const [ttsDraft, setTtsDraft] = useState(() => getTtsConfig())
   const [ttsApiKeyVisible, setTtsApiKeyVisible] = useState(false)
   const [ttsStatus, setTtsStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
@@ -1333,6 +1342,78 @@ const SettingsPage = ({
             ) : null}
             {ttsError ? <span className="voice-bar__err">保存出错：{ttsError}</span> : null}
             <span className="settings-hint">边填边会自动保存；填完点一下「保存」更稳妥（确保写进系统存储，关 App 也不丢）。</span>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="settings-section" role="listitem">
+        <button
+          type="button"
+          className="collapse-header"
+          onClick={() => setWeatherSectionExpanded((current) => !current)}
+          aria-expanded={weatherSectionExpanded}
+        >
+          <span className="section-title">
+            <span className="section-icon" aria-hidden="true">🌤️</span>
+            <h2 className="ui-title">天气</h2>
+          </span>
+          <span className="collapse-arrow">{weatherSectionExpanded ? '▲' : '▼'}</span>
+        </button>
+        {weatherSectionExpanded ? (
+          <div className="settings-section-body">
+            <label htmlFor="qweather-key">和风天气 API Key</label>
+            <div className="model-select-row">
+              <input
+                id="qweather-key"
+                type={qweatherKeyVisible ? 'text' : 'password'}
+                value={qweatherKeyInput}
+                onChange={(e) => {
+                  setQWeatherKeyInput(e.target.value)
+                  setQWeatherKeyStatus('idle')
+                }}
+                placeholder="填入后优先用和风天气（国内精度更好）"
+              />
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => setQWeatherKeyVisible((v) => !v)}
+              >
+                {qweatherKeyVisible ? '隐藏' : '显示'}
+              </button>
+            </div>
+            <div className="system-prompt-actions">
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  const v = qweatherKeyInput.trim()
+                  if (!v) return
+                  saveQWeatherKey(v)
+                  setQWeatherKeyInput(v)
+                  setQWeatherKeyStatus('saved')
+                }}
+                disabled={!qweatherKeyInput.trim()}
+              >
+                保存
+              </button>
+              <button
+                type="button"
+                className="ghost danger"
+                onClick={() => {
+                  clearQWeatherKey()
+                  setQWeatherKeyInput('')
+                  setQWeatherKeyStatus('idle')
+                }}
+                disabled={!qweatherKeyInput.trim()}
+              >
+                清除
+              </button>
+              {qweatherKeyStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
+            </div>
+            <span className="settings-hint">
+              不填则自动用 Open-Meteo（免费、无 key，精度稍差）。和风天气免费版申请：
+              <a href="https://dev.qweather.com" target="_blank" rel="noopener noreferrer">dev.qweather.com</a>
+            </span>
           </div>
         ) : null}
       </section>

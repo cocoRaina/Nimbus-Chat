@@ -1,7 +1,10 @@
 import { Capacitor } from '@capacitor/core'
 import { Geolocation } from '@capacitor/geolocation'
+import { getQWeatherKey } from './qweatherKey'
 
-// Open-Meteo weather fetcher — free, no API key required.
+// Primary: QWeather (和风天气) — accurate for China, requires free API key.
+// Fallback: Open-Meteo — no key, global NWP model.
+// https://dev.qweather.com/docs/api/weather/weather-now/
 // https://open-meteo.com/
 
 const STORAGE_KEY = 'nimbus_weather_cache_v1'
@@ -70,9 +73,6 @@ const writeCache = (snap: WeatherSnapshot) => {
 }
 
 const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | null> => {
-  // On Capacitor (APK), use the native Geolocation plugin so the OS
-  // permission dialog actually fires + Android manifest permission is
-  // respected. On web, fall back to navigator.geolocation.
   if (Capacitor.getPlatform() !== 'web') {
     try {
       const perm = await Geolocation.checkPermissions()
@@ -81,9 +81,9 @@ const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | nu
         if (req.location !== 'granted') return 'denied'
       }
       const pos = await Geolocation.getCurrentPosition({
-        enableHighAccuracy: false,
-        timeout: 8000,
-        maximumAge: 30 * 60 * 1000,
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 10 * 60 * 1000, // 10 min — short enough to catch city-level moves
       })
       return { lat: pos.coords.latitude, lon: pos.coords.longitude }
     } catch (err) {
@@ -96,18 +96,36 @@ const getCoords = async (): Promise<{ lat: number; lon: number } | 'denied' | nu
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
       () => resolve(null),
-      { timeout: 5000, maximumAge: 30 * 60 * 1000 },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 10 * 60 * 1000 },
     )
   })
 }
 
-// Reverse-geocode a coordinate to a human city name. BigDataCloud's
-// reverse-geocode-client endpoint is genuinely key-free and CORS-enabled
-// (built for browser use), unlike Nominatim which needs a custom User-Agent
-// the browser won't let us set. Best-effort: any failure returns null and the
-// weather still works without a city. Only called on a cache miss (hourly
-// background warm), never on the send path, so it adds no send latency.
-const reverseGeocodeCity = async (lat: number, lon: number): Promise<string | null> => {
+// QWeather GeoAPI: reverse-geocode coords to Chinese city name.
+// Returns locality (区/县) > city (市) > province as fallback.
+const qweatherReverseGeocode = async (
+  lat: number,
+  lon: number,
+  key: string,
+): Promise<string | null> => {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 4000)
+    const url = `https://geoapi.qweather.com/v2/city/lookup?location=${lon},${lat}&key=${key}`
+    const r = await fetch(url, { signal: controller.signal })
+    clearTimeout(timer)
+    if (!r.ok) return null
+    const d = (await r.json()) as { location?: Array<{ name?: string; adm2?: string; adm1?: string }> }
+    const loc = d.location?.[0]
+    if (!loc) return null
+    return loc.name?.trim() || loc.adm2?.trim() || loc.adm1?.trim() || null
+  } catch {
+    return null
+  }
+}
+
+// Fallback reverse-geocode (no key needed). BigDataCloud is CORS-safe from browsers.
+const fallbackReverseGeocode = async (lat: number, lon: number): Promise<string | null> => {
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 4000)
@@ -117,13 +135,73 @@ const reverseGeocodeCity = async (lat: number, lon: number): Promise<string | nu
     const r = await fetch(url, { signal: controller.signal })
     clearTimeout(timer)
     if (!r.ok) return null
-    const d = (await r.json()) as {
-      city?: string
-      locality?: string
-      principalSubdivision?: string
-    }
+    const d = (await r.json()) as { city?: string; locality?: string; principalSubdivision?: string }
     const name = d.locality?.trim() || d.city?.trim() || d.principalSubdivision?.trim()
     return name && name.length > 0 ? name : null
+  } catch {
+    return null
+  }
+}
+
+// QWeather weather-now API. Free tier uses devapi.qweather.com.
+// Returns null on any error so the caller falls back to Open-Meteo.
+const fetchQWeather = async (
+  lat: number,
+  lon: number,
+  key: string,
+): Promise<{ temperatureC: number; feelsLikeC: number; condition: string; windKmh: number } | null> => {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 6000)
+    const url = `https://devapi.qweather.com/v7/weather/now?location=${lon},${lat}&key=${key}`
+    const r = await fetch(url, { signal: controller.signal })
+    clearTimeout(timer)
+    if (!r.ok) return null
+    const d = (await r.json()) as {
+      code?: string
+      now?: { temp?: string; feelsLike?: string; text?: string; windSpeed?: string }
+    }
+    if (d.code !== '200' || !d.now) return null
+    const now = d.now
+    return {
+      temperatureC: Math.round(Number(now.temp ?? 0)),
+      feelsLikeC: Math.round(Number(now.feelsLike ?? 0)),
+      condition: now.text ?? '未知天气',
+      windKmh: Math.round(Number(now.windSpeed ?? 0)),
+    }
+  } catch {
+    return null
+  }
+}
+
+// Open-Meteo fallback (no key).
+const fetchOpenMeteo = async (
+  lat: number,
+  lon: number,
+): Promise<{ temperatureC: number; feelsLikeC: number; condition: string; windKmh: number } | null> => {
+  try {
+    const url =
+      `https://api.open-meteo.com/v1/forecast` +
+      `?latitude=${lat}&longitude=${lon}` +
+      `&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`
+    const r = await fetch(url)
+    if (!r.ok) return null
+    const data = (await r.json()) as {
+      current?: {
+        temperature_2m?: number
+        apparent_temperature?: number
+        weather_code?: number
+        wind_speed_10m?: number
+      }
+    }
+    const c = data.current
+    if (!c) return null
+    return {
+      temperatureC: Math.round(c.temperature_2m ?? 0),
+      feelsLikeC: Math.round(c.apparent_temperature ?? 0),
+      condition: WEATHER_CODE_LABEL[c.weather_code ?? -1] ?? '未知天气',
+      windKmh: Math.round(c.wind_speed_10m ?? 0),
+    }
   } catch {
     return null
   }
@@ -140,44 +218,37 @@ export const fetchCurrentWeather = async (
   const coords = coordsOrDenied
   if (!coords) return cached ?? null
 
-  try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`
-    const r = await fetch(url)
-    if (!r.ok) return cached ?? null
-    const data = await r.json() as {
-      current?: {
-        temperature_2m?: number
-        apparent_temperature?: number
-        weather_code?: number
-        wind_speed_10m?: number
-      }
-    }
-    const c = data.current
-    if (!c) return cached ?? null
-    // For GPS readings, resolve the city name too. cityOverride already
-    // carries its own label, so only reverse-geocode the GPS path.
-    const city = cityOverride
-      ? ('city' in cityOverride ? (cityOverride.city ?? null) : null)
-      : await reverseGeocodeCity(coords.lat, coords.lon)
-    const snap: WeatherSnapshot = {
-      fetchedAt: Date.now(),
-      temperatureC: Math.round(c.temperature_2m ?? 0),
-      feelsLikeC: Math.round(c.apparent_temperature ?? 0),
-      condition: WEATHER_CODE_LABEL[c.weather_code ?? -1] ?? '未知天气',
-      windKmh: Math.round(c.wind_speed_10m ?? 0),
-      city,
-      lat: coords.lat,
-      lon: coords.lon,
-    }
-    // Only cache GPS-based readings. A cityOverride result must not land in
-    // the shared cache key, or a later no-override (GPS) call within the TTL
-    // would return the override city's weather.
-    if (!cityOverride) writeCache(snap)
-    return snap
-  } catch (err) {
-    console.warn('weather fetch failed', err)
-    return cached ?? null
+  const { lat, lon } = coords
+  const qkey = getQWeatherKey()
+
+  // Try QWeather first (better accuracy for China), fall back to Open-Meteo.
+  const wx = qkey
+    ? ((await fetchQWeather(lat, lon, qkey)) ?? (await fetchOpenMeteo(lat, lon)))
+    : await fetchOpenMeteo(lat, lon)
+
+  if (!wx) return cached ?? null
+
+  // Resolve city name: QWeather GeoAPI > BigDataCloud > null.
+  // For cityOverride, trust the caller's label.
+  let city: string | null = null
+  if (cityOverride) {
+    city = ('city' in cityOverride ? (cityOverride.city ?? null) : null)
+  } else if (qkey) {
+    city = await qweatherReverseGeocode(lat, lon, qkey)
+    if (!city) city = await fallbackReverseGeocode(lat, lon)
+  } else {
+    city = await fallbackReverseGeocode(lat, lon)
   }
+
+  const snap: WeatherSnapshot = {
+    fetchedAt: Date.now(),
+    ...wx,
+    city,
+    lat,
+    lon,
+  }
+  if (!cityOverride) writeCache(snap)
+  return snap
 }
 
 export const formatWeatherInline = (snap: WeatherSnapshot): string => {

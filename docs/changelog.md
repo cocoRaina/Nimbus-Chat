@@ -8,6 +8,27 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### 天气数据不准：定位偏 + Open-Meteo 精度不足（2026-07-01）
+
+**症状**：沈暮报的温度和天气状况整体与实际偏差大。
+
+**根因**：两处叠加：
+1. **定位精度低**：`enableHighAccuracy: false` + `maximumAge: 30min`，Android 上大概率走基站/WiFi 定位，误差可达几十公里，上游坐标就偏了，换什么 API 都没用。
+2. **Open-Meteo 对国内城市精度**：全球 NWP 模型（ECMWF/GFS），分辨率约 11km，国内精细化不如中国气象源。
+
+**修**：
+- `Geolocation.getCurrentPosition` 改为 `enableHighAccuracy: true`，`maximumAge` 缩至 10 min，确保走 GPS 而非基站
+- 引入**和风天气（QWeather）**作为主 API：国内数据源，城市级精度，返回中文天气描述，反地理编码也直接用 QWeather GeoAPI（返回正确中文城市名）；无 key 时退回 Open-Meteo
+- 设置页新增「天气」折叠区，可填和风天气 API Key（免费版 1000 次/天）
+- 旧的 BigDataCloud 反地理编码降级为兜底（QWeather 无 key 时用）
+
+**QWeather API**：
+- 天气：`devapi.qweather.com/v7/weather/now?location=LON,LAT&key=KEY` → `now.temp / feelsLike / text / windSpeed`
+- 地名：`geoapi.qweather.com/v2/city/lookup?location=LON,LAT&key=KEY` → `location[0].name`
+- 注意 `location` 参数是 `经度,纬度` 顺序（lon,lat，非 lat,lon）
+
+---
+
 ### Android 相册只能选一张图（2026-07-01）
 
 **症状**：点「从相册」后只能选一张图，系统选择器没有多选模式。
