@@ -46,8 +46,14 @@ import {
   addRemoteMessage,
   buildMemorySystemSection,
   createRemoteSession,
+  createSnackReply,
   createSyzygyPost,
+  createSyzygyReply,
   deleteRemoteMessage,
+  fetchSnackPosts,
+  fetchSnackReplies,
+  fetchSyzygyPosts,
+  fetchSyzygyReplies,
   deleteRemoteSession,
   fetchHealthSnapshot,
   fetchRemoteMessages,
@@ -116,9 +122,11 @@ import {
   TOOL_WRITE_DIARY,
   TOOL_WRITE_LETTER,
   TOOL_ADD_TIMELINE,
+  TOOL_BROWSE_MOMENTS,
   TOOL_LOG_PERIOD,
   TOOL_LOG_HEALTH,
   TOOL_POST_MOMENT,
+  TOOL_REPLY_MOMENT,
   TOOL_RUN_CODE,
   TOOL_SCHEDULE_PROACTIVE,
   TOOL_GET_DEVICE_STATE,
@@ -1449,10 +1457,20 @@ const App = () => {
       // snapshot above so it stays fresh instead of being a morning value.)
       const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
       const HEALTH_DATE_KEY = 'nimbus_health_injected_date'
+      const HEALTH_ATTEMPT_KEY = 'nimbus_health_attempt_at'
       const lastHealthDate = typeof window !== 'undefined'
         ? window.localStorage.getItem(HEALTH_DATE_KEY)
         : null
-      const shouldInjectHealth = lastHealthDate !== todayCN
+      const lastHealthAttempt = typeof window !== 'undefined'
+        ? Number(window.localStorage.getItem(HEALTH_ATTEMPT_KEY) ?? 0)
+        : 0
+      // Retry throughout the day until we actually get data. Marking the date
+      // on a failed/empty attempt (old behavior) meant one early-morning
+      // message — before Health Connect had synced anything — silenced the
+      // health line for the whole day. The 30-min cooldown between attempts
+      // keeps the every-message Supabase hit away.
+      const shouldInjectHealth =
+        lastHealthDate !== todayCN && Date.now() - lastHealthAttempt > 30 * 60 * 1000
       let healthSnap: string | null = null
       if (shouldInjectHealth) {
         // On APK, force a Health Connect sync before reading the snapshot so
@@ -1464,10 +1482,11 @@ const App = () => {
           try {
             healthSnap = await fetchHealthSnapshot()
           } catch { /* non-fatal */ }
-          // Mark today as attempted whether or not we got data, so we don't
-          // hit Supabase on every message when Health Connect has no data yet.
           if (typeof window !== 'undefined') {
-            window.localStorage.setItem(HEALTH_DATE_KEY, todayCN)
+            window.localStorage.setItem(HEALTH_ATTEMPT_KEY, String(Date.now()))
+            if (healthSnap) {
+              window.localStorage.setItem(HEALTH_DATE_KEY, todayCN)
+            }
           }
         }
       }
@@ -2236,7 +2255,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
-                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT] : []),
+                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
@@ -2806,6 +2825,76 @@ TOOL_SEARCH_HANDOFF,
                       } catch (postError) {
                         resultText = JSON.stringify({
                           error: postError instanceof Error ? postError.message : String(postError),
+                        })
+                      }
+                    }
+                  } else if (tc.function.name === 'browse_moments' && supabase) {
+                    let args: { limit?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 browse_moments 参数失败', jsonError)
+                    }
+                    const feedLimit = Math.max(1, Math.min(20, Number(args.limit) || 10))
+                    setToolStatus('🫧 翻看 Moments…')
+                    try {
+                      const [uPosts, aPosts] = await Promise.all([fetchSnackPosts(), fetchSyzygyPosts()])
+                      const merged = [
+                        ...uPosts.map((post) => ({ kind: 'user' as const, post })),
+                        ...aPosts.map((post) => ({ kind: 'ai' as const, post })),
+                      ]
+                        .sort((x, y) => new Date(y.post.createdAt).getTime() - new Date(x.post.createdAt).getTime())
+                        .slice(0, feedLimit)
+                      const uIds = merged.filter((e) => e.kind === 'user').map((e) => e.post.id)
+                      const aIds = merged.filter((e) => e.kind === 'ai').map((e) => e.post.id)
+                      const [uReplies, aReplies] = await Promise.all([
+                        uIds.length ? fetchSnackReplies(uIds) : Promise.resolve([]),
+                        aIds.length ? fetchSyzygyReplies(aIds) : Promise.resolve([]),
+                      ])
+                      const posts = merged.map(({ kind, post }) => ({
+                        post_id: post.id,
+                        post_kind: kind,
+                        author: kind === 'ai' ? '你自己' : '用户',
+                        time: post.createdAt,
+                        content: post.content.length > 400 ? `${post.content.slice(0, 400)}…` : post.content,
+                        replies: (kind === 'user'
+                          ? uReplies.filter((r) => r.postId === post.id).map((r) => ({
+                              from: r.role === 'assistant' ? '你' : '用户',
+                              content: r.content.length > 200 ? `${r.content.slice(0, 200)}…` : r.content,
+                            }))
+                          : aReplies.filter((r) => r.postId === post.id).map((r) => ({
+                              from: r.authorRole === 'ai' ? '你' : '用户',
+                              content: r.content.length > 200 ? `${r.content.slice(0, 200)}…` : r.content,
+                            }))),
+                      }))
+                      resultText = JSON.stringify({ posts })
+                    } catch (browseError) {
+                      resultText = JSON.stringify({
+                        error: browseError instanceof Error ? browseError.message : String(browseError),
+                      })
+                    }
+                  } else if (tc.function.name === 'reply_moment' && supabase) {
+                    let args: { post_id?: string; post_kind?: string; content?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 reply_moment 参数失败', jsonError)
+                    }
+                    const replyPostId = String(args.post_id ?? '').trim()
+                    const replyText = String(args.content ?? '').trim()
+                    const replyKind = args.post_kind === 'ai' ? 'ai' : 'user'
+                    if (!replyPostId || !replyText) {
+                      resultText = JSON.stringify({ error: 'post_id 或 content 为空，回复没有发出去' })
+                    } else {
+                      setToolStatus('🫧 回复 Moment…')
+                      try {
+                        const savedReply = replyKind === 'user'
+                          ? await createSnackReply(replyPostId, 'assistant', replyText, { model: actualModel })
+                          : await createSyzygyReply(replyPostId, 'ai', replyText, actualModel)
+                        resultText = JSON.stringify({ ok: true, reply_id: savedReply.id })
+                      } catch (replyError) {
+                        resultText = JSON.stringify({
+                          error: replyError instanceof Error ? replyError.message : String(replyError),
                         })
                       }
                     }

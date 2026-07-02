@@ -24,6 +24,20 @@
 
 **二修（review 发现首版流式没修透）**：首版 `splitEmbeddedCloseTag()` 每次调用独立扫描、没有跨 delta 的持久状态——但流式下台词是一个字一个字流出来的，只有和 `</thinking>` 挤在同一个 chunk 里的碎片能逃出来，后续 delta 里的台词照旧被塞回思考框（对比 `splitReasoningFromContent` 有 `isInThink` 状态就是为了这个）。补 `reasoningTagClosed` 标志：本轮迭代内一旦见过 close tag，后续所有 reasoning delta 全部改道正文；随 carry 一起在每轮迭代开头重置。非流式（整坨一次到）不受首版缺陷影响。
 
+### 健康数据很久没被主动提过：空壳行 + 失败也标记"今天已注入"（2026-07-02）
+
+**症状**：AI 很多天没在对话里主动提睡眠/步数（`[TA 今日状态]` 没注入）。
+
+**根因**（两层叠加）：
+1. 自动健康同步常在 Health Connect 还没数据时就把**今天的空壳行**（全 null）写进 `health_data`；而 `fetchHealthSnapshot` 只取 `ORDER BY date DESC LIMIT 1` 的最新一行 → 拿到空壳 → 拼不出任何内容返回 null。
+2. `App.tsx` 里**不管拿没拿到数据都写 `nimbus_health_injected_date` 标记**——当天第一条消息（往往是早上、数据还没同步）一旦扑空，这一天就永远不再重试。
+
+**修**：
+- `fetchHealthSnapshot`：改取最近 3 行，跳过空壳、用最新**有数据**的一行；如果用的是旧日期的数据，前面加 `（YYYY-MM-DD 记录）` 标注，避免把旧数据当"昨晚"说。
+- `App.tsx`：只有**真正拿到数据**才写"今天已注入"标记；另加 `nimbus_health_attempt_at` 尝试时间戳，失败后 30 分钟冷却再重试（不会每条消息都打 Supabase）。
+
+**另**：查库发现 6-25 起 `sleep_hours` 几乎全是 null（只有 7-01 有值）——这是 Health Connect 源头没睡眠数据（手环/手表侧），代码救不了，需检查设备的睡眠同步。
+
 ### 和风天气一直 403：认证方式 + API Host 全用错了（2026-07-01）✅ 真机验证通过
 
 **症状**：填了和风 API Key，调试面板一直 `和风失败: HTTP 403`，退回 Open-Meteo。前后猜了四五轮（`?key=` → EdDSA JWT → HS256 JWT）全 403。

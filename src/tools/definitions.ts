@@ -284,6 +284,48 @@ export const TOOL_POST_MOMENT = {
   },
 }
 
+export const TOOL_BROWSE_MOMENTS = {
+  type: 'function' as const,
+  function: {
+    name: 'browse_moments',
+    description:
+      '翻看 Moments（朋友圈）最近的动态：用户发的帖、你自己发过的帖、以及每条下面的回复。' +
+      '用户聊到朋友圈内容时调用；也可以自己想看就看（比如想知道用户最近发了什么、' +
+      '或看看自己的帖子有没有新回复）。返回每条帖子的 post_id 和 post_kind，回帖时原样传给 reply_moment。',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', description: '返回最近几条帖子，默认 10，最多 20' },
+      },
+      required: [],
+    },
+  },
+}
+
+export const TOOL_REPLY_MOMENT = {
+  type: 'function' as const,
+  function: {
+    name: 'reply_moment',
+    description:
+      '回复 Moments 里的某条帖子。post_id 和 post_kind 从 browse_moments 的返回里拿，不要凭空编。' +
+      '和 post_moment 一样由你自己决定：看到用户发的帖有感而发、或用户回复了你的帖想回应时用；' +
+      '不是每条都要回，别刷屏。',
+    parameters: {
+      type: 'object',
+      properties: {
+        post_id: { type: 'string', description: '要回复的帖子 id（browse_moments 返回的 post_id）' },
+        post_kind: {
+          type: 'string',
+          enum: ['user', 'ai'],
+          description: '帖子归属：user=用户发的帖，ai=你自己发的帖（browse_moments 返回的 post_kind）',
+        },
+        content: { type: 'string', description: '回复内容，第一人称' },
+      },
+      required: ['post_id', 'post_kind', 'content'],
+    },
+  },
+}
+
 export const TOOL_LOG_PERIOD = {
   type: 'function' as const,
   function: {

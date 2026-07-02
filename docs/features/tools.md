@@ -1,4 +1,4 @@
-# Claude 工具（共 21 个）
+# Claude 工具（共 23 个）
 
 每次工具调用记录在消息 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回。
 
@@ -11,6 +11,7 @@
 | `list_memories` | 只读通览记忆库（id / 分类 / 内容 / 是否锁定），整理记忆时用。分页 limit/offset，`only_unlocked` 只看未锁定的 |
 | `web_search` | 网页搜索（Tavily），用于时效性/事实性问题 |
 | `get_health_status` | 随时查最近 7 天健康数据（睡眠 / 步数 / 心率）+ 最近 3 条经期记录。不需要等用户提健康话题，对话开始 / 用户说累 / 聊到身体时主动调 |
+| `browse_moments` | 翻看 Moments 最近动态（用户帖 + AI 自己的帖 + 各自回复，默认 10 条、封顶 20，正文截 400 字/回复截 200 字防炸 token）。返回 `post_id`/`post_kind` 供 `reply_moment` 引用 |
 
 ## 写入（用户明确要求时调）
 
@@ -22,7 +23,8 @@
 | `add_timeline_event` | 加重大事件到时间轴（importance 1-5） |
 | `log_period` | 记录经期数据 |
 | `log_health` | 记录睡眠/步数/心率/状态，按日期 upsert。用户随口提到身体状态时就顺手记，不需要她说"帮我记" |
-| `post_moment` | 在 Moments 发一条 AI 自己的帖子（写 `assistant_posts` 表，和 Moments 页 ✦ Claude 按钮同一张表）。**唯一完全由 AI 自主决定的写入工具**——聊天里有触动就发、没有就不发，描述里限了频率感（约一天一两条、一场对话最多一条）。手动按钮照旧保留，两条路并存 |
+| `post_moment` | 在 Moments 发一条 AI 自己的帖子（写 `assistant_posts` 表，和 Moments 页 ✦ Claude 按钮同一张表）。**完全由 AI 自主决定的写入工具**——聊天里有触动就发、没有就不发，描述里限了频率感（约一天一两条、一场对话最多一条）。手动按钮照旧保留，两条路并存 |
+| `reply_moment` | 回复 Moments 里某条帖子（`post_id`+`post_kind` 来自 `browse_moments`）。用户帖回复写 `snack_replies`（role=assistant），AI 帖回复写 assistant 回复表（authorRole=ai），和页面上的 ✦ Claude 回复按钮同路。同样 AI 自主决定，描述里叮嘱了别刷屏 |
 
 ## 记忆管理（Claude 自己整理记忆库）
 

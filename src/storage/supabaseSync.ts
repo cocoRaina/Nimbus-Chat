@@ -924,7 +924,7 @@ export const fetchHealthSnapshot = async (): Promise<string | null> => {
       .from('health_data')
       .select('date,sleep_hours,deep_sleep_hours,light_sleep_hours,rem_sleep_hours,sleep_quality,steps,notes')
       .order('date', { ascending: false })
-      .limit(1),
+      .limit(3),
     supabase
       .from('period_tracking')
       .select('start_date,end_date')
@@ -933,7 +933,7 @@ export const fetchHealthSnapshot = async (): Promise<string | null> => {
   ])
 
   const parts: string[] = []
-  const row = (healthResult.data ?? [])[0] as {
+  type HealthRow = {
     date?: string
     sleep_hours?: number
     deep_sleep_hours?: number
@@ -942,9 +942,16 @@ export const fetchHealthSnapshot = async (): Promise<string | null> => {
     sleep_quality?: string
     steps?: number
     notes?: string
-  } | undefined
+  }
+  // The auto health sync often creates today's row as an empty stub before
+  // Health Connect has anything (sleep lands late morning, steps trickle in).
+  // Taking strictly the latest row then yields nothing to inject — skip
+  // empty stubs and fall back to the newest row that actually has data.
+  const rows = (healthResult.data ?? []) as HealthRow[]
+  const row = rows.find((r) => r.sleep_hours || r.steps || r.notes)
 
   if (row) {
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
     const items: string[] = []
     if (row.sleep_hours) {
       const stages: string[] = []
@@ -956,7 +963,12 @@ export const fetchHealthSnapshot = async (): Promise<string | null> => {
     }
     if (row.steps) items.push(`步数 ${row.steps}`)
     if (row.notes) items.push(row.notes)
-    if (items.length) parts.push(items.join('，'))
+    if (items.length) {
+      // Data from an older day (today's stub was empty) — label it so the
+      // model doesn't present stale numbers as last night's.
+      const staleLabel = row.date && row.date !== todayStr ? `（${row.date} 记录）` : ''
+      parts.push(`${staleLabel}${items.join('，')}`)
+    }
   }
 
   const period = (periodResult.data ?? [])[0] as { start_date?: string; end_date?: string } | undefined
