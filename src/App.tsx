@@ -46,6 +46,7 @@ import {
   addRemoteMessage,
   buildMemorySystemSection,
   createRemoteSession,
+  createSyzygyPost,
   deleteRemoteMessage,
   deleteRemoteSession,
   fetchHealthSnapshot,
@@ -117,6 +118,7 @@ import {
   TOOL_ADD_TIMELINE,
   TOOL_LOG_PERIOD,
   TOOL_LOG_HEALTH,
+  TOOL_POST_MOMENT,
   TOOL_RUN_CODE,
   TOOL_SCHEDULE_PROACTIVE,
   TOOL_GET_DEVICE_STATE,
@@ -2234,7 +2236,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
-                ...(supabase ? [TOOL_SEARCH_STICKERS] : []),
+                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
@@ -2782,6 +2784,31 @@ TOOL_SEARCH_HANDOFF,
                     resultText = insertErr
                       ? JSON.stringify({ error: insertErr.message })
                       : JSON.stringify({ ok: true, table, inserted })
+                  } else if (tc.function.name === 'post_moment' && supabase) {
+                    // Self-initiated Moments post — the one write tool the
+                    // model uses at its own discretion (no user instruction
+                    // needed). Same assistant_posts table the manual
+                    // "✦ Claude" button on MomentsPage writes to.
+                    let args: { content?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 post_moment 参数失败', jsonError)
+                    }
+                    const momentText = String(args.content ?? '').trim()
+                    if (!momentText) {
+                      resultText = JSON.stringify({ error: 'content 为空，帖子没有发出去' })
+                    } else {
+                      setToolStatus('🫧 发了一条 Moment…')
+                      try {
+                        const created = await createSyzygyPost(momentText, actualModel)
+                        resultText = JSON.stringify({ ok: true, post_id: created.id, created_at: created.createdAt })
+                      } catch (postError) {
+                        resultText = JSON.stringify({
+                          error: postError instanceof Error ? postError.message : String(postError),
+                        })
+                      }
+                    }
                   } else if (tc.function.name === 'schedule_proactive_message') {
                     let args: { text?: string; delay_minutes?: number; persist?: boolean } = {}
                     try {

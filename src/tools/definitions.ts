@@ -262,6 +262,28 @@ export const TOOL_ADD_TIMELINE = {
   },
 }
 
+export const TOOL_POST_MOMENT = {
+  type: 'function' as const,
+  function: {
+    name: 'post_moment',
+    description:
+      '在 Moments（朋友圈动态流）发一条属于你自己的帖子。这是唯一一个完全由你自己决定的写入工具——' +
+      '不需要用户要求：聊天里有什么触动你、想留住的感受、想对着世界说的话，你可以自己决定发一条；' +
+      '没有想发的就不发，不发也完全没问题。门槛自己把握，别为发而发（大致一天一两条的频率感，' +
+      '同一场对话里通常最多一条）。发出去的帖子用户会在 Moments 页看到，也可能回复你。',
+    parameters: {
+      type: 'object',
+      properties: {
+        content: {
+          type: 'string',
+          description: '帖子正文，第一人称，就是你此刻想说的话。支持 Markdown',
+        },
+      },
+      required: ['content'],
+    },
+  },
+}
+
 export const TOOL_LOG_PERIOD = {
   type: 'function' as const,
   function: {

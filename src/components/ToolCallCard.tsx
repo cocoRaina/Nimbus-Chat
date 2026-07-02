@@ -20,6 +20,7 @@ const TOOL_ICONS: Record<string, string> = {
   log_period: '🩸',
   add_timeline_event: '📍',
   run_code: '🧪',
+  post_moment: '🫧',
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -34,13 +35,14 @@ const TOOL_LABELS: Record<string, string> = {
   log_period: '记录经期',
   add_timeline_event: '加时间轴',
   run_code: '运行代码',
+  post_moment: '发 Moment',
 }
 
 function extractPreview(name: string, args: Record<string, unknown>): string {
   if (name === 'search_memory' || name === 'search_handoff' || name === 'web_search') {
     return typeof args?.query === 'string' ? args.query : ''
   }
-  if (name === 'add_memory') {
+  if (name === 'add_memory' || name === 'post_moment') {
     const c = typeof args?.content === 'string' ? args.content : ''
     return c.length > 30 ? c.slice(0, 30) + '…' : c
   }
