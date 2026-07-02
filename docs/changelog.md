@@ -8,6 +8,20 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### "文字→调用工具→再文字"时回复像失忆一样接不上（2026-07-02）
+
+**症状**：AI 先说一段话（比如哄睡、道别台词），调用了 `预约主动消息` 之类的工具，工具结束后 AI 又说一段话——但这段话跟前面接不上，像是完全没看到自己刚说过什么，东拼西凑。同时"查看思考"折叠框里能看到不该出现在那里的台词，甚至有 `</thinking>` 字面文本原样显示在里面。
+
+**根因**：`App.tsx` 抓"思考内容"有两条路径：
+1. 原生 Anthropic 思考块（`thinking_delta`）→ 走干净的结构化字段，没问题
+2. 部分中转站把模型输出通过 `reasoning` / `reasoning_content` 字段转发（不是走 `content` 字段）→ **这条路径从来没检查过内容里是否嵌了 `</thinking>` 标签**，只有 `content` 字段才会做 `<thinking>...</thinking>` 拆分（`splitReasoningFromContent`）
+
+当中转站把"内心独白 + `</thinking>` + 该说的台词"整坨塞进 `reasoning` 字段时，代码把这整坨全当思考存起来：
+- 界面上：台词渲染进"查看思考"折叠框，而不是正常气泡
+- **更关键**：这段台词从没进入 `assistantContent`，也就没进发给模型的历史消息——模型自己都不知道调用工具前自己说过这句话，下一轮回复等于是在"失忆"状态下现编的，接不上很正常
+
+**修**：新增 `splitEmbeddedCloseTag()`，对 `reasoning`/`reasoning_content` 字段的内容也扫一遍 `</thinking>`/`</think>`，把标签后面的文字拆出来塞回 `assistantContent`（视觉上恢复成正常气泡，逻辑上模型下一轮也能看到自己说过的话）。覆盖了流式（`explicitReasoning`/`deltaReasoning`）和非流式（`messageReasoning`/`choiceReasoning`/`payloadReasoning`）5 处调用点；`reasoningCloseCarry` 状态每轮迭代开始时重置，避免跨轮残留。
+
 ### 和风天气一直 403：认证方式 + API Host 全用错了（2026-07-01）✅ 真机验证通过
 
 **症状**：填了和风 API Key，调试面板一直 `和风失败: HTTP 403`，退回 Open-Meteo。前后猜了四五轮（`?key=` → EdDSA JWT → HS256 JWT）全 403。

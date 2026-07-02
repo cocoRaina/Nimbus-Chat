@@ -1743,6 +1743,49 @@ const App = () => {
           return best
         }
 
+        // Some relay gateways stuff the model's entire raw output — a
+        // literal <thinking>...</thinking> block AND the visible reply that
+        // follows it — into the reasoning/reasoning_content delta field
+        // instead of only the content field (the split above only guards
+        // the content field). Without this, that trailing reply text stays
+        // trapped in the reasoning bucket forever: it renders inside the
+        // collapsed 思考 panel instead of a normal bubble, and — worse —
+        // it never reaches assistantContent, so it's silently missing from
+        // what gets sent back to the model as its own prior turn. A
+        // follow-up reply after a tool call then reads like the model
+        // "forgot" what it just said, because structurally it did.
+        let reasoningCloseCarry = ''
+        const REASONING_CLOSE_TAGS = ['</thinking>', '</think>'] as const
+        const splitEmbeddedCloseTag = (delta: string): { reasoning: string; leftover: string } => {
+          const text = `${reasoningCloseCarry}${delta}`
+          reasoningCloseCarry = ''
+          let earliestIndex = -1
+          let matchedTag = ''
+          for (const tag of REASONING_CLOSE_TAGS) {
+            const idx = text.indexOf(tag)
+            if (idx !== -1 && (earliestIndex === -1 || idx < earliestIndex)) {
+              earliestIndex = idx
+              matchedTag = tag
+            }
+          }
+          if (earliestIndex === -1) {
+            let partial = ''
+            for (const tag of REASONING_CLOSE_TAGS) {
+              const p = findPartialSuffix(text, tag)
+              if (p.length > partial.length) partial = p
+            }
+            if (partial) {
+              reasoningCloseCarry = partial
+              return { reasoning: text.slice(0, text.length - partial.length), leftover: '' }
+            }
+            return { reasoning: text, leftover: '' }
+          }
+          return {
+            reasoning: text.slice(0, earliestIndex),
+            leftover: text.slice(earliestIndex + matchedTag.length),
+          }
+        }
+
         const splitReasoningFromContent = (delta: string) => {
           let text = `${thinkCarry}${delta}`
           thinkCarry = ''
@@ -2097,6 +2140,7 @@ const App = () => {
             isInThink = false
             thinkCarry = ''
             activeCloseTag = ''
+            reasoningCloseCarry = ''
             // Mark where this iteration's text starts in the cumulative
             // assistantContent stream. When pushing this iteration's
             // assistant-with-tool-calls message into baseMessages below,
@@ -2299,18 +2343,24 @@ TOOL_SEARCH_HANDOFF,
               }
               const messageReasoning = collectReasoningFromObject(message)
               if (messageReasoning.text) {
-                appendReasoningDelta(messageReasoning.text, messageReasoning.type, 'final')
+                const { reasoning, leftover } = splitEmbeddedCloseTag(messageReasoning.text)
+                if (reasoning) appendReasoningDelta(reasoning, messageReasoning.type, 'final')
+                if (leftover) assistantContent += leftover
               }
               if (choice && choice !== message) {
                 const choiceReasoning = collectReasoningFromObject(choice)
                 if (choiceReasoning.text) {
-                  appendReasoningDelta(choiceReasoning.text, choiceReasoning.type, 'final')
+                  const { reasoning, leftover } = splitEmbeddedCloseTag(choiceReasoning.text)
+                  if (reasoning) appendReasoningDelta(reasoning, choiceReasoning.type, 'final')
+                  if (leftover) assistantContent += leftover
                 }
               }
               if (payload && payload !== choice) {
                 const payloadReasoning = collectReasoningFromObject(payload)
                 if (payloadReasoning.text) {
-                  appendReasoningDelta(payloadReasoning.text, payloadReasoning.type, 'final')
+                  const { reasoning, leftover } = splitEmbeddedCloseTag(payloadReasoning.text)
+                  if (reasoning) appendReasoningDelta(reasoning, payloadReasoning.type, 'final')
+                  if (leftover) assistantContent += leftover
                 }
               }
               const toolCallsField = (message as { tool_calls?: unknown[] })?.tool_calls
@@ -2386,7 +2436,9 @@ TOOL_SEARCH_HANDOFF,
                         ? deltaPayload.reasoning
                         : ''
                     if (explicitReasoning) {
-                      appendReasoningDelta(explicitReasoning, 'reasoning')
+                      const { reasoning, leftover } = splitEmbeddedCloseTag(explicitReasoning)
+                      if (reasoning) appendReasoningDelta(reasoning, 'reasoning')
+                      if (leftover) pendingDelta += leftover
                       scheduleFlush()
                     }
                     // Capture completed Anthropic thinking blocks emitted by
@@ -2406,7 +2458,9 @@ TOOL_SEARCH_HANDOFF,
                       deltaPayload as Record<string, unknown>,
                     )
                     if (deltaReasoning.text && deltaReasoning.text !== explicitReasoning) {
-                      appendReasoningDelta(deltaReasoning.text, deltaReasoning.type)
+                      const { reasoning, leftover } = splitEmbeddedCloseTag(deltaReasoning.text)
+                      if (reasoning) appendReasoningDelta(reasoning, deltaReasoning.type)
+                      if (leftover) pendingDelta += leftover
                       scheduleFlush()
                     }
                     if (delta) {
