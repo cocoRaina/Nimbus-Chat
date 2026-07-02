@@ -30,8 +30,10 @@ export const fetchAutoRecall = async (query: string): Promise<string | null> => 
   // 太短的消息（"嗯"/"好"）搜出来全是噪声，直接跳过。
   if (q.length < MIN_QUERY_LEN) return null
   try {
+    // lean：跳过 Edge Function 里的 period/health 附带查询（健康数据已每条
+    // 消息注入）；exclude_locked：锁定记忆已常驻 system prompt，不重复召回。
     const invoke = supabase.functions.invoke('search_memory', {
-      body: { query: q.slice(0, 300), count: 8 },
+      body: { query: q.slice(0, 300), count: 8, lean: true, exclude_locked: true },
     })
     const timeout = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('recall timeout')), TIMEOUT_MS)

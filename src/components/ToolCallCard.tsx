@@ -23,6 +23,7 @@ const TOOL_ICONS: Record<string, string> = {
   post_moment: '🫧',
   browse_moments: '👀',
   reply_moment: '💬',
+  search_chat_history: '🗂',
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -40,11 +41,15 @@ const TOOL_LABELS: Record<string, string> = {
   post_moment: '发 Moment',
   browse_moments: '翻 Moments',
   reply_moment: '回 Moment',
+  search_chat_history: '搜聊天原文',
 }
 
 function extractPreview(name: string, args: Record<string, unknown>): string {
   if (name === 'search_memory' || name === 'search_handoff' || name === 'web_search') {
     return typeof args?.query === 'string' ? args.query : ''
+  }
+  if (name === 'search_chat_history') {
+    return Array.isArray(args?.keywords) ? (args.keywords as string[]).join(' ') : ''
   }
   if (name === 'add_memory' || name === 'post_moment' || name === 'reply_moment') {
     const c = typeof args?.content === 'string' ? args.content : ''

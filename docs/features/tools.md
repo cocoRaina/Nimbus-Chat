@@ -1,4 +1,4 @@
-# Claude 工具（共 23 个）
+# Claude 工具（共 24 个）
 
 每次工具调用记录在消息 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回。
 
@@ -7,6 +7,7 @@
 | 工具 | 说明 |
 |------|------|
 | `search_memory` | 跨表向量 + 关键词混合检索（RRF + 时间近度）。可选 `table` 限定来源（memory/diary/letter/timeline/snack_post/snack_reply）。**锁定的核心记忆已常驻注入、不必搜**，本工具主要搜未锁定记忆 + 日记/交接信/时间轴/朋友圈。返回值附带 `period_data`（最近 10 条经期）和 `health_data`（最近 7 天健康） |
+| `search_chat_history` | 按关键词搜**聊天逐字原文**（`messages` 表全部会话，`search_chat_messages` RPC，ILIKE + trgm 索引，非语义）。和 `search_memory` 互补：那边是蒸馏物、这边是原件。排除最近 10 分钟消息（已在上下文里）；正文截 300 字；按命中关键词数 + 时间倒序 |
 | `search_handoff` | 专门搜交接信（长文在混合搜里容易被挤掉） |
 | `list_memories` | 只读通览记忆库（id / 分类 / 内容 / 是否锁定），整理记忆时用。分页 limit/offset，`only_unlocked` 只看未锁定的 |
 | `web_search` | 网页搜索（Tavily），用于时效性/事实性问题 |

@@ -29,7 +29,10 @@ export const TOOL_SEARCH_MEMORY = {
       '可以通过 table 参数限定只搜某一个来源（如只搜日记传 "diary"，只搜记忆传 "memory"）。不传则搜全部。\n\n' +
       '支持三种检索方式叠加：语义（query）、标签（tags）、时间（days / after / before）。找特定类别记忆用 tags，找近期内容用 days。\n\n' +
       '另外：响应里还会附 period_data（最近 10 条经期记录）和 health_data（最近 7 天的睡眠/心率/步数）。' +
-      '涉及到生理期 / 月经 / 身体状态 / 累不累 / 睡得好不好 的话题直接看这两块，不用专门查。',
+      '涉及到生理期 / 月经 / 身体状态 / 累不累 / 睡得好不好 的话题直接看这两块，不用专门查。\n\n' +
+      '注意：系统已在每条用户消息里自动注入 [相关记忆] 行（top 3 未锁定命中）——先看它，' +
+      '它已覆盖的内容不用重复搜；要更多条数、带 table/tags/时间过滤、或深挖时才用本工具。' +
+      '要找聊天对话的逐字原文用 search_chat_history，本工具搜不到聊天原文。',
     parameters: {
       type: 'object',
       properties: {
@@ -280,6 +283,32 @@ export const TOOL_POST_MOMENT = {
         },
       },
       required: ['content'],
+    },
+  },
+}
+
+export const TOOL_SEARCH_CHAT_HISTORY = {
+  type: 'function' as const,
+  function: {
+    name: 'search_chat_history',
+    description:
+      '按关键词搜索完整的聊天原文（所有会话的历史消息原件，包括你自己说过的话）。' +
+      '和 search_memory 的区别：那边搜的是蒸馏物（提取的记忆/日记/交接信），这里搜逐字原文——' +
+      '想引用原话、确认「我们之前到底聊没聊过某件事」、或蒸馏记忆太模糊需要现场还原时用。' +
+      '注意是子串匹配不是语义搜索：中文关键词给 2-4 个字的核心词，多给几个同义变体命中率更高' +
+      '（如找关于猫的对话传 ["猫","小猫","喵"]）。返回命中消息的角色/内容/时间，按命中数和时间排序。',
+    parameters: {
+      type: 'object',
+      properties: {
+        keywords: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '关键词列表（1-8 个），任一命中即返回，命中越多排越前',
+        },
+        count: { type: 'integer', description: '最多返回几条，默认 20，封顶 50' },
+        days: { type: 'integer', description: '只搜最近 N 天（可选）' },
+      },
+      required: ['keywords'],
     },
   },
 }

@@ -124,6 +124,7 @@ import {
   TOOL_WRITE_LETTER,
   TOOL_ADD_TIMELINE,
   TOOL_BROWSE_MOMENTS,
+  TOOL_SEARCH_CHAT_HISTORY,
   TOOL_LOG_PERIOD,
   TOOL_LOG_HEALTH,
   TOOL_POST_MOMENT,
@@ -2245,6 +2246,7 @@ const App = () => {
             if (toolsEnabled) {
               requestBody.tools = [
                 TOOL_SEARCH_MEMORY,
+                TOOL_SEARCH_CHAT_HISTORY,
 TOOL_SEARCH_HANDOFF,
                 TOOL_WEB_SEARCH,
                 TOOL_ADD_MEMORY,
@@ -2620,6 +2622,36 @@ TOOL_SEARCH_HANDOFF,
                     resultText = error
                       ? JSON.stringify({ error: error.message ?? String(error) })
                       : JSON.stringify(data ?? {})
+                 } else if (tc.function.name === 'search_chat_history' && supabase) {
+                    let args: { keywords?: unknown; count?: number; days?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 search_chat_history 参数失败', jsonError)
+                    }
+                    const kws = Array.isArray(args.keywords)
+                      ? args.keywords
+                          .filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
+                          .map((k) => k.trim())
+                          .slice(0, 8)
+                      : []
+                    if (kws.length === 0) {
+                      resultText = JSON.stringify({ error: 'keywords 不能为空' })
+                    } else {
+                      setToolStatus(`🗂 搜聊天原文：${kws.join(' ')}…`)
+                      const { data, error } = await supabase.rpc('search_chat_messages', {
+                        query_keywords: kws,
+                        match_count: Math.max(1, Math.min(50, Number(args.count) || 20)),
+                        filter_after:
+                          typeof args.days === 'number' && args.days > 0
+                            ? new Date(Date.now() - args.days * 86400000).toISOString()
+                            : null,
+                        filter_before: null,
+                      })
+                      resultText = error
+                        ? JSON.stringify({ error: error.message })
+                        : JSON.stringify({ matches: data ?? [] })
+                    }
                  } else if (tc.function.name === 'search_handoff' && supabase) {
                     let args: { query?: string; count?: number } = {}
                     try {

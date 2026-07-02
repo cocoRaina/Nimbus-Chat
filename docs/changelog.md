@@ -24,6 +24,15 @@
 
 **二修（review 发现首版流式没修透）**：首版 `splitEmbeddedCloseTag()` 每次调用独立扫描、没有跨 delta 的持久状态——但流式下台词是一个字一个字流出来的，只有和 `</thinking>` 挤在同一个 chunk 里的碎片能逃出来，后续 delta 里的台词照旧被塞回思考框（对比 `splitReasoningFromContent` 有 `isInThink` 状态就是为了这个）。补 `reasoningTagClosed` 标志：本轮迭代内一旦见过 close tag，后续所有 reasoning delta 全部改道正文；随 carry 一起在每轮迭代开头重置。非流式（整坨一次到）不受首版缺陷影响。
 
+### 记忆系统去冗余 + 补聊天原文检索层（2026-07-02）
+
+按分层地图（见 docs/features/memory.md 开头）收拾了三处冗余、补了一层空缺：
+
+1. **自动召回排除锁定记忆**：混合检索 RPC 一直没有 locked 过滤（13/52 条锁定且已常驻 system prompt，每轮召回都可能重复注入）。迁移 `20260702120000` 给 `search_memories_hybrid` 加 `exclude_locked` 参数（默认 false，工具显式搜索不受影响），自动召回传 true。**签名变了必须 DROP 再 CREATE**，否则留下歧义重载。
+2. **召回路径不再白拉经期/健康**：`search_memory` Edge Function 加 `lean` 模式跳过 period/health 附带查询（健康数据已每条消息注入，三重覆盖）。自动召回传 `lean: true`。
+3. **`search_memory` 工具描述**加了"先看 [相关记忆] 再搜"和"聊天原文用 search_chat_history"的分流提示。
+4. **新工具 `search_chat_history`**：迁移 `20260702120100` 建 `search_chat_messages` RPC + messages.content 的 trgm GIN 索引（注意 pg_trgm 装在 `public` 不是 `extensions`，操作符类要写 `public.gin_trgm_ops`）。长期记忆以前全是蒸馏物，聊天原件从此可搜。
+
 ### 记忆每轮自动召回 + 健康注入改每条消息（2026-07-02）
 
 - **每轮自动召回**：每条用户消息发送前自动打 `search_memory` 混合检索，top 3 命中注入 `[相关记忆]` 行（会话级去重、3.5s 超时静默降级、不碰缓存前缀）。见 `docs/features/memory.md`。

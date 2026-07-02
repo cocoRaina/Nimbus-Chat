@@ -55,6 +55,12 @@ Deno.serve(async (req: Request) => {
     days?: number
     after?: string
     before?: string
+    // lean=true：跳过 period/health 附带查询（每轮自动召回用——健康数据
+    // 已经每条消息注入，这里再带纯属浪费）。
+    lean?: boolean
+    // exclude_locked=true：排除锁定记忆（自动召回用——锁定的已常驻
+    // system prompt，重复召回白占名额）。工具显式搜索不传，保持全量。
+    exclude_locked?: boolean
   }
   try {
     payload = await req.json()
@@ -148,23 +154,29 @@ Deno.serve(async (req: Request) => {
       filter_tags: filterTags,
       filter_after: filterAfter,
       filter_before: filterBefore,
+      exclude_locked: payload.exclude_locked === true,
     }
     if (filterTags) {
       rpcParams.min_similarity = 0.0
     }
 
+    const lean = payload.lean === true
     const [searchResult, periodResult, healthResult] = await Promise.all([
       supabase.rpc('search_memories_hybrid', rpcParams),
-      supabase
-        .from('period_tracking')
-        .select('id,start_date,end_date,cycle_length,notes,created_at')
-        .order('start_date', { ascending: false })
-        .limit(10),
-      supabase
-        .from('health_data')
-        .select('id,date,sleep_hours,sleep_quality,heart_rate_avg,heart_rate_rest,steps,notes')
-        .order('date', { ascending: false })
-        .limit(7),
+      lean
+        ? Promise.resolve(null)
+        : supabase
+            .from('period_tracking')
+            .select('id,start_date,end_date,cycle_length,notes,created_at')
+            .order('start_date', { ascending: false })
+            .limit(10),
+      lean
+        ? Promise.resolve(null)
+        : supabase
+            .from('health_data')
+            .select('id,date,sleep_hours,sleep_quality,heart_rate_avg,heart_rate_rest,steps,notes')
+            .order('date', { ascending: false })
+            .limit(7),
     ])
 
     if (searchResult.error) {
@@ -172,6 +184,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Fire-and-forget: bump access_count + last_accessed_at for returned memories.
+    // Auto-recall hits count too — being surfaced IS being used.
     const memoryIds = (searchResult.data ?? [])
       .filter((r: { source?: string; id?: unknown }) => r.source === 'memory' && r.id != null)
       .map((r: { id: unknown }) => r.id)
@@ -179,10 +192,13 @@ Deno.serve(async (req: Request) => {
       void supabase.rpc('bump_memory_access', { ids: memoryIds })
     }
 
+    if (lean) {
+      return jsonResponse({ results: searchResult.data ?? [] })
+    }
     return jsonResponse({
       results: searchResult.data ?? [],
-      period_data: periodResult.error ? [] : periodResult.data ?? [],
-      health_data: healthResult.error ? [] : healthResult.data ?? [],
+      period_data: periodResult?.error ? [] : periodResult?.data ?? [],
+      health_data: healthResult?.error ? [] : healthResult?.data ?? [],
     })
   } catch (err) {
     return jsonResponse({ error: String(err) })
