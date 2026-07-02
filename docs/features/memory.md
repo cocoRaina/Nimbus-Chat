@@ -16,6 +16,20 @@
 
 **每次搜索命中的 `memories` 条目会 fire-and-forget 更新 `access_count + last_accessed_at`**（`bump_memory_access` RPC），用于衰减追踪。
 
+## 每轮自动召回（2026-07-02 起）
+
+发送每条用户消息前，前端自动拿这条消息去打同一条 `search_memory` 混合检索管线，取 top 3 未注入过的命中，拼成一行 `[相关记忆] …` 进用户消息前缀（`src/storage/memoryRecall.ts`）。要点：
+
+- **不碰 system prompt 缓存前缀**——走消息前缀（和天气/心情旁白同款），结果冻结进 `meta.memoryRecall`，重放逐字节稳定
+- **会话级去重**：同一条记忆本次 App 会话只注入一次（`injectedKeys` Set），不重复烧 token
+- **静默降级**：3.5s 超时 / 报错 / 消息太短（<6 字）→ 直接不注入，绝不挡发消息
+- 每轮成本：一次 BGE-M3 embedding（SiliconFlow）+ 一次 RPC；注入 ≤3 条、每条截 80 字
+- 锁定记忆照旧常驻 system prompt；`search_memory` 工具照旧保留（AI 要深挖时自己调）
+
+## 每条消息的健康注入（原"每日状态"）
+
+`[TA 今日状态]` 从"每天第一条"改为**每条用户消息都带**：30 分钟 TTL 模块缓存（`healthSnapCache`），过期才真正打 Supabase + 触发 Health Connect 同步；**库里没数据时明确注入「暂无数据」**而不是静默消失。`fetchHealthSnapshot` 会跳过当天的空壳行、用最新有数据的一行（旧日期标注 `（YYYY-MM-DD 记录）`）。
+
 ## 核心记忆生命周期：锁定 → 常驻 → 自管理 → 归档
 
 记忆库会越攒越杂（旧的 / 导入的 / 没用的），所以**不是全部喂给 AI**，而是分层：

@@ -51,6 +51,10 @@ export type ChatMessage = {
     // Per-message ambient phone state: battery + charging + ringer + audio
     // output + Wi-Fi/cellular, e.g. "🔋32%充电中 · 静音 · 蓝牙:AirPods · Wi-Fi".
     envSnapshot?: string
+    // Frozen auto-recall line for this user turn: top memory-search hits for
+    // this message, injected into the payload prefix like weather. Kept
+    // per-message so replay is byte-stable for the rolling prompt cache.
+    memoryRecall?: string
     tool_calls?: Array<{
       name: string
       args: unknown

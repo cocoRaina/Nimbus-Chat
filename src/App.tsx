@@ -101,6 +101,7 @@ import { fetchOpenRouter } from './api/openrouter'
 import { convertOpenAiRequestToAnthropic } from './api/anthropic'
 import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './storage/apiProvider'
 import { ensureImageCaption, getImageCaption, syncImageCaptionsFromCloud } from './storage/imageCaptions'
+import { fetchAutoRecall } from './storage/memoryRecall'
 import {
   buildStickerSystemSection,
   setRemoteStickerCache,
@@ -525,6 +526,15 @@ const IMAGE_CAPTION_FAIL_MESSAGE =
 // UI is stuck on "正在输入…". Generous enough that a slow first token / extended
 // thinking / a tool call isn't mistaken for a hang.
 const STREAM_STALL_MS = 45_000
+
+// Health snapshot cache for the per-message '[TA 今日状态]' line. Injected on
+// every user message; the Supabase read (and Health Connect force-sync on APK)
+// only happens when this has gone stale.
+const HEALTH_SNAP_TTL_MS = 30 * 60 * 1000
+const healthSnapCache: { value: string | null; fetchedAt: number } = {
+  value: null,
+  fetchedAt: 0,
+}
 
 const App = () => {
   const navigate = useNavigate()
@@ -1451,28 +1461,19 @@ const App = () => {
       // on every message like weather, from the cache warmed on mount/foreground.
       const envSnap = peekEnvSnapshot()
 
-      // Health snapshot — injected once per day on the first message, same
-      // pattern as weather. Claude naturally notices sleep/steps/period without
-      // needing to call any tool. (Battery moved into the per-message env
-      // snapshot above so it stays fresh instead of being a morning value.)
-      const todayCN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
-      const HEALTH_DATE_KEY = 'nimbus_health_injected_date'
-      const HEALTH_ATTEMPT_KEY = 'nimbus_health_attempt_at'
-      const lastHealthDate = typeof window !== 'undefined'
-        ? window.localStorage.getItem(HEALTH_DATE_KEY)
-        : null
-      const lastHealthAttempt = typeof window !== 'undefined'
-        ? Number(window.localStorage.getItem(HEALTH_ATTEMPT_KEY) ?? 0)
-        : 0
-      // Retry throughout the day until we actually get data. Marking the date
-      // on a failed/empty attempt (old behavior) meant one early-morning
-      // message — before Health Connect had synced anything — silenced the
-      // health line for the whole day. The 30-min cooldown between attempts
-      // keeps the every-message Supabase hit away.
-      const shouldInjectHealth =
-        lastHealthDate !== todayCN && Date.now() - lastHealthAttempt > 30 * 60 * 1000
-      let healthSnap: string | null = null
-      if (shouldInjectHealth) {
+      // Auto memory recall — same hybrid pipeline as the search_memory tool,
+      // fired here in parallel with the health refresh below. Frozen into this
+      // message's meta so replay stays byte-stable. Never blocks the send on
+      // failure (3.5s internal timeout, silent null).
+      const recallPromise: Promise<string | null> = skipUser
+        ? Promise.resolve(null)
+        : fetchAutoRecall(content)
+
+      // Health snapshot — injected on EVERY user message (when the DB has
+      // nothing we say so explicitly instead of going silent). The Supabase
+      // read + Health Connect force-sync only run when the 30-min cache has
+      // expired; every other message reuses the cached line.
+      if (Date.now() - healthSnapCache.fetchedAt > HEALTH_SNAP_TTL_MS) {
         // On APK, force a Health Connect sync before reading the snapshot so
         // sleep data from last night is already in Supabase when we query.
         if (Capacitor.getPlatform() !== 'web') {
@@ -1480,16 +1481,16 @@ const App = () => {
         }
         if (supabase) {
           try {
-            healthSnap = await fetchHealthSnapshot()
-          } catch { /* non-fatal */ }
-          if (typeof window !== 'undefined') {
-            window.localStorage.setItem(HEALTH_ATTEMPT_KEY, String(Date.now()))
-            if (healthSnap) {
-              window.localStorage.setItem(HEALTH_DATE_KEY, todayCN)
-            }
-          }
+            healthSnapCache.value = await fetchHealthSnapshot()
+          } catch { /* keep the previous value; retried after the TTL */ }
+          healthSnapCache.fetchedAt = Date.now()
         }
       }
+      const healthSnap: string | null = supabase
+        ? healthSnapCache.value ?? '暂无数据（今天还没同步到任何健康记录）'
+        : null
+
+      const recallSnap = await recallPromise
 
       const userMeta: ChatMessage['meta'] = {
         ...(userAttachments.length > 0 ? { attachments: userAttachments } : {}),
@@ -1506,6 +1507,7 @@ const App = () => {
           : {}),
         ...(healthSnap ? { healthSnapshot: healthSnap } : {}),
         ...(envSnap ? { envSnapshot: envSnap } : {}),
+        ...(recallSnap ? { memoryRecall: recallSnap } : {}),
         ...(() => {
           // Freeze the AI's current mood narration into this turn's meta — it's
           // rendered into the payload prefix at send time and replayed verbatim
@@ -2062,12 +2064,14 @@ const App = () => {
             const statusStr = statusParts.length > 0
               ? `\n[TA 今日状态] ${statusParts.join('；')}`
               : ''
+            const recallMeta = message.role === 'user' ? message.meta?.memoryRecall : undefined
+            const recallStr = recallMeta ? `\n[相关记忆] ${recallMeta}` : ''
             // Frozen mood narration for this user turn (private emotional
             // context). Stored per-message so replay is byte-stable.
             const moodMeta = message.role === 'user' ? message.meta?.moodNarration : undefined
             const moodStr = moodMeta ? `${moodMeta}\n\n` : ''
             const prefix = stamp
-              ? `[当前时间] ${stamp}${weatherStr}${envStr}${statusStr}\n\n${moodStr}`
+              ? `[当前时间] ${stamp}${weatherStr}${envStr}${statusStr}${recallStr}\n\n${moodStr}`
               : moodStr
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []

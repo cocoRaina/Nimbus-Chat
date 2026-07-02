@@ -24,6 +24,11 @@
 
 **二修（review 发现首版流式没修透）**：首版 `splitEmbeddedCloseTag()` 每次调用独立扫描、没有跨 delta 的持久状态——但流式下台词是一个字一个字流出来的，只有和 `</thinking>` 挤在同一个 chunk 里的碎片能逃出来，后续 delta 里的台词照旧被塞回思考框（对比 `splitReasoningFromContent` 有 `isInThink` 状态就是为了这个）。补 `reasoningTagClosed` 标志：本轮迭代内一旦见过 close tag，后续所有 reasoning delta 全部改道正文；随 carry 一起在每轮迭代开头重置。非流式（整坨一次到）不受首版缺陷影响。
 
+### 记忆每轮自动召回 + 健康注入改每条消息（2026-07-02）
+
+- **每轮自动召回**：每条用户消息发送前自动打 `search_memory` 混合检索，top 3 命中注入 `[相关记忆]` 行（会话级去重、3.5s 超时静默降级、不碰缓存前缀）。见 `docs/features/memory.md`。
+- **健康注入**：`[TA 今日状态]` 改为每条消息都带（30min TTL 缓存），没数据时明确说「暂无数据」。当天注入标记（`nimbus_health_injected_date`/`nimbus_health_attempt_at` localStorage key）废弃不再读写。
+
 ### 健康数据很久没被主动提过：空壳行 + 失败也标记"今天已注入"（2026-07-02）
 
 **症状**：AI 很多天没在对话里主动提睡眠/步数（`[TA 今日状态]` 没注入）。
