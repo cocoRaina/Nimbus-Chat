@@ -1755,8 +1755,18 @@ const App = () => {
         // follow-up reply after a tool call then reads like the model
         // "forgot" what it just said, because structurally it did.
         let reasoningCloseCarry = ''
+        // Once a close tag has been seen in the reasoning field, the visible
+        // reply that follows streams in over MANY subsequent reasoning deltas
+        // — not just the chunk containing the tag. This flag keeps routing
+        // them to content until the next tool iteration resets it; without
+        // it only the fragment sharing a chunk with </thinking> escapes the
+        // reasoning bucket and the "amnesia" bug survives in streaming mode.
+        let reasoningTagClosed = false
         const REASONING_CLOSE_TAGS = ['</thinking>', '</think>'] as const
         const splitEmbeddedCloseTag = (delta: string): { reasoning: string; leftover: string } => {
+          if (reasoningTagClosed) {
+            return { reasoning: '', leftover: delta }
+          }
           const text = `${reasoningCloseCarry}${delta}`
           reasoningCloseCarry = ''
           let earliestIndex = -1
@@ -1780,6 +1790,7 @@ const App = () => {
             }
             return { reasoning: text, leftover: '' }
           }
+          reasoningTagClosed = true
           return {
             reasoning: text.slice(0, earliestIndex),
             leftover: text.slice(earliestIndex + matchedTag.length),
@@ -2141,6 +2152,7 @@ const App = () => {
             thinkCarry = ''
             activeCloseTag = ''
             reasoningCloseCarry = ''
+            reasoningTagClosed = false
             // Mark where this iteration's text starts in the cumulative
             // assistantContent stream. When pushing this iteration's
             // assistant-with-tool-calls message into baseMessages below,

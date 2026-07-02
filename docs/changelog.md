@@ -22,6 +22,8 @@
 
 **修**：新增 `splitEmbeddedCloseTag()`，对 `reasoning`/`reasoning_content` 字段的内容也扫一遍 `</thinking>`/`</think>`，把标签后面的文字拆出来塞回 `assistantContent`（视觉上恢复成正常气泡，逻辑上模型下一轮也能看到自己说过的话）。覆盖了流式（`explicitReasoning`/`deltaReasoning`）和非流式（`messageReasoning`/`choiceReasoning`/`payloadReasoning`）5 处调用点；`reasoningCloseCarry` 状态每轮迭代开始时重置，避免跨轮残留。
 
+**二修（review 发现首版流式没修透）**：首版 `splitEmbeddedCloseTag()` 每次调用独立扫描、没有跨 delta 的持久状态——但流式下台词是一个字一个字流出来的，只有和 `</thinking>` 挤在同一个 chunk 里的碎片能逃出来，后续 delta 里的台词照旧被塞回思考框（对比 `splitReasoningFromContent` 有 `isInThink` 状态就是为了这个）。补 `reasoningTagClosed` 标志：本轮迭代内一旦见过 close tag，后续所有 reasoning delta 全部改道正文；随 carry 一起在每轮迭代开头重置。非流式（整坨一次到）不受首版缺陷影响。
+
 ### 和风天气一直 403：认证方式 + API Host 全用错了（2026-07-01）✅ 真机验证通过
 
 **症状**：填了和风 API Key，调试面板一直 `和风失败: HTTP 403`，退回 Open-Meteo。前后猜了四五轮（`?key=` → EdDSA JWT → HS256 JWT）全 403。
