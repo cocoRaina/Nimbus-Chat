@@ -24,6 +24,10 @@
 
 **二修（review 发现首版流式没修透）**：首版 `splitEmbeddedCloseTag()` 每次调用独立扫描、没有跨 delta 的持久状态——但流式下台词是一个字一个字流出来的，只有和 `</thinking>` 挤在同一个 chunk 里的碎片能逃出来，后续 delta 里的台词照旧被塞回思考框（对比 `splitReasoningFromContent` 有 `isInThink` 状态就是为了这个）。补 `reasoningTagClosed` 标志：本轮迭代内一旦见过 close tag，后续所有 reasoning delta 全部改道正文；随 carry 一起在每轮迭代开头重置。非流式（整坨一次到）不受首版缺陷影响。
 
+### Diagnostics 加「记忆状态」tab（2026-07-02）
+
+监控当天上线的记忆部件：摘要覆盖检查（`digest_coverage` RPC，🔴 连续出现 = cron 挂了）、摘要列表（可展开看质量）、每轮召回日志（`memoryRecall.ts` 内存环形日志，重启清空）。见 docs/features/diagnostics.md。
+
 ### 会话摘要层上线（2026-07-02）
 
 `session_digests` 表 + `session_digest` Edge Function + 每日 04:30 cron：每天给每个活跃会话生成 2-4 句 LLM 摘要并嵌入，作为混合检索第 7 个源。摘要模型**优先沿用自动提取的配置**（`memory_extract_model` + 服务端 `OPENROUTER_API_KEY`），失败降级 SiliconFlow Qwen2.5-14B（**7B 实测摘要掉字弃用**）；嵌入固定 BGE-M3。已回填最近 7 天并在库上验证检索命中。细节见 docs/features/memory.md「会话摘要层」。

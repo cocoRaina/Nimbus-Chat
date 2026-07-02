@@ -5,13 +5,14 @@ import { fetchUsageLogs, type UsageLogRow } from '../storage/usageStats'
 import { fetchOpenRouter } from '../api/openrouter'
 import { supabase } from '../supabase/client'
 import { estimateTokens } from '../storage/conversationCompression'
+import { getRecallLog } from '../storage/memoryRecall'
 import { getCustomProviderDisplayName, getActiveProvider } from '../storage/apiProvider'
 import './UsagePage.css'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type RangeKey = 'today' | 'week' | 'month' | 'all'
-type DiagTab = 'usage' | 'api' | 'compress'
+type DiagTab = 'usage' | 'api' | 'compress' | 'memory'
 type CheckStatus = 'idle' | 'running' | 'pass' | 'warn' | 'fail' | 'skip'
 
 type CheckResult = {
@@ -28,6 +29,19 @@ type CompressionEntry = {
   wordCount: number
 }
 
+type DigestRow = {
+  id: string
+  digestDate: string
+  content: string
+  createdAt: string
+}
+
+type CoverageRow = {
+  day: string
+  msgCount: number
+  digestCount: number
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
@@ -41,6 +55,7 @@ const DIAG_TABS: Array<{ key: DiagTab; label: string }> = [
   { key: 'usage', label: '用量统计' },
   { key: 'api', label: 'API检测' },
   { key: 'compress', label: '压缩状态' },
+  { key: 'memory', label: '记忆状态' },
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -675,6 +690,57 @@ const UsagePage = ({ user }: UsagePageProps) => {
     if (activeTab === 'compress') void loadCompression()
   }, [activeTab, loadCompression])
 
+  // ── Tab 4: Memory status (digests + coverage + recall log) ─────────────
+  const [digestRows, setDigestRows] = useState<DigestRow[]>([])
+  const [coverageRows, setCoverageRows] = useState<CoverageRow[]>([])
+  const [memoryLoading, setMemoryLoading] = useState(false)
+  const [memoryError, setMemoryError] = useState<string | null>(null)
+  const [expandedDigestId, setExpandedDigestId] = useState<string | null>(null)
+
+  const loadMemoryStatus = useCallback(async () => {
+    if (!supabase) return
+    setMemoryLoading(true)
+    setMemoryError(null)
+    try {
+      const [digestRes, coverageRes] = await Promise.all([
+        supabase
+          .from('session_digests')
+          .select('id, digest_date, content, created_at')
+          .order('digest_date', { ascending: false })
+          .limit(14),
+        supabase.rpc('digest_coverage', { check_days: 7 }),
+      ])
+      if (digestRes.error) throw digestRes.error
+      if (coverageRes.error) throw coverageRes.error
+      setDigestRows(
+        ((digestRes.data ?? []) as Array<{ id: string; digest_date: string; content: string; created_at: string }>).map((r) => ({
+          id: r.id,
+          digestDate: r.digest_date,
+          content: r.content,
+          createdAt: r.created_at,
+        })),
+      )
+      setCoverageRows(
+        ((coverageRes.data ?? []) as Array<{ day: string; msg_count: number; digest_count: number }>).map((r) => ({
+          day: r.day,
+          msgCount: r.msg_count,
+          digestCount: r.digest_count,
+        })),
+      )
+    } catch (e) {
+      console.warn('加载记忆状态失败', e)
+      setMemoryError('加载失败，请确认 session_digests 表和 digest_coverage RPC 已创建。')
+    } finally {
+      setMemoryLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'memory') void loadMemoryStatus()
+  }, [activeTab, loadMemoryStatus])
+
+  const recallLog = activeTab === 'memory' ? getRecallLog() : []
+
   // Token accuracy stats from recent chat usage logs
   const tokenAccuracyStats = useMemo(() => {
     const chatRows = rows.filter((r) => r.source === 'chat' && r.promptTokens > 0).slice(0, 20)
@@ -692,6 +758,8 @@ const UsagePage = ({ user }: UsagePageProps) => {
     ? <button type="button" className="ghost" onClick={() => void loadUsageData()} disabled={loading}>{loading ? '刷新中…' : '刷新'}</button>
     : activeTab === 'compress'
     ? <button type="button" className="ghost" onClick={() => void loadCompression()} disabled={compressionLoading}>{compressionLoading ? '刷新中…' : '刷新'}</button>
+    : activeTab === 'memory'
+    ? <button type="button" className="ghost" onClick={() => void loadMemoryStatus()} disabled={memoryLoading}>{memoryLoading ? '刷新中…' : '刷新'}</button>
     : <div className="page-header-spacer" />
 
   return (
@@ -1213,6 +1281,103 @@ const UsagePage = ({ user }: UsagePageProps) => {
                   </table>
                 </div>
               </>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* ── Tab 4: Memory status ───────────────────────────────────────── */}
+      {activeTab === 'memory' && (
+        <div className="diag-panel">
+          {memoryError ? <p className="usage-error">{memoryError}</p> : null}
+
+          <section className="usage-section">
+            <h3>会话摘要覆盖（最近 7 天）</h3>
+            <p className="usage-hint">每天凌晨 4:30 自动给前一天的活跃会话写摘要。🟢 已生成 · ⚪ 消息太少跳过 · 🔴 该有但没生成（连续出现说明 cron 出问题了）</p>
+            {memoryLoading ? (
+              <p className="usage-empty">加载中…</p>
+            ) : coverageRows.length === 0 ? (
+              <p className="usage-empty">暂无数据。</p>
+            ) : (
+              <div className="compress-list">
+                {coverageRows.map((row) => {
+                  const status = row.digestCount > 0 ? 'ok' : row.msgCount < 6 ? 'skip' : 'missing'
+                  return (
+                    <div key={row.day} className="compress-card">
+                      <div className="compress-card-header">
+                        <span>{status === 'ok' ? '🟢' : status === 'skip' ? '⚪' : '🔴'}</span>
+                        <span className="compress-title">{row.day.slice(5).replace('-', '.')}</span>
+                        <span className="compress-meta">
+                          {row.msgCount} 条消息 · {row.digestCount > 0 ? `${row.digestCount} 条摘要` : status === 'skip' ? '不足 6 条，跳过' : '缺摘要'}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="usage-section">
+            <h3>会话摘要（最近 14 条）</h3>
+            {memoryLoading ? (
+              <p className="usage-empty">加载中…</p>
+            ) : digestRows.length === 0 ? (
+              <p className="usage-empty">还没有摘要——每天凌晨自动生成，或让 Claude 手动触发回填。</p>
+            ) : (
+              <div className="compress-list">
+                {digestRows.map((row) => {
+                  const isExpanded = expandedDigestId === row.id
+                  return (
+                    <div key={row.id} className="compress-card">
+                      <div
+                        className="compress-card-header"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setExpandedDigestId(isExpanded ? null : row.id)}
+                        onKeyDown={(e) => e.key === 'Enter' && setExpandedDigestId(isExpanded ? null : row.id)}
+                      >
+                        <span className="compress-status-dot" title="已生成" />
+                        <span className="compress-title">{row.digestDate.slice(5).replace('-', '.')}</span>
+                        <span className="compress-meta">
+                          {row.content.length} 字 · 生成于 {formatRelTime(row.createdAt)}
+                        </span>
+                        <span className="compress-chevron">{isExpanded ? '▲' : '▼'}</span>
+                      </div>
+                      {isExpanded && (
+                        <div className="compress-summary-body">
+                          <pre className="compress-summary-text">{row.content}</pre>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="usage-section">
+            <h3>每轮自动召回（本次启动，最近 {recallLog.length} 次）</h3>
+            <p className="usage-hint">每条消息发送时自动搜记忆库注入 [相关记忆]。此日志存在内存里，重启 App 后清空。</p>
+            {recallLog.length === 0 ? (
+              <p className="usage-empty">本次启动还没有触发召回——发一条 6 字以上的消息就会出现记录。</p>
+            ) : (
+              <div className="compress-list">
+                {recallLog.map((entry) => (
+                  <div key={entry.at} className="compress-card">
+                    <div className="compress-card-header">
+                      <span>{entry.hits > 0 ? '🟢' : entry.hits === 0 ? '⚪' : '🔴'}</span>
+                      <span className="compress-title">{entry.query}</span>
+                      <span className="compress-meta">
+                        {entry.hits >= 0 ? `${entry.hits} 条命中` : '失败'} · {formatRelTime(new Date(entry.at).toISOString())}
+                      </span>
+                    </div>
+                    <div className="compress-summary-body">
+                      <pre className="compress-summary-text">{entry.preview}</pre>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </section>
         </div>

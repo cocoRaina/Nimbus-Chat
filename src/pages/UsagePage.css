@@ -663,3 +663,11 @@
   font-size: 0.82rem;
   color: #9a6a1e;
 }
+
+/* ── Memory status tab ── */
+.usage-hint {
+  font-size: 0.82rem;
+  color: #718096;
+  margin: -2px 0 10px;
+  line-height: 1.5;
+}

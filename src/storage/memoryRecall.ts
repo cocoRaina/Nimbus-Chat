@@ -17,6 +17,17 @@ const TIMEOUT_MS = 3500
 // （省 token，也避免模型被同一条记忆反复带节奏）。
 const injectedKeys = new Set<string>()
 
+// 环形日志（仅本次启动，内存态）：Diagnostics「记忆状态」tab 读它来判断
+// 每轮召回是否健康运行。hits=-1 表示该轮召回超时/失败（消息照常发出）。
+export type RecallLogEntry = { at: number; query: string; hits: number; preview: string }
+const recallLog: RecallLogEntry[] = []
+const MAX_LOG = 20
+const logRecall = (entry: RecallLogEntry) => {
+  recallLog.push(entry)
+  if (recallLog.length > MAX_LOG) recallLog.shift()
+}
+export const getRecallLog = (): RecallLogEntry[] => [...recallLog].reverse()
+
 type RecallRow = {
   id?: unknown
   source?: string
@@ -39,7 +50,10 @@ export const fetchAutoRecall = async (query: string): Promise<string | null> => 
       setTimeout(() => reject(new Error('recall timeout')), TIMEOUT_MS)
     })
     const { data, error } = await Promise.race([invoke, timeout])
-    if (error) return null
+    if (error) {
+      logRecall({ at: Date.now(), query: q.slice(0, 40), hits: -1, preview: String(error.message ?? error) })
+      return null
+    }
     const rows = ((data as { results?: RecallRow[] } | null)?.results ?? []) as RecallRow[]
     const picked: string[] = []
     for (const row of rows) {
@@ -53,9 +67,17 @@ export const fetchAutoRecall = async (query: string): Promise<string | null> => 
       // 非 memory 来源（diary/letter/timeline/snack_post…）标注出处。
       picked.push(row.source && row.source !== 'memory' ? `[${row.source}] ${snippet}` : snippet)
     }
-    return picked.length > 0 ? picked.join('；') : null
-  } catch {
+    const line = picked.length > 0 ? picked.join('；') : null
+    logRecall({
+      at: Date.now(),
+      query: q.slice(0, 40),
+      hits: picked.length,
+      preview: line ? line.slice(0, 120) : '（无新命中，可能已注入过或库里没有相关记忆）',
+    })
+    return line
+  } catch (err) {
     // 召回是锦上添花——超时/报错一律静默放弃，绝不挡住正常发消息。
+    logRecall({ at: Date.now(), query: q.slice(0, 40), hits: -1, preview: String(err) })
     return null
   }
 }

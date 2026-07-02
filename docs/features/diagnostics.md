@@ -2,7 +2,15 @@
 
 > 给下一个 session 的我：这套「防中转骗」的诊断功能怎么实现的、代码在哪、踩过什么坑。
 > 用户向导（怎么读结果）见对外版 [docs/guides/relay-check-and-token-audit.md](../guides/relay-check-and-token-audit.md)；本篇是**实现参考**。
-> 入口：App → 用量页（`UsagePage.tsx`）→ 顶部三标签「用量统计 / API检测 / 压缩状态」。
+> 入口：App → 用量页（`UsagePage.tsx`）→ 顶部四标签「用量统计 / API检测 / 压缩状态 / 记忆状态」。
+
+## 记忆状态 tab（2026-07-02 加）
+
+监控记忆系统的新部件是否健康运行：
+
+1. **会话摘要覆盖（最近 7 天）**：`digest_coverage` RPC 按北京日对比「当天消息数 vs 摘要数」——🟢 已生成 / ⚪ 消息不足 6 条跳过 / 🔴 该有但没生成。**连续 🔴 = session_digest cron 出问题了**，去 Supabase 看 Edge Function 日志。
+2. **会话摘要列表（最近 14 条）**：点开看全文，检查摘要质量（换提取模型后来这里看效果）。
+3. **每轮自动召回日志（本次启动）**：每次召回的 query / 命中数 / 注入内容预览（`memoryRecall.ts` 的 `getRecallLog()`，内存环形日志 20 条）。🔴 = 该轮召回失败（超时/报错，消息本身照常发出）。重启 App 清空。
 
 ---
 
