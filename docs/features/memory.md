@@ -47,7 +47,8 @@
 「那天我们聊了什么」这个层次以前是空的（原文太碎、提取记忆太干）。现在：
 
 - **`session_digests` 表**：每会话每天一行（UNIQUE 约束），content 为 2-4 句第三人称摘要 + BGE-M3 embedding
-- **生成**：Edge Function `session_digest`，cron 每天北京时间 04:30 跑。扫最近 3 天（今天除外），每个「当日消息 ≥ 6 条且没有摘要行」的会话：当天对话（每条截 200 字、总长超 1 万字取头 7000 + 尾 3000）→ SiliconFlow `Qwen/Qwen2.5-14B-Instruct` 写摘要（7B 实测掉字，弃用）→ 嵌入 → 入库。摘要或嵌入失败整行不写，下次 cron 重试
+- **生成**：Edge Function `session_digest`，cron 每天北京时间 04:30 跑。扫最近 3 天（今天除外），每个「当日消息 ≥ 6 条且没有摘要行」的会话：当天对话（每条截 200 字、总长超 1 万字取头 7000 + 尾 3000）→ LLM 写摘要 → 嵌入 → 入库。摘要或嵌入失败整行不写，下次 cron 重试
+- **摘要模型链**：优先**沿用自动记忆提取的模型**（`user_settings.memory_extract_model`，走服务端 `OPENROUTER_API_KEY`）；OpenRouter 失败/没配时降级 SiliconFlow `Qwen/Qwen2.5-14B-Instruct`（7B 实测掉字，弃用）。**嵌入始终是 SiliconFlow BGE-M3，不能换**——全库向量空间必须一致
 - **回填**：手动 POST `{"days": N}`（1-30）可补历史
 - **检索**：混合检索 RPC 第 7 个源 `session_digest`（类别显示「对话摘要」，时间用 digest_date 参与时间近度加分）；`search_memory` 的 `table` 参数可传 `session_digest` 限定只搜摘要
 

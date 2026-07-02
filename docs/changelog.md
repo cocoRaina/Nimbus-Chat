@@ -26,7 +26,7 @@
 
 ### 会话摘要层上线（2026-07-02）
 
-`session_digests` 表 + `session_digest` Edge Function + 每日 04:30 cron：每天给每个活跃会话生成 2-4 句 LLM 摘要（SiliconFlow Qwen2.5-14B，**7B 实测摘要掉字弃用**）并嵌入，作为混合检索第 7 个源。已回填最近 7 天并在库上验证检索命中。细节见 docs/features/memory.md「会话摘要层」。
+`session_digests` 表 + `session_digest` Edge Function + 每日 04:30 cron：每天给每个活跃会话生成 2-4 句 LLM 摘要并嵌入，作为混合检索第 7 个源。摘要模型**优先沿用自动提取的配置**（`memory_extract_model` + 服务端 `OPENROUTER_API_KEY`），失败降级 SiliconFlow Qwen2.5-14B（**7B 实测摘要掉字弃用**）；嵌入固定 BGE-M3。已回填最近 7 天并在库上验证检索命中。细节见 docs/features/memory.md「会话摘要层」。
 
 ### 记忆系统去冗余 + 补聊天原文检索层（2026-07-02）
 

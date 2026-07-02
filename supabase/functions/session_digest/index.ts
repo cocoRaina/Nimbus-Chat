@@ -11,10 +11,16 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 const SF_EMBED_URL = 'https://api.siliconflow.cn/v1/embeddings'
 const SF_CHAT_URL = 'https://api.siliconflow.cn/v1/chat/completions'
+const OR_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const EMBED_MODEL = 'BAAI/bge-m3'
-// 14B：7B 实测摘要掉字（"对AI的的不满"）；摘要长期留存，质量优先，成本仍可忽略。
-const CHAT_MODEL = 'Qwen/Qwen2.5-14B-Instruct'
+// 摘要模型链：优先沿用「自动记忆提取」的同一配置（user_settings.
+// memory_extract_model，走服务端 OPENROUTER_API_KEY）；OpenRouter 不可用 /
+// 没配 key / 没配提取模型时降级到硅基流动。嵌入始终走 SiliconFlow BGE-M3
+// （全库向量空间必须一致，不能换）。
+// SF 兜底用 14B：7B 实测摘要掉字（"对AI的的不满"）；质量优先，成本仍可忽略。
+const SF_FALLBACK_MODEL = 'Qwen/Qwen2.5-14B-Instruct'
 const SILICONFLOW_API_KEY = Deno.env.get('SILICONFLOW_API_KEY') ?? ''
+const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY') ?? ''
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
@@ -37,33 +43,55 @@ const dayRangeUtc = (dateStr: string): { start: string; end: string } => {
   return { start: start.toISOString(), end: end.toISOString() }
 }
 
-const summarize = async (transcript: string, dateStr: string): Promise<string | null> => {
-  const r = await fetch(SF_CHAT_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${SILICONFLOW_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: CHAT_MODEL,
-      temperature: 0.3,
-      max_tokens: 300,
-      messages: [
-        {
-          role: 'system',
-          content:
-            '你是对话归档员。给你一段某一天「用户」和「AI 伙伴」的聊天记录，' +
-            '用中文写 2-4 句第三人称摘要：聊了哪些话题、发生了什么重要的事/决定/情绪变化。' +
-            '只输出摘要正文，不要标题、不要列表、不要评价。',
-        },
-        { role: 'user', content: `日期：${dateStr}\n\n${transcript}` },
-      ],
-    }),
-  })
-  if (!r.ok) return null
-  const data = await r.json()
-  const text = data?.choices?.[0]?.message?.content
-  return typeof text === 'string' && text.trim().length > 0 ? text.trim() : null
+const SUMMARY_SYSTEM_PROMPT =
+  '你是对话归档员。给你一段某一天「用户」和「AI 伙伴」的聊天记录，' +
+  '用中文写 2-4 句第三人称摘要：聊了哪些话题、发生了什么重要的事/决定/情绪变化。' +
+  '只输出摘要正文，不要标题、不要列表、不要评价。'
+
+const callChatApi = async (
+  url: string,
+  apiKey: string,
+  model: string,
+  transcript: string,
+  dateStr: string,
+): Promise<string | null> => {
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.3,
+        max_tokens: 300,
+        messages: [
+          { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
+          { role: 'user', content: `日期：${dateStr}\n\n${transcript}` },
+        ],
+      }),
+    })
+    if (!r.ok) return null
+    const data = await r.json()
+    const text = data?.choices?.[0]?.message?.content
+    return typeof text === 'string' && text.trim().length > 0 ? text.trim() : null
+  } catch (_) {
+    return null
+  }
+}
+
+const summarize = async (
+  transcript: string,
+  dateStr: string,
+  extractModel: string | null,
+): Promise<{ text: string; model: string } | null> => {
+  if (extractModel && OPENROUTER_API_KEY) {
+    const text = await callChatApi(OR_CHAT_URL, OPENROUTER_API_KEY, extractModel, transcript, dateStr)
+    if (text) return { text, model: extractModel }
+  }
+  const text = await callChatApi(SF_CHAT_URL, SILICONFLOW_API_KEY, SF_FALLBACK_MODEL, transcript, dateStr)
+  return text ? { text, model: SF_FALLBACK_MODEL } : null
 }
 
 const embed = async (input: string): Promise<number[] | null> => {
@@ -97,8 +125,19 @@ Deno.serve(async (req: Request) => {
   } catch (_) { /* empty body from cron is fine */ }
 
   const supa = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
-  const results: Array<{ date: string; session_id: string; ok: boolean; reason?: string }> = []
+  const results: Array<{ date: string; session_id: string; ok: boolean; model?: string; reason?: string }> = []
   let processed = 0
+
+  // 沿用「自动记忆提取」的模型配置（单租户库，取第一行即可）。
+  const { data: settingsRow } = await supa
+    .from('user_settings')
+    .select('memory_extract_model')
+    .limit(1)
+    .maybeSingle()
+  const extractModel =
+    typeof settingsRow?.memory_extract_model === 'string' && settingsRow.memory_extract_model.trim()
+      ? settingsRow.memory_extract_model.trim()
+      : null
 
   try {
     for (let back = 1; back <= days && processed < MAX_SESSION_DAYS_PER_RUN; back += 1) {
@@ -141,12 +180,12 @@ Deno.serve(async (req: Request) => {
           transcript = `${transcript.slice(0, 7000)}\n……（中间省略）……\n${transcript.slice(-3000)}`
         }
 
-        const summary = await summarize(transcript, dateStr)
+        const summary = await summarize(transcript, dateStr, extractModel)
         if (!summary) {
           results.push({ date: dateStr, session_id: sessionId, ok: false, reason: 'llm failed' })
           continue
         }
-        const vector = await embed(summary)
+        const vector = await embed(summary.text)
         if (!vector) {
           results.push({ date: dateStr, session_id: sessionId, ok: false, reason: 'embed failed' })
           continue
@@ -154,13 +193,14 @@ Deno.serve(async (req: Request) => {
         const { error: insErr } = await supa.from('session_digests').insert({
           session_id: sessionId,
           digest_date: dateStr,
-          content: summary,
+          content: summary.text,
           embedding: vector,
         })
         results.push({
           date: dateStr,
           session_id: sessionId,
           ok: !insErr,
+          model: summary.model,
           ...(insErr ? { reason: insErr.message } : {}),
         })
       }
