@@ -24,6 +24,10 @@
 
 **二修（review 发现首版流式没修透）**：首版 `splitEmbeddedCloseTag()` 每次调用独立扫描、没有跨 delta 的持久状态——但流式下台词是一个字一个字流出来的，只有和 `</thinking>` 挤在同一个 chunk 里的碎片能逃出来，后续 delta 里的台词照旧被塞回思考框（对比 `splitReasoningFromContent` 有 `isInThink` 状态就是为了这个）。补 `reasoningTagClosed` 标志：本轮迭代内一旦见过 close tag，后续所有 reasoning delta 全部改道正文；随 carry 一起在每轮迭代开头重置。非流式（整坨一次到）不受首版缺陷影响。
 
+### 会话摘要层上线（2026-07-02）
+
+`session_digests` 表 + `session_digest` Edge Function + 每日 04:30 cron：每天给每个活跃会话生成 2-4 句 LLM 摘要（SiliconFlow Qwen2.5-14B，**7B 实测摘要掉字弃用**）并嵌入，作为混合检索第 7 个源。已回填最近 7 天并在库上验证检索命中。细节见 docs/features/memory.md「会话摘要层」。
+
 ### 记忆系统去冗余 + 补聊天原文检索层（2026-07-02）
 
 按分层地图（见 docs/features/memory.md 开头）收拾了三处冗余、补了一层空缺：

@@ -98,7 +98,7 @@ Deno.serve(async (req: Request) => {
   const category = typeof payload.category === 'string' && payload.category.trim().length > 0
     ? payload.category.trim()
     : null
-  const VALID_TABLES = ['memory', 'diary', 'letter', 'timeline', 'snack_post', 'snack_reply']
+  const VALID_TABLES = ['memory', 'diary', 'letter', 'timeline', 'snack_post', 'snack_reply', 'session_digest']
   const filterTable = typeof payload.table === 'string' && VALID_TABLES.includes(payload.table)
     ? payload.table
     : null

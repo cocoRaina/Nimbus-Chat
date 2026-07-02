@@ -9,6 +9,7 @@
 | **被动召回** | 未锁定记忆/日记/交接信/时间轴/朋友圈 | 每轮自动召回 top 3 → `[相关记忆]` 行 | `exclude_locked` + `lean` + 会话级去重 |
 | **主动深挖** | 同上全量 | AI 调 `search_memory`（带过滤器，含锁定） | 工具描述提醒"先看 [相关记忆]" |
 | **逐字原文** | `messages` 表聊天原件 | AI 调 `search_chat_history`（关键词） | 排除最近 10 分钟（已在上下文里） |
+| **会话摘要** | `session_digests`（每日每会话 2-4 句） | 混合检索第 7 源 `session_digest`，召回/搜索都命中 | 每会话每天唯一行，今天的不生成 |
 | **身体状态** | health_data / period_tracking | 每条消息 `[TA 今日状态]`（30min 缓存） | 自动召回 `lean` 不再重复带 |
 | **入库** | 提取管线 → pending → 确认 | 每 12 轮自动提取 + 手动 | 0.85 Jaccard 跨表去重 |
 | **保洁** | access_count / garden / 归档 | AI 调管理工具 | — |
@@ -40,6 +41,15 @@
 - **`lean: true`**：Edge Function 跳过 period/health 附带查询（健康数据已每条消息注入，召回路径再带纯属浪费）
 - 每轮成本：一次 BGE-M3 embedding（SiliconFlow）+ 一次 RPC；注入 ≤3 条、每条截 80 字
 - 锁定记忆照旧常驻 system prompt；`search_memory` 工具照旧保留（AI 要深挖时自己调）
+
+## 会话摘要层（2026-07-02 起）
+
+「那天我们聊了什么」这个层次以前是空的（原文太碎、提取记忆太干）。现在：
+
+- **`session_digests` 表**：每会话每天一行（UNIQUE 约束），content 为 2-4 句第三人称摘要 + BGE-M3 embedding
+- **生成**：Edge Function `session_digest`，cron 每天北京时间 04:30 跑。扫最近 3 天（今天除外），每个「当日消息 ≥ 6 条且没有摘要行」的会话：当天对话（每条截 200 字、总长超 1 万字取头 7000 + 尾 3000）→ SiliconFlow `Qwen/Qwen2.5-14B-Instruct` 写摘要（7B 实测掉字，弃用）→ 嵌入 → 入库。摘要或嵌入失败整行不写，下次 cron 重试
+- **回填**：手动 POST `{"days": N}`（1-30）可补历史
+- **检索**：混合检索 RPC 第 7 个源 `session_digest`（类别显示「对话摘要」，时间用 digest_date 参与时间近度加分）；`search_memory` 的 `table` 参数可传 `session_digest` 限定只搜摘要
 
 ## 每条消息的健康注入（原"每日状态"）
 
