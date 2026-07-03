@@ -128,7 +128,7 @@ const CheckinPage = ({ user }: CheckinPageProps) => {
   return (
     <div className="checkin-page">
       <header className="checkin-page-header">
-        <button type="button" className="checkin-back" onClick={() => navigate(-1)}>‹</button>
+        <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>‹</button>
         <span className="checkin-page-title">Check-in</span>
         <span className="checkin-header-gap" />
       </header>

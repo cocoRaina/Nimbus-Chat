@@ -12,6 +12,14 @@ import type {
   TimelineEvent,
 } from '../types'
 import { supabase } from '../supabase/client'
+import { computePeriodMetrics } from '../hooks/useHomeWidgetData'
+
+type PeriodCycleRow = {
+  start_date: string
+  end_date?: string | null
+  cycle_length?: number | null
+  notes?: string | null
+}
 
 type SessionRow = {
   id: string
@@ -925,11 +933,13 @@ export const fetchHealthSnapshot = async (): Promise<string | null> => {
       .select('date,sleep_hours,deep_sleep_hours,light_sleep_hours,rem_sleep_hours,sleep_quality,steps,notes')
       .order('date', { ascending: false })
       .limit(3),
+    // Up to 6 recent cycles: the newest row is the "current" one, the
+    // rest feed the adaptive cycle-length median (same as the home widget).
     supabase
       .from('period_tracking')
-      .select('start_date,end_date')
+      .select('start_date,end_date,cycle_length,notes')
       .order('start_date', { ascending: false })
-      .limit(1),
+      .limit(6),
   ])
 
   const parts: string[] = []
@@ -971,13 +981,37 @@ export const fetchHealthSnapshot = async (): Promise<string | null> => {
     }
   }
 
-  const period = (periodResult.data ?? [])[0] as { start_date?: string; end_date?: string } | undefined
-  if (period?.start_date) {
-    parts.push(
-      period.end_date
-        ? `上次经期 ${period.start_date}`
-        : `经期进行中（${period.start_date} 起）`,
+  // Label the period line with phase + cycle day (e.g. 黄体期，本周期第20天)
+  // instead of the bare start date — computed the same way as the home
+  // widget so the model and the UI never disagree.
+  const periodRows = (periodResult.data ?? []) as PeriodCycleRow[]
+  const current = periodRows[0]
+  if (current?.start_date) {
+    const metrics = computePeriodMetrics(
+      {
+        start_date: current.start_date,
+        end_date: current.end_date ?? null,
+        cycle_length: current.cycle_length ?? null,
+        notes: current.notes ?? null,
+      },
+      periodRows,
     )
+    if (metrics) {
+      const { phase, cycleDay, daysToNext } = metrics
+      const nextHint =
+        daysToNext > 0
+          ? `预计 ${daysToNext} 天后下次经期`
+          : daysToNext === 0
+            ? '预计今天来下次经期'
+            : `下次经期已推迟 ${-daysToNext} 天`
+      parts.push(
+        phase === '经期中'
+          ? `经期中，第 ${cycleDay} 天（${current.start_date} 起）`
+          : `${phase}，处于本周期第 ${cycleDay} 天，${nextHint}（上次经期 ${current.start_date}）`,
+      )
+    } else {
+      parts.push(`上次经期 ${current.start_date}`)
+    }
   }
 
   return parts.length > 0 ? parts.join('；') : null

@@ -891,10 +891,11 @@ const SettingsPage = ({
         <header className="settings-header app-shell__header">
           <button
             type="button"
-            className="ghost"
+            className="page-back-btn"
+            aria-label="返回"
             onClick={() => requestNavigation(() => navigate(-1))}
           >
-            返回
+            ‹
           </button>
           <h1 className="ui-title">设置</h1>
           <span className="header-spacer" />
@@ -916,10 +917,11 @@ const SettingsPage = ({
       <header className="settings-header app-shell__header">
         <button
           type="button"
-          className="ghost"
+          className="page-back-btn"
+          aria-label="返回"
           onClick={() => requestNavigation(() => navigate(-1))}
         >
-          返回
+          ‹
         </button>
         <h1 className="ui-title">设置</h1>
         <span className="header-spacer" />

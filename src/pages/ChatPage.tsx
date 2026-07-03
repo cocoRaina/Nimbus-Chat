@@ -625,9 +625,18 @@ const ChatPage = ({
     setRecordDurationMs(0)
   }
 
+  // 输入框为空 → 点贴纸直接发（保留一键快发）；输入框有内容 → 把
+  // [sticker:名字] 标记追加进草稿，跟文字一起随发送键发出（混合发送）。
+  // 渲染端 splitStickerSegments 本来就支持文字+贴纸混排，标记随文字
+  // 落进同一条消息即可。托盘保持打开，方便连选多个贴纸。
   const handleSendSticker = (name: string) => {
+    const marker = `[sticker:${name}]`
+    if (draft.trim()) {
+      setDraft((prev) => `${prev.endsWith(' ') || prev.endsWith('\n') || !prev ? prev : `${prev} `}${marker}`)
+      return
+    }
     setShowStickerTray(false)
-    void onSendMessage(`[sticker:${name}]`)
+    void onSendMessage(marker)
   }
 
   const handleImportSticker = async (files: FileList | null) => {
@@ -686,6 +695,7 @@ const ChatPage = ({
       return
     }
     buzz()
+    setShowStickerTray(false)
     let payload = trimmed
     if (quoted) {
       const quoteBlock = quoted.content
@@ -1168,11 +1178,11 @@ const ChatPage = ({
       <header className="chat-header top-nav app-shell__header">
         <button
           type="button"
-          className="ghost chat-header-icon"
+          className="page-back-btn"
           aria-label="返回首页"
           onClick={() => navigate('/')}
         >
-          ←
+          ‹
         </button>
         {assistantAvatar ? (
           <img

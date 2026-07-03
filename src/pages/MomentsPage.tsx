@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import MarkdownRenderer from '../components/MarkdownRenderer'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { fetchOpenRouter } from '../api/openrouter'
 import { recordUsage } from '../storage/usageStats'
 import type { SnackPost, SnackReply, SyzygyPost, SyzygyReply } from '../types'
@@ -10,10 +11,18 @@ import {
   createSnackReply,
   createSyzygyPost,
   createSyzygyReply,
+  fetchDeletedSnackPosts,
+  fetchDeletedSyzygyPosts,
   fetchSnackPosts,
   fetchSnackReplies,
+  fetchSnackRepliesByPost,
   fetchSyzygyPosts,
   fetchSyzygyReplies,
+  fetchSyzygyRepliesByPost,
+  permanentlyDeleteSnackPost,
+  permanentlyDeleteSyzygyPost,
+  restoreSnackPost,
+  restoreSyzygyPost,
   softDeleteSnackPost,
   softDeleteSyzygyPost,
 } from '../storage/supabaseSync'
@@ -80,6 +89,14 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // 删除走两步：先弹确认（防误触），确认后软删除进回收站，可恢复。
+  const [pendingDelete, setPendingDelete] = useState<FeedEntry | null>(null)
+  const [pendingPurge, setPendingPurge] = useState<FeedEntry | null>(null)
+  const [showTrash, setShowTrash] = useState(false)
+  const [trashEntries, setTrashEntries] = useState<FeedEntry[]>([])
+  const [trashLoading, setTrashLoading] = useState(false)
+  const [busyTrashId, setBusyTrashId] = useState<string | null>(null)
 
   const replyInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
 
@@ -393,6 +410,98 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
     }
   }
 
+  // ── Trash (回收站) ────────────────────────────────────────────────
+
+  const loadTrash = useCallback(async () => {
+    setTrashLoading(true)
+    setError(null)
+    try {
+      const [uPosts, aPosts] = await Promise.all([
+        fetchDeletedSnackPosts(),
+        fetchDeletedSyzygyPosts(),
+      ])
+      const merged: FeedEntry[] = [
+        ...uPosts.map((post): FeedEntry => ({ kind: 'user', post })),
+        ...aPosts.map((post): FeedEntry => ({ kind: 'ai', post })),
+      ].sort(
+        (x, y) =>
+          new Date(y.post.createdAt).getTime() - new Date(x.post.createdAt).getTime(),
+      )
+      setTrashEntries(merged)
+    } catch (err) {
+      console.warn('加载回收站失败', err)
+      setError('回收站加载失败，请重试')
+    } finally {
+      setTrashLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (showTrash) void loadTrash()
+  }, [showTrash, loadTrash])
+
+  // Android 硬件返回键：先关掉确认弹窗/回收站视图，再交给路由后退。
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (pendingDelete) { setPendingDelete(null); e.preventDefault(); return }
+      if (pendingPurge) { setPendingPurge(null); e.preventDefault(); return }
+      if (showTrash) { setShowTrash(false); e.preventDefault() }
+    }
+    window.addEventListener('nimbus:backbutton', handler)
+    return () => window.removeEventListener('nimbus:backbutton', handler)
+  }, [pendingDelete, pendingPurge, showTrash])
+
+  const handleRestore = async (entry: FeedEntry) => {
+    const postId = entry.post.id
+    setBusyTrashId(postId)
+    try {
+      if (entry.kind === 'user') {
+        await restoreSnackPost(postId)
+        setUserPosts((prev) =>
+          [entry.post as SnackPost, ...prev].sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          ),
+        )
+        // 帖子的回复没被软删，恢复后要拉回来，否则回复数显示为 0。
+        const replies = await fetchSnackRepliesByPost(postId)
+        setUserReplies((prev) => ({ ...prev, [postId]: replies }))
+      } else {
+        await restoreSyzygyPost(postId)
+        setAiPosts((prev) =>
+          [entry.post as SyzygyPost, ...prev].sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          ),
+        )
+        const replies = await fetchSyzygyRepliesByPost(postId)
+        setAiReplies((prev) => ({ ...prev, [postId]: replies }))
+      }
+      setTrashEntries((prev) => prev.filter((e) => e.post.id !== postId))
+    } catch (err) {
+      console.warn('恢复失败', err)
+      setError('恢复失败，请重试')
+    } finally {
+      setBusyTrashId(null)
+    }
+  }
+
+  const handlePurge = async (entry: FeedEntry) => {
+    const postId = entry.post.id
+    setBusyTrashId(postId)
+    try {
+      if (entry.kind === 'user') {
+        await permanentlyDeleteSnackPost(postId)
+      } else {
+        await permanentlyDeleteSyzygyPost(postId)
+      }
+      setTrashEntries((prev) => prev.filter((e) => e.post.id !== postId))
+    } catch (err) {
+      console.warn('彻底删除失败', err)
+      setError('彻底删除失败，请重试')
+    } finally {
+      setBusyTrashId(null)
+    }
+  }
+
   // ── Render helpers ────────────────────────────────────────────────
 
   const getReplies = (entry: FeedEntry) =>
@@ -417,13 +526,70 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
   return (
     <div className="moments-page">
       <header className="moments-header">
-        <button type="button" className="moments-back" onClick={() => navigate(-1)}>
+        <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>
           ‹
         </button>
-        <h1 className="moments-title">Moments</h1>
-        <span className="moments-header-gap" />
+        <h1 className="moments-title">{showTrash ? '回收站' : 'Moments'}</h1>
+        <button
+          type="button"
+          className="moments-trash-toggle"
+          onClick={() => setShowTrash((v) => !v)}
+        >
+          {showTrash ? '返回列表' : '回收站'}
+        </button>
       </header>
 
+      {error ? (
+        <p className="moments-error">{error}</p>
+      ) : null}
+
+      {showTrash ? (
+        /* ── 回收站视图：软删除的帖子，可恢复 / 彻底删除 ── */
+        trashLoading ? (
+          <p className="moments-loading">Loading…</p>
+        ) : trashEntries.length === 0 ? (
+          <p className="moments-empty">回收站是空的。</p>
+        ) : (
+          <ul className="moments-feed">
+            {trashEntries.map((entry) => (
+              <li key={entry.post.id} className="moments-card glass-card">
+                <div className="moments-card-header">
+                  <span className={`moments-author-badge ${entry.kind === 'ai' ? 'moments-author-badge--ai' : 'moments-author-badge--user'}`}>
+                    {entry.kind === 'ai' ? 'Claude' : 'kitten'}
+                  </span>
+                  <span className="moments-card-time">{formatTime(entry.post.createdAt)}</span>
+                </div>
+                <div className="moments-card-body">
+                  {entry.kind === 'ai' ? (
+                    <MarkdownRenderer content={entry.post.content} />
+                  ) : (
+                    <p className="moments-card-text">{entry.post.content}</p>
+                  )}
+                </div>
+                <div className="moments-card-footer moments-trash-actions">
+                  <button
+                    type="button"
+                    className="moments-btn-ai moments-btn-ai--sm"
+                    onClick={() => void handleRestore(entry)}
+                    disabled={busyTrashId === entry.post.id}
+                  >
+                    {busyTrashId === entry.post.id ? '…' : '恢复'}
+                  </button>
+                  <button
+                    type="button"
+                    className="moments-btn-danger moments-btn-ai--sm"
+                    onClick={() => setPendingPurge(entry)}
+                    disabled={busyTrashId === entry.post.id}
+                  >
+                    彻底删除
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : (
+      <>
       {/* Composer */}
       <div className="moments-composer glass-card">
         <textarea
@@ -460,10 +626,6 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
         </div>
       </div>
 
-      {error ? (
-        <p className="moments-error">{error}</p>
-      ) : null}
-
       {/* Feed */}
       {loading ? (
         <p className="moments-loading">Loading…</p>
@@ -489,7 +651,7 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
                   <button
                     type="button"
                     className="moments-card-delete"
-                    onClick={() => void handleDelete(entry)}
+                    onClick={() => setPendingDelete(entry)}
                     aria-label="删除"
                   >
                     ×
@@ -510,7 +672,15 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
                   <button
                     type="button"
                     className="moments-reply-toggle"
-                    onClick={() => setExpandedIds((prev) => ({ ...prev, [postId]: !expanded }))}
+                    onClick={() => {
+                      const next = !expanded
+                      setExpandedIds((prev) => ({ ...prev, [postId]: next }))
+                      // 没有已有回复时点「回复」＝想写字，直接聚焦输入框；
+                      // 有回复时只展开，不弹键盘打扰阅读。
+                      if (next && replyCount === 0) {
+                        window.setTimeout(() => replyInputRefs.current[postId]?.focus(), 60)
+                      }
+                    }}
                   >
                     {replyCount > 0
                       ? `${expanded ? '收起' : '展开'} ${replyCount} 条回复`
@@ -582,6 +752,32 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
           })}
         </ul>
       )}
+      </>
+      )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="确定删除？"
+        description="删除后可在回收站找回。"
+        confirmLabel="删除"
+        onConfirm={() => {
+          if (pendingDelete) void handleDelete(pendingDelete)
+          setPendingDelete(null)
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingPurge !== null}
+        title="彻底删除？"
+        description="将从回收站永久移除，无法再恢复。"
+        confirmLabel="彻底删除"
+        onConfirm={() => {
+          if (pendingPurge) void handlePurge(pendingPurge)
+          setPendingPurge(null)
+        }}
+        onCancel={() => setPendingPurge(null)}
+      />
     </div>
   )
 }

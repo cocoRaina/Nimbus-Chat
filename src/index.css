@@ -117,7 +117,8 @@ html.no-fx .app-shell {
   background: #f8fafc !important;
 }
 
-/* ── Shared chevron back button (replaces text "Back to Chat" etc.) ─ */
+/* ── Shared chevron back button (replaces text "Back to Chat" etc.) ─
+   全局统一的左上角返回键：所有页面 header 的第一个子元素都用它。 */
 .page-back-btn {
   background: transparent;
   border: none;
@@ -126,8 +127,16 @@ html.no-fx .app-shell {
   line-height: 1;
   cursor: pointer;
   padding: 0 0.4rem;
-  min-width: 2rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: inherit;
+}
+
+.page-back-btn:active {
+  opacity: 0.6;
 }
 
 html.no-fx .chat-page,

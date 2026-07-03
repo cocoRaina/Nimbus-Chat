@@ -77,7 +77,10 @@ export const computeMedianCycleFromHistory = (
   return { median, sampleSize: gaps.length }
 }
 
-const computePeriodMetrics = (
+// Exported so the chat prompt injection (fetchHealthSnapshot in
+// supabaseSync) can label the period line with the same phase/cycle-day
+// the home widget shows, instead of a bare start date.
+export const computePeriodMetrics = (
   row: PeriodRow | null,
   historyRows: Array<{ start_date: string }>,
 ): PeriodMetrics | null => {

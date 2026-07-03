@@ -24,16 +24,7 @@
   border-bottom: 1px solid rgba(88, 104, 120, 0.1);
 }
 
-.checkin-back {
-  background: transparent;
-  border: none;
-  font-size: 1.6rem;
-  color: #789EC8;
-  cursor: pointer;
-  padding: 0 0.4rem;
-  line-height: 1;
-  min-width: 2rem;
-}
+/* Back button uses the shared .page-back-btn (index.css). */
 
 .checkin-page-title {
   font-family: var(--font-serif);
