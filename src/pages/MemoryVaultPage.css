@@ -11,30 +11,13 @@
   gap: 14px;
 }
 
-/* Shared mimi-style header lives on .page-header-bar (defined in
-   HealthSyncPage.css). The selectors below are kept only for old
-   .memory-vault-header-spacer / .memory-vault-header consumers that
-   may still be referenced elsewhere in the file. */
-.page-header-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 4px 12px;
-}
-
-.page-header-bar h1 {
-  flex: 1;
-  margin: 0;
-  text-align: center;
-  font-size: 18px;
-  font-weight: 600;
-  font-family: var(--font-serif);
-  color: var(--ab-deep);
-}
-
-.page-header-spacer {
-  min-width: 2rem;
-  flex-shrink: 0;
+/* Header uses the shared .page-header-bar (index.css). The page column
+   is centered with 16px padding, so stretch the bar full-bleed — without
+   this the flex column shrank it to content width (返回键悬在半空的 bug). */
+.memory-vault-page .page-header-bar {
+  align-self: stretch;
+  margin: -16px -16px 0;
+  width: auto;
 }
 
 .memory-vault-header .ghost {

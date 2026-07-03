@@ -13,46 +13,7 @@
   align-self: center;
 }
 
-/* ── Shared sticky header for health / usage pages ─────────────── */
-.page-header-bar {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: calc(env(safe-area-inset-top) + 0.6rem) 1.1rem 0.6rem;
-  background: rgba(244, 248, 252, 0.88);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(88, 104, 120, 0.1);
-}
-
-.page-header-bar h1 {
-  flex: 1;
-  margin: 0;
-  text-align: center;
-  font-family: var(--font-serif);
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: var(--ab-deep);
-  letter-spacing: 0.02em;
-}
-
-.page-header-bar .ghost {
-  background: transparent;
-  border: none;
-  color: var(--ab-strong);
-  font-size: 0.88rem;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0 0.4rem;
-  font-family: inherit;
-  min-width: 2.5rem;
-}
-
-.page-header-spacer {
-  min-width: 2.5rem;
-}
+/* Header uses the shared .page-header-bar (index.css). */
 
 .health-sync__intro p {
   margin: 0 0 0.35rem;

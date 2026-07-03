@@ -17,6 +17,7 @@
 - **P2**：全部 CSS 的 Angel Blue hex 收编为 `--ab-*` 变量（新增 `--ab-bg-2/--ab-strong-2/--ab-deep/--ab-deep-soft/--ab-danger/--ab-grad`），派生 token（--accent/--text-main/--page-bg/--bubble-out-bg 等）全部引用色板。**以后换主题只改 ui.css 顶部一个色块**。SVG data-URI 里的颜色（登录页 logo）无法用 var，保留 hex。
 - **连带修复**：Android 状态栏聊天路由原来读 `--accent` 配色（旧值=浅蓝顶栏）；统一后所有页面顶栏都是冰蓝玻璃，状态栏改为全路由固定 #F4F8FC，`syncStatusBarToAccent` 删除。
 - **坑**：`--accent` 语义从「浅底深字」变成「主色白字」，凡 `background: var(--accent)` + 深色文字的组合都会翻车——改这类 token 前先 grep 所有使用点（这次翻新了 btn-primary、抽屉 primary、聊天 header 三处）。
+- **追修：`.page-header-bar` 三重定义打架**。HealthSync/MemoryVault/Usage 三个 CSS 各定义了一份同名 header 类（占位 80px vs 2rem vs 2.5rem、内边距互不相同），Vite 按«首次访问顺序»注入路由 CSS，谁生效全看导航路径——标题时歪时正、MemoryVault 的 flex 列 `align-items:center` 还把没设宽度的 header 压缩成内容宽（返回键悬在半空）。修法：唯一权威定义收进 index.css（`grid 1fr auto 1fr` 三列布局，标题与两侧按钮宽度解耦、永远真居中），页面文件只留全出血 margin 微调。**教训：跨页面共享的类绝不能在多个路由 CSS 里重复定义，全局类一律进 index.css / ui.css。**
 
 ### 前端交互层小改一批（2026-07-03）
 

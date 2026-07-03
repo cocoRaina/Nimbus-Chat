@@ -139,6 +139,64 @@ html.no-fx .app-shell {
   opacity: 0.6;
 }
 
+/* ── Shared page header (返回键 + 居中标题 + 右侧动作/占位) ──────────
+   曾经在 HealthSync / MemoryVault / Usage 三个 CSS 里各定义一份、参数
+   互相冲突（占位 80px vs 2rem，内边距也不同），CSS 注入顺序又随导航
+   变化，标题居中与否全看运气。唯一权威定义放这里；页面文件不得再
+   重新定义 .page-header-bar。
+   grid 1fr auto 1fr：两侧列等宽伸缩，标题永远真居中，与两侧按钮
+   宽度无关。 */
+.page-header-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 0.6rem) 1.1rem 0.6rem;
+  background: rgba(244, 248, 252, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(88, 104, 120, 0.1);
+}
+
+.page-header-bar > :first-child {
+  justify-self: start;
+}
+
+.page-header-bar > :last-child {
+  justify-self: end;
+}
+
+.page-header-bar h1 {
+  margin: 0;
+  min-width: 0;
+  text-align: center;
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--ab-deep);
+  letter-spacing: 0.02em;
+}
+
+.page-header-bar .ghost {
+  background: transparent;
+  border: none;
+  color: var(--ab-strong);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 0.4rem;
+  font-family: inherit;
+  min-width: 2.25rem;
+}
+
+.page-header-spacer {
+  min-width: 2.25rem;
+}
+
 html.no-fx .chat-page,
 html.no-fx .rp-room-dashboard-page,
 html.no-fx .rp-rooms-page {
