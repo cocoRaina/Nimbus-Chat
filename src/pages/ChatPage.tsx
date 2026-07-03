@@ -1322,18 +1322,23 @@ const ChatPage = ({
             // Same-sender messages within 1 min hug each other tight.
             const groupWithPrevious =
               !!prev && prev.role === message.role && !showSeparator && gapMs < 60 * 1000
-            // Skip the empty streaming placeholder — the typing indicator
-            // below handles this state visually. Keyed off the placeholder's
+            // Skip empty streaming placeholders — the typing indicator
+            // handles this state visually. Keyed off the placeholder's
             // OWN streaming/pending flags, not just the global isStreaming:
             // the optimistic assistant bubble is inserted the moment you hit
             // send, but isStreaming only flips true after the async pre-flight
             // (compression, request build) finishes — so relying on isStreaming
             // alone left a blank bubble showing during that gap.
+            // NOT limited to the last message: with 连发批处理, a user message
+            // sent while a reply is already generating lands AFTER the pending
+            // placeholder, which then sat mid-list as a naked empty bubble for
+            // the whole generation (the "发了表情包之后有个空气泡" bug).
             if (
-              index === displayedMessages.length - 1 &&
               message.role === 'assistant' &&
               !message.content?.trim() &&
-              (isStreaming || message.meta?.streaming || message.pending)
+              (message.meta?.streaming ||
+                message.pending ||
+                (isStreaming && index === displayedMessages.length - 1))
             ) {
               return showSeparator ? (
                 <TimeSeparator key={message.id} timestamp={message.createdAt} />
