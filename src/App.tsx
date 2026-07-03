@@ -2811,7 +2811,10 @@ TOOL_SEARCH_HANDOFF,
                     // upsert: update the existing day's row instead.
                     let inserted: unknown = null
                     let insertErr: { message: string } | null = null
-                    let duplicateDiaryResult: string | null = null
+                    // Set to a JSON string when a duplicate guard short-circuits
+                    // the write (diary / handoff / timeline). Takes precedence
+                    // over the insert result below.
+                    let duplicateResult: string | null = null
                     if (table === 'health_data' && typeof cleaned.date === 'string') {
                       const { data: existing } = await supabase
                         .from('health_data')
@@ -2835,7 +2838,7 @@ TOOL_SEARCH_HANDOFF,
                       const replace = args.replace === true
                       if (existingDiaries && existingDiaries.length > 0 && !replace) {
                         setToolStatus('📔 这天已有日记，跳过重复创建')
-                        duplicateDiaryResult = JSON.stringify({
+                        duplicateResult = JSON.stringify({
                           ok: true,
                           already_written: true,
                           existing: existingDiaries.map((d) => ({
@@ -2858,12 +2861,62 @@ TOOL_SEARCH_HANDOFF,
                         inserted = res.data
                         insertErr = res.error
                       }
+                    } else if (table === 'handoff_letters' && typeof cleaned.date === 'string') {
+                      // 同款失忆去重：同一天通常一封交接信。已有时默认不重复
+                      // 创建，把已有那封告诉模型。两个窗口各写一封是合理的，
+                      // 所以逃生门是 force: true「再加一封」而非覆盖——覆盖会
+                      // 丢掉前一个窗口留下的信。
+                      const { data: existingLetters } = await supabase
+                        .from('handoff_letters')
+                        .select('id,title,content')
+                        .eq('date', cleaned.date)
+                      const force = args.force === true
+                      if (existingLetters && existingLetters.length > 0 && !force) {
+                        setToolStatus('✉️ 这天已有交接信，跳过重复创建')
+                        duplicateResult = JSON.stringify({
+                          ok: true,
+                          already_written: true,
+                          existing: existingLetters.map((l) => ({
+                            title: (l as { title?: string }).title ?? null,
+                            preview: String((l as { content?: string }).content ?? '').slice(0, 120),
+                          })),
+                          note: '这一天已经写过交接信，本次没有重复创建。请如实告诉用户已有这封信；只有确实需要再留一封（比如内容明显不同）时，再次调用并传 force: true 追加。',
+                        })
+                      } else {
+                        const res = await supabase.from(table).insert(cleaned).select().single()
+                        inserted = res.data
+                        insertErr = res.error
+                      }
+                    } else if (table === 'timeline' && typeof cleaned.event_date === 'string' && typeof cleaned.title === 'string') {
+                      // 同款失忆去重：时间轴按「同日期 + 同标题」判重——同一个
+                      // 里程碑不该记两次。不同标题的事件同一天可以共存，所以
+                      // 只在日期和标题都撞上时拦。逃生门 force: true 追加。
+                      const { data: existingEvents } = await supabase
+                        .from('timeline')
+                        .select('id,title')
+                        .eq('event_date', cleaned.event_date)
+                        .eq('title', cleaned.title)
+                      const force = args.force === true
+                      if (existingEvents && existingEvents.length > 0 && !force) {
+                        setToolStatus('📍 该里程碑已在时间轴，跳过重复创建')
+                        duplicateResult = JSON.stringify({
+                          ok: true,
+                          already_exists: true,
+                          existing_title: cleaned.title,
+                          event_date: cleaned.event_date,
+                          note: '这一天已有同名的时间轴事件，本次没有重复创建。请如实告诉用户已经记过了；如果确实是不同的事件，换个标题重新调用，或传 force: true 强制追加。',
+                        })
+                      } else {
+                        const res = await supabase.from(table).insert(cleaned).select().single()
+                        inserted = res.data
+                        insertErr = res.error
+                      }
                     } else {
                       const res = await supabase.from(table).insert(cleaned).select().single()
                       inserted = res.data
                       insertErr = res.error
                     }
-                    resultText = duplicateDiaryResult
+                    resultText = duplicateResult
                       ?? (insertErr
                         ? JSON.stringify({ error: insertErr.message })
                         : JSON.stringify({ ok: true, table, inserted }))

@@ -240,7 +240,9 @@ export const TOOL_WRITE_LETTER = {
     name: 'write_handoff_letter',
     description:
       '写一封交接信——这是「上一窗口的你」写给「下一窗口的你」的信，传递这次对话里的关键状态、未完事项、对用户的当前理解。' +
-      '只在用户说「帮我（你自己）写一封交接信」或类似明确指令时调用。',
+      '只在用户说「帮我（你自己）写一封交接信」或类似明确指令时调用。\n' +
+      '同一天已有交接信时不会重复创建：结果返回已有那封的标题和开头（already_written），' +
+      '此时如实告诉用户今天已经写过；只有确实需要再留一封（内容明显不同）时才再次调用并传 force: true 追加（不会覆盖已有的）。',
     parameters: {
       type: 'object',
       properties: {
@@ -248,6 +250,10 @@ export const TOOL_WRITE_LETTER = {
         content: { type: 'string', description: '信件正文，可以较长，含对下一个窗口的嘱托' },
         date: { type: 'string', description: '日期 YYYY-MM-DD，不填默认今天' },
         signature: { type: 'string', description: '署名，可选' },
+        force: {
+          type: 'boolean',
+          description: '默认 false。同一天已有交接信时是否仍追加一封。仅在确需再留一封时传 true。',
+        },
       },
       required: ['title', 'content'],
     },
@@ -260,7 +266,9 @@ export const TOOL_ADD_TIMELINE = {
     name: 'add_timeline_event',
     description:
       '往时间轴里加一个重要事件（里程碑）。门槛要高——只记真正重要的转折点（搬家/换工作/重要关系变化/纪念日），不要往里塞日常琐事。' +
-      '仅在用户明确说「这件事加到时间轴」时调用。',
+      '仅在用户明确说「这件事加到时间轴」时调用。\n' +
+      '同日期同标题的事件不会重复创建：结果返回 already_exists，此时如实告诉用户已经记过了；' +
+      '确实是不同事件就换个标题，或传 force: true 强制追加。',
     parameters: {
       type: 'object',
       properties: {
@@ -269,6 +277,10 @@ export const TOOL_ADD_TIMELINE = {
         description: { type: 'string', description: '描述，可选' },
         category: { type: 'string', description: '分类，例如：工作/感情/家庭/健康/学习。默认日常' },
         importance: { type: 'integer', description: '重要程度 1-5，默认 3' },
+        force: {
+          type: 'boolean',
+          description: '默认 false。同日期同标题已存在时是否仍追加。仅在确需强制记录时传 true。',
+        },
       },
       required: ['event_date', 'title'],
     },
