@@ -4,7 +4,7 @@
   /* Drop the scrim blur — backdrop-filter is the #1 paint cost on Android
      WebView during the 0.2s open animation. A darker rgba reads as a scrim
      just fine without a per-frame composite. */
-  background: rgba(15, 23, 42, 0.32);
+  background: rgba(42, 61, 82, 0.34);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
@@ -24,8 +24,8 @@
   width: min(360px, 90vw);
   background: rgba(255, 255, 255, 0.72);
   border-right: 1px solid var(--glass-border);
-  border-top-right-radius: 28px;
-  border-bottom-right-radius: 28px;
+  border-top-right-radius: 24px;
+  border-bottom-right-radius: 24px;
   padding: 16px;
   padding-top: calc(16px + env(safe-area-inset-top));
   padding-bottom: calc(16px + env(safe-area-inset-bottom));
@@ -92,7 +92,7 @@
   grid-template-columns: 1fr 1fr;
   gap: 6px;
   background: color-mix(in srgb, var(--glass-bg) 70%, #ffffff 30%);
-  border: 1px solid color-mix(in srgb, var(--glass-border) 75%, #e5e7eb 25%);
+  border: 1px solid color-mix(in srgb, var(--glass-border) 75%, #DCE7F2 25%);
   border-radius: 999px;
   padding: 4px;
 }
@@ -103,20 +103,20 @@
   border-radius: 999px;
   padding: 6px 10px;
   font-size: 13px;
-  color: #334155;
+  color: #586878;
   cursor: pointer;
 }
 
 .drawer-tabs button.active {
   background: rgba(255, 255, 255, 0.85);
-  color: #0f172a;
+  color: #2A3D52;
   border-color: rgba(209, 213, 219, 0.7);
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 6px rgba(42, 61, 82, 0.08);
 }
 
 .search-input,
 .rename-row input {
-  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, #d1d5db 28%);
+  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, #C5D6EC 28%);
   background: rgba(255, 255, 255, 0.76);
   border-radius: 12px;
   padding: 9px 12px;
@@ -144,15 +144,15 @@
   background: color-mix(in srgb, #ffffff 80%, var(--glass-bg) 20%);
   border-radius: 14px;
   padding: 10px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  border: 1px solid rgba(220, 231, 242, 0.9);
   display: flex;
   flex-direction: column;
   gap: 10px;
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 6px 14px rgba(88, 104, 120, 0.08);
 }
 
 .session-row.active {
-  border-color: color-mix(in srgb, var(--accent-strong) 42%, #94a3b8 58%);
+  border-color: color-mix(in srgb, var(--accent-strong) 55%, #C5D6EC 45%);
 }
 
 .session-select {
@@ -166,7 +166,7 @@
   padding: 0;
   cursor: pointer;
   text-align: left;
-  color: #0f172a;
+  color: #2A3D52;
 }
 
 .session-select span:first-child {
@@ -209,9 +209,9 @@
 .sessions-drawer button.ghost,
 .sessions-drawer button.danger,
 .sessions-drawer .inline-actions button {
-  border: 1px solid color-mix(in srgb, var(--glass-border) 70%, #d1d5db 30%);
+  border: 1px solid color-mix(in srgb, var(--glass-border) 70%, #C5D6EC 30%);
   background: rgba(255, 255, 255, 0.74);
-  color: #334155;
+  color: #586878;
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 12px;
@@ -219,12 +219,12 @@
 }
 
 .sessions-drawer button.danger {
-  color: #991b1b;
-  background: rgba(219, 234, 254, 0.75);
+  color: #B91C1C;
+  background: rgba(254, 242, 242, 0.8);
 }
 
 .sessions-drawer .empty {
-  color: #94a3b8;
+  color: #98B5D8;
   font-size: 14px;
   text-align: center;
   padding: 18px 8px;

@@ -31,7 +31,10 @@
   --glass-bg: rgba(255, 255, 255, 0.22);
   --glass-border: rgba(255, 255, 255, 0.35);
   --shadow-soft: 0 12px 30px rgba(88, 104, 120, 0.1);
-  --radius-card: 28px;
+  /* 20px matches the hand-written cards on the Angel Blue pages
+     (moments-card / checkin-card / glass sections) — was 28px, which
+     made shared .glass-card surfaces rounder than everything else. */
+  --radius-card: 20px;
   --radius-tile: 20px;
   --radius-btn: 16px;
   --blur: 16px;
@@ -150,17 +153,18 @@
 .btn-secondary {
   background: rgba(255, 255, 255, 0.9);
   color: var(--text-main);
-  border: 1px solid rgba(209, 213, 219, 0.9);
+  border: 1px solid rgba(197, 214, 236, 0.9);
 }
 
 .btn-danger {
-  background: #DBEAFE;
+  background: rgba(254, 242, 242, 0.9);
+  border: 1px solid rgba(185, 28, 28, 0.25);
   color: #b91c1c;
 }
 
 .input-glass,
 .textarea-glass {
-  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, #d1d5db 28%);
+  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, #C5D6EC 28%);
   background: rgba(255, 255, 255, 0.72);
   color: var(--text-main);
   border-radius: var(--radius-tile);

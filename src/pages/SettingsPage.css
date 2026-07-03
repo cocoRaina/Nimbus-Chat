@@ -462,7 +462,7 @@
   align-items: flex-start;
   gap: 2px;
   padding: 8px 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #DCE7F2;
   border-radius: 8px;
   background: #fff;
   cursor: pointer;
@@ -470,7 +470,7 @@
 }
 
 .relay-preset-apply:hover {
-  background: #f3f4f6;
+  background: #EFF4FA;
 }
 
 .relay-preset-name {
@@ -480,14 +480,14 @@
 
 .relay-preset-url {
   font-size: 11px;
-  color: #6b7280;
+  color: #98B5D8;
   word-break: break-all;
 }
 
 .relay-preset-delete {
   flex: 0 0 auto;
   width: 36px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #DCE7F2;
   border-radius: 8px;
   background: #fff;
   color: #9a3412;

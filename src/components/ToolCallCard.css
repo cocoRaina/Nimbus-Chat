@@ -17,19 +17,19 @@
   border: none;
   cursor: pointer;
   text-align: left;
-  color: var(--text-subtle, #6b7280);
+  color: var(--text-subtle, #98B5D8);
   font-size: 13px;
 }
 
 .tool-call-header:active {
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(88, 104, 120, 0.05);
 }
 
 .tool-icon { font-size: 13px; flex-shrink: 0; }
-.tool-label { font-weight: 600; color: var(--text-main, #111827); }
+.tool-label { font-weight: 600; color: var(--text-main, #2A3D52); }
 
 .tool-preview {
-  color: var(--text-subtle, #6b7280);
+  color: var(--text-subtle, #98B5D8);
   font-style: italic;
   flex: 1;
   overflow: hidden;
@@ -40,13 +40,13 @@
 
 .tool-duration {
   font-size: 11px;
-  color: var(--text-subtle, #94a3b8);
+  color: var(--text-subtle, #98B5D8);
   font-family: ui-monospace, monospace;
   flex-shrink: 0;
 }
 
 .tool-chevron {
-  color: var(--text-subtle, #94a3b8);
+  color: var(--text-subtle, #98B5D8);
   font-size: 11px;
   flex-shrink: 0;
 }
@@ -62,7 +62,7 @@
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-subtle, #94a3b8);
+  color: var(--text-subtle, #98B5D8);
   font-weight: 600;
   margin-bottom: 4px;
 }
@@ -70,7 +70,7 @@
 .tool-call-body pre {
   font-family: ui-monospace, 'SFMono-Regular', monospace;
   font-size: 11px;
-  background: var(--code-bg, rgba(15, 23, 42, 0.06));
+  background: var(--code-bg, rgba(88, 104, 120, 0.06));
   padding: 8px 10px;
   border-radius: 6px;
   overflow-x: auto;
@@ -95,5 +95,5 @@
 .tool-count {
   font-style: normal !important;
   font-weight: 600;
-  color: var(--text-subtle, #6b7280);
+  color: var(--text-subtle, #98B5D8);
 }
