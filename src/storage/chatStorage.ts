@@ -1,9 +1,17 @@
 import type { ChatMessage, ChatSession } from '../types'
 
 const DB_NAME = 'nimbus-chat'
-const DB_VERSION = 1
-const STORE = 'snapshot'
+// v1: single 'snapshot' blob (all sessions+messages, rewritten in full on
+//     every change — ~2MB structured-clone per keystroke of streaming).
+// v2: row-level 'sessions' / 'messages' stores keyed by id. A debounced
+//     flush diffs the in-memory arrays against what was last persisted (by
+//     object REFERENCE — App-side updates keep untouched rows' references)
+//     and writes only the dirty rows. The v1 blob is migrated then deleted.
+const DB_VERSION = 2
+const SNAP_STORE = 'snapshot'
 const SNAPSHOT_KEY = 'main'
+const SESSIONS_STORE = 'sessions'
+const MESSAGES_STORE = 'messages'
 // Old localStorage key — read once for migration then removed.
 const LS_LEGACY_KEY = 'hamster-nest.chat-data.v1'
 
@@ -21,25 +29,27 @@ const openDb = (): Promise<IDBDatabase> =>
     const req = indexedDB.open(DB_NAME, DB_VERSION)
     req.onupgradeneeded = (e) => {
       const d = (e.target as IDBOpenDBRequest).result
-      if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE)
+      if (!d.objectStoreNames.contains(SNAP_STORE)) d.createObjectStore(SNAP_STORE)
+      if (!d.objectStoreNames.contains(SESSIONS_STORE)) d.createObjectStore(SESSIONS_STORE)
+      if (!d.objectStoreNames.contains(MESSAGES_STORE)) d.createObjectStore(MESSAGES_STORE)
     }
     req.onsuccess = (e) => resolve((e.target as IDBOpenDBRequest).result)
     req.onerror = () => reject(req.error)
   })
 
-const idbGet = (key: string): Promise<StorageSnapshot | undefined> =>
+const idbGetSnapshotBlob = (): Promise<StorageSnapshot | undefined> =>
   new Promise((resolve, reject) => {
     if (!db) { resolve(undefined); return }
-    const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(key)
+    const req = db.transaction(SNAP_STORE, 'readonly').objectStore(SNAP_STORE).get(SNAPSHOT_KEY)
     req.onsuccess = () => resolve(req.result as StorageSnapshot | undefined)
     req.onerror = () => reject(req.error)
   })
 
-const idbPut = (key: string, value: StorageSnapshot): Promise<void> =>
+const idbGetAll = <T,>(store: string): Promise<T[]> =>
   new Promise((resolve, reject) => {
-    if (!db) { reject(new Error('db not open')); return }
-    const req = db.transaction(STORE, 'readwrite').objectStore(STORE).put(value, key)
-    req.onsuccess = () => resolve()
+    if (!db) { resolve([]); return }
+    const req = db.transaction(store, 'readonly').objectStore(store).getAll()
+    req.onsuccess = () => resolve((req.result as T[]) ?? [])
     req.onerror = () => reject(req.error)
   })
 
@@ -47,31 +57,65 @@ const idbPut = (key: string, value: StorageSnapshot): Promise<void> =>
 
 const snapshot: StorageSnapshot = { sessions: [], messages: [] }
 
-// ─── Startup: open IDB, migrate from localStorage if needed ──────────────────
+// What's currently persisted in the row stores, keyed by id, holding the
+// exact object REFERENCE that was written. flushRows() diffs against these
+// to decide which rows to put/delete; they're only advanced when the
+// transaction commits, so a failed flush retries the same rows next time.
+let persistedSessions = new Map<string, ChatSession>()
+let persistedMessages = new Map<string, ChatMessage>()
+
+const seedPersistedMaps = () => {
+  persistedSessions = new Map(snapshot.sessions.map((s) => [s.id, s]))
+  persistedMessages = new Map(snapshot.messages.map((m) => [m.id, m]))
+}
+
+// ─── Startup: open IDB, migrate v1 blob / legacy localStorage if needed ──────
 
 const initPromise = (async () => {
   try {
     db = await openDb()
-    let data = await idbGet(SNAPSHOT_KEY)
 
+    // Normal path: row stores already populated (v2 steady state).
+    const [rowSessions, rowMessages] = await Promise.all([
+      idbGetAll<ChatSession>(SESSIONS_STORE),
+      idbGetAll<ChatMessage>(MESSAGES_STORE),
+    ])
+    if (rowSessions.length > 0 || rowMessages.length > 0) {
+      snapshot.sessions = rowSessions
+      snapshot.messages = rowMessages
+      seedPersistedMaps()
+      return
+    }
+
+    // Migration: v1 single-blob snapshot, then the even older localStorage.
+    let data = await idbGetSnapshotBlob()
     if (!data) {
-      // First run after migration — pull whatever is in localStorage.
       const raw = typeof localStorage !== 'undefined'
         ? localStorage.getItem(LS_LEGACY_KEY)
         : null
       if (raw) {
-        try {
-          data = JSON.parse(raw) as StorageSnapshot
-          await idbPut(SNAPSHOT_KEY, data)
-          // Free up the old localStorage quota immediately.
-          localStorage.removeItem(LS_LEGACY_KEY)
-        } catch { /* corrupt — start fresh */ }
+        try { data = JSON.parse(raw) as StorageSnapshot } catch { /* corrupt — start fresh */ }
       }
     }
-
     if (data) {
       snapshot.sessions = Array.isArray(data.sessions) ? data.sessions : []
       snapshot.messages = Array.isArray(data.messages) ? data.messages : []
+      // Write everything as rows once; only clean up the old copies after
+      // the transaction commits so a mid-migration crash loses nothing.
+      await new Promise<void>((resolve, reject) => {
+        if (!db) { reject(new Error('db not open')); return }
+        const tx = db.transaction([SESSIONS_STORE, MESSAGES_STORE, SNAP_STORE], 'readwrite')
+        const sStore = tx.objectStore(SESSIONS_STORE)
+        for (const s of snapshot.sessions) if (s?.id) sStore.put(s, s.id)
+        const mStore = tx.objectStore(MESSAGES_STORE)
+        for (const m of snapshot.messages) if (m?.id) mStore.put(m, m.id)
+        tx.objectStore(SNAP_STORE).delete(SNAPSHOT_KEY)
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+        tx.onabort = () => reject(tx.error ?? new Error('migration tx aborted'))
+      })
+      try { localStorage.removeItem(LS_LEGACY_KEY) } catch { /* */ }
+      seedPersistedMaps()
     }
   } catch (err) {
     console.warn('IndexedDB 不可用，回退到 localStorage', err)
@@ -97,22 +141,60 @@ export const waitForStorage = (): Promise<void> => initPromise
 
 let pendingWrite: ReturnType<typeof setTimeout> | null = null
 
+// Diff the in-memory arrays against the last-persisted maps and write only
+// what changed. Reference equality is the dirty check: App-level updates are
+// immutable-style (changed rows get new objects, untouched rows keep their
+// reference), so a streaming delta or a single new message flushes as one
+// small row put instead of a ~2MB whole-history blob like v1 did.
+const flushRows = () => {
+  if (!db) return
+  const curSessions = snapshot.sessions
+  const curMessages = snapshot.messages
+  const nextSessions = new Map<string, ChatSession>()
+  const nextMessages = new Map<string, ChatMessage>()
+  try {
+    const tx = db.transaction([SESSIONS_STORE, MESSAGES_STORE], 'readwrite')
+    const sStore = tx.objectStore(SESSIONS_STORE)
+    for (const s of curSessions) {
+      if (!s?.id) continue
+      nextSessions.set(s.id, s)
+      if (persistedSessions.get(s.id) !== s) sStore.put(s, s.id)
+    }
+    for (const id of persistedSessions.keys()) {
+      if (!nextSessions.has(id)) sStore.delete(id)
+    }
+    const mStore = tx.objectStore(MESSAGES_STORE)
+    for (const m of curMessages) {
+      if (!m?.id) continue
+      nextMessages.set(m.id, m)
+      if (persistedMessages.get(m.id) !== m) mStore.put(m, m.id)
+    }
+    for (const id of persistedMessages.keys()) {
+      if (!nextMessages.has(id)) mStore.delete(id)
+    }
+    tx.oncomplete = () => {
+      persistedSessions = nextSessions
+      persistedMessages = nextMessages
+    }
+    tx.onerror = () => console.warn('IDB 行写入失败（下次 flush 重试）', tx.error)
+    tx.onabort = () => console.warn('IDB 行写入事务中止（下次 flush 重试）', tx.error)
+  } catch (err) {
+    console.warn('IDB 行写入异常（下次 flush 重试）', err)
+  }
+}
+
 const writeNow = () => {
   if (pendingWrite) {
     clearTimeout(pendingWrite)
     pendingWrite = null
   }
-  const payload: StorageSnapshot = {
-    sessions: snapshot.sessions,
-    messages: snapshot.messages,
-  }
   if (db) {
-    void idbPut(SNAPSHOT_KEY, payload).catch((err) => {
-      console.warn('IDB 写入失败', err)
-      // Last-resort fallback.
-      try { localStorage.setItem(LS_LEGACY_KEY, JSON.stringify(payload)) } catch { /* */ }
-    })
+    flushRows()
   } else {
+    const payload: StorageSnapshot = {
+      sessions: snapshot.sessions,
+      messages: snapshot.messages,
+    }
     try { localStorage.setItem(LS_LEGACY_KEY, JSON.stringify(payload)) } catch { /* */ }
   }
 }
@@ -140,7 +222,20 @@ if (typeof window !== 'undefined') {
 const createId = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
+// Reference-preserving: return the SAME object when nothing needs filling.
+// The row-level flush diffs by reference — if these cloned every row on every
+// loadSnapshot/setSnapshot pass, every flush would look 100% dirty and
+// degrade back to a full rewrite.
 const ensureMessageFields = (message: ChatMessage): ChatMessage => {
+  if (
+    message.id &&
+    message.clientId &&
+    message.clientCreatedAt !== undefined &&
+    message.createdAt &&
+    message.pending !== undefined
+  ) {
+    return message
+  }
   const clientId = message.clientId ?? message.id ?? createId()
   const clientCreatedAt = message.clientCreatedAt ?? message.createdAt ?? null
   return {
@@ -153,11 +248,16 @@ const ensureMessageFields = (message: ChatMessage): ChatMessage => {
   }
 }
 
-const ensureSessionFields = (session: ChatSession): ChatSession => ({
-  ...session,
-  isArchived: session.isArchived ?? false,
-  archivedAt: session.archivedAt ?? null,
-})
+const ensureSessionFields = (session: ChatSession): ChatSession => {
+  if (session.isArchived !== undefined && session.archivedAt !== undefined) {
+    return session
+  }
+  return {
+    ...session,
+    isArchived: session.isArchived ?? false,
+    archivedAt: session.archivedAt ?? null,
+  }
+}
 
 // Keep the local IDB snapshot bounded. Supabase has everything; local is
 // just a fast-start cache. 2000 messages ≈ 2MB worst-case, won't budge.

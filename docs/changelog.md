@@ -8,6 +8,18 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### 本地聊天缓存行级化：IDB v1 单快照 → v2 行级 store（2026-07-03）
+
+**背景**：对照 keke-console 的 memories.json「虚胖」病例给 Nimbus 做了存储体检。重症（向量以 JSON 数组落盘、美化打印）没有——向量全程住在 Supabase pgvector 列，客户端所有 select 都是显式列清单不含 embedding。轻症命中：本地 IndexedDB 是单快照 blob（全部会话+消息），每条消息、每个流式 delta 都触发整包结构化克隆重写（防抖 150ms，约 2MB/次，主线程）。
+
+**修**：IDB 升 v2，拆 `sessions` / `messages` 两个按 id 键的行级 store。flush 时按**对象引用** diff 内存数组 vs 上次落盘的 Map，只 put 脏行 / delete 消失行——App 侧更新本来就是 immutable 风格（没动的行保引用），配合 `ensure*Fields` 改成字段齐全时原样返回（否则每次 load/set 都换新引用，diff 退化全量）。公共 API 零改动。
+
+**迁移**：v2 首开时行 store 为空 → 读 v1 snapshot blob（再兜底老 localStorage）→ 单事务批量写行 + 删旧 blob（事务提交后才清理，迁移中途崩溃不丢数据）。
+
+**验证**（Playwright + 真 IndexedDB 无头 Chromium）：v1→v2 迁移/blob 清理/增量写/单行更新/删除级联/重载恢复六项全过；写入放大实测——1000 条历史下单条消息编辑 = 1 put（v1 是 1001 行全量），addMessage = 2 put（消息行 + 会话 updatedAt）。
+
+**注意**：老版本 APK 打不开 v2 库（VersionError）会走 localStorage 兜底显示为空，远端 300 条会回填——降级属边缘场景，可接受。
+
 ### 连发时中间冒出空白助手气泡（2026-07-03）
 
 **症状**：发一个表情包（或任意消息），AI 开始生成后紧接着再发一条消息，会看到一个空白的 AI 气泡卡在两条消息中间，挂满整个生成过程（长思考时能挂几十秒）。
