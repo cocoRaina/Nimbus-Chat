@@ -3664,7 +3664,11 @@ TOOL_SEARCH_HANDOFF,
   // 连发：用户消息先落库显示，不立刻触发生成；停顿 BATCH_REPLY_MS 后再一次性
   // 生成回复（skipUser），让 AI 把这一批连发的消息一起看。期间没流式，所以
   // 连发不被停止键挡；一旦开始回复，UI 切到停止键自然挡住后续输入。
-  const BATCH_REPLY_MS = 2500
+  // 2.5s 实测太紧：发完贴纸再切回键盘打字，手速跟不上，窗口提前关闭导致
+  // 一轮连发被拆成两次生成（两条回复）。5s 给足切换/组织语言的时间；打字
+  // 中 notifyComposerActivity 会持续顺延，所以只影响「发完最后一条到回复
+  // 开始」的静默等待。
+  const BATCH_REPLY_MS = 5000
   const batchTimerRef = useRef<number | null>(null)
   const batchSessionRef = useRef<string | null>(null)
 
