@@ -1,7 +1,7 @@
 /* ── Page shell ───────────────────────────────────────────────── */
 .export-page {
   min-height: 100dvh;
-  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
+  background: linear-gradient(160deg, var(--ab-bg) 0%, var(--ab-bg-2) 50%, var(--ab-surface) 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -28,7 +28,7 @@
   background: transparent;
   border: none;
   font-size: 0.88rem;
-  color: #789EC8;
+  color: var(--ab-strong);
   cursor: pointer;
   padding: 0 0.4rem;
   font-weight: 600;
@@ -42,7 +42,7 @@
   font-family: var(--font-serif);
   font-size: 1.15rem;
   font-weight: 600;
-  color: #2A3D52;
+  color: var(--ab-deep);
   margin: 0;
   letter-spacing: 0.02em;
 }
@@ -69,7 +69,7 @@
   font-family: var(--font-serif);
   font-size: 1.05rem;
   font-weight: 600;
-  color: #2A3D52;
+  color: var(--ab-deep);
   letter-spacing: 0.02em;
 }
 
@@ -97,7 +97,7 @@
   margin: 0;
   font-size: 0.8rem;
   font-weight: 700;
-  color: #98B5D8;
+  color: var(--ab-accent);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -112,7 +112,7 @@
 .export-sticker {
   border: 1px solid rgba(197, 214, 236, 0.7);
   background: transparent;
-  color: #98B5D8;
+  color: var(--ab-accent);
   border-radius: 999px;
   padding: 0.32rem 0.85rem;
   font-size: 0.85rem;
@@ -123,7 +123,7 @@
 
 .export-sticker.active {
   background: rgba(152, 181, 216, 0.18);
-  color: #2A3D52;
+  color: var(--ab-deep);
   border-color: rgba(152, 181, 216, 0.5);
 }
 
@@ -132,7 +132,7 @@
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-size: 0.9rem;
   cursor: pointer;
 }
@@ -142,7 +142,7 @@
 .export-signoff {
   margin: 0;
   font-size: 0.82rem;
-  color: #98B5D8;
+  color: var(--ab-accent);
   line-height: 1.5;
 }
 
@@ -155,7 +155,7 @@
   align-self: stretch;
   border: none;
   border-radius: 999px;
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: white;
   font-size: 0.95rem;
   font-weight: 700;
@@ -182,7 +182,7 @@
 .export-attribution {
   margin: 0.25rem 0 0;
   font-size: 0.7rem;
-  color: #C5D6EC;
+  color: var(--ab-muted);
   text-align: center;
 }
 

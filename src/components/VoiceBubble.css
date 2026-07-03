@@ -13,7 +13,7 @@
   padding: 9px 14px;
   border: none;
   border-radius: 16px;
-  background: linear-gradient(135deg, #98B5D8, #789EC8); /* matches outgoing bubbles */
+  background: var(--ab-grad); /* matches outgoing bubbles */
   color: #fff;
   cursor: pointer;
   font-size: 14px;
@@ -21,7 +21,7 @@
 
 .message.in .voice-bar {
   background: #E4EEF8;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .voice-bar__icon {
@@ -65,14 +65,14 @@
   border: none;
   background: none;
   padding: 0 2px;
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 12px;
   cursor: pointer;
 }
 
 .voice-bar__err {
   font-size: 12px;
-  color: #b91c1c;
+  color: var(--ab-danger);
 }
 
 .voice-bar__transcript {

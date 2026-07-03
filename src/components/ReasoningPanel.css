@@ -5,7 +5,7 @@
 .reasoning-panel__toggle {
   border: none;
   background: transparent;
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 12px;
   cursor: pointer;
   padding: 0;
@@ -15,7 +15,7 @@
 }
 
 .reasoning-panel__toggle:hover {
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .reasoning-panel__content {
@@ -38,7 +38,7 @@
   padding: 12px;
   border-radius: 8px;
   background: rgba(88, 104, 120, 0.05);
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 0.9em;
   font-style: italic;
   line-height: 1.6;

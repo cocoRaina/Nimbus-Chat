@@ -17,7 +17,7 @@
   border: none;
   cursor: pointer;
   text-align: left;
-  color: var(--text-subtle, #98B5D8);
+  color: var(--text-subtle, var(--ab-accent));
   font-size: 13px;
 }
 
@@ -26,10 +26,10 @@
 }
 
 .tool-icon { font-size: 13px; flex-shrink: 0; }
-.tool-label { font-weight: 600; color: var(--text-main, #2A3D52); }
+.tool-label { font-weight: 600; color: var(--text-main, var(--ab-deep)); }
 
 .tool-preview {
-  color: var(--text-subtle, #98B5D8);
+  color: var(--text-subtle, var(--ab-accent));
   font-style: italic;
   flex: 1;
   overflow: hidden;
@@ -40,13 +40,13 @@
 
 .tool-duration {
   font-size: 11px;
-  color: var(--text-subtle, #98B5D8);
+  color: var(--text-subtle, var(--ab-accent));
   font-family: ui-monospace, monospace;
   flex-shrink: 0;
 }
 
 .tool-chevron {
-  color: var(--text-subtle, #98B5D8);
+  color: var(--text-subtle, var(--ab-accent));
   font-size: 11px;
   flex-shrink: 0;
 }
@@ -62,7 +62,7 @@
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-subtle, #98B5D8);
+  color: var(--text-subtle, var(--ab-accent));
   font-weight: 600;
   margin-bottom: 4px;
 }
@@ -95,5 +95,5 @@
 .tool-count {
   font-style: normal !important;
   font-weight: 600;
-  color: var(--text-subtle, #98B5D8);
+  color: var(--text-subtle, var(--ab-accent));
 }

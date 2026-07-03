@@ -26,14 +26,14 @@
 .confirm-dialog h2 {
   margin: 0 0 8px;
   font-size: 18px;
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-family: var(--font-display);
   font-weight: 600;
 }
 
 .confirm-dialog p {
   margin: 0 0 16px;
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 14px;
 }
 
@@ -45,17 +45,17 @@
 
 .confirm-actions .secondary {
   background: rgba(222, 234, 245, 0.7);
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .confirm-actions .tertiary {
   background: rgba(244, 248, 252, 0.9);
   border: 1px solid rgba(197, 214, 236, 0.7) !important;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .confirm-actions .primary {
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: #fff;
   box-shadow: 0 4px 12px rgba(120, 158, 200, 0.35);
 }

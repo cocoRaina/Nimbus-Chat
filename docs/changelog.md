@@ -8,6 +8,16 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### UI 统一大修：全 App 归队「冰蓝天使」（2026-07-03）
+
+用户反馈「UI 不得劲但说不出哪里」。诊断结论：App 里同时存在两套设计语言——9 个页面用 `ui.css` 定义的 Angel Blue 冰蓝色板，但**聊天页/登录页/确认弹窗/会话抽屉/工具卡/思考面板**用的是 Tailwind 默认灰蓝（外加微信绿语音气泡、antd 红、靛蓝按钮），页面切换时色温横跳。分三批修完（P0 `755330a` → P1 `4d7632d` → P2 本条）：
+
+- **P0**：`--accent` 从 Tailwind 蓝-100 重定义为天使蓝 #789EC8（白字语义，改之前把所有当浅底用的地方翻新掉）；`--page-bg` 统一为各页同款 160° 冰蓝渐变；出向气泡灰 #9fa2aa → 天使蓝渐变；语音气泡弃用微信绿；ConfirmDialog 黑白商务风 → 冰蓝玻璃卡。
+- **P1**：登录页/会话抽屉/工具卡/思考面板全部换色；`--radius-card` 28→20px 对齐手写卡片；btn-danger 改浅玫瑰底。
+- **P2**：全部 CSS 的 Angel Blue hex 收编为 `--ab-*` 变量（新增 `--ab-bg-2/--ab-strong-2/--ab-deep/--ab-deep-soft/--ab-danger/--ab-grad`），派生 token（--accent/--text-main/--page-bg/--bubble-out-bg 等）全部引用色板。**以后换主题只改 ui.css 顶部一个色块**。SVG data-URI 里的颜色（登录页 logo）无法用 var，保留 hex。
+- **连带修复**：Android 状态栏聊天路由原来读 `--accent` 配色（旧值=浅蓝顶栏）；统一后所有页面顶栏都是冰蓝玻璃，状态栏改为全路由固定 #F4F8FC，`syncStatusBarToAccent` 删除。
+- **坑**：`--accent` 语义从「浅底深字」变成「主色白字」，凡 `background: var(--accent)` + 深色文字的组合都会翻车——改这类 token 前先 grep 所有使用点（这次翻新了 btn-primary、抽屉 primary、聊天 header 三处）。
+
 ### 前端交互层小改一批（2026-07-03）
 
 只动交互层，核心架构/数据结构不动：

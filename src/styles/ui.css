@@ -12,22 +12,27 @@
   /* ── Angel Blue palette (冰蓝天使) — the canonical 6 swatches. Pages
      should reference these instead of hardcoding hex, so the whole app
      re-themes from one place. ───────────────────────────────────────────── */
-  --ab-bg:      #F4F8FC; /* 冰蓝白  BG       */
-  --ab-surface: #DEEAF5; /* 蓝雾    SURFACE  */
-  --ab-muted:   #C5D6EC; /* 蓝灰    MUTED    */
-  --ab-accent:  #98B5D8; /* 雾蓝    ACCENT   */
-  --ab-strong:  #789EC8; /* 天使蓝  STRONG   */
-  --ab-ink:     #586878; /* 蓝墨    TEXT     */
+  --ab-bg:       #F4F8FC; /* 冰蓝白  BG       */
+  --ab-bg-2:     #E8F1FA; /* 冰蓝白偏雾（渐变中间档） */
+  --ab-surface:  #DEEAF5; /* 蓝雾    SURFACE  */
+  --ab-muted:    #C5D6EC; /* 蓝灰    MUTED    */
+  --ab-accent:   #98B5D8; /* 雾蓝    ACCENT   */
+  --ab-strong:   #789EC8; /* 天使蓝  STRONG   */
+  --ab-strong-2: #6890BE; /* 天使蓝按压/active 深一档 */
+  --ab-ink:      #586878; /* 蓝墨    TEXT     */
+  --ab-deep-soft:#3D5570; /* 深蓝墨（次级标题/强调文字） */
+  --ab-deep:     #2A3D52; /* 墨黑蓝  标题/正文最深 */
+  --ab-danger:   #B91C1C; /* 语义红（删除/错误），全 App 唯一红 */
+  --ab-grad:     linear-gradient(135deg, #98B5D8, #789EC8); /* 主按钮/出向气泡渐变 */
   --hairline:   rgba(88, 104, 120, 0.16); /* 发丝分割线 */
-  --eyebrow:    #789EC8;                   /* small-caps 标签色 */
+  --eyebrow:    var(--ab-strong);          /* small-caps 标签色 */
 
-  /* Accent = Angel Blue strong. Was Tailwind blue-100 (#DBEAFE), which made
-     the chat header / active states a different blue family from the rest
-     of the app. White text is expected on --accent surfaces. */
-  --accent: #789EC8;
-  --accent-strong: #6890BE;
-  --text-main: #2A3D52;
-  --text-subtle: #98B5D8;
+  /* Derived tokens — always reference the --ab-* swatches above so the
+     whole app re-themes by editing only that block. */
+  --accent: var(--ab-strong);
+  --accent-strong: var(--ab-strong-2);
+  --text-main: var(--ab-deep);
+  --text-subtle: var(--ab-accent);
   --glass-bg: rgba(255, 255, 255, 0.22);
   --glass-border: rgba(255, 255, 255, 0.35);
   --shadow-soft: 0 12px 30px rgba(88, 104, 120, 0.1);
@@ -40,13 +45,13 @@
   --blur: 16px;
   /* Same 160deg ice-blue gradient the standalone pages use — the chat /
      settings shells used to run a different Tailwind-tinted gradient. */
-  --page-bg: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
+  --page-bg: linear-gradient(160deg, var(--ab-bg) 0%, var(--ab-bg-2) 50%, var(--ab-surface) 100%);
 
   /* Chat-specific */
   --bubble-in-bg: rgba(255, 255, 255, 0.92);
   --bubble-in-border: rgba(255, 255, 255, 0.65);
-  --bubble-in-text: #2A3D52;
-  --bubble-out-bg: linear-gradient(135deg, #98B5D8, #789EC8);
+  --bubble-in-text: var(--ab-deep);
+  --bubble-out-bg: var(--ab-grad);
   --bubble-out-text: #ffffff;
   --composer-bg: rgba(255, 255, 255, 0.72);
   --menu-bg: rgba(255, 255, 255, 0.9);

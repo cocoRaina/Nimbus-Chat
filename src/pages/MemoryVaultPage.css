@@ -1,10 +1,10 @@
 .memory-vault-page {
   min-height: 100vh;
   min-height: 100dvh;
-  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
+  background: linear-gradient(160deg, var(--ab-bg) 0%, var(--ab-bg-2) 50%, var(--ab-surface) 100%);
   padding: 16px;
   padding-bottom: calc(2rem + env(safe-area-inset-bottom));
-  color: #2A3D52;
+  color: var(--ab-deep);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -29,7 +29,7 @@
   font-size: 18px;
   font-weight: 600;
   font-family: var(--font-serif);
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .page-header-spacer {
@@ -40,7 +40,7 @@
 .memory-vault-header .ghost {
   border: 1px solid rgba(152, 181, 216, 0.5);
   background: rgba(222, 234, 245, 0.55);
-  color: #586878;
+  color: var(--ab-ink);
   border-radius: 999px;
   padding: 6px 12px;
   font-size: 0.88rem;
@@ -66,13 +66,13 @@
   border-radius: 10px;
   padding: 8px 10px;
   font-size: 0.95rem;
-  color: #586878;
+  color: var(--ab-ink);
   cursor: pointer;
   font-weight: 600;
 }
 
 .memory-vault-tabs button.active {
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: #fff;
   box-shadow: 0 4px 10px rgba(120, 158, 200, 0.25);
 }
@@ -80,7 +80,7 @@
 .memory-vault-hint {
   margin: 0;
   font-size: 0.85rem;
-  color: #586878;
+  color: var(--ab-ink);
   padding: 8px 10px;
   background: rgba(222, 234, 245, 0.45);
   border-radius: 10px;
@@ -95,7 +95,7 @@
   border-radius: 12px;
   background: #fef2f2;
   border: 1px solid #fecaca;
-  color: #b91c1c;
+  color: var(--ab-danger);
   font-size: 0.9rem;
   width: 100%;
   max-width: 640px;
@@ -120,7 +120,7 @@
 .memory-vault-editor h2 {
   margin: 0 0 4px;
   font-size: 1rem;
-  color: #789EC8;
+  color: var(--ab-strong);
   font-family: var(--font-serif);
 }
 
@@ -134,7 +134,7 @@
 
 .memory-vault-field > span {
   font-size: 0.82rem;
-  color: #789EC8;
+  color: var(--ab-strong);
   font-weight: 600;
 }
 
@@ -144,7 +144,7 @@
   border-radius: 12px;
   padding: 8px 10px;
   background: rgba(244, 248, 252, 0.9);
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-size: 0.95rem;
   font-family: inherit;
   width: 100%;
@@ -154,7 +154,7 @@
 .memory-vault-field input:focus,
 .memory-vault-field textarea:focus {
   outline: none;
-  border-color: #98B5D8;
+  border-color: var(--ab-accent);
   box-shadow: 0 0 0 3px rgba(152, 181, 216, 0.2);
 }
 
@@ -176,7 +176,7 @@
 
 .memory-vault-editor-actions .primary {
   border: none;
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: #fff;
   border-radius: 999px;
   padding: 8px 16px;
@@ -193,7 +193,7 @@
 .memory-vault-editor-actions .ghost {
   border: 1px solid rgba(152, 181, 216, 0.5);
   background: rgba(222, 234, 245, 0.55);
-  color: #586878;
+  color: var(--ab-ink);
   border-radius: 999px;
   padding: 8px 14px;
   font-size: 0.9rem;
@@ -250,7 +250,7 @@
   background: rgba(244, 248, 252, 0.9);
   font-size: 0.95rem;
   min-width: 0;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .memory-vault-filter {
@@ -259,13 +259,13 @@
   padding: 8px 10px;
   background: rgba(244, 248, 252, 0.9);
   font-size: 0.9rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-family: inherit;
 }
 
 .memory-vault-count {
   font-size: 0.8rem;
-  color: #789EC8;
+  color: var(--ab-strong);
   white-space: nowrap;
   background: rgba(197, 214, 236, 0.5);
   padding: 2px 8px;
@@ -278,7 +278,7 @@
   margin: 0;
   text-align: center;
   padding: 24px 0;
-  color: #98B5D8;
+  color: var(--ab-accent);
 }
 
 .memory-vault-items {
@@ -302,7 +302,7 @@
 }
 
 .memory-vault-item.editing {
-  border-color: #98B5D8;
+  border-color: var(--ab-accent);
   box-shadow: 0 6px 18px rgba(120, 158, 200, 0.15);
 }
 
@@ -316,14 +316,14 @@
 
 .memory-vault-item-category {
   background: rgba(197, 214, 236, 0.5);
-  color: #789EC8;
+  color: var(--ab-strong);
   padding: 2px 8px;
   border-radius: 9999px;
   font-weight: 600;
 }
 
 .memory-vault-item-author {
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .memory-vault-item-tags {
@@ -335,7 +335,7 @@
 .memory-vault-item-tags .tag,
 .memory-vault-item-meta .tag {
   background: rgba(152, 181, 216, 0.18);
-  color: #789EC8;
+  color: var(--ab-strong);
   padding: 1px 6px;
   border-radius: 6px;
   font-size: 0.78rem;
@@ -344,7 +344,7 @@
 .memory-vault-item-title {
   margin: 2px 0 0;
   font-size: 0.88rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-weight: 600;
 }
 
@@ -352,7 +352,7 @@
   margin: 0;
   font-size: 0.875rem;
   line-height: 1.5;
-  color: #2A3D52;
+  color: var(--ab-deep);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -381,7 +381,7 @@
   align-self: flex-start;
   border: none;
   background: transparent;
-  color: #789EC8;
+  color: var(--ab-strong);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -396,7 +396,7 @@
 .memory-vault-item-signature {
   margin: 4px 0 0;
   font-size: 0.85rem;
-  color: #586878;
+  color: var(--ab-ink);
   font-style: italic;
   text-align: right;
   white-space: pre-wrap;
@@ -411,7 +411,7 @@
 .memory-vault-field input[type='range'] {
   padding: 0;
   height: 28px;
-  accent-color: #789EC8;
+  accent-color: var(--ab-strong);
 }
 
 .memory-vault-item-actions {
@@ -425,7 +425,7 @@
 .memory-vault-item-actions .ghost {
   border: 1px solid rgba(152, 181, 216, 0.5);
   background: rgba(222, 234, 245, 0.55);
-  color: #586878;
+  color: var(--ab-ink);
   border-radius: 8px;
   padding: 8px 14px;
   min-height: 36px;
@@ -437,7 +437,7 @@
 .memory-vault-item-actions .danger {
   border: 1px solid #fecaca;
   background: #fef2f2;
-  color: #b91c1c;
+  color: var(--ab-danger);
   border-radius: 8px;
   padding: 8px 14px;
   min-height: 36px;
@@ -468,12 +468,12 @@
 
 .auto-extract-title {
   font-weight: 700;
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-size: 0.92rem;
 }
 
 .btn-trigger {
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: white;
   border: none;
   padding: 6px 14px;
@@ -484,7 +484,7 @@
 }
 
 .btn-trigger:disabled {
-  background: #C5D6EC;
+  background: var(--ab-muted);
   cursor: not-allowed;
 }
 
@@ -496,7 +496,7 @@
   border-radius: 10px;
   padding: 8px 12px;
   font-size: 0.78rem;
-  color: #586878;
+  color: var(--ab-ink);
   line-height: 1.6;
 }
 
@@ -511,7 +511,7 @@
 .source-filter button {
   border: 1px solid rgba(197, 214, 236, 0.6);
   background: rgba(255, 255, 255, 0.62);
-  color: #789EC8;
+  color: var(--ab-strong);
   border-radius: 8px;
   padding: 4px 10px;
   font-size: 0.78rem;
@@ -522,7 +522,7 @@
 
 .source-filter button.active {
   background: rgba(197, 214, 236, 0.5);
-  color: #789EC8;
+  color: var(--ab-strong);
   border-color: rgba(152, 181, 216, 0.6);
   font-weight: 700;
 }
@@ -583,7 +583,7 @@
   margin: 0;
   font-size: 0.9rem;
   line-height: 1.5;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .pending-entry-actions {
@@ -606,7 +606,7 @@
 
 .btn-dismiss {
   background: rgba(222, 234, 245, 0.55);
-  color: #586878;
+  color: var(--ab-ink);
   border: 1px solid rgba(152, 181, 216, 0.5);
   padding: 6px 14px;
   border-radius: 999px;
@@ -628,7 +628,7 @@
 
 .locked-budget {
   font-size: 0.78rem;
-  color: #586878;
+  color: var(--ab-ink);
   padding: 3px 8px;
   background: rgba(222, 234, 245, 0.45);
   border-radius: 6px;
@@ -652,7 +652,7 @@
 
 .pagination-info {
   font-size: 0.82rem;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 /* ── Inline form (new item / inline edit) ── */
@@ -660,7 +660,7 @@
 .memory-vault-item.inline-form,
 .memory-vault-item.editing {
   background: rgba(244, 248, 252, 0.85);
-  border: 1.5px solid #98B5D8;
+  border: 1.5px solid var(--ab-accent);
   border-radius: 14px;
   padding: 12px;
   display: flex;
@@ -682,7 +682,7 @@
   border-radius: 12px;
   font-size: 0.875rem;
   background: rgba(244, 248, 252, 0.9);
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .inline-input--full {
@@ -696,7 +696,7 @@
   border-radius: 12px;
   font-size: 0.875rem;
   background: rgba(244, 248, 252, 0.9);
-  color: #2A3D52;
+  color: var(--ab-deep);
   resize: vertical;
   font-family: inherit;
   line-height: 1.5;
@@ -708,12 +708,12 @@
   flex-direction: column;
   gap: 4px;
   font-size: 0.85rem;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .inline-importance input[type="range"] {
   width: 100%;
-  accent-color: #789EC8;
+  accent-color: var(--ab-strong);
 }
 
 .toolbar-row3 {
@@ -722,7 +722,7 @@
 }
 
 .btn-add-new {
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: white;
   border: none;
   width: 34px;
@@ -746,7 +746,7 @@
 .btn-refresh {
   background: none;
   border: 1px solid rgba(197, 214, 236, 0.7);
-  color: #586878;
+  color: var(--ab-ink);
   width: 32px;
   height: 32px;
   border-radius: 50%;

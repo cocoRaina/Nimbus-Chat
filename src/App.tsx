@@ -142,7 +142,7 @@ import {
   TOOL_GET_NOW_PLAYING,
   TOOL_SEARCH_STICKERS,
 } from './tools/definitions'
-import { syncStatusBarToAccent, syncStatusBarToColor } from './storage/statusBar'
+import { syncStatusBarToColor } from './storage/statusBar'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
 import { compressIfNeeded } from './storage/conversationCompression'
@@ -842,20 +842,12 @@ const App = () => {
     })
   }, [])
 
-  // Status bar color matches each page's header background.
+  // Status bar color matches the page header. Since the Angel Blue
+  // unification every route's header/gradient starts at --ab-bg (#F4F8FC),
+  // so one color fits all. (The chat route used to read --accent, which
+  // now resolves to the strong blue — that would mismatch the ice header.)
   useEffect(() => {
-    const p = location.pathname
-    if (p.startsWith('/chat/')) {
-      syncStatusBarToAccent()
-    } else if (p.startsWith('/memory') || p.startsWith('/usage')) {
-      syncStatusBarToColor('#F8FAFC')
-    } else if (p.startsWith('/settings')) {
-      syncStatusBarToColor('#FFFFFF')
-    } else {
-      // Home gradient starts at #F4F8FC — match the bar to that color so
-      // the status bar blends seamlessly into the top of the background.
-      syncStatusBarToColor('#F4F8FC')
-    }
+    syncStatusBarToColor('#F4F8FC')
   }, [location.pathname])
 
   // Warm the weather cache on mount and refresh hourly. Each user message

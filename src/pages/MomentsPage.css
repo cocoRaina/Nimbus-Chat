@@ -1,6 +1,6 @@
 .moments-page {
   min-height: 100dvh;
-  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
+  background: linear-gradient(160deg, var(--ab-bg) 0%, var(--ab-bg-2) 50%, var(--ab-surface) 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -30,7 +30,7 @@
   font-family: var(--font-serif);
   font-size: 1.15rem;
   font-weight: 600;
-  color: #2A3D52;
+  color: var(--ab-deep);
   margin: 0;
   letter-spacing: 0.02em;
 }
@@ -38,7 +38,7 @@
 .moments-trash-toggle {
   background: transparent;
   border: none;
-  color: #789EC8;
+  color: var(--ab-strong);
   font-weight: 600;
   font-size: 0.8rem;
   cursor: pointer;
@@ -57,7 +57,7 @@
   border: 1px solid rgba(185, 28, 28, 0.35);
   border-radius: 999px;
   background: rgba(254, 242, 242, 0.7);
-  color: #b91c1c;
+  color: var(--ab-danger);
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
@@ -97,13 +97,13 @@
   background: transparent;
   font-size: 0.95rem;
   line-height: 1.55;
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-family: inherit;
   outline: none;
 }
 
 .moments-draft::placeholder {
-  color: #C5D6EC;
+  color: var(--ab-muted);
 }
 
 .moments-composer-actions {
@@ -115,7 +115,7 @@
 .moments-char-count {
   flex: 1;
   font-size: 0.72rem;
-  color: #C5D6EC;
+  color: var(--ab-muted);
 }
 
 /* ── Shared buttons ───────────────────────────────────────────── */
@@ -123,7 +123,7 @@
   border: none;
   border-radius: 999px;
   padding: 0.42rem 1.1rem;
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: white;
   font-size: 0.85rem;
   font-weight: 700;
@@ -151,7 +151,7 @@
   border-radius: 999px;
   padding: 0.38rem 0.85rem;
   background: rgba(222, 234, 245, 0.55);
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -178,7 +178,7 @@
 .moments-empty,
 .moments-error {
   margin: 2rem auto;
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 0.9rem;
   text-align: center;
   max-width: 640px;
@@ -186,7 +186,7 @@
 }
 
 .moments-error {
-  color: #b91c1c;
+  color: var(--ab-danger);
 }
 
 .moments-feed {
@@ -230,24 +230,24 @@
 
 .moments-author-badge--user {
   background: rgba(152, 181, 216, 0.18);
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .moments-author-badge--ai {
   background: rgba(120, 158, 200, 0.22);
-  color: #3D5570;
+  color: var(--ab-deep-soft);
 }
 
 .moments-card-time {
   flex: 1;
   font-size: 0.72rem;
-  color: #98B5D8;
+  color: var(--ab-accent);
 }
 
 .moments-card-delete {
   background: transparent;
   border: none;
-  color: #C5D6EC;
+  color: var(--ab-muted);
   font-size: 1rem;
   cursor: pointer;
   /* 手机上 × 太小容易点不中/误触别处——保证 ~32px 命中区 */
@@ -261,13 +261,13 @@
 }
 
 .moments-card-delete:hover {
-  color: #b91c1c;
+  color: var(--ab-danger);
 }
 
 .moments-card-body {
   font-size: 0.93rem;
   line-height: 1.6;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .moments-card-text {
@@ -288,7 +288,7 @@
   flex: 1;
   background: transparent;
   border: none;
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 0.78rem;
   font-weight: 500;
   cursor: pointer;
@@ -299,7 +299,7 @@
 }
 
 .moments-reply-toggle:hover {
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 /* ── Replies ──────────────────────────────────────────────────── */
@@ -326,13 +326,13 @@
 
 .moments-reply--ai {
   background: rgba(222, 234, 245, 0.5);
-  border-left: 2px solid #98B5D8;
+  border-left: 2px solid var(--ab-accent);
 }
 
 .moments-reply-author {
   font-size: 0.7rem;
   font-weight: 700;
-  color: #789EC8;
+  color: var(--ab-strong);
   letter-spacing: 0.04em;
 }
 
@@ -340,14 +340,14 @@
   margin: 0;
   font-size: 0.87rem;
   line-height: 1.5;
-  color: #2A3D52;
+  color: var(--ab-deep);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .moments-reply-time {
   font-size: 0.66rem;
-  color: #C5D6EC;
+  color: var(--ab-muted);
 }
 
 .moments-reply-composer {
@@ -365,7 +365,7 @@
   padding: 0.5rem 0.7rem;
   font-size: 0.87rem;
   line-height: 1.45;
-  color: #2A3D52;
+  color: var(--ab-deep);
   background: rgba(244, 248, 252, 0.9);
   font-family: inherit;
   outline: none;
@@ -373,11 +373,11 @@
 }
 
 .moments-reply-input:focus {
-  border-color: #98B5D8;
+  border-color: var(--ab-accent);
 }
 
 .moments-reply-input::placeholder {
-  color: #C5D6EC;
+  color: var(--ab-muted);
 }
 
 @media (max-width: 680px) {

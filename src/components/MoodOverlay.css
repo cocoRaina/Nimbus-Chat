@@ -1,5 +1,5 @@
-/* 浅蓝色系（冰蓝天使）：BG #F4F8FC · SURFACE #DEEAF5 · MUTED #C5D6EC
-   · ACCENT #98B5D8 · STRONG #789EC8 · TEXT #586878 */
+/* 浅蓝色系（冰蓝天使）：BG var(--ab-bg) · SURFACE var(--ab-surface) · MUTED var(--ab-muted)
+   · ACCENT var(--ab-accent) · STRONG var(--ab-strong) · TEXT var(--ab-ink) */
 .mood-ov__backdrop {
   position: fixed;
   inset: 0;
@@ -16,11 +16,11 @@
 .mood-ov__card {
   width: 100%;
   max-width: 420px;
-  background: #f4f8fc;
-  border: 1px solid #c5d6ec;
+  background: var(--ab-bg);
+  border: 1px solid var(--ab-muted);
   border-radius: 22px;
   padding: 16px 18px 20px;
-  color: #586878;
+  color: var(--ab-ink);
   box-shadow: 0 18px 50px rgba(120, 158, 200, 0.3);
 }
 
@@ -33,12 +33,12 @@
 .mood-ov__title {
   font-size: 0.92rem;
   font-weight: 600;
-  color: #789ec8;
+  color: var(--ab-strong);
 }
 .mood-ov__close {
   background: none;
   border: none;
-  color: #98b5d8;
+  color: var(--ab-accent);
   font-size: 1.4rem;
   line-height: 1;
   padding: 0 4px;
@@ -48,7 +48,7 @@
 .mood-ov__tone {
   margin: 10px 0 14px;
   font-size: 0.95rem;
-  color: #586878;
+  color: var(--ab-ink);
   font-style: italic;
 }
 
@@ -67,7 +67,7 @@
 }
 .mood-ov__chord-name {
   font-weight: 700;
-  color: #789ec8;
+  color: var(--ab-strong);
   margin-right: 6px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
@@ -87,13 +87,13 @@
   flex: 0 0 1.6em;
   font-size: 0.88rem;
   font-weight: 600;
-  color: #586878;
+  color: var(--ab-ink);
 }
 .mood-ov__track {
   flex: 1;
   height: 8px;
   border-radius: 4px;
-  background: #deeaf5;
+  background: var(--ab-surface);
   overflow: hidden;
 }
 .mood-ov__fill {
@@ -106,7 +106,7 @@
   flex: 0 0 1.8em;
   text-align: right;
   font-size: 0.78rem;
-  color: #789ec8;
+  color: var(--ab-strong);
   font-variant-numeric: tabular-nums;
 }
 
@@ -118,14 +118,14 @@
 
 .mood-ov__history {
   margin-top: 16px;
-  border-top: 1px solid #c5d6ec;
+  border-top: 1px solid var(--ab-muted);
   padding-top: 12px;
 }
 .mood-ov__hist-title {
   margin: 0 0 10px;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #789ec8;
+  color: var(--ab-strong);
 }
 .mood-ov__hist-item {
   margin-bottom: 12px;
@@ -138,18 +138,18 @@
   flex-wrap: wrap;
 }
 .mood-ov__hist-time {
-  color: #789ec8;
+  color: var(--ab-strong);
   font-size: 0.78rem;
 }
 .mood-ov__hist-tone {
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 0.82rem;
   font-style: italic;
 }
 .mood-ov__hist-note {
   margin: 0 0 3px;
   font-size: 0.86rem;
-  color: #586878;
+  color: var(--ab-ink);
   line-height: 1.45;
 }
 .mood-ov__hist-snap {
@@ -169,12 +169,12 @@
 .mood-ov__footer {
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px solid #c5d6ec;
+  border-top: 1px solid var(--ab-muted);
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-size: 0.82rem;
-  color: #586878;
+  color: var(--ab-ink);
 }
 .mood-ov__switch {
   flex: 0 0 auto;
@@ -183,13 +183,13 @@
   border-radius: 13px;
   border: none;
   padding: 0;
-  background: #c5d6ec;
+  background: var(--ab-muted);
   position: relative;
   cursor: pointer;
   transition: background 0.2s ease;
 }
 .mood-ov__switch.is-on {
-  background: #789ec8;
+  background: var(--ab-strong);
 }
 .mood-ov__switch-knob {
   position: absolute;
@@ -212,7 +212,7 @@
 .mood-ov__hist-more > summary {
   cursor: pointer;
   font-size: 0.78rem;
-  color: #789ec8;
+  color: var(--ab-strong);
   margin-bottom: 8px;
   list-style: none;
 }

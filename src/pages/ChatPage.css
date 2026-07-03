@@ -258,7 +258,7 @@
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: #98B5D8;
+  color: var(--ab-accent);
   text-transform: uppercase;
   padding: 6px 12px 2px;
 }
@@ -295,7 +295,7 @@
 }
 
 .header-menu-toggle input[type='checkbox'] {
-  accent-color: var(--accent-strong, #789EC8);
+  accent-color: var(--accent-strong, var(--ab-strong));
   width: 16px;
   height: 16px;
 }
@@ -339,7 +339,7 @@
 .panel-handle {
   width: 36px;
   height: 4px;
-  background: #C5D6EC;
+  background: var(--ab-muted);
   border-radius: 2px;
   margin: 8px auto 4px;
   flex-shrink: 0;
@@ -384,7 +384,7 @@
 }
 .attach-panel__tile-label {
   font-size: 12px;
-  color: #3D5570;
+  color: var(--ab-deep-soft);
 }
 
 /* LINE-style sticker grid panel */
@@ -417,14 +417,14 @@
   border: 1.5px solid rgba(42, 61, 82, 0.15);
   background: transparent;
   font-size: 15px;
-  color: #3D5570;
+  color: var(--ab-deep-soft);
   cursor: pointer;
   white-space: nowrap;
   line-height: 1.4;
 }
 .sticker-panel__tab--active {
-  background: var(--accent, #789EC8);
-  border-color: var(--accent, #789EC8);
+  background: var(--accent, var(--ab-strong));
+  border-color: var(--accent, var(--ab-strong));
   color: #fff;
 }
 .sticker-panel__grid {
@@ -480,7 +480,7 @@
   align-items: center;
   justify-content: center;
   aspect-ratio: 1;
-  border: 1.5px dashed #C5D6EC;
+  border: 1.5px dashed var(--ab-muted);
   border-radius: 12px;
   background: transparent;
   cursor: pointer;
@@ -488,17 +488,17 @@
 }
 .sticker-panel__add-icon {
   font-size: 20px;
-  color: #98B5D8;
+  color: var(--ab-accent);
   line-height: 1;
 }
 .sticker-panel__add-label {
   font-size: 11px;
-  color: #98B5D8;
+  color: var(--ab-accent);
 }
 
 /* Active state for composer icon buttons */
 .composer-icon-btn--active {
-  color: var(--accent, #789EC8);
+  color: var(--accent, var(--ab-strong));
 }
 
 @keyframes panel-slide-up {
@@ -558,7 +558,7 @@
 .time-separator {
   align-self: center;
   font-size: 11px;
-  color: var(--text-subtle, #98B5D8);
+  color: var(--text-subtle, var(--ab-accent));
   background: var(--separator-bg);
   padding: 4px 10px;
   border-radius: 999px;
@@ -571,7 +571,7 @@
   margin: 8px 0 4px;
   padding: 6px 14px;
   font-size: 12px;
-  color: #586878;
+  color: var(--ab-ink);
   background: rgba(42, 61, 82, 0.05);
   border: none;
   border-radius: 999px;
@@ -594,7 +594,7 @@
 .typing-indicator span {
   width: 7px;
   height: 7px;
-  background: var(--text-subtle, #98B5D8);
+  background: var(--text-subtle, var(--ab-accent));
   border-radius: 50%;
   animation: typing-bounce 1.2s ease-in-out infinite;
 }
@@ -646,11 +646,11 @@
   gap: 8px;
   padding: 8px 10px;
   background: rgba(222, 234, 245, 0.6);
-  border-left: 3px solid #789EC8;
+  border-left: 3px solid var(--ab-strong);
   border-radius: 8px;
   margin-bottom: 8px;
   font-size: 13px;
-  color: #586878;
+  color: var(--ab-ink);
   max-height: 4.5em;
   overflow: hidden;
   position: relative;
@@ -659,7 +659,7 @@
 .quote-preview-label {
   flex-shrink: 0;
   font-weight: 600;
-  color: #3D5570;
+  color: var(--ab-deep-soft);
 }
 
 .quote-preview-content {
@@ -678,7 +678,7 @@
   flex-shrink: 0;
   border: none;
   background: transparent;
-  color: #586878;
+  color: var(--ab-ink);
   cursor: pointer;
   font-size: 14px;
   padding: 0 4px;
@@ -686,7 +686,7 @@
 }
 
 .quote-preview-close:hover {
-  color: #3D5570;
+  color: var(--ab-deep-soft);
 }
 
 .attachment-preview-row {
@@ -704,7 +704,7 @@
   height: 64px;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #DEEAF5;
+  border: 1px solid var(--ab-surface);
 }
 
 .attachment-preview-item img {
@@ -735,7 +735,7 @@
 
 .attachment-preview-uploading {
   font-size: 12px;
-  color: #586878;
+  color: var(--ab-ink);
   padding: 0 6px;
 }
 
@@ -919,14 +919,14 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #3D5570;
+  color: var(--ab-deep-soft);
   background: rgba(197, 214, 236, 0.4);
   padding: 2px 6px;
   border-radius: 999px;
 }
 
 .message.out .model-tag {
-  color: #789EC8;
+  color: var(--ab-strong);
   background: rgba(152, 181, 216, 0.16);
 }
 
@@ -1011,7 +1011,7 @@
 }
 
 .actions-menu .danger {
-  color: #b91c1c;
+  color: var(--ab-danger);
 }
 
 .chat-composer {
@@ -1041,7 +1041,7 @@
 }
 
 .streaming-status .stop-button {
-  color: #b91c1c;
+  color: var(--ab-danger);
   font-weight: 600;
 }
 
@@ -1053,7 +1053,7 @@
   overflow-x: auto;
   scrollbar-width: none;
   font-size: 12px;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .composer-toolbar::-webkit-scrollbar {
@@ -1278,7 +1278,7 @@
   height: 38px;
   border-radius: 50%;
   border: none;
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: white;
   font-size: 16px;
   display: inline-flex;
@@ -1300,7 +1300,7 @@
 .composer-send-btn:disabled {
   opacity: 0.4;
   cursor: default;
-  background: linear-gradient(135deg, #C5D6EC, #98B5D8);
+  background: linear-gradient(135deg, var(--ab-muted), var(--ab-accent));
 }
 
 .composer-send-btn--stop {
@@ -1451,7 +1451,7 @@
 
 .checkin-header span {
   font-size: 12px;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .checkin-status-row {
@@ -1482,7 +1482,7 @@
 .checkin-metrics {
   margin-top: 8px;
   font-size: 13px;
-  color: #3D5570;
+  color: var(--ab-deep-soft);
 }
 
 .checkin-metrics p {
@@ -1498,13 +1498,13 @@
   margin: 8px 0 0;
   padding-left: 18px;
   font-size: 13px;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .checkin-tip {
   margin: 6px 0 0;
   font-size: 12px;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 /* Stickers (表情包) */
@@ -1521,7 +1521,7 @@
   box-shadow: none !important;
 }
 .sticker-missing {
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 13px;
 }
 /* .sticker-tray replaced by .sticker-panel above */
@@ -1617,7 +1617,7 @@
 }
 
 .composer-hold-bar--cancel .composer-hold-bar-text {
-  color: #586878;
+  color: var(--ab-ink);
   opacity: 0.9;
 }
 

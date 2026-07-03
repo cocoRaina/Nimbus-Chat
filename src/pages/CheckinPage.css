@@ -1,7 +1,7 @@
 /* ── Page shell ───────────────────────────────────────────────── */
 .checkin-page {
   min-height: 100dvh;
-  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
+  background: linear-gradient(160deg, var(--ab-bg) 0%, var(--ab-bg-2) 50%, var(--ab-surface) 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -30,7 +30,7 @@
   font-family: var(--font-serif);
   font-size: 1.15rem;
   font-weight: 600;
-  color: #2A3D52;
+  color: var(--ab-deep);
   margin: 0;
   letter-spacing: 0.02em;
 }
@@ -65,7 +65,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 0.75rem;
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 0.82rem;
 }
 
@@ -74,7 +74,7 @@
   font-family: var(--font-serif);
   font-size: 1.1rem;
   font-weight: 600;
-  color: #2A3D52;
+  color: var(--ab-deep);
   letter-spacing: 0.02em;
 }
 
@@ -89,12 +89,12 @@
 
 .checkin-status.done {
   font-size: 0.88rem;
-  color: #789EC8;
+  color: var(--ab-strong);
 }
 
 .checkin-status.todo {
   font-size: 0.88rem;
-  color: #98B5D8;
+  color: var(--ab-accent);
 }
 
 /* ── Check-in button ──────────────────────────────────────────── */
@@ -110,7 +110,7 @@
 }
 
 .checkin-button.unchecked {
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: white;
   box-shadow: 0 6px 18px rgba(120, 158, 200, 0.35);
   animation: stamp-pulse 1.9s ease-in-out infinite;
@@ -122,7 +122,7 @@
 
 .checkin-button.checked {
   background: rgba(222, 234, 245, 0.55);
-  color: #789EC8;
+  color: var(--ab-strong);
   border: 1px dashed rgba(152, 181, 216, 0.5);
 }
 
@@ -147,13 +147,13 @@
 
 .metric-card p {
   margin: 0;
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 0.75rem;
   letter-spacing: 0.03em;
 }
 
 .metric-card strong {
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-size: 1.6rem;
   line-height: 1.2;
   font-family: var(--font-rounded);
@@ -171,7 +171,7 @@
 .calendar-panel h3 {
   margin: 0 0 0.6rem;
   text-align: center;
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 0.9rem;
   font-weight: 600;
 }
@@ -198,7 +198,7 @@
 .calendar-weekdays span {
   text-align: center;
   font-size: 0.7rem;
-  color: #98B5D8;
+  color: var(--ab-accent);
 }
 
 .calendar-grid {
@@ -232,7 +232,7 @@
 }
 
 .day-number {
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 0.72rem;
 }
 
@@ -245,7 +245,7 @@
 .checkin-tip {
   margin: 0;
   font-size: 0.83rem;
-  color: #98B5D8;
+  color: var(--ab-accent);
   text-align: center;
 }
 

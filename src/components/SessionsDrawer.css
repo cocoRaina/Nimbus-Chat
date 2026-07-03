@@ -103,20 +103,20 @@
   border-radius: 999px;
   padding: 6px 10px;
   font-size: 13px;
-  color: #586878;
+  color: var(--ab-ink);
   cursor: pointer;
 }
 
 .drawer-tabs button.active {
   background: rgba(255, 255, 255, 0.85);
-  color: #2A3D52;
+  color: var(--ab-deep);
   border-color: rgba(209, 213, 219, 0.7);
   box-shadow: 0 2px 6px rgba(42, 61, 82, 0.08);
 }
 
 .search-input,
 .rename-row input {
-  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, #C5D6EC 28%);
+  border: 1px solid color-mix(in srgb, var(--glass-border) 72%, var(--ab-muted) 28%);
   background: rgba(255, 255, 255, 0.76);
   border-radius: 12px;
   padding: 9px 12px;
@@ -152,7 +152,7 @@
 }
 
 .session-row.active {
-  border-color: color-mix(in srgb, var(--accent-strong) 55%, #C5D6EC 45%);
+  border-color: color-mix(in srgb, var(--accent-strong) 55%, var(--ab-muted) 45%);
 }
 
 .session-select {
@@ -166,7 +166,7 @@
   padding: 0;
   cursor: pointer;
   text-align: left;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .session-select span:first-child {
@@ -209,9 +209,9 @@
 .sessions-drawer button.ghost,
 .sessions-drawer button.danger,
 .sessions-drawer .inline-actions button {
-  border: 1px solid color-mix(in srgb, var(--glass-border) 70%, #C5D6EC 30%);
+  border: 1px solid color-mix(in srgb, var(--glass-border) 70%, var(--ab-muted) 30%);
   background: rgba(255, 255, 255, 0.74);
-  color: #586878;
+  color: var(--ab-ink);
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 12px;
@@ -219,12 +219,12 @@
 }
 
 .sessions-drawer button.danger {
-  color: #B91C1C;
+  color: var(--ab-danger);
   background: rgba(254, 242, 242, 0.8);
 }
 
 .sessions-drawer .empty {
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 14px;
   text-align: center;
   padding: 18px 8px;

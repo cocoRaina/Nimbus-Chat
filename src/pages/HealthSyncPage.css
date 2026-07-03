@@ -1,6 +1,6 @@
 /* Apply Angel Blue gradient to the app-shell wrapper for health pages */
 .app-shell:has(.health-sync) {
-  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
+  background: linear-gradient(160deg, var(--ab-bg) 0%, var(--ab-bg-2) 50%, var(--ab-surface) 100%);
 }
 
 .health-sync {
@@ -34,14 +34,14 @@
   font-family: var(--font-serif);
   font-size: 1.15rem;
   font-weight: 600;
-  color: #2A3D52;
+  color: var(--ab-deep);
   letter-spacing: 0.02em;
 }
 
 .page-header-bar .ghost {
   background: transparent;
   border: none;
-  color: #789EC8;
+  color: var(--ab-strong);
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
@@ -57,13 +57,13 @@
 .health-sync__intro p {
   margin: 0 0 0.35rem;
   font-size: 0.92rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
   line-height: 1.55;
 }
 
 .health-sync__hint {
   font-size: 0.82rem !important;
-  color: #586878 !important;
+  color: var(--ab-ink) !important;
 }
 
 .health-sync__actions {
@@ -84,7 +84,7 @@
   margin: 0 0 0.45rem;
   font-size: 0.95rem;
   font-weight: 700;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .health-sync__samples ol {
@@ -98,12 +98,12 @@
 
 .health-sync__samples li {
   font-size: 0.85rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
   line-height: 1.45;
 }
 
 .health-sync__sample-meta {
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 0.78rem;
 }
 
@@ -111,7 +111,7 @@
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", monospace;
   font-size: 0.78rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
   background: rgba(222, 234, 245, 0.45);
   padding: 0.5rem 0.6rem;
   border-radius: 10px;
@@ -124,7 +124,7 @@
 .health-sync__empty {
   margin: 0;
   font-size: 0.85rem;
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-style: italic;
 }
 
@@ -143,13 +143,13 @@
   margin: 0 0 0.2rem;
   font-size: 1rem;
   font-weight: 700;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .health-sync__sync-meta {
   margin: 0;
   font-size: 0.78rem;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .health-sync__sync-btn {
@@ -165,7 +165,7 @@
 .health-sync__sync-result {
   margin: 0.5rem 0 0;
   font-size: 0.85rem;
-  color: #789EC8;
+  color: var(--ab-strong);
 }
 
 .health-sync__sync-result.warn {
@@ -176,7 +176,7 @@
   margin: 0 0 0.55rem;
   font-size: 1rem;
   font-weight: 700;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .health-sync__today-grid {
@@ -196,21 +196,21 @@
 
 .health-sync__today-grid .label {
   font-size: 0.74rem;
-  color: #586878;
+  color: var(--ab-ink);
   letter-spacing: 0.02em;
 }
 
 .health-sync__today-grid .value {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #789EC8;
+  color: var(--ab-strong);
   font-variant-numeric: tabular-nums;
 }
 
 .health-sync__diag summary {
   cursor: pointer;
   font-weight: 700;
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-size: 0.92rem;
   padding: 0.2rem 0;
 }
@@ -229,7 +229,7 @@
   margin: 0.8rem 0 0.4rem;
   font-size: 0.85rem;
   font-weight: 700;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 /* === 屏幕使用时间 === */
@@ -238,7 +238,7 @@
   margin: 0 0 0.55rem;
   font-size: 1rem;
   font-weight: 700;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .health-sync__usage-prompt {
@@ -262,13 +262,13 @@
 .health-sync__usage-total .value {
   font-size: 1.6rem;
   font-weight: 800;
-  color: #789EC8;
+  color: var(--ab-strong);
   font-variant-numeric: tabular-nums;
 }
 
 .health-sync__usage-total .label {
   font-size: 0.78rem;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .health-sync__usage-apps {
@@ -284,14 +284,14 @@
   display: flex;
   justify-content: space-between;
   font-size: 0.85rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
   padding: 0.3rem 0.55rem;
   border-radius: 8px;
   background: rgba(222, 234, 245, 0.45);
 }
 
 .health-sync__usage-apps li .dur {
-  color: #789EC8;
+  color: var(--ab-strong);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -312,7 +312,7 @@
 .health-sync__period-headline strong {
   font-size: 1.5rem;
   font-weight: 800;
-  color: #789EC8;
+  color: var(--ab-strong);
 }
 
 .health-sync__period-headline .phase {
@@ -340,13 +340,13 @@
 
 .health-sync__period-meta .label {
   font-size: 0.74rem;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .health-sync__period-meta .value {
   font-size: 0.92rem;
   font-weight: 700;
-  color: #789EC8;
+  color: var(--ab-strong);
   font-variant-numeric: tabular-nums;
 }
 
@@ -354,7 +354,7 @@
   margin: 0;
   padding: 0.55rem 0.65rem;
   font-size: 0.85rem;
-  color: #586878;
+  color: var(--ab-ink);
   background: rgba(222, 234, 245, 0.45);
   border-radius: 10px;
   line-height: 1.5;
@@ -460,13 +460,13 @@
   border-radius: 13px;
   border: none;
   padding: 0;
-  background: #c5d6ec;
+  background: var(--ab-muted);
   position: relative;
   cursor: pointer;
   transition: background 0.2s ease;
 }
 .mood-switch.is-on {
-  background: #789ec8;
+  background: var(--ab-strong);
 }
 .mood-switch__knob {
   position: absolute;

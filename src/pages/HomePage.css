@@ -1,7 +1,7 @@
 .home-page {
   --icon-tile-bg: rgba(255, 255, 255, 0.72);
   align-items: center;
-  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
+  background: linear-gradient(160deg, var(--ab-bg) 0%, var(--ab-bg-2) 50%, var(--ab-surface) 100%);
   height: auto;
   min-height: 100dvh;
   overflow-y: auto;
@@ -112,7 +112,7 @@
 
 .home-date-label {
   margin: 0;
-  color: #789EC8;
+  color: var(--ab-strong);
   font-size: 0.88rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -123,7 +123,7 @@
 .home-topbar-edit {
   background: transparent;
   border: none;
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -135,7 +135,7 @@
   transition: color 0.15s;
 }
 
-.home-topbar-edit:hover { color: #586878; }
+.home-topbar-edit:hover { color: var(--ab-ink); }
 
 .home-topbar-settings {
   background: transparent;
@@ -226,7 +226,7 @@
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 0.9;
-  background: linear-gradient(180deg, #789EC8 0%, #3A6A9F 100%);
+  background: linear-gradient(180deg, var(--ab-strong) 0%, #3A6A9F 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -236,7 +236,7 @@
 .hero-days-label {
   font-size: 1rem;
   font-weight: 700;
-  color: #98B5D8;
+  color: var(--ab-accent);
   letter-spacing: 0.04em;
   font-family: var(--font-rounded);
   margin-bottom: 0.25rem;
@@ -245,7 +245,7 @@
 .hero-days-empty {
   font-size: 1.6rem;
   font-weight: 700;
-  color: #C5D6EC;
+  color: var(--ab-muted);
   font-family: var(--font-rounded);
   font-style: italic;
 }
@@ -284,8 +284,8 @@
 }
 
 .together-week-cell.is-checked .together-week-dot {
-  background: #789EC8;
-  border-color: #789EC8;
+  background: var(--ab-strong);
+  border-color: var(--ab-strong);
   color: white;
 }
 
@@ -295,12 +295,12 @@
 
 .together-week-label {
   font-size: 0.6rem;
-  color: #98B5D8;
+  color: var(--ab-accent);
   letter-spacing: 0.02em;
 }
 
 .together-week-cell.is-today .together-week-label {
-  color: #789EC8;
+  color: var(--ab-strong);
   font-weight: 700;
 }
 
@@ -309,7 +309,7 @@
   border: none;
   border-radius: 999px;
   padding: 9px 14px;
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: #ffffff;
   font-weight: 600;
   font-size: 0.88rem;
@@ -333,7 +333,7 @@
 
 .together-checkin-btn.is-done {
   background: rgba(197, 214, 236, 0.3);
-  color: #C5D6EC;
+  color: var(--ab-muted);
 }
 
 /* ── Vertical nav list ─────────────────────────────────────── */
@@ -399,19 +399,19 @@
 .home-list-title {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #2A3D52;
+  color: var(--ab-deep);
   line-height: 1.2;
 }
 
 .home-list-sub {
   font-size: 0.76rem;
-  color: #98B5D8;
+  color: var(--ab-accent);
   line-height: 1.3;
 }
 
 .home-list-chevron {
   font-size: 1.25rem;
-  color: #C5D6EC;
+  color: var(--ab-muted);
   line-height: 1;
   flex-shrink: 0;
   font-weight: 300;
@@ -430,7 +430,7 @@
 .home-footer-link {
   background: none;
   border: none;
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 0.76rem;
   font-weight: 500;
   cursor: pointer;
@@ -440,7 +440,7 @@
   transition: color 0.12s;
 }
 
-.home-footer-link:hover { color: #586878; }
+.home-footer-link:hover { color: var(--ab-ink); }
 
 .home-footer-sep {
   color: rgba(197, 214, 236, 0.7);
@@ -457,7 +457,7 @@
 .home-header h1 {
   margin: 0;
   font-size: 1.15rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .edit-button {
@@ -466,7 +466,7 @@
   right: 0;
   border: 1px solid rgba(197, 214, 236, 0.7);
   background: rgba(222, 234, 245, 0.45);
-  color: #586878;
+  color: var(--ab-ink);
   border-radius: 999px;
   padding: 0.32rem 0.75rem;
   font-size: 0.85rem;
@@ -482,7 +482,7 @@
 .home-notice {
   margin: 0;
   text-align: center;
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 0.9rem;
 }
 
@@ -495,7 +495,7 @@
 
 .home-settings-title {
   font-size: 0.9rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
   margin: 0;
 }
 
@@ -504,7 +504,7 @@
   flex-direction: column;
   gap: 0.3rem;
   font-size: 0.85rem;
-  color: #586878;
+  color: var(--ab-ink);
   font-family: inherit;
 }
 
@@ -515,14 +515,14 @@
   border-radius: 10px;
   padding: 6px 8px;
   background: rgba(244, 248, 252, 0.92);
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-family: inherit;
   outline: none;
 }
 
 .home-settings-card select:focus,
 .home-settings-card input:focus {
-  border-color: #98B5D8;
+  border-color: var(--ab-accent);
 }
 
 .background-controls {
@@ -534,7 +534,7 @@
 
 .background-controls span {
   font-size: 0.85rem;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .together-input {
@@ -542,7 +542,7 @@
   flex-direction: column;
   gap: 4px;
   font-size: 0.82rem;
-  color: #98B5D8;
+  color: var(--ab-accent);
 }
 
 .together-input input {
@@ -550,14 +550,14 @@
   border-radius: 10px;
   padding: 6px 8px;
   background: rgba(244, 248, 252, 0.92);
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-size: 0.88rem;
   font-family: inherit;
   outline: none;
 }
 
 .together-input input:focus {
-  border-color: #98B5D8;
+  border-color: var(--ab-accent);
 }
 
 /* ── Shared button helpers ─────────────────────────────────── */
@@ -566,7 +566,7 @@
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.5);
   padding: 0.34rem 0.7rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
   background: rgba(255, 255, 255, 0.3);
   font-family: inherit;
   cursor: pointer;
@@ -587,14 +587,14 @@
   background: transparent;
   border-radius: 999px;
   padding: 0.3rem 0.85rem;
-  color: #586878;
+  color: var(--ab-ink);
   font-family: inherit;
   cursor: pointer;
 }
 
 .home-mode-toggle button.active {
   background: rgba(120, 158, 200, 0.15);
-  color: #3D5570;
+  color: var(--ab-deep-soft);
 }
 
 /* ── Responsive ────────────────────────────────────────────── */

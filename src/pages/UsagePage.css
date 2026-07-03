@@ -1,9 +1,9 @@
 .usage-page {
   min-height: 100vh;
   min-height: 100dvh;
-  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
+  background: linear-gradient(160deg, var(--ab-bg) 0%, var(--ab-bg-2) 50%, var(--ab-surface) 100%);
   padding: 0 1rem calc(24px + env(safe-area-inset-bottom));
-  color: #2A3D52;
+  color: var(--ab-deep);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -29,7 +29,7 @@
   text-align: center;
   font-size: 18px;
   font-weight: 700;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 /* Editorial serif page title (pilot for the Angel Blue / Harbor theme) */
@@ -65,7 +65,7 @@
   border-radius: 10px;
   padding: 8px 10px;
   font-size: 0.92rem;
-  color: #586878;
+  color: var(--ab-ink);
   cursor: pointer;
   font-weight: 600;
 }
@@ -82,7 +82,7 @@
   border-radius: 12px;
   background: #fef2f2;
   border: 1px solid #fecaca;
-  color: #b91c1c;
+  color: var(--ab-danger);
   font-size: 0.9rem;
 }
 
@@ -138,13 +138,13 @@
 
 .usage-summary-card .label {
   font-size: 0.82rem;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .usage-summary-card .label-hint {
   display: block;
   font-size: 0.72rem;
-  color: #98B5D8;
+  color: var(--ab-accent);
   margin-top: 2px;
 }
 
@@ -152,12 +152,12 @@
   font-size: 1.4rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .usage-summary-card.highlight {
   background: linear-gradient(180deg, rgba(152, 181, 216, 0.95), rgba(120, 158, 200, 0.95));
-  border-color: #789EC8;
+  border-color: var(--ab-strong);
 }
 
 .usage-summary-card.highlight .label,
@@ -189,7 +189,7 @@
 
 .usage-empty {
   margin: 0;
-  color: #98B5D8;
+  color: var(--ab-accent);
   text-align: center;
   padding: 24px 0;
 }
@@ -214,7 +214,7 @@
 }
 
 .usage-table th {
-  color: #789EC8;
+  color: var(--ab-strong);
   font-weight: 600;
   background: rgba(222, 234, 245, 0.45);
 }
@@ -225,7 +225,7 @@
 }
 
 .usage-table td.model {
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-weight: 600;
   max-width: 220px;
   overflow: hidden;
@@ -246,7 +246,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 0.92rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
   padding: 6px 10px;
   background: rgba(222, 234, 245, 0.45);
   border-radius: 10px;
@@ -254,7 +254,7 @@
 
 .usage-footer-note {
   margin: 0;
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 0.78rem;
   line-height: 1.5;
   text-align: center;
@@ -278,7 +278,7 @@
   border-radius: 10px;
   padding: 9px 10px;
   font-size: 0.92rem;
-  color: #586878;
+  color: var(--ab-ink);
   cursor: pointer;
   font-weight: 600;
 }
@@ -306,7 +306,7 @@
 .diag-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .diag-model-input {
@@ -317,13 +317,13 @@
   border-radius: 12px;
   font-size: 0.9rem;
   background: rgba(244, 248, 252, 0.9);
-  color: #2A3D52;
+  color: var(--ab-deep);
   outline: none;
   font-family: monospace;
 }
 
 .diag-model-input:focus {
-  border-color: #789EC8;
+  border-color: var(--ab-strong);
   box-shadow: 0 0 0 3px rgba(120, 158, 200, 0.15);
 }
 
@@ -341,7 +341,7 @@
   padding: 10px 24px;
   border: none;
   border-radius: 12px;
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: #fff;
   font-size: 0.9rem;
   font-weight: 600;
@@ -389,7 +389,7 @@
 .diag-result-label {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #2A3D52;
+  color: var(--ab-deep);
   flex: 1;
 }
 
@@ -404,14 +404,14 @@
 .diag-badge-pass   { background: #D1FAE5; color: #065F46; }
 .diag-badge-fail   { background: #FEE2E2; color: #991B1B; }
 .diag-badge-warn   { background: #FEF3C7; color: #92400E; }
-.diag-badge-skip   { background: rgba(222, 234, 245, 0.55); color: #586878; }
-.diag-badge-running{ background: rgba(197, 214, 236, 0.5); color: #789EC8; }
-.diag-badge-idle   { background: rgba(222, 234, 245, 0.55); color: #98B5D8; }
+.diag-badge-skip   { background: rgba(222, 234, 245, 0.55); color: var(--ab-ink); }
+.diag-badge-running{ background: rgba(197, 214, 236, 0.5); color: var(--ab-strong); }
+.diag-badge-idle   { background: rgba(222, 234, 245, 0.55); color: var(--ab-accent); }
 
 .diag-result-detail {
   margin: 6px 0 0 0;
   font-size: 0.84rem;
-  color: #586878;
+  color: var(--ab-ink);
   line-height: 1.5;
   word-break: break-all;
   white-space: pre-line; /* 让响应头指纹的多行换行生效 */
@@ -434,7 +434,7 @@
   flex-direction: column;
   gap: 8px;
   font-size: 0.86rem;
-  color: #586878;
+  color: var(--ab-ink);
   line-height: 1.55;
 }
 
@@ -478,7 +478,7 @@
   flex: 1;
   font-size: 0.9rem;
   font-weight: 600;
-  color: #2A3D52;
+  color: var(--ab-deep);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -486,14 +486,14 @@
 
 .compress-meta {
   font-size: 0.78rem;
-  color: #98B5D8;
+  color: var(--ab-accent);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .compress-chevron {
   font-size: 0.7rem;
-  color: #C5D6EC;
+  color: var(--ab-muted);
   flex-shrink: 0;
 }
 
@@ -505,7 +505,7 @@
 .compress-summary-text {
   margin: 0;
   font-size: 0.84rem;
-  color: #586878;
+  color: var(--ab-ink);
   white-space: pre-wrap;
   line-height: 1.6;
   font-family: inherit;
@@ -517,7 +517,7 @@
   margin: 0 0 4px;
   font-size: 1rem;
   font-weight: 700;
-  color: #789EC8;
+  color: var(--ab-strong);
 }
 
 /* ── Historical trend row ─────────────────────────────────────────────────── */
@@ -534,17 +534,17 @@
 }
 
 .hist-trend-label {
-  color: #586878;
+  color: var(--ab-ink);
   font-weight: 600;
 }
 
 .hist-trend-value {
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-variant-numeric: tabular-nums;
 }
 
 .hist-trend-sep {
-  color: #C5D6EC;
+  color: var(--ab-muted);
 }
 
 .hist-trend-delta {
@@ -576,7 +576,7 @@
 .hist-day-date {
   width: 42px;
   flex-shrink: 0;
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .hist-day-bar-wrap {
@@ -602,14 +602,14 @@
   flex-shrink: 0;
   text-align: right;
   font-weight: 600;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .hist-day-meta {
   width: 92px;
   flex-shrink: 0;
   text-align: right;
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 0.76rem;
 }
 
@@ -623,14 +623,14 @@
 .diag-detail-fold > summary {
   cursor: pointer;
   font-weight: 700;
-  color: var(--ab-ink, #2A3D52);
+  color: var(--ab-ink, var(--ab-deep));
   font-size: 1rem;
   list-style: none;
 }
 .diag-detail-fold > summary::-webkit-details-marker { display: none; }
 .diag-detail-fold > summary::before {
   content: '▸ ';
-  color: #789EC8;
+  color: var(--ab-strong);
 }
 .diag-detail-fold[open] > summary::before { content: '▾ '; }
 
@@ -638,7 +638,7 @@
 .health-overview {
   border-radius: 16px;
   padding: 12px 16px;
-  border: 1px solid #C5D6EC;
+  border: 1px solid var(--ab-muted);
   background: rgba(255, 255, 255, 0.85);
   display: flex;
   flex-direction: column;
@@ -652,13 +652,13 @@
   align-items: center;
   gap: 8px;
   font-size: 1rem;
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 .health-overview__metrics {
   font-size: 0.86rem;
-  color: #586878;
+  color: var(--ab-ink);
 }
-.health-overview__metrics b { color: #2A3D52; font-variant-numeric: tabular-nums; }
+.health-overview__metrics b { color: var(--ab-deep); font-variant-numeric: tabular-nums; }
 .health-overview__reasons {
   font-size: 0.82rem;
   color: #9a6a1e;

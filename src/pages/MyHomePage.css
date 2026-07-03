@@ -1,7 +1,7 @@
 .my-home-page {
   min-height: 100vh;
   min-height: 100dvh;
-  background: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
+  background: linear-gradient(160deg, var(--ab-bg) 0%, var(--ab-bg-2) 50%, var(--ab-surface) 100%);
   max-width: 720px;
   margin: 0 auto;
   padding: 12px;
@@ -22,7 +22,7 @@
   font-family: var(--font-serif);
   font-size: 1.15rem;
   font-weight: 600;
-  color: #2A3D52;
+  color: var(--ab-deep);
   margin: 0;
 }
 
@@ -41,7 +41,7 @@
 .profile-cover-banner {
   height: 120px;
   border-radius: 16px 16px 12px 12px;
-  background: linear-gradient(135deg, #C5D6EC 0%, #98B5D8 50%, #789EC8 100%);
+  background: linear-gradient(135deg, var(--ab-muted) 0%, var(--ab-accent) 50%, var(--ab-strong) 100%);
 }
 
 .profile-avatar-wrap {
@@ -73,7 +73,7 @@
   display: block;
   width: 100%;
   height: 100%;
-  background: linear-gradient(140deg, #C5D6EC, #DEEAF5);
+  background: linear-gradient(140deg, var(--ab-muted), var(--ab-surface));
 }
 
 .profile-avatar-input {
@@ -103,13 +103,13 @@
 .profile-title {
   margin: 0;
   font-size: 24px;
-  color: #2A3D52;
+  color: var(--ab-deep);
   letter-spacing: 0.5px;
 }
 
 .profile-bio {
   margin: 6px 0 0;
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 13px;
 }
 
@@ -132,7 +132,7 @@
   font-size: 14px;
   line-height: 1.5;
   font-family: inherit;
-  color: #2A3D52;
+  color: var(--ab-deep);
   background-color: rgba(244, 248, 252, 0.9);
   background-image: repeating-linear-gradient(
     to bottom,
@@ -145,7 +145,7 @@
 
 .my-home-composer textarea:focus,
 .reply-composer textarea:focus {
-  border-color: #98B5D8;
+  border-color: var(--ab-accent);
   outline: none;
   box-shadow: 0 0 0 2px rgba(152, 181, 216, 0.18);
 }
@@ -203,7 +203,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 12px;
 }
 
@@ -213,7 +213,7 @@
 }
 
 .tips {
-  color: #586878;
+  color: var(--ab-ink);
   text-align: center;
 }
 
@@ -224,7 +224,7 @@
 
 
 .my-home-page .ghost {
-  color: #789EC8;
+  color: var(--ab-strong);
   background: transparent;
   border: none;
   font-size: 0.88rem;
@@ -232,11 +232,11 @@
 }
 
 .my-home-page .ghost:hover {
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .my-home-page .ghost.danger {
-  color: #98B5D8;
+  color: var(--ab-accent);
 }
 
 .my-home-page .ghost.danger:hover {
@@ -272,13 +272,13 @@
 }
 
 .reply-toggle-main {
-  color: #2A3D52;
+  color: var(--ab-deep);
   font-size: 13px;
   white-space: nowrap;
 }
 
 .reply-preview {
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -286,7 +286,7 @@
 }
 
 .reply-chevron {
-  color: #789EC8;
+  color: var(--ab-strong);
   font-size: 12px;
 }
 
@@ -304,7 +304,7 @@
 .reply-bubble {
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid rgba(255, 255, 255, 0.75);
-  border-left: 2px solid #C5D6EC;
+  border-left: 2px solid var(--ab-muted);
   border-radius: 12px;
   padding: 8px 10px;
   display: flex;
@@ -326,7 +326,7 @@
 
 .reply-role {
   font-size: 12px;
-  color: #586878;
+  color: var(--ab-ink);
   margin-bottom: 4px;
   display: inline-flex;
   align-items: center;
@@ -338,7 +338,7 @@
   padding: 1px 6px;
   border-radius: 999px;
   background: rgba(197, 214, 236, 0.55);
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -350,13 +350,13 @@
 }
 
 .reply-bubble.pending {
-  color: #586878;
+  color: var(--ab-ink);
 }
 
 .reply-time {
   display: inline-block;
   margin-top: 6px;
-  color: #98B5D8;
+  color: var(--ab-accent);
   font-size: 12px;
 }
 
@@ -374,7 +374,7 @@
   font-size: 14px;
   line-height: 1.5;
   font-family: inherit;
-  color: #2A3D52;
+  color: var(--ab-deep);
   background-color: rgba(244, 248, 252, 0.9);
   background-image: repeating-linear-gradient(
     to bottom,
@@ -419,7 +419,7 @@
   padding: 3px 10px;
   border-radius: 999px;
   border: 1px solid rgba(152, 181, 216, 0.5);
-  color: #586878;
+  color: var(--ab-ink);
   font-size: 11px;
   line-height: 1.4;
   background: rgba(222, 234, 245, 0.55);
@@ -431,7 +431,7 @@
 }
 
 .post-actions .ghost {
-  color: #789EC8;
+  color: var(--ab-strong);
   background: transparent;
   border: none;
   font-size: 0.88rem;
@@ -439,11 +439,11 @@
 }
 
 .post-actions .ghost:hover {
-  color: #2A3D52;
+  color: var(--ab-deep);
 }
 
 .post-actions .ghost.danger {
-  color: #98B5D8;
+  color: var(--ab-accent);
 }
 
 .post-actions .ghost.danger:hover {
@@ -453,7 +453,7 @@
 .post-actions .primary {
   border-radius: 999px;
   border: none;
-  background: linear-gradient(135deg, #98B5D8, #789EC8);
+  background: var(--ab-grad);
   color: #fff;
   transition: transform 0.15s ease, filter 0.15s ease;
 }

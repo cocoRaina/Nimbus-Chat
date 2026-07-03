@@ -1090,7 +1090,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
                   <div className="usage-summary-card">
                     <span className="label">有缓存命中</span>
                     <span className="value">{histStats.hitCount}</span>
-                    {histStats.total > 0 && <span className="label-hint" style={{ display: 'block', fontSize: '0.72rem', color: '#94A3B8', marginTop: '2px' }}>{Math.round(histStats.overallHitRate * 100)}% 的调用</span>}
+                    {histStats.total > 0 && <span className="label-hint" style={{ display: 'block', fontSize: '0.72rem', color: 'var(--ab-accent)', marginTop: '2px' }}>{Math.round(histStats.overallHitRate * 100)}% 的调用</span>}
                   </div>
                   <div className="usage-summary-card">
                     <span className="label">平均缓存率</span>
