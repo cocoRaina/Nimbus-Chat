@@ -130,6 +130,23 @@ const saveCompressionCache = async (
 
 const SUMMARIZER_SYSTEM_PROMPT = '你负责维护对话运行时摘要。只输出最终摘要文本。'
 
+// Summarizer models occasionally refuse ("你好，我无法给到相关内容。") and
+// that refusal used to be saved as the summary — from then on every send
+// injected the refusal instead of the real history, and the next incremental
+// pass folded new messages into it, permanently losing the old summary.
+// Detect refusal/garbage output so it is never trusted: not saved, and an
+// already-poisoned cache row is ignored (self-heals on the next re-summarize).
+const looksLikeRefusalOrGarbage = (text: string): boolean => {
+  const t = text.trim()
+  // ≥8 messages can't legitimately compress to under 30 chars.
+  if (t.length < 30) return true
+  const refusalPattern =
+    /无法(提供|给到|协助|帮助|处理|生成|继续)|不能(提供|协助|帮助|生成)|抱歉|对不起|很遗憾|拒绝(回答|提供)|(i\s*)?(can\s*not|can't|cannot|unable to)\s|(i'?m\s*)?sorry/i
+  // A real summary can mention "她说抱歉" mid-text; refusals are short and
+  // lead with the refusal — only treat a match as fatal on short output.
+  return t.length < 150 && refusalPattern.test(t)
+}
+
 const buildSummarizerUserPrompt = (
   existingSummary: string,
   newMessages: ChatMessage[],
@@ -148,7 +165,7 @@ const buildSummarizerUserPrompt = (
     .join('\n\n')
 }
 
-const summarizeMessages = async (
+const summarizeMessagesOnce = async (
   summarizerModel: string,
   existingSummary: string,
   newMessages: ChatMessage[],
@@ -177,7 +194,27 @@ const summarizeMessages = async (
   if (!text) {
     throw new Error('summarizer returned empty content')
   }
+  if (looksLikeRefusalOrGarbage(text)) {
+    throw new Error(`summarizer refused / returned garbage: ${text.slice(0, 60)}`)
+  }
   return text
+}
+
+const summarizeMessages = async (
+  summarizerModel: string,
+  existingSummary: string,
+  newMessages: ChatMessage[],
+  summarizerProvider: 'openrouter' | 'msuicode',
+): Promise<string> => {
+  try {
+    return await summarizeMessagesOnce(summarizerModel, existingSummary, newMessages, summarizerProvider)
+  } catch (firstError) {
+    // Refusals are usually transient (sampling / upstream rotation) — one
+    // retry rescues most of them. Still failing → caller sends uncompressed
+    // this turn and retries next send; the existing cache stays untouched.
+    console.warn('对话摘要第一次生成失败，重试一次', firstError)
+    return summarizeMessagesOnce(summarizerModel, existingSummary, newMessages, summarizerProvider)
+  }
 }
 
 export type CompressionSettings = {
@@ -246,6 +283,14 @@ export const compressIfNeeded = async (
   let newOldMessages = oldMessages
   try {
     const cache = await loadCompressionCache(conversationId)
+    // A cache row that is itself a refusal (poisoned before the guard in
+    // summarizeMessages existed) is worse than no cache: treat it as absent
+    // so the next over-trigger regenerates the summary from the full old
+    // history instead of reusing / building on the refusal.
+    if (cache?.summary_text && looksLikeRefusalOrGarbage(cache.summary_text)) {
+      console.warn('compression cache 内容疑似拒答，忽略并等待重新生成')
+      cache.summary_text = ''
+    }
     if (cache?.summary_text && cache.compressed_up_to_message_id) {
       const cacheIdx = oldMessages.findIndex(
         (m) => m.id === cache.compressed_up_to_message_id,
