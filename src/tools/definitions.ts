@@ -98,7 +98,10 @@ export const TOOL_SCHEDULE_PROACTIVE = {
       '适合大多数场景。\n' +
       '- true：用户明确预约的、必须按时响的提醒，比如"明早 7 点叫我起床"、' +
       '"30 分钟后提醒我喝水"。设 true 后即使她回来聊天也不会取消，到点必响。' +
-      '只在用户明确要求"提醒/叫醒/到点告诉我"时才用，不要主动加 persist。',
+      '只在用户明确要求"提醒/叫醒/到点告诉我"时才用，不要主动加 persist。\n\n' +
+      '防重复：调用时会自动查现有的待发预约——内容相同或时间相近的不会重复创建，' +
+      '结果里返回已有那条（already_scheduled）；创建成功时结果里的 other_pending ' +
+      '会列出其他还挂着的预约。看到这些信息要如实告诉用户，别当作新约成功。',
     parameters: {
       type: 'object',
       properties: {
@@ -211,7 +214,9 @@ export const TOOL_WRITE_DIARY = {
     name: 'write_diary',
     description:
       '替用户写一篇日记。仅在用户明确说「帮我写日记 / 总结今天 / 记下今天」时调用。' +
-      'date 用 YYYY-MM-DD 格式。author 字段会自动设为 "Claude"。',
+      'date 用 YYYY-MM-DD 格式。author 字段会自动设为 "Claude"。\n' +
+      '同一天已有日记时不会重复创建：结果会返回已有那篇的标题和开头（already_written），' +
+      '此时如实告诉用户今天已经写过了；只有用户明确要求重写/覆盖时才再次调用并传 replace: true。',
     parameters: {
       type: 'object',
       properties: {
@@ -219,6 +224,10 @@ export const TOOL_WRITE_DIARY = {
         content: { type: 'string', description: '日记正文' },
         title: { type: 'string', description: '日记标题，可选' },
         mood: { type: 'string', description: '心情，可选。例如：开心/平静/低落/焦虑' },
+        replace: {
+          type: 'boolean',
+          description: '默认 false。同一天已有日记时是否覆盖重写。仅在用户明确要求重写时传 true。',
+        },
       },
       required: ['date', 'content'],
     },

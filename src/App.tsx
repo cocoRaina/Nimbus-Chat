@@ -2811,6 +2811,7 @@ TOOL_SEARCH_HANDOFF,
                     // upsert: update the existing day's row instead.
                     let inserted: unknown = null
                     let insertErr: { message: string } | null = null
+                    let duplicateDiaryResult: string | null = null
                     if (table === 'health_data' && typeof cleaned.date === 'string') {
                       const { data: existing } = await supabase
                         .from('health_data')
@@ -2823,14 +2824,49 @@ TOOL_SEARCH_HANDOFF,
                       const res = await q.select().single()
                       inserted = res.data
                       insertErr = res.error
+                    } else if (table === 'diaries' && typeof cleaned.date === 'string') {
+                      // 跨窗口失忆去重：模型不知道自己（或上个窗口的自己）今天
+                      // 已经写过日记。同一天已有日记时默认不重复创建，把已有的
+                      // 那篇告诉模型；用户明确要求重写时传 replace: true 覆盖。
+                      const { data: existingDiaries } = await supabase
+                        .from('diaries')
+                        .select('id,title,content')
+                        .eq('date', cleaned.date)
+                      const replace = args.replace === true
+                      if (existingDiaries && existingDiaries.length > 0 && !replace) {
+                        setToolStatus('📔 这天已有日记，跳过重复创建')
+                        duplicateDiaryResult = JSON.stringify({
+                          ok: true,
+                          already_written: true,
+                          existing: existingDiaries.map((d) => ({
+                            title: (d as { title?: string }).title ?? null,
+                            preview: String((d as { content?: string }).content ?? '').slice(0, 100),
+                          })),
+                          note: '这一天已经写过日记，本次没有重复创建。请如实告诉用户已有这篇日记；如果用户明确想重写覆盖，再次调用并传 replace: true。',
+                        })
+                      } else if (existingDiaries && existingDiaries.length > 0 && replace) {
+                        const res = await supabase
+                          .from('diaries')
+                          .update(cleaned)
+                          .eq('id', (existingDiaries[0] as { id: number | string }).id)
+                          .select()
+                          .single()
+                        inserted = res.data
+                        insertErr = res.error
+                      } else {
+                        const res = await supabase.from(table).insert(cleaned).select().single()
+                        inserted = res.data
+                        insertErr = res.error
+                      }
                     } else {
                       const res = await supabase.from(table).insert(cleaned).select().single()
                       inserted = res.data
                       insertErr = res.error
                     }
-                    resultText = insertErr
-                      ? JSON.stringify({ error: insertErr.message })
-                      : JSON.stringify({ ok: true, table, inserted })
+                    resultText = duplicateDiaryResult
+                      ?? (insertErr
+                        ? JSON.stringify({ error: insertErr.message })
+                        : JSON.stringify({ ok: true, table, inserted }))
                   } else if (tc.function.name === 'post_moment' && supabase) {
                     // Self-initiated Moments post — the one write tool the
                     // model uses at its own discretion (no user instruction
@@ -2939,6 +2975,43 @@ TOOL_SEARCH_HANDOFF,
                     if (proText && shouldScheduleProactive(delayMin * 60 * 1000)) {
                       const delayMs = delayMin * 60 * 1000
                       const fireAt = Date.now() + delayMs
+                      // 跨窗口失忆去重：模型看不到自己前几轮/前几天约过什么
+                      // （tool_calls 不回传历史），所以在执行时查一遍服务端
+                      // 未发队列。相同内容、或同 persist 且触发时间相近的，
+                      // 视为重复——不新建，把已有的那条告诉模型。
+                      const fmtLocal = (iso: string) =>
+                        new Date(iso).toLocaleString('zh-CN', {
+                          timeZone: 'Asia/Shanghai',
+                          month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+                        })
+                      let existingUnsent: Array<{ id: string; text: string; fire_at: string; persist: boolean }> = []
+                      if (supabase && user) {
+                        const { data: unsentRows } = await supabase
+                          .from('proactive_queue')
+                          .select('id,text,fire_at,persist')
+                          .eq('user_id', user.id)
+                          .eq('sent', false)
+                        existingUnsent = (unsentRows ?? []) as typeof existingUnsent
+                      }
+                      const dup = existingUnsent.find(
+                        (row) =>
+                          row.text.trim() === proText ||
+                          (row.persist === persist &&
+                            Math.abs(new Date(row.fire_at).getTime() - fireAt) < 15 * 60 * 1000),
+                      )
+                      if (dup) {
+                        setToolStatus('⏰ 已有相近预约，跳过重复创建')
+                        resultText = JSON.stringify({
+                          ok: true,
+                          already_scheduled: true,
+                          existing: {
+                            text: dup.text,
+                            fire_at_local: fmtLocal(dup.fire_at),
+                            persist: dup.persist,
+                          },
+                          note: '已有一条内容或时间相近的待发预约，本次没有重复创建。请在回复里如实告诉用户已经约过了。如果确实需要再加一条，请换明显不同的时间或内容重新调用。',
+                        })
+                      } else {
                       const proEntry: import('./storage/proactiveNotification').PendingProactive = {
                         sessionId,
                         text: proText,
@@ -2975,7 +3048,18 @@ TOOL_SEARCH_HANDOFF,
                         scheduled_at: new Date(fireAt).toISOString(),
                         delay_minutes: delayMin,
                         persist,
+                        // 让模型知道除了这条之外还挂着什么，避免下一次盲约。
+                        ...(existingUnsent.length > 0
+                          ? {
+                              other_pending: existingUnsent.map((row) => ({
+                                text: row.text.slice(0, 60),
+                                fire_at_local: fmtLocal(row.fire_at),
+                                persist: row.persist,
+                              })),
+                            }
+                          : {}),
                       })
+                      }
                     } else {
                       resultText = JSON.stringify({
                         ok: false,
