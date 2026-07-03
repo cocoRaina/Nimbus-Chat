@@ -127,8 +127,8 @@
 
 .search-input:focus,
 .rename-row input:focus {
-  border-color: color-mix(in srgb, var(--accent) 62%, #60A5FA 38%);
-  box-shadow: 0 0 0 3px rgba(219, 234, 254, 0.3);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(152, 181, 216, 0.28);
 }
 
 .sessions-list {
@@ -197,13 +197,13 @@
 .sessions-drawer button.primary {
   border: none;
   background: var(--accent);
-  color: var(--text-main);
+  color: #fff;
   border-radius: 999px;
   padding: 9px 14px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 6px 14px rgba(96, 165, 250, 0.34);
+  box-shadow: 0 6px 14px rgba(120, 158, 200, 0.4);
 }
 
 .sessions-drawer button.ghost,

@@ -2,8 +2,8 @@
   --z-popover: 5000;
   line-height: 1.5;
   font-weight: 400;
-  color: var(--text-main, #0f172a);
-  background-color: #f1f5f9;
+  color: var(--text-main, #2A3D52);
+  background-color: #F4F8FC;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -35,12 +35,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #DBEAFE;
+  background-color: #C5D6EC;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #60A5FA;
+  background-color: #98B5D8;
 }
 
 html,
@@ -51,7 +51,7 @@ body,
 
 html.no-fx,
 html.no-fx body {
-  background: #f8fafc !important;
+  background: #F4F8FC !important;
 }
 
 html.no-fx,
@@ -67,7 +67,7 @@ html.no-fx *::after {
 
 html.no-fx {
   --blur: 0px;
-  --page-bg: #f8fafc;
+  --page-bg: #F4F8FC;
 }
 
 #root {
@@ -114,7 +114,7 @@ html.no-fx {
 
 
 html.no-fx .app-shell {
-  background: #f8fafc !important;
+  background: #F4F8FC !important;
 }
 
 /* ── Shared chevron back button (replaces text "Back to Chat" etc.) ─
@@ -142,7 +142,7 @@ html.no-fx .app-shell {
 html.no-fx .chat-page,
 html.no-fx .rp-room-dashboard-page,
 html.no-fx .rp-rooms-page {
-  background: #f8fafc !important;
+  background: #F4F8FC !important;
 }
 
 html.no-fx .chat-page::before,

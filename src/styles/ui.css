@@ -21,30 +21,35 @@
   --hairline:   rgba(88, 104, 120, 0.16); /* 发丝分割线 */
   --eyebrow:    #789EC8;                   /* small-caps 标签色 */
 
-  --accent: #DBEAFE;
-  --accent-strong: #93C5FD;
-  --text-main: #111827;
-  --text-subtle: #6b7280;
+  /* Accent = Angel Blue strong. Was Tailwind blue-100 (#DBEAFE), which made
+     the chat header / active states a different blue family from the rest
+     of the app. White text is expected on --accent surfaces. */
+  --accent: #789EC8;
+  --accent-strong: #6890BE;
+  --text-main: #2A3D52;
+  --text-subtle: #98B5D8;
   --glass-bg: rgba(255, 255, 255, 0.22);
   --glass-border: rgba(255, 255, 255, 0.35);
-  --shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.08);
+  --shadow-soft: 0 12px 30px rgba(88, 104, 120, 0.1);
   --radius-card: 28px;
   --radius-tile: 20px;
   --radius-btn: 16px;
   --blur: 16px;
-  --page-bg: linear-gradient(180deg, #EFF6FF 0%, #f8fafc 52%, #f3f4f6 100%);
+  /* Same 160deg ice-blue gradient the standalone pages use — the chat /
+     settings shells used to run a different Tailwind-tinted gradient. */
+  --page-bg: linear-gradient(160deg, #F4F8FC 0%, #E8F1FA 50%, #DEEAF5 100%);
 
-  /* Chat-specific (overridden by dark mode) */
+  /* Chat-specific */
   --bubble-in-bg: rgba(255, 255, 255, 0.92);
   --bubble-in-border: rgba(255, 255, 255, 0.65);
-  --bubble-in-text: #1f2937;
-  --bubble-out-bg: #9fa2aa;
+  --bubble-in-text: #2A3D52;
+  --bubble-out-bg: linear-gradient(135deg, #98B5D8, #789EC8);
   --bubble-out-text: #ffffff;
   --composer-bg: rgba(255, 255, 255, 0.72);
   --menu-bg: rgba(255, 255, 255, 0.9);
-  --menu-border: rgba(229, 231, 235, 0.9);
-  --separator-bg: rgba(15, 23, 42, 0.04);
-  --code-bg: rgba(15, 23, 42, 0.08);
+  --menu-border: rgba(197, 214, 236, 0.9);
+  --separator-bg: rgba(88, 104, 120, 0.06);
+  --code-bg: rgba(88, 104, 120, 0.1);
 }
 
 .ui-title {
@@ -129,8 +134,8 @@
 
 .btn-primary {
   background: var(--accent);
-  color: var(--text-main);
-  box-shadow: 0 6px 14px rgba(96, 165, 250, 0.34);
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(120, 158, 200, 0.4);
 }
 
 .btn-primary:hover {
@@ -167,8 +172,8 @@
 
 .input-glass:focus,
 .textarea-glass:focus {
-  border-color: color-mix(in srgb, var(--accent) 62%, #60A5FA 38%);
-  box-shadow: 0 0 0 3px rgba(219, 234, 254, 0.36);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(152, 181, 216, 0.28);
 }
 
 .top-nav {

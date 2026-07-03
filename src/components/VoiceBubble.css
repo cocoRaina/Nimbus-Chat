@@ -13,15 +13,15 @@
   padding: 9px 14px;
   border: none;
   border-radius: 16px;
-  background: #95ec69; /* WeChat-ish green */
-  color: #1a1a1a;
+  background: linear-gradient(135deg, #98B5D8, #789EC8); /* matches outgoing bubbles */
+  color: #fff;
   cursor: pointer;
   font-size: 14px;
 }
 
 .message.in .voice-bar {
-  background: #e8f0fe;
-  color: #1f2937;
+  background: #E4EEF8;
+  color: #2A3D52;
 }
 
 .voice-bar__icon {
@@ -65,7 +65,7 @@
   border: none;
   background: none;
   padding: 0 2px;
-  color: #6b7280;
+  color: #586878;
   font-size: 12px;
   cursor: pointer;
 }
@@ -79,7 +79,7 @@
   max-width: 100%;
   padding: 8px 12px;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.04);
+  background: rgba(88, 104, 120, 0.07);
   font-size: 14px;
 }
 
