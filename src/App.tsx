@@ -2828,40 +2828,66 @@ TOOL_SEARCH_HANDOFF,
                       inserted = res.data
                       insertErr = res.error
                     } else if (table === 'diaries' && typeof cleaned.date === 'string') {
-                      // 失忆去重，但只拦「内容基本相同」的——同一天写多篇是
-                      // 合理的（凌晨补记昨天、一天两篇），按日期一刀切会误伤。
-                      // 归一化后逐字比对内容，命中说明是重复写同一篇 → 不自动
-                      // 创建，返回已有那篇，让模型回来问用户要不要再写；用户确认
-                      // 后传 force: true 追加。比对窗口取目标日期 ±1 天，兼顾
-                      // 凌晨把「昨天」写成今天/昨天两种日期的情况。
+                      // 失忆去重（重写检测）。同一天写多篇是合理的（凌晨补记、
+                      // 一天两篇不同的事），所以不能按日期一刀切；逐字比对又太严
+                      // ——模型每次重写措辞都不同，抓不到。改用双信号判「重写」：
+                      //   ①同一天 且 已有那篇是刚刚（RECENT_MS 内）写的——重写
+                      //     几乎都发生在同一段对话里、间隔几分钟（实测重复对是
+                      //     3 分钟），而合理的第二篇往往隔了很久或是不同日期。
+                      //   ②内容 2-字 shingle 重合度超阈值——兜住「隔了一会儿又
+                      //     重写同一天」的情况（实测真重复≈0.26，不同事≈0.13，
+                      //     取 0.2 卡在中间）。
+                      // 命中任一 → 不自动写，返回已有那篇，让模型回来问用户；
+                      // 用户确认要再写才传 force: true 追加。
                       const dayMs = 86400000
+                      const RECENT_MS = 3 * 60 * 60 * 1000
                       const baseTime = new Date(`${cleaned.date}T00:00:00Z`).getTime()
                       const dMinus = new Date(baseTime - dayMs).toISOString().slice(0, 10)
                       const dPlus = new Date(baseTime + dayMs).toISOString().slice(0, 10)
                       const { data: nearbyDiaries } = await supabase
                         .from('diaries')
-                        .select('id,title,content,date')
+                        .select('id,title,content,date,created_at')
                         .gte('date', dMinus)
                         .lte('date', dPlus)
-                      const norm = (s: string) => s.replace(/\s+/g, '')
-                      const newNorm = norm(String(cleaned.content ?? ''))
-                      const contentDup = newNorm
-                        ? (nearbyDiaries ?? []).find(
-                            (d) => norm(String((d as { content?: string }).content ?? '')) === newNorm,
-                          )
-                        : undefined
+                      // 2-字 shingle 重合系数 |A∩B| / min(|A|,|B|)，对长度差不敏感。
+                      const shingles = (s: string) => {
+                        const t = s.replace(/\s+/g, '')
+                        const out = new Set<string>()
+                        for (let i = 0; i < t.length - 1; i += 1) out.add(t.slice(i, i + 2))
+                        return out
+                      }
+                      const overlap = (a: Set<string>, b: Set<string>) => {
+                        if (a.size === 0 || b.size === 0) return 0
+                        let inter = 0
+                        const [small, big] = a.size < b.size ? [a, b] : [b, a]
+                        for (const g of small) if (big.has(g)) inter += 1
+                        return inter / Math.min(a.size, b.size)
+                      }
+                      const newContent = String(cleaned.content ?? '')
+                      const newShingles = shingles(newContent)
+                      const nowMs = Date.now()
+                      const dupRow = (nearbyDiaries ?? []).find((d) => {
+                        const row = d as { date?: string; content?: string; created_at?: string }
+                        const sameDate = row.date === cleaned.date
+                        const recent =
+                          sameDate &&
+                          !!row.created_at &&
+                          nowMs - new Date(row.created_at).getTime() < RECENT_MS
+                        const similar = overlap(newShingles, shingles(String(row.content ?? ''))) >= 0.2
+                        return recent || similar
+                      })
                       const force = args.force === true
-                      if (contentDup && !force) {
-                        setToolStatus('📔 已有内容相同的日记，先问问用户')
+                      if (dupRow && !force) {
+                        setToolStatus('📔 疑似重写，先问问用户')
                         duplicateResult = JSON.stringify({
                           ok: true,
                           already_written: true,
                           duplicate_of: {
-                            title: (contentDup as { title?: string }).title ?? null,
-                            date: (contentDup as { date?: string }).date ?? null,
-                            preview: String((contentDup as { content?: string }).content ?? '').slice(0, 100),
+                            title: (dupRow as { title?: string }).title ?? null,
+                            date: (dupRow as { date?: string }).date ?? null,
+                            preview: String((dupRow as { content?: string }).content ?? '').slice(0, 120),
                           },
-                          note: '已经有一篇内容几乎完全相同的日记了（很可能是重复写）。不要直接再写——先问用户「今天这篇好像已经写过一篇一样的了，要再写一篇吗？」；只有用户确认要再写，才再次调用并传 force: true 追加。（注意：内容不同的多篇日记同一天是允许的，本次拦的只是内容重复。）',
+                          note: '这一天很可能已经写过一篇内容重合的日记了（疑似重写）。不要直接再写——先问用户「今天好像已经写过一篇了，要再写一篇吗？」；只有用户确认要再写，才再次调用并传 force: true 追加。（注意：内容不同的多篇日记同一天是允许的，本次拦的只是疑似重写。）',
                         })
                       } else {
                         const res = await supabase.from(table).insert(cleaned).select().single()
