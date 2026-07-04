@@ -2828,27 +2828,31 @@ TOOL_SEARCH_HANDOFF,
                       inserted = res.data
                       insertErr = res.error
                     } else if (table === 'diaries' && typeof cleaned.date === 'string') {
-                      // 失忆去重（重写检测）。同一天写多篇是合理的（凌晨补记、
-                      // 一天两篇不同的事），所以不能按日期一刀切；逐字比对又太严
-                      // ——模型每次重写措辞都不同，抓不到。改用双信号判「重写」：
-                      //   ①同一天 且 已有那篇是刚刚（RECENT_MS 内）写的——重写
-                      //     几乎都发生在同一段对话里、间隔几分钟（实测重复对是
-                      //     3 分钟），而合理的第二篇往往隔了很久或是不同日期。
-                      //   ②内容 2-字 shingle 重合度超阈值——兜住「隔了一会儿又
-                      //     重写同一天」的情况（实测真重复≈0.26，不同事≈0.13，
-                      //     取 0.2 卡在中间）。
-                      // 命中任一 → 不自动写，返回已有那篇，让模型回来问用户；
-                      // 用户确认要再写才传 force: true 追加。
+                      // 失忆去重（重写检测）。模型看不到自己前几轮/前几天调过
+                      // 什么工具，逐字比对又抓不到（每次重写换词）。思路：把
+                      // 「最近写过的日记原文」摊给模型看，让它自己判断是不是在
+                      // 重写——它比任何阈值都准。命中就不自动写、返回那篇原文，
+                      // 模型自行决定：真是同一件事就别写、告诉用户已写好；确实是
+                      // 另一篇不同的就直接传 force:true 重来（不用问用户）。
+                      // 两个命中信号：
+                      //   ①最近 RECENT_MS 内写过任意一篇日记（不限日期）——重写
+                      //     几乎都发生在同一段对话里（实测重复对间隔 3 分钟）。
+                      //   ②同一天(±1)已有一篇内容 2-字 shingle 重合≥0.2 的——兜住
+                      //     隔了较久又重写同一天的情况（实测真重复≈0.28、不同事
+                      //     ≈0.09，0.2 卡中间）。
                       const dayMs = 86400000
-                      const RECENT_MS = 3 * 60 * 60 * 1000
+                      const RECENT_MS = 30 * 60 * 1000
+                      const nowMs = Date.now()
                       const baseTime = new Date(`${cleaned.date}T00:00:00Z`).getTime()
                       const dMinus = new Date(baseTime - dayMs).toISOString().slice(0, 10)
                       const dPlus = new Date(baseTime + dayMs).toISOString().slice(0, 10)
-                      const { data: nearbyDiaries } = await supabase
+                      const recentCutoff = new Date(nowMs - RECENT_MS).toISOString()
+                      // 一次查询覆盖两个信号：日期在 ±1 天窗口内（给内容比对），
+                      // 或最近 30 分钟内写的（不限日期，给「刚写过」信号）。
+                      const { data: candidateDiaries } = await supabase
                         .from('diaries')
                         .select('id,title,content,date,created_at')
-                        .gte('date', dMinus)
-                        .lte('date', dPlus)
+                        .or(`and(date.gte.${dMinus},date.lte.${dPlus}),created_at.gte.${recentCutoff}`)
                       // 2-字 shingle 重合系数 |A∩B| / min(|A|,|B|)，对长度差不敏感。
                       const shingles = (s: string) => {
                         const t = s.replace(/\s+/g, '')
@@ -2863,31 +2867,35 @@ TOOL_SEARCH_HANDOFF,
                         for (const g of small) if (big.has(g)) inter += 1
                         return inter / Math.min(a.size, b.size)
                       }
-                      const newContent = String(cleaned.content ?? '')
-                      const newShingles = shingles(newContent)
-                      const nowMs = Date.now()
-                      const dupRow = (nearbyDiaries ?? []).find((d) => {
-                        const row = d as { date?: string; content?: string; created_at?: string }
-                        const sameDate = row.date === cleaned.date
-                        const recent =
-                          sameDate &&
-                          !!row.created_at &&
-                          nowMs - new Date(row.created_at).getTime() < RECENT_MS
-                        const similar = overlap(newShingles, shingles(String(row.content ?? ''))) >= 0.2
-                        return recent || similar
-                      })
+                      const newShingles = shingles(String(cleaned.content ?? ''))
+                      type DiaryRow = { title?: string; content?: string; date?: string; created_at?: string }
+                      // 内容重合优先当命中（信号更强、更该摊给模型看），否则退回
+                      // 「最近写过的那篇」。
+                      const rows = (candidateDiaries ?? []) as DiaryRow[]
+                      const similarRow = rows.find(
+                        (r) => overlap(newShingles, shingles(String(r.content ?? ''))) >= 0.2,
+                      )
+                      const recentRow = rows
+                        .filter((r) => r.created_at && nowMs - new Date(r.created_at).getTime() < RECENT_MS)
+                        .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())[0]
+                      const dupRow = similarRow ?? recentRow
                       const force = args.force === true
                       if (dupRow && !force) {
-                        setToolStatus('📔 疑似重写，先问问用户')
+                        const agoMin = dupRow.created_at
+                          ? Math.round((nowMs - new Date(dupRow.created_at).getTime()) / 60000)
+                          : null
+                        setToolStatus('📔 最近写过日记，先让 TA 自己看看')
                         duplicateResult = JSON.stringify({
                           ok: true,
                           already_written: true,
-                          duplicate_of: {
-                            title: (dupRow as { title?: string }).title ?? null,
-                            date: (dupRow as { date?: string }).date ?? null,
-                            preview: String((dupRow as { content?: string }).content ?? '').slice(0, 120),
+                          recent_diary: {
+                            title: dupRow.title ?? null,
+                            date: dupRow.date ?? null,
+                            written_ago_minutes: agoMin,
+                            // 摊出原文（截到 500 字够判断了）让模型自己比对。
+                            content: String(dupRow.content ?? '').slice(0, 500),
                           },
-                          note: '这一天很可能已经写过一篇内容重合的日记了（疑似重写）。不要直接再写——先问用户「今天好像已经写过一篇了，要再写一篇吗？」；只有用户确认要再写，才再次调用并传 force: true 追加。（注意：内容不同的多篇日记同一天是允许的，本次拦的只是疑似重写。）',
+                          note: '你最近写过（或这天已有）上面这篇日记。先自己比对：如果你这次要写的就是同一件事，别重复写了，直接告诉用户「今天已经写好啦」；如果确实是另一篇明显不同的日记，直接再次调用并传 force: true 写入即可，不用问用户。同一天写多篇不同的事是允许的。',
                         })
                       } else {
                         const res = await supabase.from(table).insert(cleaned).select().single()
