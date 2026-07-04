@@ -215,8 +215,10 @@ export const TOOL_WRITE_DIARY = {
     description:
       '替用户写一篇日记。仅在用户明确说「帮我写日记 / 总结今天 / 记下今天」时调用。' +
       'date 用 YYYY-MM-DD 格式。author 字段会自动设为 "Claude"。\n' +
-      '同一天已有日记时不会重复创建：结果会返回已有那篇的标题和开头（already_written），' +
-      '此时如实告诉用户今天已经写过了；只有用户明确要求重写/覆盖时才再次调用并传 replace: true。',
+      '同一天可以写多篇日记（凌晨补记昨天、一天两篇都正常），不会因为「今天写过了」就拦。' +
+      '只有当已有一篇内容几乎完全相同的日记时（多半是重复写），结果才返回 already_written——' +
+      '此时不要直接再写，先问用户「好像已经写过一篇一样的了，要再写一篇吗？」；' +
+      '用户确认要再写，才再次调用并传 force: true 追加。',
     parameters: {
       type: 'object',
       properties: {
@@ -224,9 +226,9 @@ export const TOOL_WRITE_DIARY = {
         content: { type: 'string', description: '日记正文' },
         title: { type: 'string', description: '日记标题，可选' },
         mood: { type: 'string', description: '心情，可选。例如：开心/平静/低落/焦虑' },
-        replace: {
+        force: {
           type: 'boolean',
-          description: '默认 false。同一天已有日记时是否覆盖重写。仅在用户明确要求重写时传 true。',
+          description: '默认 false。仅当已有内容相同的日记、且用户确认仍要再写一篇时传 true。',
         },
       },
       required: ['date', 'content'],

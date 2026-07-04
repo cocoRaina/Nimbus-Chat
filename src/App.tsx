@@ -2828,34 +2828,41 @@ TOOL_SEARCH_HANDOFF,
                       inserted = res.data
                       insertErr = res.error
                     } else if (table === 'diaries' && typeof cleaned.date === 'string') {
-                      // 跨窗口失忆去重：模型不知道自己（或上个窗口的自己）今天
-                      // 已经写过日记。同一天已有日记时默认不重复创建，把已有的
-                      // 那篇告诉模型；用户明确要求重写时传 replace: true 覆盖。
-                      const { data: existingDiaries } = await supabase
+                      // 失忆去重，但只拦「内容基本相同」的——同一天写多篇是
+                      // 合理的（凌晨补记昨天、一天两篇），按日期一刀切会误伤。
+                      // 归一化后逐字比对内容，命中说明是重复写同一篇 → 不自动
+                      // 创建，返回已有那篇，让模型回来问用户要不要再写；用户确认
+                      // 后传 force: true 追加。比对窗口取目标日期 ±1 天，兼顾
+                      // 凌晨把「昨天」写成今天/昨天两种日期的情况。
+                      const dayMs = 86400000
+                      const baseTime = new Date(`${cleaned.date}T00:00:00Z`).getTime()
+                      const dMinus = new Date(baseTime - dayMs).toISOString().slice(0, 10)
+                      const dPlus = new Date(baseTime + dayMs).toISOString().slice(0, 10)
+                      const { data: nearbyDiaries } = await supabase
                         .from('diaries')
-                        .select('id,title,content')
-                        .eq('date', cleaned.date)
-                      const replace = args.replace === true
-                      if (existingDiaries && existingDiaries.length > 0 && !replace) {
-                        setToolStatus('📔 这天已有日记，跳过重复创建')
+                        .select('id,title,content,date')
+                        .gte('date', dMinus)
+                        .lte('date', dPlus)
+                      const norm = (s: string) => s.replace(/\s+/g, '')
+                      const newNorm = norm(String(cleaned.content ?? ''))
+                      const contentDup = newNorm
+                        ? (nearbyDiaries ?? []).find(
+                            (d) => norm(String((d as { content?: string }).content ?? '')) === newNorm,
+                          )
+                        : undefined
+                      const force = args.force === true
+                      if (contentDup && !force) {
+                        setToolStatus('📔 已有内容相同的日记，先问问用户')
                         duplicateResult = JSON.stringify({
                           ok: true,
                           already_written: true,
-                          existing: existingDiaries.map((d) => ({
-                            title: (d as { title?: string }).title ?? null,
-                            preview: String((d as { content?: string }).content ?? '').slice(0, 100),
-                          })),
-                          note: '这一天已经写过日记，本次没有重复创建。请如实告诉用户已有这篇日记；如果用户明确想重写覆盖，再次调用并传 replace: true。',
+                          duplicate_of: {
+                            title: (contentDup as { title?: string }).title ?? null,
+                            date: (contentDup as { date?: string }).date ?? null,
+                            preview: String((contentDup as { content?: string }).content ?? '').slice(0, 100),
+                          },
+                          note: '已经有一篇内容几乎完全相同的日记了（很可能是重复写）。不要直接再写——先问用户「今天这篇好像已经写过一篇一样的了，要再写一篇吗？」；只有用户确认要再写，才再次调用并传 force: true 追加。（注意：内容不同的多篇日记同一天是允许的，本次拦的只是内容重复。）',
                         })
-                      } else if (existingDiaries && existingDiaries.length > 0 && replace) {
-                        const res = await supabase
-                          .from('diaries')
-                          .update(cleaned)
-                          .eq('id', (existingDiaries[0] as { id: number | string }).id)
-                          .select()
-                          .single()
-                        inserted = res.data
-                        insertErr = res.error
                       } else {
                         const res = await supabase.from(table).insert(cleaned).select().single()
                         inserted = res.data
