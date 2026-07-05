@@ -8,6 +8,17 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### 跨轮工具失忆根治：冻结工具摘要进历史（2026-07-05）
+
+**症状**：工具调用为了缓存不进持久历史（tool_use/tool_result 只活在当轮循环里），下一轮模型对「自己调过什么工具」零记忆——重复搜同样的记忆、重复 `add_memory`、重复约主动消息。7-03 的工具级去重是在**执行侧**兜底（同轮可见），跨轮的「不知道自己调过」没解。
+
+**修（冻结工具摘要,和图片 caption 同套路）**：
+- 落库：工具循环收尾存 assistant 消息时，从 `toolCallRecords` 生成一行 `name(args截160) → result截200` 存进 `meta.toolDigest`（`App.tsx` `buildToolDigest`，创建时生成一次、逐字节冻死）。meta 是 JSON 列，云端自动同步。
+- 重放：历史里 assistant 消息带 digest 就前置拼 `[本轮已调用工具] …`（`App.tsx` 重放分支）。**只认已存的 digest，不从旧消息 `meta.tool_calls` 现算**——旧历史一个字节不变，上线不触发一次全量冷写。
+- 压缩：`buildSummarizerUserPrompt` 的输入同样拼 digest，工具事实（已存的记忆/已约的提醒）不会在压缩时被摘掉。
+
+**为什么不直接持久化真实 tool 块**：①搜索结果 JSON 几千 token 永久躺前缀里，长会话越滚越肥；②Anthropic 要求 tool_use 前的 thinking block 连 signature 原样回传，跨轮持久化把这个坑扩大到整个消息生命周期；③`applyClaudeCaching` 靠「tool 块只出现在最后一条 user 之后」判断工具迭代模式，历史里到处是 tool 块会打破摆位逻辑。摘要文本几十~一两百 token，模型要的只是「调过什么、拿到什么」这个事实。
+
 ### 工具级去重：主动消息重复预约 / 日记重复写（2026-07-03）
 
 **症状**：AI 昨天约了叫醒，今天又约一次；今天写过日记，晚上又写一篇。

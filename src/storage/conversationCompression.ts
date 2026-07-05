@@ -152,7 +152,13 @@ const buildSummarizerUserPrompt = (
   newMessages: ChatMessage[],
 ): string => {
   const chunkText = newMessages
-    .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+    .map((m) => {
+      // Assistant turns that ran tools carry a frozen digest in meta —
+      // include it so tool facts (已存的记忆/已约的提醒等) survive compression
+      // instead of being lost when these turns leave the recent window.
+      const digest = m.meta?.toolDigest ? `[本轮已调用工具] ${m.meta.toolDigest}\n` : ''
+      return `${m.role.toUpperCase()}: ${digest}${m.content}`
+    })
     .join('\n')
   return [
     '你是对话压缩器。请生成简洁中文摘要，保留：用户偏好、已做决定、承诺事项、未决问题、关键事件与情绪走向。',

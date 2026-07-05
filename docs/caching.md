@@ -98,6 +98,7 @@ Nimbus 的做法(`applyClaudeCaching`):
 通用铁律:
 1. **易变内容不要进缓存前缀**。Nimbus 的时间戳是**按每条消息创建时刻烙死**的(`[当前时间] …` 写进当时那条 user 消息),历史逐字节不变,不会每轮把"现在几点"塞进前缀。
 2. **工具调用不进持久历史**:`tool_use/tool_result` 只在本轮工具循环里临时存在,重放的历史是纯文字(+图片描述)。
+   - ⚠️ **副作用与修法(2026-07-05)**:纯文字重放让模型**完全忘记自己调过工具**——下一轮重复搜同样的记忆、重复 `add_memory`/`schedule_proactive_message`。修法是「**冻结工具摘要**」(和图片 caption 同套路):工具循环收尾存 assistant 消息时,从 `toolCallRecords` 生成一行 `name(args截断) → result截断` 存进 `meta.toolDigest`(**创建时生成一次、逐字节冻死**);重放时若 assistant 消息带 digest 就前置拼 `[本轮已调用工具] …`。**只认已存的 digest、不从旧消息的 `meta.tool_calls` 现算**——旧历史一个字节不变,上线不触发全量冷写。压缩摘要的输入也拼 digest,工具事实不会被摘掉。代码:`App.tsx`(`buildToolDigest` + 重放分支)、`conversationCompression.ts`(`buildSummarizerUserPrompt`)。
 3. **`user_id` 固定不变**。
 4. **不要 retry 重写前面的轮次**(会改前缀,整段重建)。
 5. **工具 schema 顺序固定**。

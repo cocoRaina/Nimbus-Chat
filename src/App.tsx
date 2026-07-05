@@ -302,6 +302,33 @@ type ChatRequestMessage =
   | { role: 'assistant'; content: string | null; tool_calls?: StreamingToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string }
 
+// Compact, frozen one-liner describing a turn's tool calls. Persistent
+// history never replays real tool_use/tool_result blocks (they'd bloat the
+// cached prefix and drag the thinking-signature replay rules across turns —
+// see docs/caching.md §7), so without this the model has no memory of having
+// called a tool at all: next turn it re-searches the same memories and
+// re-saves / re-schedules duplicates. The digest is generated once at save
+// time and stored in message meta (like moodNarration / image captions), so
+// replay is byte-stable; old messages without a stored digest replay
+// unchanged, meaning shipping this does not invalidate any existing cache
+// prefix.
+const buildToolDigest = (
+  records: Array<{ name: string; args: unknown; result: unknown }>,
+): string => {
+  const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max)}…` : s)
+  const asStr = (v: unknown) => {
+    if (typeof v === 'string') return v
+    try {
+      return JSON.stringify(v)
+    } catch {
+      return String(v)
+    }
+  }
+  return records
+    .map((r) => `${r.name}(${clip(asStr(r.args), 160)}) → ${clip(asStr(r.result), 200)}`)
+    .join('；')
+}
+
 // For Claude / Anthropic models on OpenRouter, mark up to two cache_control
 // breakpoints on the last two user-role messages. Anthropic's cache lookup
 // walks bottom-up from each breakpoint, so two anchors lets us:
@@ -1899,6 +1926,7 @@ const App = () => {
           }
           if (!streaming && toolCallRecords.length > 0) {
             meta.tool_calls = toolCallRecords
+            meta.toolDigest = buildToolDigest(toolCallRecords)
           }
           if (!streaming && flowEvents.length > 0) {
             meta.flow = flowEvents
@@ -2092,7 +2120,14 @@ const App = () => {
               }
               baseMessages.push({ role: 'user', content: blocks })
             } else {
-              const content = message.role === 'user' ? `${prefix}${message.content}` : message.content
+              let content = message.role === 'user' ? `${prefix}${message.content}` : message.content
+              // Assistant turns that ran tools replay with the frozen digest of
+              // those calls — real tool blocks never enter persistent history,
+              // and without this the model forgets it already searched/saved/
+              // scheduled and repeats the calls on the next turn.
+              if (message.role === 'assistant' && message.meta?.toolDigest) {
+                content = `[本轮已调用工具] ${message.meta.toolDigest}\n\n${content}`
+              }
               baseMessages.push({ role: message.role, content } as ChatRequestMessage)
             }
           }

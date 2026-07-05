@@ -62,6 +62,13 @@ export type ChatMessage = {
       duration_ms?: number
       timestamp?: string
     }>
+    // Compact frozen digest of this turn's tool calls ("name(args) → result"),
+    // generated once at save time from tool_calls. Replayed into the assistant
+    // message on later turns so the model remembers what it already called —
+    // real tool_use/tool_result blocks never enter persistent history
+    // (docs/caching.md §7). Byte-stable for the rolling prompt cache; only
+    // messages that carry it replay differently, so old history is untouched.
+    toolDigest?: string
     flow?: Array<
       | { type: 'thinking'; content: string }
       | { type: 'tool'; index: number }
