@@ -8,6 +8,19 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### 写入工具守卫全面升级：内容自判铺开（2026-07-05）
+
+**背景**：digest 上线后模型能记得自己调过什么，守卫退居二线兜底。盘点发现守卫强度参差：日记已是内容自判（563f03f），但 `add_memory` **完全裸奔**（重复记忆污染向量搜索，调用频率还最高）、交接信按 date 硬判（凌晨跨天误伤）、时间轴按标题精确比对（模型重写必换词，必漏）、`log_period` 裸 insert（记结束会插出第二行搞乱周期计算）。
+
+**修**（shingle/overlap 从日记守卫抽成公共 helper `shingles2`/`shingleOverlap`，四处复用）：
+- **`add_memory`**：候选=最近 100 条；短文本 2-字 shingle 噪声大（「喜欢吃芒果」vs「喜欢吃榴莲」重合 0.5），阈值提到 **0.6**，30 分钟内刚写过的降到 0.35。命中返回 `already_saved` + 相近那条原文（截 300 字）自判，`force: true` 强制存。
+- **交接信**：eq(date) 硬判 → 日记同款（date ±1 窗口 + 30min recency，内容 shingle ≥0.2 摊原文截 500 字）。凌晨跨天写、两个窗口各一封不同的信直接放行。
+- **时间轴**：同日同标题 → event_date ±1 窗口内比「标题+描述」拼串 shingle ≥**0.4**（事件文本短，阈值比日记高），标题完全相同仍直接命中。
+- **`log_period`**：start_date ±5 天内已有记录时——本次带 `end_date` 而旧行没有 = **补结束，直接 update 旧行**（这同时修了裸 insert 时代「记结束插新行」的真 bug）；其他情况摊旧行自判 + `force` 新建。
+- 不动的：`log_health`（date upsert 已幂等）、`schedule_proactive_message`（已有 ±15min 判重）、`post_moment`（自发表达，重复伤害小，再加守卫干扰表达欲）、`reply_moment`/`manage_memory`（有明确目标 id）。
+- 工具 description 同步更新（add_memory/log_period 新增 `force` 参数）。⚠️ 改工具定义 = BP1 提示缓存冷写一次，预期内。
+- 表列名已用 MCP 对着 memory 库核过（memories/period_tracking 都有 `created_at`）。
+
 ### 跨轮工具失忆根治：冻结工具摘要进历史（2026-07-05）
 
 **症状**：工具调用为了缓存不进持久历史（tool_use/tool_result 只活在当轮循环里），下一轮模型对「自己调过什么工具」零记忆——重复搜同样的记忆、重复 `add_memory`、重复约主动消息。7-03 的工具级去重是在**执行侧**兜底（同轮可见），跨轮的「不知道自己调过」没解。

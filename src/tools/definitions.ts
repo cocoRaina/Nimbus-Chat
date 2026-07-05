@@ -161,13 +161,20 @@ export const TOOL_ADD_MEMORY = {
     name: 'add_memory',
     description:
       '把一条内容存进用户的长期记忆库。仅在用户明确说「记下 / 记住 / 帮我记一下」之类时调用。' +
-      '存进去的是 1-3 句话的事实/偏好/习惯，不要存大段对话。',
+      '存进去的是 1-3 句话的事实/偏好/习惯，不要存大段对话。\n' +
+      '如果库里已有内容相近的一条，结果会返回 already_saved 和那条原文——先自己比对：' +
+      '就是同一件事的话别重复存，直接告诉用户已经记着了；确实是新信息或对旧记忆的重要更新，' +
+      '再次调用并传 force: true 存入即可，不用问用户。',
     parameters: {
       type: 'object',
       properties: {
         content: { type: 'string', description: '要记住的内容，1-3 句话' },
         category: { type: 'string', description: '分类，可选。例如：偏好/习惯/关系/工作/日常' },
         tags: { type: 'array', items: { type: 'string' }, description: '标签数组，可选' },
+        force: {
+          type: 'boolean',
+          description: '默认 false。结果返回 already_saved 但你比对后确认这是不同的新信息时，传 true 强制存入。',
+        },
       },
       required: ['content'],
     },
@@ -243,8 +250,9 @@ export const TOOL_WRITE_LETTER = {
     description:
       '写一封交接信——这是「上一窗口的你」写给「下一窗口的你」的信，传递这次对话里的关键状态、未完事项、对用户的当前理解。' +
       '只在用户说「帮我（你自己）写一封交接信」或类似明确指令时调用。\n' +
-      '同一天已有交接信时不会重复创建：结果返回已有那封的标题和开头（already_written），' +
-      '此时如实告诉用户今天已经写过；只有确实需要再留一封（内容明显不同）时才再次调用并传 force: true 追加（不会覆盖已有的）。',
+      '凌晨跨天写、或两个窗口各写一封不同的信都正常放行，不会因为「这天写过了」就拦。' +
+      '只有疑似「重写同一封」时（刚写过没多久、或内容明显重合），结果才返回 already_written 和已有那封的原文——' +
+      '先自己比对：就是同一封的话别重复写，直接告诉用户已经写好；确实要再留一封就再次调用并传 force: true 追加（不会覆盖已有的）。',
     parameters: {
       type: 'object',
       properties: {
@@ -269,8 +277,8 @@ export const TOOL_ADD_TIMELINE = {
     description:
       '往时间轴里加一个重要事件（里程碑）。门槛要高——只记真正重要的转折点（搬家/换工作/重要关系变化/纪念日），不要往里塞日常琐事。' +
       '仅在用户明确说「这件事加到时间轴」时调用。\n' +
-      '同日期同标题的事件不会重复创建：结果返回 already_exists，此时如实告诉用户已经记过了；' +
-      '确实是不同事件就换个标题，或传 force: true 强制追加。',
+      '相近的事件不会重复创建（前后一天内标题或内容明显重合的会被比对出来）：结果返回 already_exists 和已有那条——' +
+      '先自己比对：就是同一个里程碑的话直接告诉用户已经记过了；确实是不同的事件就再次调用并传 force: true 强制追加。',
     parameters: {
       type: 'object',
       properties: {
@@ -385,7 +393,10 @@ export const TOOL_LOG_PERIOD = {
     name: 'log_period',
     description:
       '记录用户的经期数据。仅在用户明确说「来事了 / 经期开始 / 经期结束了」之类时调用。' +
-      'start_date 必填，end_date 在用户说结束时才填。',
+      'start_date 必填，end_date 在用户说结束时才填。\n' +
+      '记结束不用担心重复：带 end_date 再调一次（start_date 传这次经期的开始日），' +
+      '会自动更新到前后 5 天内已有的那条记录上，不会另起新行。' +
+      '如果附近日期已有记录且这次不是补结束，结果返回 already_logged 和已有那条——确实是新的一次才传 force: true 新建。',
     parameters: {
       type: 'object',
       properties: {
@@ -393,6 +404,10 @@ export const TOOL_LOG_PERIOD = {
         end_date: { type: 'string', description: '结束日期 YYYY-MM-DD，可选' },
         cycle_length: { type: 'integer', description: '本周期长度（天数），可选' },
         notes: { type: 'string', description: '备注，例如：痛经程度 / 情绪 / 流量，可选' },
+        force: {
+          type: 'boolean',
+          description: '默认 false。结果返回 already_logged 但确认这是新的一次经期时，传 true 强制新建。',
+        },
       },
       required: ['start_date'],
     },

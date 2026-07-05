@@ -341,6 +341,24 @@ const buildToolDigest = (
   return stamp ? `${stamp} ${lines}` : lines
 }
 
+// 2-字 shingle 重合系数 |A∩B| / min(|A|,|B|)，对长度差不敏感。写入工具的
+// 重写检测共用（日记/记忆/交接信/时间轴）。日记实测：真重复≈0.28、同日
+// 不同事≈0.09，长文阈值 0.2 卡中间。注意短文本噪声大——「喜欢吃芒果」vs
+// 「喜欢吃榴莲」重合就有 0.5——记忆条目这类一两句话的表要用更高阈值。
+const shingles2 = (s: string): Set<string> => {
+  const t = s.replace(/\s+/g, '')
+  const out = new Set<string>()
+  for (let i = 0; i < t.length - 1; i += 1) out.add(t.slice(i, i + 2))
+  return out
+}
+const shingleOverlap = (a: Set<string>, b: Set<string>): number => {
+  if (a.size === 0 || b.size === 0) return 0
+  let inter = 0
+  const [small, big] = a.size < b.size ? [a, b] : [b, a]
+  for (const g of small) if (big.has(g)) inter += 1
+  return inter / Math.min(a.size, b.size)
+}
+
 // For Claude / Anthropic models on OpenRouter, mark up to two cache_control
 // breakpoints on the last two user-role messages. Anthropic's cache lookup
 // walks bottom-up from each breakpoint, so two anchors lets us:
@@ -2874,6 +2892,51 @@ TOOL_SEARCH_HANDOFF,
                       const res = await q.select().single()
                       inserted = res.data
                       insertErr = res.error
+                    } else if (table === 'memories') {
+                      // 失忆去重（记忆版）：记忆没有日期可硬判，只能按内容。
+                      // 候选集限最近 100 条（不做全表 shingle）。短文本 2-字
+                      // shingle 噪声大——「喜欢吃芒果」vs「喜欢吃榴莲」重合就有
+                      // 0.5——所以常规阈值提到 0.6；最近 30 分钟内写过的降到
+                      // 0.35（重写几乎都发生在同一段对话里，日记实测重复对间隔
+                      // 3 分钟）。命中不拦死：摊出那条让模型自己判断，确实是新
+                      // 信息就 force: true 再来。
+                      const RECENT_MS = 30 * 60 * 1000
+                      const nowMs = Date.now()
+                      const { data: recentMems } = await supabase
+                        .from('memories')
+                        .select('id,content,category,created_at')
+                        .order('created_at', { ascending: false })
+                        .limit(100)
+                      type MemRow = { content?: string; category?: string; created_at?: string }
+                      const newShingles = shingles2(String(cleaned.content ?? ''))
+                      const dupRow = ((recentMems ?? []) as MemRow[]).find((r) => {
+                        const ov = shingleOverlap(newShingles, shingles2(String(r.content ?? '')))
+                        if (ov >= 0.6) return true
+                        const recent =
+                          r.created_at && nowMs - new Date(r.created_at).getTime() < RECENT_MS
+                        return Boolean(recent) && ov >= 0.35
+                      })
+                      const force = args.force === true
+                      if (dupRow && !force) {
+                        const agoMin = dupRow.created_at
+                          ? Math.round((nowMs - new Date(dupRow.created_at).getTime()) / 60000)
+                          : null
+                        setToolStatus('📝 记忆库里已有相近的一条，先让 TA 自己看看')
+                        duplicateResult = JSON.stringify({
+                          ok: true,
+                          already_saved: true,
+                          similar_memory: {
+                            content: String(dupRow.content ?? '').slice(0, 300),
+                            category: dupRow.category ?? null,
+                            saved_ago_minutes: agoMin,
+                          },
+                          note: '记忆库里已有上面这条相近的记忆，本次没有重复存。先自己比对：如果就是同一件事，直接告诉用户已经记着了；如果确实是新的不同信息（或对旧记忆的重要更新），再次调用并传 force: true 存入即可，不用问用户。',
+                        })
+                      } else {
+                        const res = await supabase.from(table).insert(cleaned).select().single()
+                        inserted = res.data
+                        insertErr = res.error
+                      }
                     } else if (table === 'diaries' && typeof cleaned.date === 'string') {
                       // 失忆去重（重写检测）。模型看不到自己前几轮/前几天调过
                       // 什么工具，逐字比对又抓不到（每次重写换词）。思路：把
@@ -2900,27 +2963,13 @@ TOOL_SEARCH_HANDOFF,
                         .from('diaries')
                         .select('id,title,content,date,created_at')
                         .or(`and(date.gte.${dMinus},date.lte.${dPlus}),created_at.gte.${recentCutoff}`)
-                      // 2-字 shingle 重合系数 |A∩B| / min(|A|,|B|)，对长度差不敏感。
-                      const shingles = (s: string) => {
-                        const t = s.replace(/\s+/g, '')
-                        const out = new Set<string>()
-                        for (let i = 0; i < t.length - 1; i += 1) out.add(t.slice(i, i + 2))
-                        return out
-                      }
-                      const overlap = (a: Set<string>, b: Set<string>) => {
-                        if (a.size === 0 || b.size === 0) return 0
-                        let inter = 0
-                        const [small, big] = a.size < b.size ? [a, b] : [b, a]
-                        for (const g of small) if (big.has(g)) inter += 1
-                        return inter / Math.min(a.size, b.size)
-                      }
-                      const newShingles = shingles(String(cleaned.content ?? ''))
+                      const newShingles = shingles2(String(cleaned.content ?? ''))
                       type DiaryRow = { title?: string; content?: string; date?: string; created_at?: string }
                       // 内容重合优先当命中（信号更强、更该摊给模型看），否则退回
                       // 「最近写过的那篇」。
                       const rows = (candidateDiaries ?? []) as DiaryRow[]
                       const similarRow = rows.find(
-                        (r) => overlap(newShingles, shingles(String(r.content ?? ''))) >= 0.2,
+                        (r) => shingleOverlap(newShingles, shingles2(String(r.content ?? ''))) >= 0.2,
                       )
                       const recentRow = rows
                         .filter((r) => r.created_at && nowMs - new Date(r.created_at).getTime() < RECENT_MS)
@@ -2950,25 +2999,49 @@ TOOL_SEARCH_HANDOFF,
                         insertErr = res.error
                       }
                     } else if (table === 'handoff_letters' && typeof cleaned.date === 'string') {
-                      // 同款失忆去重：同一天通常一封交接信。已有时默认不重复
-                      // 创建，把已有那封告诉模型。两个窗口各写一封是合理的，
-                      // 所以逃生门是 force: true「再加一封」而非覆盖——覆盖会
-                      // 丢掉前一个窗口留下的信。
-                      const { data: existingLetters } = await supabase
+                      // 失忆去重（2026-07-05 从「同 date 硬判」升级为日记同款
+                      // 内容自判）：凌晨跨天写信不再被日期边界误伤，两个窗口各
+                      // 写一封不同的信也直接放行。候选：date ±1 天，或最近 30
+                      // 分钟写的（不限日期）；命中信号与日记一致——内容 shingle
+                      // ≥0.2，或 30 分钟内刚写过一封。逃生门仍是 force: true
+                      // 「再加一封」而非覆盖——覆盖会丢掉前一个窗口留下的信。
+                      const dayMs = 86400000
+                      const RECENT_MS = 30 * 60 * 1000
+                      const nowMs = Date.now()
+                      const baseTime = new Date(`${cleaned.date}T00:00:00Z`).getTime()
+                      const dMinus = new Date(baseTime - dayMs).toISOString().slice(0, 10)
+                      const dPlus = new Date(baseTime + dayMs).toISOString().slice(0, 10)
+                      const recentCutoff = new Date(nowMs - RECENT_MS).toISOString()
+                      const { data: candidateLetters } = await supabase
                         .from('handoff_letters')
-                        .select('id,title,content')
-                        .eq('date', cleaned.date)
+                        .select('id,title,content,date,created_at')
+                        .or(`and(date.gte.${dMinus},date.lte.${dPlus}),created_at.gte.${recentCutoff}`)
+                      type LetterRow = { title?: string; content?: string; date?: string; created_at?: string }
+                      const rows = (candidateLetters ?? []) as LetterRow[]
+                      const newShingles = shingles2(String(cleaned.content ?? ''))
+                      const similarRow = rows.find(
+                        (r) => shingleOverlap(newShingles, shingles2(String(r.content ?? ''))) >= 0.2,
+                      )
+                      const recentRow = rows
+                        .filter((r) => r.created_at && nowMs - new Date(r.created_at).getTime() < RECENT_MS)
+                        .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())[0]
+                      const dupRow = similarRow ?? recentRow
                       const force = args.force === true
-                      if (existingLetters && existingLetters.length > 0 && !force) {
-                        setToolStatus('✉️ 这天已有交接信，跳过重复创建')
+                      if (dupRow && !force) {
+                        const agoMin = dupRow.created_at
+                          ? Math.round((nowMs - new Date(dupRow.created_at).getTime()) / 60000)
+                          : null
+                        setToolStatus('✉️ 最近写过交接信，先让 TA 自己看看')
                         duplicateResult = JSON.stringify({
                           ok: true,
                           already_written: true,
-                          existing: existingLetters.map((l) => ({
-                            title: (l as { title?: string }).title ?? null,
-                            preview: String((l as { content?: string }).content ?? '').slice(0, 120),
-                          })),
-                          note: '这一天已经写过交接信，本次没有重复创建。请如实告诉用户已有这封信；只有确实需要再留一封（比如内容明显不同）时，再次调用并传 force: true 追加。',
+                          recent_letter: {
+                            title: dupRow.title ?? null,
+                            date: dupRow.date ?? null,
+                            written_ago_minutes: agoMin,
+                            content: String(dupRow.content ?? '').slice(0, 500),
+                          },
+                          note: '你最近写过（或这天已有）上面这封交接信。先自己比对：如果这次要写的就是同一封的重写，别重复写了，直接告诉用户已经写好；如果确实是另一封不同的信（比如另一个窗口的交接），直接再次调用并传 force: true 追加即可（不会覆盖已有的），不用问用户。',
                         })
                       } else {
                         const res = await supabase.from(table).insert(cleaned).select().single()
@@ -2976,24 +3049,101 @@ TOOL_SEARCH_HANDOFF,
                         insertErr = res.error
                       }
                     } else if (table === 'timeline' && typeof cleaned.event_date === 'string' && typeof cleaned.title === 'string') {
-                      // 同款失忆去重：时间轴按「同日期 + 同标题」判重——同一个
-                      // 里程碑不该记两次。不同标题的事件同一天可以共存，所以
-                      // 只在日期和标题都撞上时拦。逃生门 force: true 追加。
-                      const { data: existingEvents } = await supabase
+                      // 失忆去重（2026-07-05 从「同日期+同标题」升级为内容比
+                      // 对）：日记那次已证明模型重写必换词，标题精确比对必漏。
+                      // 改为 event_date ±1 天窗口内比「标题+描述」拼串的
+                      // shingle（≥0.4——事件文本短、阈值比日记高）；标题完全
+                      // 相同仍直接命中。不同的事件同一天照常共存。逃生门
+                      // force: true 追加。
+                      const dayMs = 86400000
+                      const baseTime = new Date(`${cleaned.event_date}T00:00:00Z`).getTime()
+                      const dMinus = new Date(baseTime - dayMs).toISOString().slice(0, 10)
+                      const dPlus = new Date(baseTime + dayMs).toISOString().slice(0, 10)
+                      const { data: candidateEvents } = await supabase
                         .from('timeline')
-                        .select('id,title')
-                        .eq('event_date', cleaned.event_date)
-                        .eq('title', cleaned.title)
+                        .select('id,title,description,event_date')
+                        .gte('event_date', dMinus)
+                        .lte('event_date', dPlus)
+                      type EventRow = { title?: string; description?: string; event_date?: string }
+                      const newTitle = String(cleaned.title).trim()
+                      const newShingles = shingles2(`${newTitle} ${String(cleaned.description ?? '')}`)
+                      const dupRow = ((candidateEvents ?? []) as EventRow[]).find((r) => {
+                        if (String(r.title ?? '').trim() === newTitle) return true
+                        return (
+                          shingleOverlap(
+                            newShingles,
+                            shingles2(`${String(r.title ?? '')} ${String(r.description ?? '')}`),
+                          ) >= 0.4
+                        )
+                      })
                       const force = args.force === true
-                      if (existingEvents && existingEvents.length > 0 && !force) {
-                        setToolStatus('📍 该里程碑已在时间轴，跳过重复创建')
+                      if (dupRow && !force) {
+                        setToolStatus('📍 时间轴附近已有相近事件，先让 TA 自己看看')
                         duplicateResult = JSON.stringify({
                           ok: true,
                           already_exists: true,
-                          existing_title: cleaned.title,
-                          event_date: cleaned.event_date,
-                          note: '这一天已有同名的时间轴事件，本次没有重复创建。请如实告诉用户已经记过了；如果确实是不同的事件，换个标题重新调用，或传 force: true 强制追加。',
+                          similar_event: {
+                            title: dupRow.title ?? null,
+                            event_date: dupRow.event_date ?? null,
+                            description: String(dupRow.description ?? '').slice(0, 200),
+                          },
+                          note: '时间轴上前后一天内已有上面这个相近的事件，本次没有重复创建。先自己比对：如果就是同一个里程碑，直接告诉用户已经记过了；确实是不同的事件就再次调用并传 force: true 强制追加，不用问用户。',
                         })
+                      } else {
+                        const res = await supabase.from(table).insert(cleaned).select().single()
+                        inserted = res.data
+                        insertErr = res.error
+                      }
+                    } else if (table === 'period_tracking' && typeof cleaned.start_date === 'string') {
+                      // 经期守卫：同一次经期常分两步记（开始 → 几天后补结束），
+                      // 裸 insert 会生出第二行搞乱周期计算。start_date ±5 天内
+                      // 已有记录时：本次带 end_date 而旧行没有 → 视为「补结束」
+                      // 直接 update 旧行；否则摊出旧行让模型自判，force: true
+                      // 才另起新行。
+                      const dayMs = 86400000
+                      const baseTime = new Date(`${cleaned.start_date}T00:00:00Z`).getTime()
+                      const dMinus = new Date(baseTime - 5 * dayMs).toISOString().slice(0, 10)
+                      const dPlus = new Date(baseTime + 5 * dayMs).toISOString().slice(0, 10)
+                      const { data: nearRows } = await supabase
+                        .from('period_tracking')
+                        .select('id,start_date,end_date,cycle_length,notes')
+                        .gte('start_date', dMinus)
+                        .lte('start_date', dPlus)
+                        .order('start_date', { ascending: false })
+                      type PeriodRow = {
+                        id?: number
+                        start_date?: string
+                        end_date?: string | null
+                        cycle_length?: number | null
+                        notes?: string | null
+                      }
+                      const existing = ((nearRows ?? []) as PeriodRow[])[0]
+                      const force = args.force === true
+                      if (existing && !force) {
+                        if (cleaned.end_date && !existing.end_date && existing.id !== undefined) {
+                          const patch: Record<string, unknown> = { end_date: cleaned.end_date }
+                          if (cleaned.cycle_length !== undefined) patch.cycle_length = cleaned.cycle_length
+                          if (cleaned.notes !== undefined) {
+                            patch.notes = existing.notes ? `${existing.notes}\n${cleaned.notes}` : cleaned.notes
+                          }
+                          setToolStatus('🩸 补记经期结束，更新已有记录')
+                          const res = await supabase
+                            .from('period_tracking')
+                            .update(patch)
+                            .eq('id', existing.id)
+                            .select()
+                            .single()
+                          inserted = res.data
+                          insertErr = res.error
+                        } else {
+                          setToolStatus('🩸 附近日期已有经期记录，先让 TA 自己看看')
+                          duplicateResult = JSON.stringify({
+                            ok: true,
+                            already_logged: true,
+                            existing_record: existing,
+                            note: '前后 5 天内已有上面这条经期记录，本次没有重复创建。先自己比对：如果就是同一次经期，直接告诉用户已经记过了（要补结束日期就带上 end_date 再调一次，会自动更新到已有记录上）；如果确实是新的一次，再次调用并传 force: true 新建。',
+                          })
+                        }
                       } else {
                         const res = await supabase.from(table).insert(cleaned).select().single()
                         inserted = res.data
