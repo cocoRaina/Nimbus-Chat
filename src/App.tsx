@@ -313,7 +313,7 @@ type ChatRequestMessage =
 // unchanged, meaning shipping this does not invalidate any existing cache
 // prefix.
 const buildToolDigest = (
-  records: Array<{ name: string; args: unknown; result: unknown }>,
+  records: Array<{ name: string; args: unknown; result: unknown; timestamp?: string }>,
 ): string => {
   const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max)}…` : s)
   const asStr = (v: unknown) => {
@@ -324,9 +324,21 @@ const buildToolDigest = (
       return String(v)
     }
   }
-  return records
+  const lines = records
     .map((r) => `${r.name}(${clip(asStr(r.args), 160)}) → ${clip(asStr(r.result), 200)}`)
     .join('；')
+  // Bake the call time into the digest itself. The surrounding user messages
+  // carry frozen [当前时间] prefixes on the replay path, but the compression
+  // path feeds *stored* content (no time prefixes) to the summarizer — an
+  // undated "写过日记" in a summary would make the model think today's diary
+  // is already done and skip it forever. All calls in one turn share one stamp.
+  const rawStamp = records[0]?.timestamp
+  const stampDate = rawStamp ? new Date(rawStamp) : null
+  const stamp =
+    stampDate && !Number.isNaN(stampDate.getTime())
+      ? stampDate.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+      : ''
+  return stamp ? `${stamp} ${lines}` : lines
 }
 
 // For Claude / Anthropic models on OpenRouter, mark up to two cache_control
