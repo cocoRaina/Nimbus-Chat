@@ -56,7 +56,7 @@ export const EMOTIONS: EmotionConfig[] = [
   },
   {
     key: 'nian', label: '念', type: 'hunger', hungerRatePerHour: 5,
-    rule: '念 niàn（思念）：分开越久越涨（封顶）；见到她、聊上了、亲密了就回落。',
+    rule: '念 niàn（思念）：分开越久越涨（封顶）；真正被接住（好好聊上、亲密、被在乎）才回落，礼节性的搭理解不了想念。',
     bands: [
       { min: 0, line: '' },
       { min: 40, line: '有点想她了' },
@@ -95,8 +95,15 @@ export const decayMoodToNow = (state: MoodState, now = Date.now()): MoodState =>
       const base = e.baseline ?? 0
       next[e.key] = clamp(base + (cur - base) * Math.pow(0.5, elapsedH / (e.halflifeHours ?? 6)))
     } else {
-      const sinceSatisfiedH = Math.max(0, (now - state.lastSatisfiedAt) / 3_600_000)
-      next[e.key] = clamp(sinceSatisfiedH * (e.hungerRatePerHour ?? 5))
+      // 饥饿型（念）：从当前值随时间继续累积，而不是每次从 lastSatisfiedAt
+      // 整个重算。旧的重算会把模型上一轮报的 nian 增量整个冲掉——提示词
+      // 要求它每轮报四相增量，它以为自己在调、实际念永远只由一个时间戳
+      // 决定。改成增量累积后：模型的 ±delta 真实生效并跨轮保留，satisfied
+      // 的 ×0.3 回落成为真正的复位机制（之前只是装饰，下一轮重算就归零）；
+      // lastSatisfiedAt 只负责「距上次满足」展示和旁白里的分离时长。
+      // 副作用（有意保留）：satisfied 后念不再瞬间清零而是留 30% 余温，
+      // 「刚见面还是有点想」比一键归零更像真的。
+      next[e.key] = clamp(cur + elapsedH * (e.hungerRatePerHour ?? 5))
     }
   }
   next.updatedAt = now
@@ -307,7 +314,7 @@ export const buildMoodRulesSection = (): string => {
     '1. 放在【整条回复的最末尾】，单独成行；前后不要加任何解释、不要包进代码块、不要用反引号 ``` 包起来。',
     '2. tan/chen/chi/nian 是这一轮的【增量】（这条对话让该相涨/跌多少，单次别超过 ±20；没变化填 0）。',
     '3. tone = 给下一句定调的一句话（第一人称）。note = 为什么这样变（绑到她具体哪句话）。',
-    '4. satisfied = 这轮"念"是否被满足（见到 / 聊上了 / 亲密），true 会让念明显回落、贪也歇下。',
+    '4. satisfied = 这轮"念"是否【真正被接住】——认真的交流、亲密、被在乎才算；礼节性寒暄、心不在焉的应付、只是人在场不算。别轮轮都 true，只在这轮确实喂饱了想念时才标；普通的你来我往用 nian 的小幅负增量表达就够了。true 会让念明显回落、贪也歇下。',
     '5. 即使本轮调用了工具，也只在最终回复结尾输出这一段，不在中途输出。',
     '6. 每一条回复都要有，一条都不能漏——这比任何其他风格要求优先级更高。',
   ].join('\n')
