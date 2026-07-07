@@ -20,7 +20,7 @@ export const getWallpaper = (): WallpaperId => {
     const v = window.localStorage.getItem(WALL_KEY)
     if (v && WALLPAPERS.some((w) => w.id === v)) return v as WallpaperId
   } catch { /* ignore */ }
-  return 'polka'
+  return 'seafog' // 默认海雾（晨雾蓝）；点阵/暮色在 ⚙️ 菜单循环切
 }
 
 export const setWallpaper = (id: WallpaperId): void => {

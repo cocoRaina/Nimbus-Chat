@@ -1,7 +1,7 @@
 # 聊天界面交互（LINE 风格）
 
 - **氛围三件套（借鉴 Tidal Echo，`storage/chatFeel.ts`）**：
-  - **聊天壁纸**：⚙️ 菜单「🎨 聊天背景」循环切 点阵/暮色/海雾（纯 CSS 渐变、零图片资产），localStorage `nimbus_chat_wallpaper`，走 `.chat-page::before` 同一图层。
+  - **聊天壁纸**：⚙️ 菜单「🎨 聊天背景」循环切 点阵/暮色/海雾（纯 CSS 渐变、零图片资产，配色全走 app 蓝色系），**默认海雾**，localStorage `nimbus_chat_wallpaper`，走 `.chat-page::before` 同一图层。
   - **消息音效**：WebAudio 现场合成（无 mp3 资产）——发送上滑音 660→920Hz、接收下滑音 880→620Hz，音量 ~0.06。发送在 `persistUserMessage`（手势链里天然解锁 AudioContext），接收在 assistant 落库处、仅前台响。**手机静音/震动自动闭嘴**（蹭 `envSnapshot` 缓存行判断）。⚙️ 菜单可关，localStorage `nimbus_chat_sound`。
   - **送达状态**：仅最新一条真实 user 消息下方——发送中 = SMIL 转动小时钟（秒针 0.7s/分针 2.1s，reduce-motion 静止），Supabase 落库确认后原位变 `✓✓`（判据 `id !== clientId`）。未登录不显示。
 - **TG 式长按菜单**：长按气泡 → 整屏毛玻璃遮罩 + **气泡 DOM 克隆浮起**（scale 1.03 + 大阴影，命令式 `cloneNode` 进 portal）+ 菜单弹入。快捷表情行在菜单顶部。位置翻转逻辑沿用（`useLayoutEffect` 量高度）。
