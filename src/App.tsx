@@ -27,6 +27,7 @@ import {
   buildUserReactionContent,
   extractReaction,
 } from './storage/reactions'
+import { playMessageSound } from './storage/chatFeel'
 import {
   addMessage,
   createSession,
@@ -3786,6 +3787,10 @@ TOOL_SEARCH_HANDOFF,
 
           // Guard: tool loop can occasionally double-fire the save path.
           if (!messagesRef.current.some((m) => m.clientId === assistantClientId && !m.pending)) {
+            // 接收音（软下滑音）——只在 app 前台时响；后台/锁屏交给系统通知。
+            if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+              playMessageSound('receive')
+            }
             // Save locally first so the reply appears instantly.
             const localAssistant = addMessage(sessionId, 'assistant', assistantContent, buildAssistantMeta(false), {
               clientId: assistantClientId,
@@ -4146,6 +4151,8 @@ TOOL_SEARCH_HANDOFF,
         sessionsRef.current.map((s) => (s.id === sessionId ? { ...s, updatedAt: clientCreatedAtIso } : s)),
         sortMessages([...messagesRef.current, optimisticMessage]),
       )
+      // 发送音（软上滑音）。在用户手势的调用链里，天然解锁 AudioContext。
+      playMessageSound('send')
       const localResult = addMessage(sessionId, 'user', content, userMeta, { clientId, clientCreatedAt })
       if (localResult) {
         applySnapshot(

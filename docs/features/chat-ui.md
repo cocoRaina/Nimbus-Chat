@@ -1,5 +1,13 @@
 # 聊天界面交互（LINE 风格）
 
+- **氛围三件套（借鉴 Tidal Echo，`storage/chatFeel.ts`）**：
+  - **聊天壁纸**：⚙️ 菜单「🎨 聊天背景」循环切 点阵/暮色/海雾（纯 CSS 渐变、零图片资产），localStorage `nimbus_chat_wallpaper`，走 `.chat-page::before` 同一图层。
+  - **消息音效**：WebAudio 现场合成（无 mp3 资产）——发送上滑音 660→920Hz、接收下滑音 880→620Hz，音量 ~0.06。发送在 `persistUserMessage`（手势链里天然解锁 AudioContext），接收在 assistant 落库处、仅前台响。**手机静音/震动自动闭嘴**（蹭 `envSnapshot` 缓存行判断）。⚙️ 菜单可关，localStorage `nimbus_chat_sound`。
+  - **送达状态**：仅最新一条真实 user 消息下方——发送中 = SMIL 转动小时钟（秒针 0.7s/分针 2.1s，reduce-motion 静止），Supabase 落库确认后原位变 `✓✓`（判据 `id !== clientId`）。未登录不显示。
+- **TG 式长按菜单**：长按气泡 → 整屏毛玻璃遮罩 + **气泡 DOM 克隆浮起**（scale 1.03 + 大阴影，命令式 `cloneNode` 进 portal）+ 菜单弹入。快捷表情行在菜单顶部。位置翻转逻辑沿用（`useLayoutEffect` 量高度）。
+- **「回到最新消息」胶囊**：翻旧消息时来了新消息**不再硬拽回底部**（这是行为变更：贴底 140px 容差内才自动跟随），零高 sticky 锚点浮出毛玻璃胶囊，点了平滑回底；自己发消息永远回底。
+- **思考链入口**：`✦ thinking` 星标样式（ReasoningPanel，星星 2.8s 呼吸，无两侧分隔线）。
+
 - **Header**：左 `←` 返回首页、Claude 的圆头像（同步 `/syzygy` 朋友圈头像）、可改名称（默认"哥哥"，✏️ 修改名称写到 localStorage `nimbus_assistant_name`，主动消息通知 title 也跟着用新名字）；右 `⚙️` + `≡`（会话抽屉）
 - **`⚙️` 齿轮菜单**：🧠 思考链开关 / 🤖 **模型选择**（per-session override，选默认值=清除 override） / 📦 手动压缩对话 / ✏️ 修改名称。模型选择从输入栏挪到这里，输入栏更清爽
 - **正在输入指示器**：流式期间在 header 名称下方副标题显示「正在输入…」+ 三跳动点，不再在消息流尾巴留空气泡

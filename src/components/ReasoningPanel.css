@@ -18,6 +18,34 @@
   color: var(--ab-ink);
 }
 
+/* ✦ thinking 星标（借鉴 Tidal Echo 的 think-caption，不带两侧分隔线）。 */
+.reasoning-panel__star {
+  font-size: 1.2em;
+  line-height: 1;
+  animation: reasoning-star-breathe 2.8s ease-in-out infinite;
+}
+
+.reasoning-panel__caption {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+
+@keyframes reasoning-star-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reasoning-panel__star {
+    animation: none;
+  }
+}
+
 .reasoning-panel__content {
   max-height: 0;
   opacity: 0;

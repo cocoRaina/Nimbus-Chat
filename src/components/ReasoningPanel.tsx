@@ -14,9 +14,11 @@ const ReasoningPanel = memo(({ reasoning }: ReasoningPanelProps) => {
         type="button"
         className="reasoning-panel__toggle"
         aria-expanded={isOpen}
+        aria-label="查看思考链"
         onClick={() => setIsOpen((current) => !current)}
       >
-        查看思考
+        <span className="reasoning-panel__star" aria-hidden="true">✦</span>
+        <span className="reasoning-panel__caption">thinking</span>
       </button>
       <div className={`reasoning-panel__content ${isOpen ? 'is-open' : ''}`}>
         <div className="reasoning-panel__body reasoning-content">{reasoning}</div>

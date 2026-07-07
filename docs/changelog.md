@@ -392,6 +392,17 @@
 
 代码：`reactions.ts` 新增 `buildReactionExcerpt` / `buildUserReactionContent` / `isUserReactionMessage`（格式与判别同源防漂移）；App `reactToAssistantMessage`（复用 `persistUserMessage` + `armBatchTimer` + `removeMessage`）；ChatPage 双向归属 map + 长按菜单快捷行。types.ts meta 加 `reactTo`。已知小边界：目标消息被「重新生成」后 reactTo 定位失效，兜底挂到前面最近一条有文字的 assistant 消息（content 里的摘录仍让模型知道原句）。
 
+### UI 借鉴 Tidal Echo 一批：送达状态/TG 长按/回底胶囊/壁纸/音效/✦ thinking（同日）
+
+全部纯前端、零资产依赖（壁纸是 CSS 渐变、音效是 WebAudio 现场合成）。详见 [features/chat-ui.md](features/chat-ui.md) 顶部「氛围三件套」+ 各条：
+
+1. **送达状态**：最新一条 user 消息下发送中转小时钟（SMIL，iOS/WebView 稳）、Supabase 确认后变 ✓✓（判据 `id !== clientId`——本地 id 就是 clientId，云端落库后被 DB uuid 替换）。只画最新一条，避免整列 ✓✓ 噪音；未登录（无云端）不显示。
+2. **TG 式长按菜单**：整屏毛玻璃遮罩 + 被按气泡 `cloneNode` 克隆浮起（inline style 钉住原位置/宽度，`.bubble` 全局样式自带外观）+ 菜单延迟弹入。表情快捷行天然融入。
+3. **「回到最新消息」胶囊**：⚠️ 行为变更——以前来新消息**永远**平滑拽到底，现在贴底 140px 内才跟随；翻旧记录时浮出胶囊不打断阅读。自己发消息强制回底（`submitDraft` 里重置贴底标记）。胶囊用零高 sticky 锚点，隐藏时不占消息流空间。
+4. **聊天壁纸**：⚙️ 菜单循环切 点阵/暮色/海雾，`chatFeel.ts` 持久化。
+5. **消息音效**：发送/接收两个软滑音，静音/震动模式自动闭嘴（复用 envSnapshot 缓存行，APK 上有值；web 无原生插件默认出声）。AudioContext 惰性创建，首次发送的手势链里解锁；接收音只在前台响。
+6. **✦ thinking**：思考链入口从「查看思考」文字改为 ✦ 星标 + 小字 caption（星星呼吸动画；按用户要求不加两侧渐隐分隔线）。
+
 ## 2026-06-29
 
 ### 流式回复卡死「正在输入…」、收不到回复

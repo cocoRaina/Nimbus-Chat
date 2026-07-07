@@ -31,6 +31,14 @@ import {
   fileToStickerDataUrl,
 } from '../storage/stickers'
 import { extractReaction, stripReactionTokens, isUserReactionMessage } from '../storage/reactions'
+import {
+  WALLPAPERS,
+  type WallpaperId,
+  getWallpaper,
+  setWallpaper,
+  getSoundEnabled,
+  setSoundEnabled,
+} from '../storage/chatFeel'
 import ReasoningPanel from '../components/ReasoningPanel'
 import { ToolCallGroup, groupToolCalls } from '../components/ToolCallCard'
 import type { ToolCallRecord } from '../components/ToolCallCard'
@@ -155,15 +163,32 @@ type MessageRowProps = {
   // Telegram 式表情回应：挂在这条（user）消息气泡上的 emoji，由 ChatPage 从
   // 后续 assistant 消息的 [react:…] 令牌归属而来。
   reaction?: string
+  // 送达状态（仅最新一条 user 消息）：sending = 转动的小时钟，sent = ✓✓。
+  tick?: 'sending' | 'sent'
   onStartLongPress: (event: ReactPointerEvent<HTMLDivElement>, messageId: string) => void
   onCancelLongPress: () => void
   onContextMenuOpen: (event: ReactMouseEvent<HTMLDivElement>, messageId: string) => void
 }
 
+// 发送中的小时钟：两根指针绕表心转（SMIL，旋转中心写死 12,12，不依赖
+// transform-box）。转 sent 后同位换成 ✓✓（Tidal Echo 的做法）。
+const SendingClock = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="8.2" />
+    <line x1="12" y1="12" x2="12" y2="7">
+      <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.7s" repeatCount="indefinite" />
+    </line>
+    <line x1="12" y1="12" x2="15.2" y2="12">
+      <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="2.1s" repeatCount="indefinite" />
+    </line>
+  </svg>
+)
+
 const MessageRow = memo(function MessageRow({
   message,
   groupWithPrevious,
   reaction,
+  tick,
   onStartLongPress,
   onCancelLongPress,
   onContextMenuOpen,
@@ -316,6 +341,14 @@ const MessageRow = memo(function MessageRow({
         <div className="bubble-reaction" aria-label={`表情回应 ${reaction}`}>
           {reaction}
         </div>
+      ) : null}
+      {tick ? (
+        <span
+          className={`msg-tick${tick === 'sending' ? ' sending' : ''}`}
+          aria-label={tick === 'sending' ? '发送中' : '已送达'}
+        >
+          {tick === 'sending' ? <SendingClock /> : '✓✓'}
+        </span>
       ) : null}
     </div>
   )
@@ -498,6 +531,25 @@ const ChatPage = ({
       }
     }
     return map
+  }, [messages])
+  // 氛围偏好：聊天壁纸 + 消息音效（storage/chatFeel.ts，localStorage 持久化）。
+  const [wallpaper, setWallpaperState] = useState<WallpaperId>(() => getWallpaper())
+  const [soundEnabled, setSoundEnabledState] = useState(() => getSoundEnabled())
+  const cycleWallpaper = useCallback(() => {
+    setWallpaperState((current) => {
+      const idx = WALLPAPERS.findIndex((w) => w.id === current)
+      const next = WALLPAPERS[(idx + 1) % WALLPAPERS.length].id
+      setWallpaper(next)
+      return next
+    })
+  }, [])
+  // 送达状态只画在最新一条真实 user 消息上（纯回应行不算），避免整列 ✓✓ 噪音。
+  const lastUserMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role === 'user' && !isUserReactionMessage(m.content)) return m.id
+    }
+    return null
   }, [messages])
   // "正在输入…" should show from the instant the user sends — not only once
   // streaming actually starts. The optimistic assistant bubble is empty +
@@ -739,6 +791,8 @@ const ChatPage = ({
   // effect below to decide above vs below placement. Ref rather than
   // state because we only need it during the post-render measurement.
   const actionsAnchorRef = useRef<DOMRect | null>(null)
+  // TG 式长按抬起：被按气泡的 DOM 节点 + 打开瞬间的位置，portal 里克隆浮起。
+  const liftedBubbleRef = useRef<{ element: HTMLElement; rect: DOMRect } | null>(null)
   const navigate = useNavigate()
 
   // Grow the composer textarea to fit its content (reset to auto first so it
@@ -757,6 +811,9 @@ const ChatPage = ({
       return
     }
     buzz()
+    // 自己发消息永远回到底部——即使刚才翻在旧记录里。
+    nearBottomRef.current = true
+    setShowNewMsgPill(false)
     setShowStickerTray(false)
     let payload = trimmed
     if (quoted) {
@@ -979,6 +1036,8 @@ const ChatPage = ({
         const rect = target.element?.getBoundingClientRect()
         if (rect) {
           actionsAnchorRef.current = rect
+          // TG 式抬起：记住被按的气泡，portal 里克隆一份浮在遮罩上。
+          liftedBubbleRef.current = target.element ? { element: target.element, rect } : null
           // Initial guess — the layout effect refines this once the menu
           // is in the DOM and we know its actual height.
           setActionsMenuPosition({ top: rect.bottom + 4, left: rect.left })
@@ -995,6 +1054,7 @@ const ChatPage = ({
       event.preventDefault()
       const rect = event.currentTarget.getBoundingClientRect()
       actionsAnchorRef.current = rect
+      liftedBubbleRef.current = { element: event.currentTarget, rect }
       setActionsMenuPosition({ top: rect.bottom + 4, left: rect.left })
       setOpenActionsId(messageId)
     },
@@ -1082,6 +1142,31 @@ const ChatPage = ({
     return Array.from(unique)
   }, [defaultModel, enabledModels, sessionOverride])
 
+  // 「回到最新消息」胶囊：翻旧消息时来了新消息不再硬拽回底部，浮出胶囊让
+  // 用户自己点回去（借鉴 Tidal Echo newmsg-pill）。贴底状态用 ref 存，滚动
+  // 监听维护；贴底容差 140px。
+  const nearBottomRef = useRef(true)
+  const [showNewMsgPill, setShowNewMsgPill] = useState(false)
+  useEffect(() => {
+    const container = messagesRef.current
+    if (!container) return
+    const onScroll = () => {
+      const dist = container.scrollHeight - container.scrollTop - container.clientHeight
+      const near = dist < 140
+      nearBottomRef.current = near
+      if (near) setShowNewMsgPill(false)
+    }
+    container.addEventListener('scroll', onScroll, { passive: true })
+    return () => container.removeEventListener('scroll', onScroll)
+  }, [])
+  const scrollToLatest = useCallback((smooth: boolean) => {
+    const container = messagesRef.current
+    if (!container) return
+    nearBottomRef.current = true
+    setShowNewMsgPill(false)
+    if (smooth) container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+    else container.scrollTop = container.scrollHeight
+  }, [])
   useEffect(() => {
     const container = messagesRef.current
     if (!container) {
@@ -1089,6 +1174,7 @@ const ChatPage = ({
     }
     const isSessionSwitch = lastSessionIdRef.current !== session.id
     const isInitialLoad = lastMessagesLengthRef.current === 0 && messages.length > 0
+    const grew = messages.length > lastMessagesLengthRef.current
     const shouldJump = isSessionSwitch || isInitialLoad
     lastSessionIdRef.current = session.id
     lastMessagesLengthRef.current = messages.length
@@ -1097,13 +1183,15 @@ const ChatPage = ({
     }
     // Scroll only the messages container; never let scrollIntoView walk up to
     // window/body and push the sticky header off-screen on mobile.
-    const top = container.scrollHeight
     if (shouldJump) {
-      container.scrollTop = top
-    } else {
-      container.scrollTo({ top, behavior: 'smooth' })
+      scrollToLatest(false)
+    } else if (nearBottomRef.current) {
+      scrollToLatest(true)
+    } else if (grew) {
+      // 用户正在上面翻记录：不打断，浮出「回到最新」胶囊。
+      setShowNewMsgPill(true)
     }
-  }, [messages.length, session.id])
+  }, [messages.length, session.id, scrollToLatest])
 
   useEffect(() => {
     document.body.classList.add('chat-page-active')
@@ -1236,7 +1324,7 @@ const ChatPage = ({
   }, [openHeaderMenu])
 
   return (
-    <div className="chat-page chat-polka-dots">
+    <div className={`chat-page ${WALLPAPERS.find((w) => w.id === wallpaper)?.className ?? 'chat-polka-dots'}`}>
       <header className="chat-header top-nav app-shell__header">
         <button
           type="button"
@@ -1343,6 +1431,20 @@ const ChatPage = ({
                     />
                     <span>🔥 缓存保活</span>
                   </label>
+                  <button type="button" onClick={cycleWallpaper}>
+                    🎨 聊天背景：{WALLPAPERS.find((w) => w.id === wallpaper)?.label}
+                  </button>
+                  <label className="header-menu-toggle">
+                    <input
+                      type="checkbox"
+                      checked={soundEnabled}
+                      onChange={(event) => {
+                        setSoundEnabledState(event.target.checked)
+                        setSoundEnabled(event.target.checked)
+                      }}
+                    />
+                    <span>🔔 消息音效</span>
+                  </label>
                   <button
                     type="button"
                     onClick={() => {
@@ -1413,6 +1515,13 @@ const ChatPage = ({
                   message={message}
                   groupWithPrevious={groupWithPrevious}
                   reaction={reactionByMessageId.get(message.id)}
+                  tick={
+                    user && message.role === 'user' && message.id === lastUserMessageId
+                      ? message.pending || message.id === message.clientId
+                        ? 'sending'
+                        : 'sent'
+                      : undefined
+                  }
                   onStartLongPress={startLongPress}
                   onCancelLongPress={cancelLongPress}
                   onContextMenuOpen={handleContextMenuOpen}
@@ -1426,6 +1535,21 @@ const ChatPage = ({
             assistant skip above already prevents an empty bubble from
             appearing while we wait for the first token. */}
         <div ref={bottomRef} />
+        {/* 「回到最新消息」胶囊：零高 sticky 锚点钉在滚动容器可视区底部
+            （不占消息流空间），翻旧消息时来了新消息才浮出，点了平滑回底。 */}
+        <div className="newmsg-pill-anchor" aria-hidden={!showNewMsgPill}>
+          <button
+            type="button"
+            className={`newmsg-pill${showNewMsgPill ? ' show' : ''}`}
+            tabIndex={showNewMsgPill ? 0 : -1}
+            onClick={() => scrollToLatest(true)}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 5v14M5 12l7 7 7-7" />
+            </svg>
+            回到最新消息
+          </button>
+        </div>
       </main>
       {toolStatus ? (
         <div className="tool-status-bar" aria-live="polite">
@@ -1733,12 +1857,38 @@ const ChatPage = ({
       </form>
       {openActionsId && actionsMenuPosition
         ? createPortal(
-            <div
-              className="actions-menu actions-menu-portal"
-              role="menu"
-              style={{ top: actionsMenuPosition.top, left: actionsMenuPosition.left }}
-              ref={actionsMenuRef}
-            >
+            <div className="msg-menu">
+              <div className="msg-menu-scrim" onClick={() => setOpenActionsId(null)} />
+              {liftedBubbleRef.current ? (
+                <div
+                  className="msg-menu-clone"
+                  aria-hidden="true"
+                  style={{
+                    top: liftedBubbleRef.current.rect.top,
+                    left: liftedBubbleRef.current.rect.left,
+                    width: liftedBubbleRef.current.rect.width,
+                    height: liftedBubbleRef.current.rect.height,
+                  }}
+                  ref={(node) => {
+                    // 命令式克隆被按的气泡 DOM——它带着全局 .bubble 样式，
+                    // 浮在遮罩上就是「抬起」效果。portal 关闭即整体卸载。
+                    const src = liftedBubbleRef.current?.element
+                    if (node && src && node.childElementCount === 0) {
+                      const clone = src.cloneNode(true) as HTMLElement
+                      clone.style.margin = '0'
+                      clone.style.width = '100%'
+                      clone.style.maxWidth = 'none'
+                      node.appendChild(clone)
+                    }
+                  }}
+                />
+              ) : null}
+              <div
+                className="actions-menu actions-menu-portal"
+                role="menu"
+                style={{ top: actionsMenuPosition.top, left: actionsMenuPosition.left }}
+                ref={actionsMenuRef}
+              >
               {(() => {
                 const message = messages.find((item) => item.id === openActionsId)
                 if (!message) {
@@ -1807,6 +1957,7 @@ const ChatPage = ({
                   </>
                 )
               })()}
+              </div>
             </div>,
             document.body,
           )
