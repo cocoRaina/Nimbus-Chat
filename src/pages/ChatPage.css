@@ -580,7 +580,7 @@
    负 margin 把 pill 拉进气泡底缘、只露下半，紧贴不留缝。 */
 .bubble-reaction {
   z-index: 1;
-  margin-top: -17px;
+  margin-top: -12px;
   padding: 1px 7px;
   border-radius: 999px;
   background: var(--bubble-in-bg, #fff);
