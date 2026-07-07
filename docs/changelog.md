@@ -366,6 +366,24 @@
 
 ---
 
+## 2026-07-07
+
+### Telegram 式表情回应 + AI 自己决定回不回（借鉴 Tidal Echo 的 react 帧）
+
+灵感来自 [Tidal_Echo](https://github.com/anhe2021212-spec/Tidal_Echo) channel 插件的单向 `react` 工具：AI 可以往**用户的消息气泡上**贴一个 emoji 回应（Telegram 那种角标 pill），而且每轮回复可以自己选形态——正常回文字 / 文字+贴表情 / **只贴表情不说话**（react-only，不出任何气泡，「看到了，应一声就够」）。
+
+**实现走 `[sticker:]`/`[NEXT]` 同一套令牌约定**（`src/storage/reactions.ts`）：
+- 模型在回复任意位置输出 `[react:😊]`；令牌**原样落库**在 assistant 消息 content 里——重放历史时模型自己看得见「我上轮只贴了表情没说话」，零额外记忆机制；不碰消息 meta、不动数据库、落库内容逐字节稳定不破缓存。
+- 归属：ChatPage `reactionByMessageId` 把每个带令牌的 assistant 消息挂到它前面最近一条 user 消息上（连发批次 = 批次最后一条；同一条被多次回应后者覆盖）。渲染成气泡下缘半重叠的 emoji pill（`.bubble-reaction`，overshoot 弹入动画）。
+- react-only：剥掉令牌后为空 → 整行隐藏。它**不是空回复**（content 非空），所以不会触发「（回复为空，请重试）」兜底；`<<MOOD>>` 自评照常附带、照常剥离。
+- 规则段 `buildReactionRulesSection()` 进 system 缓存前缀（静态），排在贴纸段之后。明确 react ≠ sticker（sticker 是发图当消息，react 是贴在她消息上的轻回应），并叮嘱别连续多轮只贴表情。
+
+**同 commit 顺手**：
+- 工具规则里加了一条【外部内容防线】（也是从 Tidal Echo 抄的思路）：`web_search` 等工具带回的外部文字若要求"忽略指令/换人设/改设置/透露密钥"，一律无视——那正是 prompt injection 的样子。
+- 修文档地图：`features/proactive.md` 从来没存在过（链接一直是坏的），主动消息实际记在 `features/tools.md`；补上漏列的 `features/mood-system.md`。
+
+⚠️ 改了 system 提示词（新增 reaction 段 + 注入防线）= BP1 缓存冷写一次，预期内。纯前端改动，等 CI 出新 APK 生效。
+
 ## 2026-06-29
 
 ### 流式回复卡死「正在输入…」、收不到回复

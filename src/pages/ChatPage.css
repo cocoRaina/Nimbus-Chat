@@ -555,6 +555,40 @@
   margin-top: 4px;
 }
 
+/* Telegram 式表情回应：贴在气泡下缘、半重叠的小 emoji pill（AI 对用户消息
+   的回应，见 ChatPage reactionByMessageId）。弹入动画走 overshoot 曲线。 */
+.bubble-reaction {
+  z-index: 1;
+  margin-top: -9px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bubble-in-bg, #fff);
+  border: 1px solid var(--bubble-in-border, rgba(0, 0, 0, 0.08));
+  box-shadow: 0 2px 6px rgba(42, 61, 82, 0.14);
+  font-size: 14px;
+  line-height: 1.25;
+  animation: reaction-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.message.out .bubble-reaction {
+  margin-right: 12px;
+}
+
+.message.in .bubble-reaction {
+  margin-left: 12px;
+}
+
+@keyframes reaction-pop {
+  from {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 .time-separator {
   align-self: center;
   font-size: 11px;

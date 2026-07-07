@@ -19,7 +19,8 @@
 | 记忆系统 + 自动提取 | [features/memory.md](features/memory.md) |
 | 渠道体检 + Token 对账（防中转骗）| [features/diagnostics.md](features/diagnostics.md) |
 | Claude 工具（12 个） | [features/tools.md](features/tools.md) |
-| 真·主动消息 | [features/proactive.md](features/proactive.md) |
+| 情绪系统（贪嗔痴念） | [features/mood-system.md](features/mood-system.md) |
+| 真·主动消息 | 见 [features/tools.md](features/tools.md) 的 `schedule_proactive_message`（没有单独的 proactive.md） |
 | 健康同步（Health Connect） | [features/health-sync.md](features/health-sync.md) |
 | 屏幕使用时间（UsageStats） | [features/screen-time.md](features/screen-time.md) |
 | 主页 widget 系统 | [features/widgets.md](features/widgets.md) |

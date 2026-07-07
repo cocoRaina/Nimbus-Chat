@@ -30,6 +30,7 @@ import {
   deleteSticker,
   fileToStickerDataUrl,
 } from '../storage/stickers'
+import { extractReaction, stripReactionTokens } from '../storage/reactions'
 import ReasoningPanel from '../components/ReasoningPanel'
 import { ToolCallGroup, groupToolCalls } from '../components/ToolCallCard'
 import type { ToolCallRecord } from '../components/ToolCallCard'
@@ -146,6 +147,9 @@ const splitAssistantSegments = (content: string): MsgSegment[] => {
 type MessageRowProps = {
   message: ChatMessage
   groupWithPrevious: boolean
+  // Telegram 式表情回应：挂在这条（user）消息气泡上的 emoji，由 ChatPage 从
+  // 后续 assistant 消息的 [react:…] 令牌归属而来。
+  reaction?: string
   onStartLongPress: (event: ReactPointerEvent<HTMLDivElement>, messageId: string) => void
   onCancelLongPress: () => void
   onContextMenuOpen: (event: ReactMouseEvent<HTMLDivElement>, messageId: string) => void
@@ -154,15 +158,23 @@ type MessageRowProps = {
 const MessageRow = memo(function MessageRow({
   message,
   groupWithPrevious,
+  reaction,
   onStartLongPress,
   onCancelLongPress,
   onContextMenuOpen,
 }: MessageRowProps) {
   const reasoningText =
     message.meta?.reasoning_text?.trim() ?? message.meta?.reasoning?.trim()
+  // [react:…] 令牌原样存在 assistant content 里（模型重放历史能看到自己
+  // 上轮的回应），但绝不作为文字渲染——emoji 以角标形式贴在目标 user 气泡上。
+  // react-only 回复剥掉令牌后为空 → 整行隐藏：AI 这轮选择了不开口。
+  const assistantText =
+    message.role === 'assistant' ? stripReactionTokens(message.content) : message.content
   const segments: MsgSegment[] = (
     message.role === 'assistant'
-      ? splitAssistantSegments(message.content)
+      ? assistantText.trim()
+        ? splitAssistantSegments(assistantText)
+        : []
       : [{ type: 'text' as const, text: message.content }]
   ).flatMap((seg) => (seg.type === 'text' ? splitStickerSegments(seg.text) : [seg]))
   const isOut = message.role === 'user'
@@ -292,6 +304,11 @@ const MessageRow = memo(function MessageRow({
           </div>
         )
       })}
+      {reaction ? (
+        <div className="bubble-reaction" aria-label={`表情回应 ${reaction}`}>
+          {reaction}
+        </div>
+      ) : null}
     </div>
   )
 })
@@ -437,6 +454,22 @@ const ChatPage = ({
     [messages, displayLimit],
   )
   const hiddenCount = messages.length - displayedMessages.length
+  // Telegram 式表情回应归属：每个带 [react:…] 令牌的 assistant 消息，把 emoji
+  // 挂到它前面最近的一条 user 消息上（连发批次 = 批次最后一条）。同一条
+  // user 消息被多次回应时后者覆盖前者。基于完整 messages 算，窗口裁剪不影响。
+  const reactionByMessageId = useMemo(() => {
+    const map = new Map<string, string>()
+    let lastUserId: string | null = null
+    for (const m of messages) {
+      if (m.role === 'user') {
+        lastUserId = m.id
+      } else if (lastUserId) {
+        const emoji = extractReaction(m.content)
+        if (emoji) map.set(lastUserId, emoji)
+      }
+    }
+    return map
+  }, [messages])
   // "正在输入…" should show from the instant the user sends — not only once
   // streaming actually starts. The optimistic assistant bubble is empty +
   // pending during the async pre-flight (compression / request build) before
@@ -1350,6 +1383,7 @@ const ChatPage = ({
                 <MessageRow
                   message={message}
                   groupWithPrevious={groupWithPrevious}
+                  reaction={reactionByMessageId.get(message.id)}
                   onStartLongPress={startLongPress}
                   onCancelLongPress={cancelLongPress}
                   onContextMenuOpen={handleContextMenuOpen}
