@@ -1048,6 +1048,35 @@
   color: var(--ab-danger);
 }
 
+/* 长按 AI 消息时菜单顶部的快捷表情回应行（Telegram 风格）。
+   注意别被 .actions-menu button 的 text-align/left padding 带歪。 */
+.actions-menu .reaction-picker {
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+  padding: 2px;
+  border-bottom: 1px solid rgba(229, 231, 235, 0.9);
+  margin-bottom: 2px;
+}
+
+.actions-menu .reaction-picker-btn {
+  padding: 6px;
+  font-size: 18px;
+  line-height: 1;
+  text-align: center;
+  border-radius: 999px;
+  transition: transform 0.12s ease;
+}
+
+.actions-menu .reaction-picker-btn:hover {
+  transform: scale(1.2);
+}
+
+.actions-menu .reaction-picker-btn.active {
+  background: #eff4fa;
+  box-shadow: inset 0 0 0 1.5px var(--ab-accent, #6b8cae);
+}
+
 .chat-composer {
   margin: 0 16px 12px;
   padding: 12px 14px calc(16px + env(safe-area-inset-bottom));

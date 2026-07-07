@@ -51,6 +51,10 @@ export type ChatMessage = {
     // Per-message ambient phone state: battery + charging + ringer + audio
     // output + Wi-Fi/cellular, e.g. "🔋32%充电中 · 静音 · 蓝牙:AirPods · Wi-Fi".
     envSnapshot?: string
+    // 用户对某条 assistant 消息的表情回应（Telegram 式双向）：这条 user 消息
+    // 内容本身是 `[react:emoji] 「摘录」`（UI 隐藏成气泡角标），reactTo 记
+    // 目标消息的 clientId 供渲染归属。创建时冻结、从不更新 → 重放逐字节稳定。
+    reactTo?: { id: string; excerpt?: string }
     // Frozen auto-recall line for this user turn: top memory-search hits for
     // this message, injected into the payload prefix like weather. Kept
     // per-message so replay is byte-stable for the rolling prompt cache.

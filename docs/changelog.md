@@ -384,6 +384,14 @@
 
 ⚠️ 改了 system 提示词（新增 reaction 段 + 注入防线）= BP1 缓存冷写一次，预期内。纯前端改动，等 CI 出新 APK 生效。
 
+### 表情回应升级为双向：长按沈暮的消息贴 emoji，他自己决定接不接话（同日）
+
+用户 → AI 方向走**对称的令牌方案**：长按 AI 消息 → 菜单顶部快捷表情行（❤️🥺😂😮😢👍）→ 落一条 `[react:emoji] 「他那句话摘录…」` 的 user 消息。UI 把这行隐藏、emoji 以角标贴到目标气泡（`meta.reactTo` 记目标 clientId，创建时冻结）；模型重放历史时直接读懂「她对我哪句话应了什么」——依旧不碰已有消息的 meta、不做任何 UPDATE，缓存逐字节稳定。
+
+**活人感的关键**：回应会走连发定时器真的触发一轮生成，沈暮看到后**自己决定**怎么接——短句、回贴一个 `[react:…]`（归属规则会跳过纯回应行、落到她最近一条有文字的消息上）、或者顺着聊开。system 规则里明确「她只是应一声、不是开新话题，别每次都追问怎么了，照你自己的性子来」——活人感和 AI 的脾气都保住。再点同一个 emoji = 撤销（删那条隐藏消息）；换 emoji = 替换。
+
+代码：`reactions.ts` 新增 `buildReactionExcerpt` / `buildUserReactionContent` / `isUserReactionMessage`（格式与判别同源防漂移）；App `reactToAssistantMessage`（复用 `persistUserMessage` + `armBatchTimer` + `removeMessage`）；ChatPage 双向归属 map + 长按菜单快捷行。types.ts meta 加 `reactTo`。已知小边界：目标消息被「重新生成」后 reactTo 定位失效，兜底挂到前面最近一条有文字的 assistant 消息（content 里的摘录仍让模型知道原句）。
+
 ## 2026-06-29
 
 ### 流式回复卡死「正在输入…」、收不到回复

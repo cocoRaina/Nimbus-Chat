@@ -30,7 +30,7 @@ import {
   deleteSticker,
   fileToStickerDataUrl,
 } from '../storage/stickers'
-import { extractReaction, stripReactionTokens } from '../storage/reactions'
+import { extractReaction, stripReactionTokens, isUserReactionMessage } from '../storage/reactions'
 import ReasoningPanel from '../components/ReasoningPanel'
 import { ToolCallGroup, groupToolCalls } from '../components/ToolCallCard'
 import type { ToolCallRecord } from '../components/ToolCallCard'
@@ -41,6 +41,9 @@ import './ChatPage.css'
 const buzz = (style: ImpactStyle = ImpactStyle.Light) => {
   void Haptics.impact({ style }).catch(() => {})
 }
+
+// 长按 AI 消息时的快捷表情回应（Telegram 风格一排）。再点同一个 = 撤销。
+const QUICK_REACTIONS = ['❤️', '🥺', '😂', '😮', '😢', '👍']
 
 export type ChatPageProps = {
   session: ChatSession
@@ -56,6 +59,8 @@ export type ChatPageProps = {
   onDeleteMessage: (messageId: string) => void | Promise<void>
   onRegenerate: (assistantMessageId: string) => void | Promise<void>
   onEditUserMessage: (userMessageId: string, newContent: string) => void | Promise<void>
+  // Telegram 式双向表情回应：用户长按 AI 消息 → 快捷 emoji 行 → 贴/换/撤回应。
+  onReactToMessage: (messageId: string, emoji: string) => void | Promise<void>
   isStreaming: boolean
   onStopStreaming: () => void
   // 连发：用户在输入框打字时调用，用来推后「自动回复」定时器，避免还在
@@ -163,6 +168,9 @@ const MessageRow = memo(function MessageRow({
   onCancelLongPress,
   onContextMenuOpen,
 }: MessageRowProps) {
+  // 用户的表情回应消息（`[react:…] 「摘录」`）不渲染成气泡——emoji 已经以
+  // 角标贴在目标 assistant 气泡上（见 ChatPage reactionByMessageId）。
+  if (message.role === 'user' && isUserReactionMessage(message.content)) return null
   const reasoningText =
     message.meta?.reasoning_text?.trim() ?? message.meta?.reasoning?.trim()
   // [react:…] 令牌原样存在 assistant content 里（模型重放历史能看到自己
@@ -345,6 +353,7 @@ const ChatPage = ({
   onDeleteMessage,
   onRegenerate,
   onEditUserMessage,
+  onReactToMessage,
   isStreaming,
   onStopStreaming,
   onComposerActivity,
@@ -454,18 +463,38 @@ const ChatPage = ({
     [messages, displayLimit],
   )
   const hiddenCount = messages.length - displayedMessages.length
-  // Telegram 式表情回应归属：每个带 [react:…] 令牌的 assistant 消息，把 emoji
-  // 挂到它前面最近的一条 user 消息上（连发批次 = 批次最后一条）。同一条
-  // user 消息被多次回应时后者覆盖前者。基于完整 messages 算，窗口裁剪不影响。
+  // Telegram 式表情回应归属（双向）。基于完整 messages 算，窗口裁剪不影响：
+  // - AI → 用户：带 [react:…] 令牌的 assistant 消息，emoji 挂到它前面最近
+  //   一条**有文字**的 user 消息上（连发批次 = 批次最后一条；她的纯回应行
+  //   不算目标，AI 的回贴才能落到她真正说话的那条上）。
+  // - 用户 → AI：`[react:…] 「摘录」` 的 user 消息按 meta.reactTo.id 定位目标
+  //   assistant 行（id/clientId 双匹配）；meta 缺失时兜底挂到前面最近一条
+  //   有文字的 assistant 消息。
+  // 同一条消息被多次回应时后者覆盖前者。
   const reactionByMessageId = useMemo(() => {
     const map = new Map<string, string>()
+    const rowIdByKey = new Map<string, string>()
+    for (const m of messages) {
+      rowIdByKey.set(m.id, m.id)
+      if (m.clientId) rowIdByKey.set(m.clientId, m.id)
+    }
     let lastUserId: string | null = null
+    let lastAssistantId: string | null = null
     for (const m of messages) {
       if (m.role === 'user') {
-        lastUserId = m.id
-      } else if (lastUserId) {
+        if (isUserReactionMessage(m.content)) {
+          const emoji = extractReaction(m.content)
+          const targetId =
+            (m.meta?.reactTo?.id ? rowIdByKey.get(m.meta.reactTo.id) : undefined) ??
+            lastAssistantId
+          if (emoji && targetId) map.set(targetId, emoji)
+        } else {
+          lastUserId = m.id
+        }
+      } else {
         const emoji = extractReaction(m.content)
-        if (emoji) map.set(lastUserId, emoji)
+        if (emoji && lastUserId) map.set(lastUserId, emoji)
+        if (stripReactionTokens(m.content).trim()) lastAssistantId = m.id
       }
     }
     return map
@@ -1717,6 +1746,27 @@ const ChatPage = ({
                 }
                 return (
                   <>
+                    {message.role === 'assistant' ? (
+                      <div className="reaction-picker" role="group" aria-label="表情回应">
+                        {QUICK_REACTIONS.map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            className={`reaction-picker-btn${
+                              reactionByMessageId.get(message.id) === emoji ? ' active' : ''
+                            }`}
+                            aria-label={`回应 ${emoji}`}
+                            onClick={() => {
+                              buzz()
+                              setOpenActionsId(null)
+                              void onReactToMessage(message.id, emoji)
+                            }}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                     <button type="button" role="menuitem" onClick={() => handleCopy(message)}>
                       复制
                     </button>

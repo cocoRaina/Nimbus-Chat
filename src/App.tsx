@@ -21,7 +21,12 @@ import {
   applyMoodAssessment,
   commitMood,
 } from './storage/moodSystem'
-import { buildReactionRulesSection } from './storage/reactions'
+import {
+  buildReactionRulesSection,
+  buildReactionExcerpt,
+  buildUserReactionContent,
+  extractReaction,
+} from './storage/reactions'
 import {
   addMessage,
   createSession,
@@ -4099,12 +4104,14 @@ TOOL_SEARCH_HANDOFF,
       sessionId: string,
       content: string,
       attachments: MessageAttachment[] = [],
+      extraMeta?: ChatMessage['meta'],
     ) => {
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
       const weatherSnap = peekCachedWeather()
       const envSnap = peekEnvSnapshot()
       const userMeta: ChatMessage['meta'] = {
+        ...(extraMeta ?? {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(weatherSnap
           ? {
@@ -4456,6 +4463,34 @@ TOOL_SEARCH_HANDOFF,
     [applySnapshot, user, notifyComposerActivity],
   )
 
+  // Telegram 式双向表情回应：用户长按 AI 消息贴 emoji。落一条
+  // `[react:emoji] 「摘录」` 的 user 消息（UI 隐藏、角标贴到目标气泡，
+  // meta.reactTo 创建时冻结），并走连发定时器——让沈暮看到后自己决定
+  // 接不接话。同一条消息重复贴同一个 emoji = 撤销；换 emoji = 替换。
+  const reactToAssistantMessage = useCallback(
+    async (sessionId: string, messageId: string, emoji: string) => {
+      const target = messagesRef.current.find(
+        (m) => m.id === messageId || m.clientId === messageId,
+      )
+      if (!target || target.role !== 'assistant') return
+      const targetKey = target.clientId || target.id
+      const existing = messagesRef.current.find(
+        (m) => m.role === 'user' && m.meta?.reactTo?.id === targetKey,
+      )
+      if (existing) {
+        const prevEmoji = extractReaction(existing.content)
+        await removeMessage(existing.id)
+        if (prevEmoji === emoji) return // 再点同一个 = 撤销，不再落新的
+      }
+      const excerpt = buildReactionExcerpt(target.content)
+      persistUserMessage(sessionId, buildUserReactionContent(emoji, excerpt), [], {
+        reactTo: { id: targetKey, ...(excerpt ? { excerpt } : {}) },
+      })
+      armBatchTimer(sessionId)
+    },
+    [persistUserMessage, armBatchTimer, removeMessage],
+  )
+
   const removeSession = useCallback(
     async (sessionId: string) => {
       if (user && supabase) {
@@ -4629,6 +4664,7 @@ TOOL_SEARCH_HANDOFF,
                 onDeleteMessage={removeMessage}
                 onRegenerate={regenerateAssistantReply}
                 onEditUserMessage={editUserMessage}
+                onReactToMessage={reactToAssistantMessage}
                 onDeleteSession={removeSession}
                 enabledModels={enabledModels}
                 defaultModel={defaultModelId}
@@ -4844,6 +4880,7 @@ const ChatRoute = ({
   onDeleteMessage,
   onRegenerate,
   onEditUserMessage,
+  onReactToMessage,
   onDeleteSession,
   enabledModels,
   defaultModel,
@@ -4885,6 +4922,7 @@ const ChatRoute = ({
   onDeleteMessage: (messageId: string) => Promise<void>
   onRegenerate: (assistantMessageId: string) => Promise<void>
   onEditUserMessage: (userMessageId: string, newContent: string) => Promise<void>
+  onReactToMessage: (sessionId: string, messageId: string, emoji: string) => Promise<void>
   onDeleteSession: (sessionId: string) => Promise<void>
   enabledModels: string[]
   defaultModel: string
@@ -5036,6 +5074,9 @@ const ChatRoute = ({
         onDeleteMessage={onDeleteMessage}
         onRegenerate={onRegenerate}
         onEditUserMessage={onEditUserMessage}
+        onReactToMessage={(messageId, emoji) =>
+          onReactToMessage(activeSession.id, messageId, emoji)
+        }
         isStreaming={isStreaming}
         onStopStreaming={onStopStreaming}
         onComposerActivity={onComposerActivity}
