@@ -163,8 +163,9 @@ type MessageRowProps = {
   // Telegram 式表情回应：挂在这条（user）消息气泡上的 emoji，由 ChatPage 从
   // 后续 assistant 消息的 [react:…] 令牌归属而来。
   reaction?: string
-  // 送达状态（仅最新一条 user 消息）：sending = 转动的小时钟，sent = ✓✓。
-  tick?: 'sending' | 'sent'
+  // 发送状态（仅最新一条 user 消息）：写云端期间显示转动的小时钟；
+  // 落库后不再显示任何标记（✓✓ 已按用户要求移除）。
+  tick?: 'sending'
   onStartLongPress: (event: ReactPointerEvent<HTMLDivElement>, messageId: string) => void
   onCancelLongPress: () => void
   onContextMenuOpen: (event: ReactMouseEvent<HTMLDivElement>, messageId: string) => void
@@ -342,12 +343,9 @@ const MessageRow = memo(function MessageRow({
           {reaction}
         </div>
       ) : null}
-      {tick ? (
-        <span
-          className={`msg-tick${tick === 'sending' ? ' sending' : ''}`}
-          aria-label={tick === 'sending' ? '发送中' : '已送达'}
-        >
-          {tick === 'sending' ? <SendingClock /> : '✓✓'}
+      {tick === 'sending' ? (
+        <span className="msg-tick sending" aria-label="发送中">
+          <SendingClock />
         </span>
       ) : null}
     </div>
@@ -1516,10 +1514,11 @@ const ChatPage = ({
                   groupWithPrevious={groupWithPrevious}
                   reaction={reactionByMessageId.get(message.id)}
                   tick={
-                    user && message.role === 'user' && message.id === lastUserMessageId
-                      ? message.pending || message.id === message.clientId
-                        ? 'sending'
-                        : 'sent'
+                    user &&
+                    message.role === 'user' &&
+                    message.id === lastUserMessageId &&
+                    (message.pending || message.id === message.clientId)
+                      ? 'sending'
                       : undefined
                   }
                   onStartLongPress={startLongPress}
