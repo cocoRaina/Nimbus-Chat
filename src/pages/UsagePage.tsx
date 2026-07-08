@@ -51,11 +51,14 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
   { key: 'all', label: '全部' },
 ]
 
+// label 里的 \n 是刻意的：四个 tab 统一排成上下两行（「压缩/状态」），
+// 字号保持全尺寸——比 nowrap+缩字清晰，也比放任浏览器折成「压缩状/态」好看。
+// CSS 侧用 white-space: pre-line 让 \n 生效。
 const DIAG_TABS: Array<{ key: DiagTab; label: string }> = [
-  { key: 'usage', label: '用量统计' },
-  { key: 'api', label: 'API检测' },
-  { key: 'compress', label: '压缩状态' },
-  { key: 'memory', label: '记忆状态' },
+  { key: 'usage', label: '用量\n统计' },
+  { key: 'api', label: 'API\n检测' },
+  { key: 'compress', label: '压缩\n状态' },
+  { key: 'memory', label: '记忆\n状态' },
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────

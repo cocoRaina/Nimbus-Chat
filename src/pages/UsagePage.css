@@ -258,12 +258,12 @@
   border: none;
   background: transparent;
   border-radius: 10px;
-  /* 四个 4 字 tab 挤一排：去掉左右 padding + 禁止换行，否则窄屏上
-     「压缩状态/记忆状态」会折成两行（丑）。行是 flex 均分、永远不超页宽；
-     字号用 clamp 随屏宽收缩，极窄屏/大系统字体下也不会画出按钮压到邻居。 */
-  padding: 9px 2px;
-  font-size: clamp(0.72rem, 3.4vw, 0.86rem);
-  white-space: nowrap;
+  /* 四个 tab 统一上下两行（label 里带 \n，pre-line 生效）：字号保持全尺寸，
+     不缩字、也不会被浏览器折成「压缩状/态」那种难看的 3+1。 */
+  padding: 7px 2px;
+  font-size: 0.92rem;
+  line-height: 1.3;
+  white-space: pre-line;
   color: var(--ab-ink);
   cursor: pointer;
   font-weight: 600;
