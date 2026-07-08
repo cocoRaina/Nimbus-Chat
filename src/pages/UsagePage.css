@@ -258,10 +258,11 @@
   border: none;
   background: transparent;
   border-radius: 10px;
-  /* 四个 4 字 tab 挤一排：去掉左右 padding + 收小字号 + 禁止换行，
-     否则窄屏上「压缩状态/记忆状态」会折成两行（丑）。 */
+  /* 四个 4 字 tab 挤一排：去掉左右 padding + 禁止换行，否则窄屏上
+     「压缩状态/记忆状态」会折成两行（丑）。行是 flex 均分、永远不超页宽；
+     字号用 clamp 随屏宽收缩，极窄屏/大系统字体下也不会画出按钮压到邻居。 */
   padding: 9px 2px;
-  font-size: 0.86rem;
+  font-size: clamp(0.72rem, 3.4vw, 0.86rem);
   white-space: nowrap;
   color: var(--ab-ink);
   cursor: pointer;
