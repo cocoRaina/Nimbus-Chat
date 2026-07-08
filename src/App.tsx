@@ -65,6 +65,7 @@ import {
   fetchHealthSnapshot,
   fetchRemoteMessages,
   fetchRemoteSessions,
+  fetchSessionMessageCounts,
   fetchSessionRecentMessages,
   listLockedMemories,
   renameRemoteSession,
@@ -879,6 +880,10 @@ const App = () => {
       const remoteSessions = await fetchRemoteSessions(user.id)
       const nextSessions = sortSessions(remoteSessions)
       applySnapshot(nextSessions, messagesRef.current)
+      // 刷新抽屉时顺带更新真实条数（打开抽屉就会触发，见 drawerOpen effect）。
+      void fetchSessionMessageCounts().then((counts) => {
+        if (Object.keys(counts).length > 0) setRemoteMessageCounts(counts)
+      })
     } catch (error) {
       console.warn('无法加载 Supabase 会话数据', error)
     } finally {
@@ -1032,6 +1037,10 @@ const App = () => {
         const nextSessions = sortSessions(remoteSessions)
         const nextMessages = mergeMessages(messagesRef.current, remoteMessages)
         applySnapshot(nextSessions, nextMessages)
+        // 真实每会话条数（抽屉计数用）——后台拉，不阻塞首屏。
+        void fetchSessionMessageCounts().then((counts) => {
+          if (active && Object.keys(counts).length > 0) setRemoteMessageCounts(counts)
+        })
       } catch (error) {
         console.warn('无法加载 Supabase 数据', error)
       } finally {
@@ -1156,12 +1165,21 @@ const App = () => {
     }
   }, [refreshRemoteSessions, user])
 
+  // 真实的每会话消息条数（云端 RPC），归档老会话也准。空 = 还没拉到，回退内存计数。
+  const [remoteMessageCounts, setRemoteMessageCounts] = useState<Record<string, number>>({})
   const messageCounts = useMemo(() => {
-    return messages.reduce<Record<string, number>>((accumulator, message) => {
+    const inMem = messages.reduce<Record<string, number>>((accumulator, message) => {
       accumulator[message.sessionId] = (accumulator[message.sessionId] ?? 0) + 1
       return accumulator
     }, {})
-  }, [messages])
+    // 云端真实计数打底；活跃会话取内存和云端里更大的那个（刚发的消息还没
+    // 进下一次 RPC 快照，内存更即时）。
+    const merged: Record<string, number> = { ...remoteMessageCounts }
+    for (const [sid, c] of Object.entries(inMem)) {
+      merged[sid] = Math.max(merged[sid] ?? 0, c)
+    }
+    return merged
+  }, [messages, remoteMessageCounts])
 
   const resolveSessionModel = useCallback(
     (sessionId: string) => {

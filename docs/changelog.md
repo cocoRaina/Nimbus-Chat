@@ -366,6 +366,16 @@
 
 ---
 
+## 2026-07-08
+
+### 抽屉会话「0 条消息」惊魂——是计数 bug，不是丢数据
+
+**症状**：归档抽屉里所有老会话都显示「0 条消息」，吓到以为记录没了。查 Supabase：5165 条消息全在，10 个会话每个都满（5.23 有 887 条、5.18 有 475 条…），一条没丢。
+
+**根因**：抽屉的「N 条消息」用 `messageCounts`，而它只数**内存里已加载的消息**——`fetchRemoteMessages` 为了首屏快只拉最近 300 条（基本都属于活跃会话）。归档老会话的消息还在云端、没预加载，所以计数看到 0。重装 APK 后内存只剩云端拉的最近那批，就暴露了。**纯显示问题**，跟表情/UI 那几次改动无关。
+
+**修**：新增 RPC `session_message_counts()`（`supabase/migrations/20260708120000`，security invoker + `auth.uid()` 过滤，云端 group by 聚合、不把 5000 条拉前端）；`supabaseSync.ts` 加 `fetchSessionMessageCounts()`；App 存 `remoteMessageCounts` state，在首屏加载 + 刷新抽屉时后台拉，`messageCounts` 改为「云端真实计数打底、活跃会话取内存/云端更大值」（`Math.max`，让刚发的消息即时反映）。RPC 服务端立即生效，但显示要等新 APK。
+
 ## 2026-07-07
 
 ### Telegram 式表情回应 + AI 自己决定回不回（借鉴 Tidal Echo 的 react 帧）

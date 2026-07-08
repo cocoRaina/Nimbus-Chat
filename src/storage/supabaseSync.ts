@@ -246,6 +246,20 @@ export const fetchRemoteMessages = async (userId: string): Promise<ChatMessage[]
   return (data ?? []).map(mapMessageRow)
 }
 
+// 真实的「每会话消息条数」——抽屉列表用。走 RPC 在云端聚合，不把全部消息
+// 拉到前端（fetchRemoteMessages 只加载最近 300 条窗口，归档老会话不在窗口内
+// 会算成 0 条）。失败返回空对象，调用方回退到内存计数，绝不阻塞。
+export const fetchSessionMessageCounts = async (): Promise<Record<string, number>> => {
+  if (!supabase) return {}
+  const { data, error } = await supabase.rpc('session_message_counts')
+  if (error || !data) return {}
+  const out: Record<string, number> = {}
+  for (const row of data as Array<{ session_id: string; count: number }>) {
+    out[row.session_id] = Number(row.count) || 0
+  }
+  return out
+}
+
 export const fetchSessionRecentMessages = async (
   sessionId: string,
   limit = 20,
