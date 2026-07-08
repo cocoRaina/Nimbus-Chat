@@ -212,6 +212,16 @@ const MessageRow = memo(function MessageRow({
       : [{ type: 'text' as const, text: message.content }]
   ).flatMap((seg) => (seg.type === 'text' ? splitStickerSegments(seg.text) : [seg]))
   const isOut = message.role === 'user'
+  // 只贴表情的 AI 回复（剥掉令牌后没正文、但确实带了 [react:…]）：整条彻底
+  // 隐藏。emoji 已经贴到目标 user 气泡上了，这条不该再占任何空间——连它这轮
+  // 的思考链空壳也一并藏掉，否则两条消息之间会撑出一片「✦ thinking」空白。
+  if (
+    message.role === 'assistant' &&
+    !assistantText.trim() &&
+    !!extractReaction(message.content)
+  ) {
+    return null
+  }
   // Only fully hide the row when there's genuinely nothing to show — i.e. a
   // standalone [NEXT] marker. If the turn still carries tool calls, reasoning,
   // or attachments, keep rendering so those aren't swallowed.
