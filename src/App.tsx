@@ -2089,7 +2089,7 @@ const App = () => {
           if (trimmedSummary.length > 0) {
             baseMessages.push({
               role: 'system',
-              content: `## 前面对话的摘要（用作上下文，不要直接复述）\n${trimmedSummary}`,
+              content: `## 你之前随手记下的备忘（早前对话的浓缩，当你自己的记忆用，不要直接复述）\n${trimmedSummary}`,
             })
           }
           // Use each message's own createdAt to build a stable time prefix.

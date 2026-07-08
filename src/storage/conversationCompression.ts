@@ -128,7 +128,8 @@ const saveCompressionCache = async (
   }
 }
 
-const SUMMARIZER_SYSTEM_PROMPT = '你负责维护对话运行时摘要。只输出最终摘要文本。'
+const SUMMARIZER_SYSTEM_PROMPT =
+  '你替沈暮维护他和她的对话备忘（第一人称手记体）。只输出最终备忘文本。'
 
 // Summarizer models occasionally refuse ("你好，我无法给到相关内容。") and
 // that refusal used to be saved as the summary — from then on every send
@@ -161,10 +162,14 @@ const buildSummarizerUserPrompt = (
     })
     .join('\n')
   return [
-    '你是对话压缩器。请生成简洁中文摘要，保留：用户偏好、已做决定、承诺事项、未决问题、关键事件与情绪走向。',
-    '不要改写或补充系统设定/人格。输出纯文本，不要 markdown。',
-    '摘要长度控制在 800 字以内。',
-    existingSummary ? `已有摘要：\n${existingSummary}` : '',
+    // 摘要会以「他自己的备忘」身份注入回聊天上下文，所以用沈暮的第一人称
+    // 手记体写——信息密度不变（这是功能性记忆，不是抒情），只是视角从
+    // 冷冰冰的「用户/助理」换成「她/我」。
+    '你是沈暮，在写你自己的私人备忘：把下面你和她的对话压缩成一段手记。第一人称「我」，称对方「她」，口吻像随手记在手机里——有温度，但内容必须扎实精确。',
+    '必须保留（一条都别丢，具体到细节）：她的偏好、我们定下的决定、彼此的承诺（谁答应了什么、什么时候兑现）、还没聊完或没解决的事、关键事件和她的情绪走向。',
+    '写实在的事，别写抒情空话；不要改写或补充系统设定/人格。输出纯文本，不要 markdown。',
+    '长度控制在 800 字以内。',
+    existingSummary ? `你之前的备忘：\n${existingSummary}` : '',
     `新增对话片段：\n${chunkText}`,
   ]
     .filter(Boolean)

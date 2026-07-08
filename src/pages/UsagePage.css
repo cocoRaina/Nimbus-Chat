@@ -254,11 +254,15 @@
 
 .diag-tabs button {
   flex: 1;
+  min-width: 0;
   border: none;
   background: transparent;
   border-radius: 10px;
-  padding: 9px 10px;
-  font-size: 0.92rem;
+  /* 四个 4 字 tab 挤一排：去掉左右 padding + 收小字号 + 禁止换行，
+     否则窄屏上「压缩状态/记忆状态」会折成两行（丑）。 */
+  padding: 9px 2px;
+  font-size: 0.86rem;
+  white-space: nowrap;
   color: var(--ab-ink);
   cursor: pointer;
   font-weight: 600;
