@@ -366,6 +366,14 @@
 
 ---
 
+## 2026-07-09
+
+### 保活 ping 记账进 usage_logs：排查「保活开着为什么还冷写」不再靠翻函数日志
+
+用户报告「隔一小时冷写了」。已知三类正常冷写：① 装新 APK 后第一条（system prompt 变了）；② 每天早上第一条（保活 00-08 静默、缓存夜里过期，设计内）；③ 白天 >1h 间隔仍冷写 = 真 bug。要区分 ③ 需要看 Edge Function 日志里每次 ping 的 cache_read/cache_create——但那要 MCP/控制台，用户自己看不到。
+
+**修**（`cache_keepalive/index.ts`，走 deploy-functions.yml CI 自动部署）：每次 ping 后往 `usage_logs` 插一行——成功 ping `source='keepalive'`（raw_usage 存 Anthropic 原生 usage，前端 mapRow 直接读出 cache_read/cache_write），上游拒绝 `source='keepalive_fail'`（0 token + request_debug 带状态码和响应体前 300 字）。判读方法：**健康 ping = cache_read 很大、cache_write≈0；ping 自己在冷写 = cache_write 很大（body 和真实对话对不上或缓存已过期）；没有 ping 行 = cron/门控没让它发**。在用量统计页直接看。
+
 ## 2026-07-08
 
 ### 压缩摘要改沈暮手记体 + 诊断页 tab 防折行（同日）

@@ -314,6 +314,27 @@ Deno.serve(async (req) => {
           console.log(
             `keepalive ok user=${row.user_id} provider=${row.provider} input=${input} output=${output} cache_read=${cacheRead} cache_create=${cacheCreate1h} msgs=${msgCount} tail=${tail} last=${lastSnippet}`,
           )
+          // 把 ping 记进 usage_logs（source='keepalive'），让用户在「用量统计」
+          // 里亲眼看到保活的工作状态：健康 ping = cache_read 很大 + cache_write
+          // ≈ 0；ping 在冷写（body 和真实对话对不上 / 缓存已过期）= cache_write
+          // 很大——排查「保活开着为什么还冷写」不再需要翻函数日志。
+          // raw_usage 存 Anthropic 原生 usage，前端 mapRow 直接读
+          // cache_read_input_tokens / cache_creation_input_tokens。
+          try {
+            await supabase.from('usage_logs').insert({
+              user_id: row.user_id,
+              model: (pingBody.model as string) ?? 'unknown',
+              prompt_tokens: input + cacheRead + cacheCreate1h,
+              completion_tokens: output,
+              total_tokens: input + cacheRead + cacheCreate1h + output,
+              cached_tokens: cacheRead,
+              source: 'keepalive',
+              provider: row.provider ?? 'openrouter',
+              raw_usage: usage,
+            })
+          } catch (logErr) {
+            console.warn(`keepalive usage_logs insert failed user=${row.user_id}`, logErr)
+          }
         } catch (parseErr) {
           console.warn(`keepalive ok user=${row.user_id} (couldn't parse usage)`, parseErr)
         }
@@ -323,6 +344,22 @@ Deno.serve(async (req) => {
         console.warn(
           `keepalive non-2xx user=${row.user_id} status=${resp.status} body=${bodyText.slice(0, 300)}`,
         )
+        // 失败也记一行（0 token + request_debug 带状态码），让「ping 发了但
+        // 上游拒了」在用量统计里可见——和「还没到 50 分钟没发」区分开。
+        try {
+          await supabase.from('usage_logs').insert({
+            user_id: row.user_id,
+            model: (pingBody.model as string) ?? 'unknown',
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+            source: 'keepalive_fail',
+            provider: row.provider ?? 'openrouter',
+            request_debug: { status: resp.status, body: bodyText.slice(0, 300) },
+          })
+        } catch (logErr) {
+          console.warn(`keepalive fail-row insert failed user=${row.user_id}`, logErr)
+        }
       }
     } catch (err) {
       failed++
