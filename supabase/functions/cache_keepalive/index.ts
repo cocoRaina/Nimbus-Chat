@@ -8,11 +8,12 @@
 // user's typical 88K-token prompt). With this, a single ~$0.13 read
 // keeps it alive instead. See README "💰 成本优化" for the full story.
 //
-// Quiet hours: 00:00–08:00 Beijing time (CST/UTC+8). No pings during this
-// window — the user is asleep, and the 1h TTL will have expired before they
-// wake. Their first morning message sets last_chat_at; the next 5-min cron
-// tick (after 08:00) picks it up and sends the warm-up ping instead of
-// paying a cold-write on the second message.
+// Quiet hours: 01:00–08:00 Beijing time (CST/UTC+8; was 00:00 — moved
+// 2026-07-09 because the user routinely chats past midnight). No pings
+// during this window — the user is asleep, and the 1h TTL will have expired
+// before they wake. Their first morning message sets last_chat_at; the next
+// 5-min cron tick (after 08:00) picks it up and sends the warm-up ping
+// instead of paying a cold-write on the second message.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
@@ -44,10 +45,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 //   set it large enough to cover the full waking day.
 //
 // ACTIVE_WINDOW_MS only matters intra-day: it must be large enough that
-// a chat at any point in the waking day keeps pings going until midnight.
-// 16h (08:00 + 16h = 00:00 next day) is the exact waking-day length and
-// is naturally capped by quiet hours + the next-morning today-gate.
-const ACTIVE_WINDOW_MS = 16 * 60 * 60 * 1000
+// a chat at any point in the waking day keeps pings going until quiet
+// hours begin. 17h (08:00 + 17h = 01:00 next day) is the exact waking-day
+// length now that quiet starts at 01:00, and is naturally capped by quiet
+// hours + the next-morning today-gate.
+const ACTIVE_WINDOW_MS = 17 * 60 * 60 * 1000
 // Slightly less than 55min so a 5-min cron tick won't accidentally
 // skip a slot due to scheduling drift.
 const PING_COOLDOWN_MS = 50 * 60 * 1000
@@ -83,14 +85,14 @@ Deno.serve(async (req) => {
     return new Response('ok', { status: 200 })
   }
 
-  // Quiet hours: 00:00–08:00 Beijing time (UTC+8). During this window no
-  // one is chatting, so ACTIVE_WINDOW_MS already means "no eligible rows"
-  // — but we skip early anyway to avoid waking Deno workers 12×/h for zero
-  // pings. Pings resume automatically after the user's first morning message
-  // updates last_chat_at and the next cron tick fires after 08:00.
+  // Quiet hours: 01:00–08:00 Beijing time (UTC+8). The user is a night owl
+  // who regularly chats past midnight — starting quiet at 01:00 (was 00:00)
+  // keeps the cache warm through the 23:xx→00:xx stretch instead of letting
+  // it die at the stroke of midnight mid-conversation. Cache then expires
+  // ~02:00 and the first morning message cold-writes as designed.
   const nowBeijing = new Date(Date.now() + 8 * 60 * 60 * 1000)
   const beijingHour = nowBeijing.getUTCHours()
-  if (beijingHour >= 0 && beijingHour < 8) {
+  if (beijingHour >= 1 && beijingHour < 8) {
     return new Response(
       JSON.stringify({ total: 0, pinged: 0, cooled: 0, failed: 0, quiet_hours: true }),
       { headers: { 'Content-Type': 'application/json' } },
@@ -108,7 +110,15 @@ Deno.serve(async (req) => {
   // which would cold-write (cache long expired) before the user even wakes.
   // Beijing 08:00 = UTC 00:00, so "today's waking start" is simply today's
   // UTC midnight.
-  const todayWakingStartMs = new Date(nowBeijing).setUTCHours(0, 0, 0, 0)
+  // ⚠️ Use the REAL UTC date's midnight, not the +8h-shifted one. Beijing
+  // 08:00 = UTC 00:00, so "this waking day's start" is the current UTC day's
+  // midnight — and that stays true even during the 00:00–01:00 Beijing
+  // stretch (UTC 16–17h, same UTC day). The old `new Date(nowBeijing)
+  // .setUTCHours(0)` shifted the DATE too: during Beijing 00:00–01:00 it
+  // produced the NEXT UTC midnight (a future timestamp), which would have
+  // filtered out every row exactly in the window the 01:00 quiet-start is
+  // meant to serve. Harmless before (that hour was all quiet), fatal after.
+  const todayWakingStartMs = new Date().setUTCHours(0, 0, 0, 0)
   const activeSinceMs = Math.max(Date.now() - ACTIVE_WINDOW_MS, todayWakingStartMs)
   // Fetch ALL rows (not .gte-filtered) so we can ALSO see the stale ones.
   // 2026-07-09 incident: the client-side snapshot upsert silently failed for
@@ -227,8 +237,9 @@ Deno.serve(async (req) => {
     // Build the ping. The body in row.body is Anthropic-native shape (App.tsx
     // converts via convertOpenAiRequestToAnthropic before upserting) so we POST
     // it straight to the relay's /messages endpoint. Overrides:
-    //   1. stream: false   — no SSE needed; proven cache-key-neutral (a
-    //      non-stream ping reads a streamed chat's cache: both hit 65931).
+    //   1. stream: true — must match the chat exactly (see the ⚠️ note at
+    //      the pingBody construction below; "stream is neutral" was
+    //      relay-specific and got falsified on treegpt 2026-07-09).
     //   2. KEEP `thinking` exactly as the chat sent it — this is the whole
     //      ballgame. MEASURED 2026-06-17 against 金瓜瓜: a thinking-FUL chat
     //      caches at cache_read=65931; a thinking-LESS ping caches at 65909 —
