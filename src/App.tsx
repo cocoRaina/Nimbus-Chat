@@ -3931,9 +3931,38 @@ TOOL_SEARCH_HANDOFF,
                         auth_style: authStyle,
                         last_chat_at: new Date().toISOString(),
                       })
-                    if (error) console.warn('cache_keepalive upsert failed', error)
+                    // Failure here must be LOUD, not a console.warn nobody sees:
+                    // 2026-07-01→08 this exact upsert silently failed for 8 days,
+                    // last_chat_at froze, the server keepalive saw the row as
+                    // "not active today" and never pinged — every >1h lull paid a
+                    // full cold write while the toggle said 保活开启. Persist the
+                    // failure into usage_logs so it shows in 用量统计 alongside
+                    // the server-side keepalive/keepalive_fail/keepalive_stale rows.
+                    if (error) {
+                      console.warn('cache_keepalive upsert failed', error)
+                      void recordUsage({
+                        userId: user.id,
+                        model: effectiveModel,
+                        promptTokens: 0,
+                        completionTokens: 0,
+                        source: 'keepalive_client_fail',
+                        provider: activeProvider,
+                        requestDebug: { step: 'upsert', error: error.message },
+                        forceRecord: true,
+                      })
+                    }
                   } catch (err) {
                     console.warn('cache_keepalive convert/upsert error', err)
+                    void recordUsage({
+                      userId: user.id,
+                      model: effectiveModel,
+                      promptTokens: 0,
+                      completionTokens: 0,
+                      source: 'keepalive_client_fail',
+                      provider: activeProvider,
+                      requestDebug: { step: 'convert', error: String(err) },
+                      forceRecord: true,
+                    })
                   }
                 })()
               }

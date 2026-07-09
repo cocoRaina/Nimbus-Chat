@@ -109,15 +109,19 @@ Deno.serve(async (req) => {
   // Beijing 08:00 = UTC 00:00, so "today's waking start" is simply today's
   // UTC midnight.
   const todayWakingStartMs = new Date(nowBeijing).setUTCHours(0, 0, 0, 0)
-  const activeSince = new Date(
-    Math.max(Date.now() - ACTIVE_WINDOW_MS, todayWakingStartMs),
-  ).toISOString()
+  const activeSinceMs = Math.max(Date.now() - ACTIVE_WINDOW_MS, todayWakingStartMs)
+  // Fetch ALL rows (not .gte-filtered) so we can ALSO see the stale ones.
+  // 2026-07-09 incident: the client-side snapshot upsert silently failed for
+  // 8 days (7/1–7/8) — last_chat_at froze at 6/30, the today-gate filtered the
+  // row out on every tick, and the function happily returned total:0 while the
+  // user chatted all day and paid cold writes on every >1h lull. Nothing in
+  // usage_logs, nothing in last_ping_at, zero signal. The watchdog below makes
+  // that exact failure mode loud.
   const { data, error } = await supabase
     .from('cache_keepalive_state')
     .select(
       'user_id, body, openrouter_key, provider, base_url, auth_style, last_chat_at, last_ping_at, ping_count',
     )
-    .gte('last_chat_at', activeSince)
 
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {
@@ -126,7 +130,72 @@ Deno.serve(async (req) => {
     })
   }
 
-  const rows = (data ?? []) as KeepaliveRow[]
+  const allRows = (data ?? []) as KeepaliveRow[]
+  const rows = allRows.filter(
+    (r) => new Date(r.last_chat_at).getTime() >= activeSinceMs,
+  )
+
+  // Watchdog: a row whose last_chat_at is OUTSIDE the ping window is normal
+  // when the user simply hasn't chatted today — but if usage_logs shows chat
+  // rows INSIDE today's window while the snapshot hasn't moved, the client's
+  // post-chat upsert is failing silently (convert throw / RLS / whatever) and
+  // keepalive is effectively OFF for that user. Surface it as a usage_logs row
+  // (source='keepalive_stale') so it shows up in the 用量统计 page, throttled
+  // to one row per 6h per user.
+  let staleFlagged = 0
+  for (const staleRow of allRows) {
+    if (new Date(staleRow.last_chat_at).getTime() >= activeSinceMs) continue
+    try {
+      const { data: lastChat } = await supabase
+        .from('usage_logs')
+        .select('created_at')
+        .eq('user_id', staleRow.user_id)
+        .eq('source', 'chat')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (!lastChat) continue
+      const chatMs = new Date(lastChat.created_at as string).getTime()
+      // Only flag when real chats are flowing inside today's ping window…
+      if (chatMs < activeSinceMs) continue
+      // …and give the client's async upsert 10min of grace after a chat so we
+      // never race the write that's about to land.
+      if (Date.now() - chatMs < 10 * 60 * 1000) continue
+      const { data: lastAlert } = await supabase
+        .from('usage_logs')
+        .select('created_at')
+        .eq('user_id', staleRow.user_id)
+        .eq('source', 'keepalive_stale')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (
+        lastAlert &&
+        Date.now() - new Date(lastAlert.created_at as string).getTime() <
+          6 * 60 * 60 * 1000
+      ) continue
+      staleFlagged++
+      console.warn(
+        `keepalive stale-snapshot user=${staleRow.user_id} snapshot_last_chat_at=${staleRow.last_chat_at} latest_chat_at=${lastChat.created_at}`,
+      )
+      await supabase.from('usage_logs').insert({
+        user_id: staleRow.user_id,
+        model: 'keepalive-watchdog',
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        source: 'keepalive_stale',
+        provider: staleRow.provider ?? 'openrouter',
+        request_debug: {
+          snapshot_last_chat_at: staleRow.last_chat_at,
+          latest_chat_at: lastChat.created_at,
+          note: '聊天在继续但快照 last_chat_at 没有推进——客户端 upsert 在静默失败，保活对这个用户实际是关闭的',
+        },
+      })
+    } catch (err) {
+      console.warn(`keepalive stale-check failed user=${staleRow.user_id}`, err)
+    }
+  }
   const cooldownCutoffMs = Date.now() - PING_COOLDOWN_MS
   let pinged = 0
   let cooled = 0
@@ -383,6 +452,7 @@ Deno.serve(async (req) => {
       pinged,
       cooled,
       failed,
+      stale_flagged: staleFlagged,
       usage: usageReport,
     }),
     { headers: { 'Content-Type': 'application/json' } },

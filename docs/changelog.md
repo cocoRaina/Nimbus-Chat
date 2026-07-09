@@ -8,6 +8,24 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### 保活 8 天没发过一次 ping：快照 upsert 静默失败 → today-gate 天天把行筛掉（2026-07-09）
+
+**症状**：用户报「白天隔 ~1h 再发消息就冷写」，但保活开着。7/9 部署的记账版 Edge Function 里 `usage_logs` 一条 keepalive/keepalive_fail 都没有。
+
+**排查链**（全程 Supabase MCP，无需真机）：
+1. `cron.job_run_details` 全 succeeded → cron 活着；
+2. `cache_keepalive_state`：`last_chat_at` 是今天、**`last_ping_at` 冻在 6/30 15:20**（ping_count=8）→ 8 天零 ping；
+3. Edge Function 对**每个进入循环的行**（成功/失败/skip）都会推进 `last_ping_at`，它没动 = 行根本没通过 SELECT 的 today-gate 过滤；
+4. 但 7/2–7/8 每天都有多个白天多小时空档（7/8 有 03:09→07:53、10:06→15:02 UTC 两段），且 CI 在 7/2 成功全量部署过（run #58），线上门控代码与仓库一致——**排除服务端**；
+5. `net._http_response`（pg_net 留 6h 响应）：今天 00:07 起 keepalive tick 全是 `total:0`，恰好在早上第一条消息（03:48）后的 03:50 tick 翻成 `total:1, cooled:1` → 选择/冷却逻辑正常，**今天客户端 upsert 恢复了**；
+6. 结论：**7/1–7/8 客户端聊完后的 `cache_keepalive_state` upsert 一直在静默失败**（当时代码里 convert 抛错/upsert 报错都只 `console.warn`，手机上没人看得见），`last_chat_at` 冻结 → today-gate 视为「今天没聊过」→ 服务端保活整周离线。期间靠客户端 55min 定时器兜了部分场景（App 活着时长间隔后仍见 ~37K 部分命中），App 被杀后的 >1h 间隔全部冷写——正是用户感知到的症状。
+
+**修**（双保险，都是让静默失败变响）：
+- Edge Function 加**看门狗**：SELECT 不再预过滤，取全部行；对窗口外的行查 `usage_logs` 最近 chat 行，若「聊天在今天窗口内流动、快照却没跟上（>10min 宽限）」→ 写一行 `source='keepalive_stale'`（6h 限流 + request_debug 带两侧时间戳），用量页直接可见；
+- 客户端 upsert 失败/convert 抛错时写 `source='keepalive_client_fail'`（0 token + request_debug 带 step 和错误信息，`forceRecord` 穿过零用量守卫）。**需新 APK 生效**；看门狗走 CI 部署立即生效。
+
+**判读速查**（用量页 source 列）：`keepalive`=ping 成功（看 cache_read/cache_write）；`keepalive_fail`=ping 发了被上游拒；`keepalive_stale`=快照冻结、客户端坏了；`keepalive_client_fail`=客户端自己报的 upsert 失败（能看到具体错误）。**根因（客户端那 8 天到底为什么 upsert 失败）当时不可见、已无法回溯**——这批可观测性就是为了下次它再犯时能当场抓住。
+
 ### 情绪系统「念」两处修正：增量真实生效 + satisfied 提高门槛（2026-07-05）
 
 **问题 1（念的增量是白报的）**：`decayMoodToNow` 对饥饿型是整个重算 `念 = 距满足小时数 × 5`，完全不看存量。提示词要求模型每轮报四相增量，但它给念报的 ±delta 下一轮就被重算冲掉——模型以为自己在调、实际念只由 lastSatisfiedAt 一个时间戳决定，satisfied 的 ×0.3 回落也只是装饰（下一轮重算照样归零）。**修**：改为增量累积 `念 = 当前值 + 经过小时 × 5`。delta 跨轮保留、×0.3 成为真正的复位机制；lastSatisfiedAt 只负责「距上次满足」展示和旁白分离时长。有意的副作用：satisfied 后念留 30% 余温而非瞬间清零（刚见面还是有点想）。
@@ -367,6 +385,10 @@
 ---
 
 ## 2026-07-09
+
+### 保活失灵定案 + 双向看门狗（同日，续下条）
+
+上条部署的记账版落地后当天即定案：**7/1–7/8 服务端保活整周没发过 ping**，根因是客户端聊完后的快照 upsert 静默失败、`last_chat_at` 冻在 6/30，today-gate 天天把行筛掉。详细排查链和修法见顶部 Debug 日志「保活 8 天没发过一次 ping」条目。新增 `keepalive_stale`（服务端看门狗，CI 即时生效）和 `keepalive_client_fail`（客户端失败上报，需新 APK）两种 usage_logs source。
 
 ### 保活 ping 记账进 usage_logs：排查「保活开着为什么还冷写」不再靠翻函数日志
 
