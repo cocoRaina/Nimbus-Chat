@@ -283,9 +283,18 @@ Deno.serve(async (req) => {
       continue
     }
 
+    // ⚠️ stream MUST be true — identical to the real chat. "stream is
+    // cache-key-neutral" was measured against 金瓜瓜 and is NOT true on
+    // treegpt: MEASURED 2026-07-09 — a stream:false ping at 06:30 cold-wrote
+    // the full 53887 tokens (couldn't read the 05:36 streaming chat's warm
+    // cache), and the 06:55 streaming chat then cold-wrote AGAIN (couldn't
+    // read the ping's 25-minute-old write). Non-stream requests evidently
+    // land on a different upstream lineage there, so a non-stream ping warms
+    // a copy the chat never reads — the exact §9 false-positive trap, stream
+    // edition. Match the chat byte-for-byte and parse SSE for usage instead.
     const pingBody: Record<string, unknown> = {
       ...row.body,
-      stream: false,
+      stream: true,
     }
     // row.body is already Anthropic-native (converted by App.tsx before upsert).
     // `reasoning` and `usage` are OpenAI-specific response fields that should
@@ -349,8 +358,43 @@ Deno.serve(async (req) => {
         // function logs for "keepalive ok ... cache_read=X cache_write=Y"
         // and instantly tell whether the cache is being kept warm.
         try {
-          const respJson = await resp.json()
-          const usage = respJson?.usage ?? {}
+          // stream:true → the body is SSE. Buffer it fully (ping output is
+          // tiny — thinking budget caps it) and merge usage from
+          // message_start (input/cache_read/cache_creation) + message_delta
+          // (output_tokens). Fall back to plain JSON in case a relay ignores
+          // the stream flag and answers non-streamed.
+          const respText = await resp.text()
+          type PingUsage = {
+            cache_read_input_tokens?: number
+            cache_creation_input_tokens?: number
+            cache_creation?: { ephemeral_1h_input_tokens?: number }
+            input_tokens?: number
+            output_tokens?: number
+          } & Record<string, unknown>
+          let usage: PingUsage = {}
+          if (respText.trimStart().startsWith('{')) {
+            try {
+              usage = (JSON.parse(respText)?.usage ?? {}) as PingUsage
+            } catch { /* fall through with empty usage */ }
+          } else {
+            for (const line of respText.split('\n')) {
+              if (!line.startsWith('data:')) continue
+              const payload = line.slice(5).trim()
+              if (!payload || payload === '[DONE]') continue
+              try {
+                const evt = JSON.parse(payload) as {
+                  type?: string
+                  message?: { usage?: Record<string, unknown> }
+                  usage?: Record<string, unknown>
+                }
+                if (evt.type === 'message_start' && evt.message?.usage) {
+                  usage = { ...usage, ...evt.message.usage }
+                } else if (evt.type === 'message_delta' && evt.usage) {
+                  usage = { ...usage, ...evt.usage }
+                }
+              } catch { /* ignore malformed SSE lines */ }
+            }
+          }
           const cacheRead = usage.cache_read_input_tokens ?? 0
           const cacheCreate1h =
             usage.cache_creation?.ephemeral_1h_input_tokens ??

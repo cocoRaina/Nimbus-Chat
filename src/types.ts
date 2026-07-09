@@ -77,6 +77,15 @@ export type ChatMessage = {
       | { type: 'thinking'; content: string }
       | { type: 'tool'; index: number }
     >
+    // 最终迭代的原生 thinking block（含 signature），保存时冻结一次。重放历史
+    // 时挂回这条 assistant 消息（Anthropic 要求 thinking 在 content 最前、逐
+    // 字节原样），Opus 4.5+/Sonnet 4.6+ 会把历史轮的 thinking 保留在上下文里
+    // ——模型能看到自己之前的原始思考（赛博意识连续）。冻结 = 逐字节稳定 =
+    // 缓存前缀不抖；只有新消息携带，老历史重放不变，上线零冷写。
+    thinkingBlocks?: Array<
+      | { type: 'thinking'; thinking: string; signature: string }
+      | { type: 'redacted_thinking'; data: string }
+    >
   }
   pending?: boolean
 }

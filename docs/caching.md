@@ -103,6 +103,8 @@ Nimbus 的做法(`applyClaudeCaching`):
 4. **不要 retry 重写前面的轮次**(会改前缀,整段重建)。
 5. **工具 schema 顺序固定**。
 
+**thinking 跨轮回传(2026-07-09 上线)**:历史 assistant 消息重放时带上当轮的原生 thinking block(含 `signature`,逐字节原样、放 content 最前)。Opus 4.5+/Sonnet 4.6+ 会把历史轮 thinking **保留在上下文里**(旧模型服务端剥掉、不计费)——模型能看到自己之前的原始思考,人格/推理连续性明显更好。实现与 toolDigest 同款「冻结」模式:最终迭代的 thinking block 保存时冻进 `meta.thinkingBlocks`(`App.tsx` buildAssistantMeta),重放挂回(`convertOpenAiRequestToAnthropic` 转成 `{type:'thinking',...}` 前置块);**只有新消息携带,老历史逐字节不变,上线零冷写**。缓存性质:块冻结后进前缀、永不抖动;代价是前缀每轮多长一段思考文本(读 0.1×,便宜),会稍早触发压缩阈值。⚠️ 两个不变量:① signature 不能改一个字节(API 400);② 重放只在「本次请求 thinking 开着 + Claude 模型」时携带——thinking 关着时送 thinking block 有 400 风险,且 reasoning 开关本来就会换缓存链。注意**不要做「只回传最近 N 条、滑出窗口就删」**:在 Nimbus 的 BP 布局里,从已缓存前缀中删块 = 每轮把 BP4 命中点往回推一轮,反而多付一轮写费;冻结全量保留才是又稳又便宜的形态。
+
 ---
 
 ## 8. 图片转文字描述(`imageCaptions.ts`)
@@ -127,8 +129,9 @@ Nimbus 的做法(`applyClaudeCaching`):
    - **划不划算(实测 22 天)**:用户是全天散点重度用户,平均每天 **~4.5 个 >1h 间隔**(本来每个都冷写)。不保活 ≈ ¥5.9/天(¥176/月);全天保活后白天 gap 全变热读,冷写只剩早晨那 ~1 次 → ≈ ¥2.9/天(¥87/月),**砍一半**。这种「一天回来好几次」的模式全天 ping 稳赚;反之「一天就一段会话」的轻度用户全天 ping 才会亏。
 
 **⚠️ ping 必须和真实聊天「同形」,否则刷的是另一份缓存(2026-06-17 实测踩坑)**:金瓜瓜/Anthropic 把**带 thinking** 和**不带 thinking** 的请求当成**两条独立缓存链**。实测同一段 ~66k 历史:带 thinking 的真实聊天缓存在 `cache_read=65931`,去掉 thinking 的 ping 缓存在 `65909`——**互不相通**。所以早期那版「`max_tokens:1` + 删掉 thinking」的 ping 看似成功(读到 65909),其实读的是**它自己上一条 ping** 留下的私有副本,真实聊天(带 thinking)**永远读不到**,该冷写还是冷写。证据:一条带 thinking 的真实聊天命中后 13 分钟,那版 ping 仍然**冷写**了整段 65909。
-  - **修法**:ping **保留 thinking**(连 `budget_tokens` 都要和聊天一字不差——budget 1024 vs 2000 也会分裂成两条链),`max_tokens` 设成 `budget+1`(extended thinking 要求 `max_tokens > budget`;budget 是**上限不是目标**,模型实际只吐 ~17–26 token,所以 ping 仍 ~¥0.07)。`stream` 实测**不影响**缓存键(非流 ping 能读流式聊天的缓存,都命中 65931),所以 ping 用 `stream:false` 省事。
-  - **`stream` 路由那套旧说法是误判**:曾以为 relay 把 stream/非 stream 路由到不同节点导致 ping 不命中,实测证伪——非流 ping 照样读到流式聊天的 65931。真凶是 thinking。
+  - **修法**:ping **保留 thinking**(连 `budget_tokens` 都要和聊天一字不差——budget 1024 vs 2000 也会分裂成两条链),`max_tokens` 设成 `budget+1`(extended thinking 要求 `max_tokens > budget`;budget 是**上限不是目标**,模型实际只吐 ~17–26 token,所以 ping 仍 ~¥0.07)。
+  - **⚠️ `stream` 的结论是「分中转」的(2026-07-09 反转)**:金瓜瓜上实测非流 ping 能读流式聊天的缓存(都命中 65931),当时结论「stream 不影响缓存键、ping 用 `stream:false` 省事」。**treegpt 上此结论不成立**:2026-07-09 实测,06:30 的非流 ping 全量冷写 53887(读不到 05:36 流式聊天的热缓存),06:55 的流式聊天又全量冷写 54636(读不到 ping 25 分钟前写的)——非流请求疑似被路由到另一条上游 lineage,ping 白写、聊天白冷。**修法:ping 一律 `stream:true` 与聊天完全同形**,Edge Function 解析 SSE(message_start + message_delta)取 usage。教训与 thinking 那条同型:**ping 和聊天必须在所有可能影响路由/缓存键的维度上逐字节一致,「实测无影响」的结论只对测过的那家中转成立**。
+  - **treegpt 节点亲和本身也偶尔飘**(已观测、客户端无法根治):带 `metadata.user_id` 的连续流式聊天也出现过 16–33 分钟间隔的随机全量冷写(07-09 13:34、07-08 11:09 北京时间),以及 07-07/07-03 的连续消息互不命中抖动。属于中转侧负载均衡/上游账号池问题;在意的话换金瓜瓜风铃草档(亲和实测稳定)。
 
 **触发条件**(`App.tsx`,2026-06-17 修正):凡是走了原生 `/v1/messages` 的 Claude 对话都存体保活,即
 `isClaudeModel && (provider==='openrouter' || providerFormat==='anthropic')`。

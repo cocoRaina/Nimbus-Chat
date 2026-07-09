@@ -304,10 +304,21 @@ type RequestContentBlock =
 
 type SystemTextBlock = { type: 'text'; text: string; cache_control?: CacheControlMarker }
 
+type ReplayThinkingBlock =
+  | { type: 'thinking'; thinking: string; signature: string }
+  | { type: 'redacted_thinking'; data: string }
+
 type ChatRequestMessage =
   | { role: 'system'; content: string | SystemTextBlock[] }
   | { role: 'user'; content: string | RequestContentBlock[] }
-  | { role: 'assistant'; content: string | null; tool_calls?: StreamingToolCall[] }
+  | {
+      role: 'assistant'
+      content: string | null
+      tool_calls?: StreamingToolCall[]
+      // Native thinking blocks (verbatim, with signature) — consumed by
+      // convertOpenAiRequestToAnthropic, ignored on the OpenAI-compat path.
+      thinking_blocks?: ReplayThinkingBlock[]
+    }
   | { role: 'tool'; tool_call_id: string; content: string }
 
 // Compact, frozen one-liner describing a turn's tool calls. Persistent
@@ -1716,6 +1727,13 @@ const App = () => {
         const toolCallRecords: Array<{
           name: string; args: unknown; result: unknown; duration_ms: number; timestamp: string
         }> = []
+        // The FINAL iteration's native thinking blocks (content + signature),
+        // persisted into the saved assistant message meta so later turns can
+        // replay them (meta.thinkingBlocks). Only the final iteration's blocks:
+        // they're the reasoning that produced the visible reply, and replaying
+        // them without their tool_use siblings is the shape prior-turn history
+        // actually has (tool blocks never enter persistent history).
+        let finalThinkingBlocks: ReplayThinkingBlock[] = []
         let reasoningContent = ''
         let reasoningType: 'reasoning' | 'thinking' | null = null
         let actualModel = effectiveModel
@@ -1984,6 +2002,13 @@ const App = () => {
             meta.tool_calls = toolCallRecords
             meta.toolDigest = buildToolDigest(toolCallRecords)
           }
+          // Freeze the final iteration's thinking blocks at save time (like
+          // toolDigest) — replayed on later turns so the model sees its own
+          // prior raw reasoning. Byte-stable, so the rolling cache prefix
+          // never wobbles; messages without it replay exactly as before.
+          if (!streaming && finalThinkingBlocks.length > 0) {
+            meta.thinkingBlocks = finalThinkingBlocks
+          }
           if (!streaming && flowEvents.length > 0) {
             meta.flow = flowEvents
           }
@@ -2184,7 +2209,28 @@ const App = () => {
               if (message.role === 'assistant' && message.meta?.toolDigest) {
                 content = `[本轮已调用工具] ${message.meta.toolDigest}\n\n${content}`
               }
-              baseMessages.push({ role: message.role, content } as ChatRequestMessage)
+              // Replay this turn's frozen thinking blocks (signature included,
+              // verbatim) so the model sees its own prior raw reasoning across
+              // turns — Opus 4.5+/Sonnet 4.6+ keep prior-turn thinking in
+              // context (older models drop it server-side, harmless). Gated on
+              // the outgoing request actually having thinking on: sending
+              // thinking blocks with thinking disabled risks a 400, and the
+              // reasoning toggle already invalidates the message cache anyway.
+              // Blocks are frozen at save time → byte-stable → the rolling
+              // cache prefix grows but never wobbles.
+              const replayThinking =
+                message.role === 'assistant' &&
+                reasoningEnabled &&
+                isClaudeModel(effectiveModel) &&
+                Array.isArray(message.meta?.thinkingBlocks) &&
+                message.meta.thinkingBlocks.length > 0
+                  ? message.meta.thinkingBlocks
+                  : null
+              baseMessages.push({
+                role: message.role,
+                content,
+                ...(replayThinking ? { thinking_blocks: replayThinking } : {}),
+              } as ChatRequestMessage)
             }
           }
           if (cancelledProactive) {
@@ -2638,6 +2684,12 @@ TOOL_SEARCH_HANDOFF,
             const toolCallsArr = Array.from(accumulatedToolCalls.values()).filter(
               (tc) => tc.function.name.length > 0,
             )
+            // Track the latest iteration's thinking blocks; after the loop ends
+            // this holds the FINAL iteration's (the reply the user sees), which
+            // buildAssistantMeta freezes into meta.thinkingBlocks for replay.
+            if (iterationThinkingBlocks.length > 0) {
+              finalThinkingBlocks = iterationThinkingBlocks
+            }
             if (
               toolsEnabled &&
               toolCallsArr.length > 0 &&

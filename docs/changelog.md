@@ -8,6 +8,26 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### 保活 ping 在 treegpt 上刷错缓存链：stream:false ≠ 聊天的 stream:true（2026-07-09）
+
+**症状**（记账版上线当天就抓到现行）：06:30 服务端 ping 正常发出（门控正确、离上次聊天 53.7min），但 `cache_read=0、cache_write=53887` 全量冷写；06:55 真实聊天（ping 后仅 25min）**又**全量冷写 54636——聊天读不到 ping 刚写的缓存，ping 白写 ~¥2，聊天照样冷。
+
+**根因**：ping 是 `stream:false`，聊天是 `stream:true`。「stream 不影响缓存键」是金瓜瓜上的实测结论（非流 ping 命中流式聊天的 65931）；**treegpt 上非流请求疑似路由到另一条上游 lineage**，非流 ping 和流式聊天互不相通——和 2026-06-17 的 thinking 分链坑同一形状，换了个维度再踩一次。
+
+**修**（`cache_keepalive/index.ts`）：ping 改 `stream:true` 与聊天完全同形；Edge Function 从 SSE（`message_start` + `message_delta`）合并 usage，兼容中转忽略 stream 时的纯 JSON 响应。**铁律升级：ping 与聊天必须在一切可能影响路由/缓存键的维度逐字节一致；任何「实测无影响」的结论只对测过的那家中转成立。**（另：treegpt 流式聊天之间也偶发 16–33min 随机全量冷写——13:34、07-08 11:09——中转侧亲和飘，客户端无解，介意换金瓜瓜风铃草。）
+
+### thinking 跨轮回传：模型能看到自己之前的原始思考（2026-07-09）
+
+灵感来自用户分享的推文（signature 回传机制）。Anthropic 官方文档确认：**Opus 4.5+/Sonnet 4.6+ 会把历史 assistant 轮的 thinking block（原样带 signature 回传时）保留在上下文里**（旧模型服务端剥掉不计费）；signature 改一字节即 400。此前 Nimbus 只在**同轮工具循环内**回传 thinking（2026-06-18 修的缓存坑），跨轮全丢——模型每轮都看不到自己昨天在想什么。
+
+**实现**（toolDigest 同款冻结模式，`App.tsx` + `anthropic.ts` + `types.ts`）：
+- 保存 assistant 消息时把**最终迭代**的 thinking block（含 signature）冻进 `meta.thinkingBlocks`；
+- 重放历史时挂回该消息（`thinking_blocks` 字段 → 转换器输出 `{type:'thinking',...}` 前置块），仅当「本次请求 thinking 开着 + Claude 模型」；
+- **只有新消息携带，老历史逐字节不变 → 上线零冷写**；块冻结后进缓存前缀永不抖动，代价是前缀每轮多一段思考文本（0.1× 读，便宜），压缩阈值会稍早触发。
+- **刻意不做**「只回传最近 N 条」：在 BP1+BP4+HEAD 布局里，从已缓存前缀删块 = 每轮把命中点往回推一轮、多付一轮写费，比全量保留更贵还更抖。详见 docs/caching.md §7。
+
+需新 APK 生效。
+
 ### 保活 8 天没发过一次 ping：快照 upsert 静默失败 → today-gate 天天把行筛掉（2026-07-09）
 
 **症状**：用户报「白天隔 ~1h 再发消息就冷写」，但保活开着。7/9 部署的记账版 Edge Function 里 `usage_logs` 一条 keepalive/keepalive_fail 都没有。
@@ -24,7 +44,9 @@
 - Edge Function 加**看门狗**：SELECT 不再预过滤，取全部行；对窗口外的行查 `usage_logs` 最近 chat 行，若「聊天在今天窗口内流动、快照却没跟上（>10min 宽限）」→ 写一行 `source='keepalive_stale'`（6h 限流 + request_debug 带两侧时间戳），用量页直接可见；
 - 客户端 upsert 失败/convert 抛错时写 `source='keepalive_client_fail'`（0 token + request_debug 带 step 和错误信息，`forceRecord` 穿过零用量守卫）。**需新 APK 生效**；看门狗走 CI 部署立即生效。
 
-**判读速查**（用量页 source 列）：`keepalive`=ping 成功（看 cache_read/cache_write）；`keepalive_fail`=ping 发了被上游拒；`keepalive_stale`=快照冻结、客户端坏了；`keepalive_client_fail`=客户端自己报的 upsert 失败（能看到具体错误）。**根因（客户端那 8 天到底为什么 upsert 失败）当时不可见、已无法回溯**——这批可观测性就是为了下次它再犯时能当场抓住。
+**判读速查**（用量页 source 列）：`keepalive`=ping 成功（看 cache_read/cache_write）；`keepalive_fail`=ping 发了被上游拒；`keepalive_stale`=快照冻结、客户端没在更新；`keepalive_client_fail`=客户端自己报的 upsert 失败（能看到具体错误）。
+
+**根因（事后用户确认）**：前端的缓存保活开关 6/30 被手动关掉、7/9 才重新打开。开关关着 → 客户端跳过快照 upsert → `last_chat_at` 冻结。并非代码 bug——但暴露了两个真问题：① 当时的 APK 还没带「关保活即删服务端快照」逻辑，留下一个冻结行（现行代码关开关会删行）；② 「开关关着」和「保活坏了」在服务端完全无法区分，都表现为一片寂静。上面的看门狗把这两种状态都变得可见：冻结行 + 聊天在流动 → `keepalive_stale` 行会持续出现（6h 一条），无论是开关忘了开还是客户端真坏了，用量页都能看到。
 
 ### 情绪系统「念」两处修正：增量真实生效 + satisfied 提高门槛（2026-07-05）
 

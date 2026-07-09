@@ -296,6 +296,27 @@ export const convertOpenAiRequestToAnthropic = async (
       messages.push({ role: 'assistant', content: blocks })
       continue
     }
+    // Plain assistant turn carrying replayed thinking blocks (cross-turn
+    // thinking回传): thinking must be the FIRST content blocks, verbatim with
+    // signature. Opus 4.5+/Sonnet 4.6+ keep prior-turn thinking in context so
+    // the model sees its own past raw reasoning; older models strip it
+    // server-side. Empty-text guard matches the fallthrough path below.
+    if (msg.role === 'assistant' && msg.thinking_blocks && msg.thinking_blocks.length > 0) {
+      const blocks: AnthropicContentBlock[] = []
+      for (const tb of msg.thinking_blocks) {
+        if (tb.type === 'thinking') {
+          blocks.push({ type: 'thinking', thinking: tb.thinking, signature: tb.signature })
+        } else if (tb.type === 'redacted_thinking') {
+          blocks.push({ type: 'redacted_thinking', data: tb.data })
+        }
+      }
+      const text = typeof msg.content === 'string' ? msg.content : ''
+      if (text.trim()) blocks.push({ type: 'text', text })
+      if (blocks.length > 0) {
+        messages.push({ role: 'assistant', content: blocks })
+      }
+      continue
+    }
     const flattened = await flattenContent(msg.content)
     // Anthropic rejects empty content (string '' OR empty array). This
     // happens with historical assistant messages from tool-only
