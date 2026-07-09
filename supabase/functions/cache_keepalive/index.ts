@@ -233,6 +233,23 @@ Deno.serve(async (req) => {
       cooled++
       continue
     }
+    // Dead-cache guard: if the last touch is beyond the 1h TTL, the cache is
+    // already gone and a ping can only COLD-WRITE the full prompt — a pure
+    // gamble that the user returns before the fresh write expires. Skip and
+    // let their next real message pay the (unavoidable) write instead.
+    // In normal operation pings keep the gap ≤50min so this never fires; it
+    // only triggers after a blackout (function downtime, deploy gap, quiet-
+    // hours edge). MEASURED 2026-07-09 16:25: the quiet-hours change deployed
+    // late, the first eligible ping arrived 71min after the last chat and
+    // cold-wrote 84,428 tokens for nothing. Deliberately does NOT update
+    // last_ping_at — the row keeps being skipped until a real chat restarts
+    // the chain.
+    if (Date.now() - lastTouchMs > 60 * 60 * 1000) {
+      console.warn(
+        `keepalive skip user=${row.user_id} reason=cache_already_expired gap_min=${Math.round((Date.now() - lastTouchMs) / 60000)}`,
+      )
+      continue
+    }
 
     // Build the ping. The body in row.body is Anthropic-native shape (App.tsx
     // converts via convertOpenAiRequestToAnthropic before upserting) so we POST
