@@ -12,6 +12,7 @@ export type ChannelBalance = {
   granted: number | null
   used: number | null
   remaining: number | null
+  unlimited?: boolean
 }
 
 export type ChannelModelPrice = {
@@ -88,6 +89,21 @@ export const writeCachedChannelInfo = (baseUrl: string, info: ChannelInfo) => {
     /* quota / disabled storage — non-fatal */
   }
 }
+
+// NewAPI/One-API report a ~$100,000,000 sentinel for unlimited-quota
+// tokens, so a huge "remaining"/"granted" isn't a real balance. Treat the
+// backend's explicit flag OR any near-sentinel figure as unlimited — this
+// keeps working even against an older deployed function that only sends
+// the raw sentinel number.
+const UNLIMITED_SENTINEL = 99999999
+
+export const isUnlimitedBalance = (b: ChannelBalance | null | undefined): boolean =>
+  Boolean(
+    b &&
+      (b.unlimited ||
+        (b.granted != null && b.granted >= UNLIMITED_SENTINEL) ||
+        (b.remaining != null && b.remaining >= UNLIMITED_SENTINEL)),
+  )
 
 // Pretty-print a money amount in the relay's currency. USD → "$12.34",
 // anything else falls back to "12.34 <CUR>".

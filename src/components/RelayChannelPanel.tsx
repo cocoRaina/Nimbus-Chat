@@ -5,6 +5,7 @@ import {
   writeCachedChannelInfo,
   formatMoney,
   formatFetchedAgo,
+  isUnlimitedBalance,
   type ChannelInfo,
   type ChannelKind,
 } from '../storage/channelInfo'
@@ -69,6 +70,7 @@ const ChannelCard = ({ target, reloadToken }: { target: ChannelTarget; reloadTok
   const balance = info?.balance ?? null
   const online = info?.status === 'online'
   const currency = balance?.currency ?? 'USD'
+  const unlimited = isUnlimitedBalance(balance)
 
   const statusPill = (() => {
     if (state.status === 'loading') return <span className="rc-pill rc-loading">查询中…</span>
@@ -102,13 +104,13 @@ const ChannelCard = ({ target, reloadToken }: { target: ChannelTarget; reloadTok
         <div className={`rc-balance${state.stale ? ' rc-stale' : ''}`}>
           <div className="rc-cell rc-lead">
             <span className="rc-k">余额</span>
-            <span className="rc-v">{formatMoney(balance.remaining, currency)}</span>
+            <span className="rc-v">{unlimited ? '不限额' : formatMoney(balance.remaining, currency)}</span>
           </div>
           <div className="rc-cell">
             <span className="rc-k">累计已用</span>
             <span className="rc-v">{formatMoney(balance.used, currency)}</span>
           </div>
-          {balance.granted != null ? (
+          {!unlimited && balance.granted != null ? (
             <div className="rc-cell">
               <span className="rc-k">总额度</span>
               <span className="rc-v">{formatMoney(balance.granted, currency)}</span>

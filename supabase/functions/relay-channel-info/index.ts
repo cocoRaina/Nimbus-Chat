@@ -28,7 +28,7 @@ const json = (body: unknown, status = 200) =>
 
 const trimSlash = (s: string) => s.replace(/\/+$/, '')
 
-// A relay base may be stored as "https://x.com" or "https://x.com/v1".
+// A relay base may be stored as https://x.com or https://x.com/v1 —
 // Management/billing routes live at the site root, inference at /v1.
 const toRoot = (base: string) => trimSlash(base).replace(/\/v1$/, '')
 
@@ -43,7 +43,12 @@ type Balance = {
   granted: number | null // total quota granted
   used: number | null // cumulative spend
   remaining: number | null // balance left
+  unlimited: boolean // token has no quota cap (NewAPI sentinel)
 }
+
+// NewAPI/One-API report hard_limit_usd = 100000000 for an unlimited-quota
+// token. Anything at/above this is the sentinel, not a real balance.
+const UNLIMITED_SENTINEL = 99999999
 
 type ModelPrice = {
   name: string
@@ -79,6 +84,7 @@ async function fetchOpenRouterBalance(base: string, key: string): Promise<Balanc
         granted,
         used,
         remaining: granted != null && used != null ? granted - used : null,
+        unlimited: false,
       }
     }
   } catch {
@@ -98,6 +104,7 @@ async function fetchOpenRouterBalance(base: string, key: string): Promise<Balanc
         granted: limit,
         used: usage,
         remaining: remaining != null ? remaining : limit != null && usage != null ? limit - usage : null,
+        unlimited: false,
       }
     }
   } catch {
@@ -138,11 +145,17 @@ async function fetchNewApiBalance(root: string, key: string): Promise<Balance | 
   }
   if (granted == null && usedCents == null) return null
   const used = usedCents != null ? usedCents / 100 : null
+  // Unlimited-quota token: hard_limit is the sentinel, so there's no real
+  // balance or total. Keep `used` (that's a real number), drop the rest.
+  if (granted != null && granted >= UNLIMITED_SENTINEL) {
+    return { currency: 'USD', granted: null, used, remaining: null, unlimited: true }
+  }
   return {
     currency: 'USD',
     granted,
     used,
     remaining: granted != null && used != null ? granted - used : granted,
+    unlimited: false,
   }
 }
 
