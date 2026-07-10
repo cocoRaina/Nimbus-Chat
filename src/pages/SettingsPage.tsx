@@ -3,6 +3,7 @@ import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LocalAvatar from '../components/LocalAvatar'
+import RelayChannelPanel, { type ChannelTarget } from '../components/RelayChannelPanel'
 import { fetchOpenRouterModels } from '../api/openrouter'
 import type { UserSettings } from '../types'
 import { supabase } from '../supabase/client'
@@ -152,6 +153,23 @@ const SettingsPage = ({
     () => deriveProviderDisplayName(msuicodeBaseUrlInput || DEFAULT_MSUICODE_BASE),
     [msuicodeBaseUrlInput],
   )
+  // Relays to show in the channel panel: every saved preset, plus the
+  // current (unsaved) custom slot when it isn't already one of them.
+  const channelTargets = useMemo<ChannelTarget[]>(() => {
+    const norm = (u: string) => u.trim().replace(/\/+$/, '')
+    const list: ChannelTarget[] = relayPresets.map((p) => ({
+      id: p.id,
+      name: p.name,
+      baseUrl: p.baseUrl,
+      apiKey: p.apiKey,
+    }))
+    const curBase = msuicodeBaseUrlInput.trim()
+    const curKey = msuicodeApiKeyInput.trim() || getMsuicodeApiKey()
+    if (curBase && curKey && !relayPresets.some((p) => norm(p.baseUrl) === norm(curBase))) {
+      list.unshift({ id: 'current-slot', name: customProviderName || '当前中转', baseUrl: curBase, apiKey: curKey })
+    }
+    return list
+  }, [relayPresets, msuicodeBaseUrlInput, msuicodeApiKeyInput, customProviderName])
   const [catalogReloadKey, setCatalogReloadKey] = useState(0)
   const [draftDefaultModel, setDraftDefaultModel] = useState(defaultModelId)
   const [draftChatReasoning, setDraftChatReasoning] = useState(true)
@@ -1199,6 +1217,9 @@ const SettingsPage = ({
                 把当前 Base URL + Key + 格式存成预设，之后点一下就能在多个中转站之间切换。
               </span>
             )}
+
+            <label>余额 · 花费 · 模型</label>
+            <RelayChannelPanel targets={channelTargets} />
           </div>
         ) : null}
       </section>
