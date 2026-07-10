@@ -61,6 +61,20 @@ const DIAG_TABS: Array<{ key: DiagTab; label: string }> = [
   { key: 'memory', label: '记忆\n状态' },
 ]
 
+// usage_logs.source → 明细表里的中文标签 + 配色。让后台工作（保活 ping /
+// 失败上报 / 压缩失败）在逐条明细里一眼可辨，而不是全长得像 chat。
+const SOURCE_META: Record<string, { label: string; cls: string }> = {
+  chat: { label: '聊天', cls: 'chat' },
+  keepalive: { label: '保活', cls: 'ka' },
+  keepalive_fail: { label: '保活·拒', cls: 'bad' },
+  keepalive_stale: { label: '保活·冻', cls: 'bad' },
+  keepalive_client_fail: { label: '保活·端错', cls: 'bad' },
+  compress_fail: { label: '压缩失败', cls: 'bad' },
+  snacks: { label: '朋友圈', cls: 'aux' },
+  syzygy: { label: '朋友圈', cls: 'aux' },
+  memory_extract: { label: '记忆', cls: 'aux' },
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const computeRangeStart = (range: RangeKey): Date | undefined => {
@@ -755,6 +769,42 @@ const UsagePage = ({ user }: UsagePageProps) => {
     return { count: chatRows.length, totalActual, totalCompletion, avgCache: Math.round(avgCache), avgCacheRatio, rows: chatRows.slice(0, 10) }
   }, [rows])
 
+  // 保活 + 压缩后台状态：从 usage_logs 的 keepalive* / compress_fail 行读出，
+  // 让服务端后台工作（原本只在库里、UI 看不见）在诊断页一眼可判。
+  const keepaliveStatus = useMemo(() => {
+    const kaRows = rows.filter((r) =>
+      r.source === 'keepalive' || r.source === 'keepalive_fail' || r.source === 'keepalive_stale',
+    )
+    const compressFails = rows.filter((r) => r.source === 'compress_fail')
+    const latest = kaRows[0] ?? null // rows are newest-first
+    let status: 'good' | 'warn' | 'bad' | 'idle' = 'idle'
+    let headline = '这段时间没有保活 ping'
+    let detail = '可能保活开关关着、在 01:00–08:00 静默时段、或还没出现 ≥50min 的聊天空档。'
+    if (latest) {
+      const when = new Date(latest.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      if (latest.source === 'keepalive') {
+        if (latest.cacheWrite > latest.cacheRead) {
+          status = 'warn'
+          headline = 'ping 在冷写（缓存已过期）'
+          detail = `最近一次 ${when}：缓存写 ${latest.cacheWrite.toLocaleString()} > 读 ${latest.cacheRead.toLocaleString()}。多为渠道漂移/部署空窗导致，偶发可忽略，频繁则考虑关保活或换渠道。`
+        } else {
+          status = 'good'
+          headline = '保活正常保温'
+          detail = `最近一次 ${when}：缓存读 ${latest.cacheRead.toLocaleString()} · 写 ${latest.cacheWrite.toLocaleString()}。ping 命中缓存、约 ¥0.07 一次，早晚第一条外的冷写正被挡住。`
+        }
+      } else if (latest.source === 'keepalive_fail') {
+        status = 'bad'
+        headline = 'ping 被上游拒绝'
+        detail = `最近一次 ${when}：请求发出但渠道返回错误。检查中转 key/额度/模型是否可用。`
+      } else if (latest.source === 'keepalive_stale') {
+        status = 'bad'
+        headline = '快照冻结——客户端没在更新'
+        detail = `最近一次 ${when}：聊天在继续但服务端快照没跟上，保活对你实际是关闭的。重开保活开关后聊一句即可重建。`
+      }
+    }
+    return { status, headline, detail, hasCompressFail: compressFails.length > 0, latestCompressFail: compressFails[0] ?? null }
+  }, [rows])
+
   // ── Render header ──────────────────────────────────────────────────────
 
   const headerRight = activeTab === 'usage'
@@ -831,6 +881,25 @@ const UsagePage = ({ user }: UsagePageProps) => {
               )}
             </div>
           )}
+
+          <div className={`ka-status ka-status--${keepaliveStatus.status}`}>
+            <div className="ka-status__head">
+              <span className="ka-status__dot" aria-hidden="true">
+                {keepaliveStatus.status === 'good' ? '🟢' : keepaliveStatus.status === 'warn' ? '🟡' : keepaliveStatus.status === 'bad' ? '🔴' : '⚪'}
+              </span>
+              <strong>后台保活 · {keepaliveStatus.headline}</strong>
+            </div>
+            <p className="ka-status__detail">{keepaliveStatus.detail}</p>
+            {keepaliveStatus.hasCompressFail && (
+              <p className="ka-status__warn">
+                ⚠️ 检测到压缩摘要失败（compress_fail）
+                {keepaliveStatus.latestCompressFail
+                  ? ` · ${new Date(keepaliveStatus.latestCompressFail.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                  : ''}
+                ——去「设置 → 上下文压缩」检查 Summarizer 提供商/模型/key。
+              </p>
+            )}
+          </div>
 
           {byProvider.length === 0 ? (
             <p className="usage-empty">这段时间还没有调用记录。</p>
@@ -914,6 +983,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
                   <thead>
                     <tr>
                       <th style={{ textAlign: 'left' }}>时间</th>
+                      <th style={{ textAlign: 'left' }}>类型</th>
                       <th style={{ textAlign: 'left' }}>模型</th>
                       <th>输入</th>
                       <th>输出</th>
@@ -922,18 +992,22 @@ const UsagePage = ({ user }: UsagePageProps) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.slice(0, 80).map((row) => (
+                    {rows.slice(0, 80).map((row) => {
+                      const meta = SOURCE_META[row.source] ?? SOURCE_META.chat
+                      return (
                       <tr key={row.id}>
                         <td className="model" style={{ whiteSpace: 'nowrap' }}>
                           {new Date(row.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </td>
+                        <td><span className={`src-badge src-badge--${meta.cls}`}>{meta.label}</span></td>
                         <td className="model">{row.model.replace(/^anthropic\//, '')}</td>
                         <td>{row.promptTokens.toLocaleString()}</td>
                         <td>{row.completionTokens.toLocaleString()}</td>
                         <td>{row.cacheRead.toLocaleString()}</td>
                         <td>{row.cacheWrite.toLocaleString()}</td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
