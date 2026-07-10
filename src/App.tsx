@@ -2124,8 +2124,30 @@ const App = () => {
               // Ground truth from last turn's server usage — counts tool
               // schemas + injections that the client estimate can't see.
               lastServerPromptTokens: lastServerPromptTokensRef.current.get(sessionId) ?? 0,
+              // Last-resort summarizer fallback: the chat path is known-good,
+              // so compression can complete even when the configured summarizer
+              // provider (e.g. deepseek via OpenRouter) is down.
+              chatModel: effectiveModel,
+              chatProvider: getActiveProvider(),
             },
           )
+          // Surface a summarizer failure the way keepalive failures are surfaced
+          // — a visible usage_logs row, not an invisible console.warn. Trigger
+          // is fixed now, so the summarizer actually gets exercised; if it fails
+          // (bad key / dead model / all fallbacks down) the user sees it in
+          // 用量统计 instead of silently paying for an uncompressed prompt.
+          if (compressionOutcome.summarizerFailed && user) {
+            void recordUsage({
+              userId: user.id,
+              model: activeSettings.summarizerModel ?? 'summarizer',
+              promptTokens: 0,
+              completionTokens: 0,
+              source: 'compress_fail',
+              provider: activeSettings.summarizerProvider,
+              requestDebug: { note: '压缩摘要生成失败（含聊天渠道兜底）——检查 Summarizer 提供商/模型/key' },
+              forceRecord: true,
+            })
+          }
           const baseMessages: ChatRequestMessage[] = []
           const cancelledProactive = skipUser ? null : readPendingProactive()
           // Trim before checking + sending so a whitespace-only system
@@ -4377,6 +4399,8 @@ TOOL_SEARCH_HANDOFF,
             keepRecentMessages: settings.compressionKeepRecentMessages,
             summarizerModel: settings.summarizerModel,
             summarizerProvider: settings.summarizerProvider,
+            chatModel: effectiveModel,
+            chatProvider: getActiveProvider(),
             force: true,
           },
         )

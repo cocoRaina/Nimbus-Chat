@@ -21,7 +21,10 @@
 
 **修**（`conversationCompression.ts` + `App.tsx`，需新 APK）：触发判定改用**上一轮服务端真实 `prompt_tokens` 兜底**——`effectiveSize = max(客户端估算, 上轮服务端prompt_tokens)`，谁过阈值算谁。服务端真值把工具、注入、一切都数进去了，是 ground truth，估算永远只会低估、拿它当地板不会误伤。`App.tsx` 加 `lastServerPromptTokensRef`（按 session 存、每轮 flushUsageRecord 覆盖写入，压缩后自然写入更小值、不会无限压）。手动「压缩对话」按钮（`force:true`）不受影响，是即时救火手段。
 
-⚠️ 已知残留（下一轮再修）：摘要生成失败仍被 `catch` 静默吞成"按未压缩处理"、且回退是全量历史而非"上一份好摘要"——本次没动，因为本例根因是触发没跑、根本没到摘要那步。
+**同批顺手修掉摘要器三处残留**（`conversationCompression.ts` + `App.tsx`）：
+- **跨渠道单点故障**：摘要器（deepseek 走 OpenRouter）挂掉时，即便聊天渠道（camel-hub）健康，压缩也整条失败。改为**双重失败后降级用聊天渠道 + 聊天模型兜底**（chatModel/chatProvider 传进去）——聊天能通摘要就能通，保证压缩总能完成。代价是兜底时用 opus 摘要略贵，但每 ~8 条才一次、读的是缓存输入，值。
+- **灾难性回退**：重新压缩失败原来回退成**全量未压缩历史**（把上一份好摘要也扔了）。改为**退回"上一份好摘要 + 锚定近窗"**（cachedFallback），只有真没有旧摘要时才退全量。摘要器偶尔抖一下不再让 prompt 爆到 86K。
+- **静默失败**：`catch` 只 `console.warn`。改为**在用量统计留一行 `source='compress_fail'`**（0 token + request_debug 提示检查 Summarizer 提供商/模型/key），和保活失败同款可见化。触发修好后摘要器开始真被调用，万一配置有问题你能当场看见。
 
 ### camel-hub 定档 + 静默时段 00:00→01:00 + 死缓存护栏（2026-07-09 深夜）
 

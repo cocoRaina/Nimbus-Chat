@@ -216,15 +216,37 @@ const summarizeMessages = async (
   existingSummary: string,
   newMessages: ChatMessage[],
   summarizerProvider: 'openrouter' | 'msuicode',
+  chatFallback: { model: string; provider: 'openrouter' | 'msuicode' } | null,
 ): Promise<string> => {
   try {
     return await summarizeMessagesOnce(summarizerModel, existingSummary, newMessages, summarizerProvider)
   } catch (firstError) {
     // Refusals are usually transient (sampling / upstream rotation) — one
-    // retry rescues most of them. Still failing → caller sends uncompressed
-    // this turn and retries next send; the existing cache stays untouched.
+    // retry on the same provider rescues most of them.
     console.warn('对话摘要第一次生成失败，重试一次', firstError)
-    return summarizeMessagesOnce(summarizerModel, existingSummary, newMessages, summarizerProvider)
+    try {
+      return await summarizeMessagesOnce(summarizerModel, existingSummary, newMessages, summarizerProvider)
+    } catch (secondError) {
+      // Cross-provider single point of failure: the configured summarizer
+      // (e.g. deepseek via OpenRouter) can be dead while the CHAT relay
+      // (e.g. a 中转 with only a Claude key) is perfectly healthy. Rather than
+      // let compression fail whenever the summarizer's separate provider is
+      // down, fall back to the chat provider + chat model — it's the exact
+      // path the user's messages already succeed on, so it can't be
+      // mis-keyed. Pricier per summary than a cheap deepseek, but it runs
+      // once per ~8 messages and reads mostly-cached input, and it GUARANTEES
+      // compression actually happens instead of the prompt growing unbounded.
+      if (chatFallback && chatFallback.model.trim()) {
+        console.warn('摘要器双重失败，降级用聊天渠道兜底', secondError)
+        return summarizeMessagesOnce(
+          summarizerModel === chatFallback.model ? summarizerModel : chatFallback.model,
+          existingSummary,
+          newMessages,
+          chatFallback.provider,
+        )
+      }
+      throw secondError
+    }
   }
 }
 
@@ -242,6 +264,13 @@ export type CompressionSettings = {
   // permanently under the trigger. When this exceeds the trigger we compress
   // regardless of the estimate. See App.tsx lastServerPromptTokensRef.
   lastServerPromptTokens?: number
+  // Chat provider + model, used ONLY as a last-resort summarizer fallback
+  // when the configured summarizer (which may live on a different provider,
+  // e.g. deepseek via OpenRouter) fails twice. The chat path is known-good
+  // (the user's messages succeed on it), so it guarantees compression can
+  // always complete instead of the prompt growing unbounded.
+  chatModel?: string
+  chatProvider?: 'openrouter' | 'msuicode'
   // When true, bypass the enabled flag and the token-ratio threshold.
   // Used by the manual "压缩对话" button in the chat header — still
   // respects the minimum-messages-for-compression guard because there's
@@ -254,6 +283,12 @@ export type CompressionResult = {
   recentMessages: ChatMessage[]
   summaryText: string | null
   didCompress: boolean
+  // Set when an over-trigger summarization was attempted but failed (after
+  // retries + chat-provider fallback). Lets the caller surface the failure
+  // in 用量统计 instead of it being an invisible console.warn — the same
+  // silent-failure class as the keepalive/upsert bugs. When true, the result
+  // degrades to the best available (cached summary if any, else full history).
+  summarizerFailed?: boolean
 }
 
 export const compressIfNeeded = async (
@@ -306,6 +341,12 @@ export const compressIfNeeded = async (
 
   let cachedSummary = ''
   let newOldMessages = oldMessages
+  // When we're RE-summarizing an existing summary, this holds the graceful
+  // degradation target: reuse the last good summary + anchored window. If the
+  // re-summarize then fails, we return THIS instead of dumping the full
+  // uncompressed history (which threw away a perfectly valid summary — the
+  // old behaviour that turned a transient summarizer blip into an 86k prompt).
+  let cachedFallback: CompressionResult | null = null
   try {
     const cache = await loadCompressionCache(conversationId)
     // A cache row that is itself a refusal (poisoned before the guard in
@@ -349,6 +390,19 @@ export const compressIfNeeded = async (
         }
         cachedSummary = cache.summary_text
         newOldMessages = oldMessages.slice(cacheIdx + 1)
+        // Precompute the graceful-degradation result (same shape as the
+        // reuse-cache path above) in case the re-summarize below fails.
+        const anchored = fullHistory.slice(cacheIdx + 1)
+        const cappedRecent =
+          anchored.length > RECENT_WINDOW_HARD_CAP
+            ? anchored.slice(-RECENT_WINDOW_HARD_CAP)
+            : anchored
+        cachedFallback = {
+          systemPromptText,
+          recentMessages: cappedRecent.length > 0 ? cappedRecent : recentMessages,
+          summaryText: cache.summary_text,
+          didCompress: true,
+        }
       }
     }
   } catch (error) {
@@ -362,12 +416,27 @@ export const compressIfNeeded = async (
   }
 
   const summarizerModel = settings.summarizerModel?.trim() || DEFAULT_SUMMARIZER_MODEL
+  const chatFallback =
+    settings.chatModel && settings.chatModel.trim()
+      ? { model: settings.chatModel, provider: settings.chatProvider ?? settings.summarizerProvider }
+      : null
   let summary: string
   try {
-    summary = await summarizeMessages(summarizerModel, cachedSummary, newOldMessages, settings.summarizerProvider)
+    summary = await summarizeMessages(
+      summarizerModel,
+      cachedSummary,
+      newOldMessages,
+      settings.summarizerProvider,
+      chatFallback,
+    )
   } catch (error) {
-    console.warn('对话摘要生成失败，按未压缩处理', error)
-    return baseResult
+    // Every rescue path exhausted (2× summarizer + chat-provider fallback).
+    // Degrade to the last good summary + anchored window if we have one;
+    // only dump full history when there's genuinely no prior summary. Either
+    // way flag it so the caller can surface the failure in 用量统计 — this
+    // must never be an invisible console.warn again.
+    console.warn('对话摘要生成失败（含兜底），降级处理', error)
+    return { ...(cachedFallback ?? baseResult), summarizerFailed: true }
   }
 
   void saveCompressionCache(conversationId, summary, boundaryMessageId)
