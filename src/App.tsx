@@ -689,6 +689,17 @@ const App = () => {
   // pre-warm on chat-page entry — avoids hammering when the timer has
   // recently fired or pre-warm has already run.
   const keepaliveLastPingedAtRef = useRef<number>(0)
+  // Last REAL server prompt_tokens seen per session, keyed by sessionId. The
+  // compression trigger uses this as ground truth instead of a client-side
+  // token estimate — the estimate only counts systemPromptText + raw message
+  // text, so it silently OMITS the tool schemas (~27k tokens) and every
+  // per-message injection (time/health/mood/recall/toolDigest). MEASURED
+  // 2026-07-09: a session whose real prompt was 86k estimated to only ~40k,
+  // stayed under the 70k trigger, and never compressed — while an OLDER
+  // session with more raw message text crossed the trigger on message volume
+  // alone and looked fine, masking the bug. The server's prompt_tokens counts
+  // everything the model actually saw, so it can't drift out of the real cost.
+  const lastServerPromptTokensRef = useRef<Map<string, number>>(new Map())
   const insertPendingProactiveRef = useRef<
     (entry: { sessionId: string; text: string; fireAt: number; persist?: boolean; queueId?: string }) => Promise<void>
   >(async () => undefined)
@@ -1779,6 +1790,17 @@ const App = () => {
             `cached=${cached} cache_read=${lastUsage?.cache_read_input_tokens ?? 0} cache_create=${lastUsage?.cache_creation_input_tokens ?? 0} ` +
             `usage_keys=${Object.keys(lastUsage ?? {}).join(',')}`,
           )
+          // Remember the real server prompt size for the compression trigger.
+          // Plain overwrite (NOT max): once the conversation compresses, the
+          // next turn's prompt shrinks and this must shrink with it — a
+          // running max would pin at the pre-compression size and re-trigger
+          // compression forever. Within a turn the last flush (final tool
+          // iteration) wins; it's marginally larger than normal-mode but only
+          // errs toward compressing in time, which is safe.
+          const serverPrompt = Number(lastUsage?.prompt_tokens ?? 0)
+          if (serverPrompt > 0) {
+            lastServerPromptTokensRef.current.set(sessionId, serverPrompt)
+          }
           void recordUsage({
             userId: user.id,
             model: actualModel,
@@ -2099,6 +2121,9 @@ const App = () => {
               keepRecentMessages: activeSettings.compressionKeepRecentMessages,
               summarizerModel: activeSettings.summarizerModel,
               summarizerProvider: activeSettings.summarizerProvider,
+              // Ground truth from last turn's server usage — counts tool
+              // schemas + injections that the client estimate can't see.
+              lastServerPromptTokens: lastServerPromptTokensRef.current.get(sessionId) ?? 0,
             },
           )
           const baseMessages: ChatRequestMessage[] = []

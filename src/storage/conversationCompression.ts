@@ -234,6 +234,14 @@ export type CompressionSettings = {
   keepRecentMessages: number
   summarizerModel: string | null
   summarizerProvider: 'openrouter' | 'msuicode'
+  // Real server prompt_tokens from the previous turn (0 if unknown). Ground
+  // truth for the trigger — the client-side estimateTokens sum only sees
+  // systemPromptText + raw message text and silently omits the tool schemas
+  // (~27k) and per-message injections, so on tool-enabled Claude chats it can
+  // read ~40k while the model actually processed 86k, keeping the session
+  // permanently under the trigger. When this exceeds the trigger we compress
+  // regardless of the estimate. See App.tsx lastServerPromptTokensRef.
+  lastServerPromptTokens?: number
   // When true, bypass the enabled flag and the token-ratio threshold.
   // Used by the manual "压缩对话" button in the chat header — still
   // respects the minimum-messages-for-compression guard because there's
@@ -281,8 +289,14 @@ export const compressIfNeeded = async (
   if (!overTrigger) {
     const contextLimit = estimateModelContextLimit(model)
     const triggerTokens = Math.floor(contextLimit * Math.max(0.1, Math.min(0.95, settings.triggerRatio)))
-    overTrigger =
-      estimateTokens(systemPromptText) + estimateMessagesTokens(fullHistory) >= triggerTokens
+    // Prefer the real server prompt size (counts tool schemas + injections the
+    // estimate can't see); fall back to the client estimate when we have no
+    // server reading yet (first turn of a session). Whichever crosses the
+    // trigger wins — the estimate can only ever UNDER-count the true prompt,
+    // so using it as a floor never suppresses a needed compression.
+    const estimated = estimateTokens(systemPromptText) + estimateMessagesTokens(fullHistory)
+    const effectiveSize = Math.max(estimated, settings.lastServerPromptTokens ?? 0)
+    overTrigger = effectiveSize >= triggerTokens
   }
 
   const oldEndIdx = fullHistory.length - keepRecent - 1
