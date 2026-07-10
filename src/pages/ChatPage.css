@@ -320,6 +320,52 @@
   height: 16px;
 }
 
+/* 上下文容量进度条 —— 挂在「手动压缩对话」按钮下面，实时显示当前上下文
+   离自动压缩阈值还有多满。数据是上一轮服务端真实 prompt_tokens。 */
+.ctx-meter {
+  margin: 2px 12px 6px;
+  padding: 8px 11px 9px;
+  border-radius: 10px;
+  background: #f4f8fd;
+  border: 1px solid #e6eef7;
+}
+.ctx-meter__labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--ab-deep, #2b4a6f);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.ctx-meter__nums {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: #64748b;
+}
+.ctx-meter__track {
+  height: 7px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+.ctx-meter__fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1), background 0.3s ease;
+}
+.ctx-meter--ok   .ctx-meter__fill { background: linear-gradient(90deg, #7fd0a8, #4caf82); }
+.ctx-meter--high .ctx-meter__fill { background: linear-gradient(90deg, #f2c879, #e0a03e); }
+.ctx-meter--full .ctx-meter__fill { background: linear-gradient(90deg, #f0a3a0, #d9635f); }
+.ctx-meter__hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #8497ab;
+}
+.ctx-meter--high .ctx-meter__hint { color: #b07c1e; }
+.ctx-meter--full .ctx-meter__hint { color: #b0413e; }
+
 /* Row variant used by the model dropdown in the header gear menu —
    shares the toggle row's hit area and padding, but the trailing
    element is a <select> instead of a checkbox. */

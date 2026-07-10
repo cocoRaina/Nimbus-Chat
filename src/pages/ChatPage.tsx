@@ -81,6 +81,10 @@ export type ChatPageProps = {
   highReasoningEnabled: boolean
   onSelectReasoning: (reasoning: boolean | null) => void
   onManualCompress: () => Promise<{ ok: boolean; message: string }>
+  // Real context fill for the active session: last turn's server prompt_tokens
+  // (current) vs the auto-compression trigger (trigger). Drives the capacity
+  // bar under the manual-compress button. current=0 until the first reply lands.
+  contextUsage?: { current: number; trigger: number }
   keepaliveEnabled: boolean
   onToggleKeepalive: () => void
   user: User | null
@@ -405,6 +409,7 @@ const ChatPage = ({
   highReasoningEnabled,
   onSelectReasoning,
   onManualCompress,
+  contextUsage,
   keepaliveEnabled,
   onToggleKeepalive,
   toolStatus,
@@ -1431,6 +1436,34 @@ const ChatPage = ({
                   >
                     {compressing ? '⏳ 压缩中…' : '📦 手动压缩对话'}
                   </button>
+                  {contextUsage && contextUsage.trigger > 0 && (() => {
+                    const { current, trigger } = contextUsage
+                    const pct = current > 0 ? Math.min(100, Math.round((current / trigger) * 100)) : 0
+                    const level = pct >= 100 ? 'full' : pct >= 80 ? 'high' : 'ok'
+                    const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : `${n}`)
+                    return (
+                      <div className={`ctx-meter ctx-meter--${level}`}>
+                        <div className="ctx-meter__labels">
+                          <span>上下文容量</span>
+                          <span className="ctx-meter__nums">
+                            {current > 0 ? `${fmt(current)} / ${fmt(trigger)}` : '发一条消息后显示'}
+                          </span>
+                        </div>
+                        <div className="ctx-meter__track">
+                          <div className="ctx-meter__fill" style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="ctx-meter__hint">
+                          {current <= 0
+                            ? '满格后自动压缩，把上下文压回精简'
+                            : level === 'full'
+                            ? '已满格 · 下一条会自动压缩'
+                            : level === 'high'
+                            ? `${pct}% · 快满了，接近自动压缩`
+                            : `${pct}% · 到 100% 自动压缩`}
+                        </p>
+                      </div>
+                    )
+                  })()}
                   <label className="header-menu-toggle">
                     <input
                       type="checkbox"

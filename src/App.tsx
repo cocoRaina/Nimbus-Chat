@@ -153,7 +153,7 @@ import {
 import { syncStatusBarToColor } from './storage/statusBar'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
-import { compressIfNeeded } from './storage/conversationCompression'
+import { compressIfNeeded, estimateModelContextLimit } from './storage/conversationCompression'
 
 const MEMORY_EXTRACT_RECENT_MESSAGES = 24
 const AUTO_EXTRACT_USER_TURN_INTERVAL = 12
@@ -700,6 +700,9 @@ const App = () => {
   // alone and looked fine, masking the bug. The server's prompt_tokens counts
   // everything the model actually saw, so it can't drift out of the real cost.
   const lastServerPromptTokensRef = useRef<Map<string, number>>(new Map())
+  // Same value as the ref above, mirrored into state so the chat-header
+  // context-capacity progress bar re-renders when a turn updates it.
+  const [ctxTokensBySession, setCtxTokensBySession] = useState<Record<string, number>>({})
   const insertPendingProactiveRef = useRef<
     (entry: { sessionId: string; text: string; fireAt: number; persist?: boolean; queueId?: string }) => Promise<void>
   >(async () => undefined)
@@ -1800,6 +1803,9 @@ const App = () => {
           const serverPrompt = Number(lastUsage?.prompt_tokens ?? 0)
           if (serverPrompt > 0) {
             lastServerPromptTokensRef.current.set(sessionId, serverPrompt)
+            setCtxTokensBySession((prev) =>
+              prev[sessionId] === serverPrompt ? prev : { ...prev, [sessionId]: serverPrompt },
+            )
           }
           void recordUsage({
             userId: user.id,
@@ -4830,6 +4836,17 @@ TOOL_SEARCH_HANDOFF,
                 onArchiveSession={handleSessionArchiveStateChange}
                 onActiveSessionChange={setActiveChatSessionId}
                 onManualCompress={handleManualCompress}
+                getContextUsage={(sessionId: string) => {
+                  const model = resolveSessionModel(sessionId)
+                  const toolsOn = isToolCapableModel(model) && Boolean(supabase)
+                  const ratio = toolsOn
+                    ? Math.min(activeSettings.compressionTriggerRatio, 0.35)
+                    : activeSettings.compressionTriggerRatio
+                  const trigger = Math.floor(
+                    estimateModelContextLimit(model) * Math.max(0.1, Math.min(0.95, ratio)),
+                  )
+                  return { current: ctxTokensBySession[sessionId] ?? 0, trigger }
+                }}
                 onChatPageEnter={prewarmKeepaliveIfStale}
                 keepaliveEnabled={keepaliveEnabled}
                 onToggleKeepalive={handleToggleKeepalive}
@@ -5046,6 +5063,7 @@ const ChatRoute = ({
   onArchiveSession,
   onActiveSessionChange,
   onManualCompress,
+  getContextUsage,
   onChatPageEnter,
   keepaliveEnabled,
   onToggleKeepalive,
@@ -5088,6 +5106,7 @@ const ChatRoute = ({
   onArchiveSession: (sessionId: string, isArchived: boolean) => Promise<void>
   onActiveSessionChange: (sessionId: string) => void
   onManualCompress: (sessionId: string) => Promise<{ ok: boolean; message: string }>
+  getContextUsage: (sessionId: string) => { current: number; trigger: number }
   onChatPageEnter: () => void
   keepaliveEnabled: boolean
   onToggleKeepalive: () => void
@@ -5244,6 +5263,7 @@ const ChatRoute = ({
           onSelectReasoning(activeSession.id, reasoning)
         }
         onManualCompress={() => onManualCompress(activeSession.id)}
+        contextUsage={getContextUsage(activeSession.id)}
         keepaliveEnabled={keepaliveEnabled}
         onToggleKeepalive={onToggleKeepalive}
         user={user}
