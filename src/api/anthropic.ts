@@ -849,6 +849,15 @@ export const fetchAnthropicAsOpenAi = async (
     headers['x-api-key'] = apiKey
     headers['anthropic-version'] = '2023-06-01'
     headers['anthropic-dangerous-direct-browser-access'] = 'true'
+    // Opt in to the 1-hour extended cache TTL. On first-party Anthropic this is
+    // GA (the body's cache_control.ttl:'1h' is enough), but relays that proxy to
+    // an older upstream still gate 1h behind this beta header — without it they
+    // silently downgrade our ttl:'1h' to the default 5-minute cache, so a >5min
+    // gap cold-writes and the 55-min keepalive ping guards a cache that's
+    // already dead. Harmless where 1h is GA; only sent on the native (x-api-key)
+    // relay path — NOT the OpenRouter bearer path, whose CORS preflight rejects
+    // extra anthropic-* headers.
+    headers['anthropic-beta'] = 'extended-cache-ttl-2025-04-11'
   }
   const bodyJson = JSON.stringify(anthropicBody)
 

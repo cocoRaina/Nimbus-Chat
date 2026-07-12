@@ -56,6 +56,8 @@ Nimbus 现状:`anthropic.ts` 把 OpenAI 风格的 `body.user` 映射成 `metadat
 
 > 🔎 **冷写归因**:`usage_logs.relay_host` 记录每条请求实际走的中转 host（`provider` 只记 `openrouter`/`msuicode` 槽，分不清同一槽先后装过的 treegpt/camel）。查冷写时按 `relay_host` 分组，才能确定是「哪家在打散缓存」。用量页「Token 准确度」表也加了「中转」列。2026-07-12 加。
 
+> ⚠️ **1h TTL 要发 beta header(2026-07-12 修)**:请求体里 `cache_control.ttl:'1h'` 在 Anthropic 直连是 GA、不用 header;但**中转代理到旧上游时会把 1h 悄悄降级成 5min**(除非转发 `anthropic-beta: extended-cache-ttl-2025-04-11`)。症状:写缓存按 1.25×(5min)而非 2×(1h),间隔一超过 5 分钟就冷写,55 分钟续命 ping 守着一个早就死了的缓存。已在 `anthropic.ts` 的 x-api-key 路径(camel/中转)补上这个 header;**OpenRouter 的 bearer 路径不能加**(CORS 预检会拒非标 anthropic-* 头)。
+
 **TTL 很关键**:
 - OpenRouter **1h**:配 55 分钟"续命 ping"保活(见 §9)。
 - 金瓜瓜 **5m**:连续聊天才命中;**停超过 5 分钟缓存就掉**,下一条重建一次(冷写)。**不需要也不该 ping**(55 分钟救不回 5 分钟的缓存)。
