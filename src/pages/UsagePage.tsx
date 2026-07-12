@@ -1338,6 +1338,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
                     <thead>
                       <tr>
                         <th>会话</th>
+                        <th>中转</th>
                         <th>实际输入</th>
                         <th>输出</th>
                         <th>缓存命中</th>
@@ -1348,6 +1349,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
                       {tokenAccuracyStats.rows.map((row) => (
                         <tr key={row.id}>
                           <td className="model">{row.sessionTitle?.trim() || row.sessionId?.slice(0, 8) || '未知'}</td>
+                          <td className="model">{row.relayHost ?? '—'}</td>
                           <td>{formatTokenCount(row.promptTokens)}</td>
                           <td>{formatTokenCount(row.completionTokens)}</td>
                           <td>{formatTokenCount(row.cachedTokens)}</td>

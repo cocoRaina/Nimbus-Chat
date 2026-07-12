@@ -26,6 +26,20 @@ export const deriveProviderDisplayName = (baseUrl: string): string => {
 export const getCustomProviderDisplayName = (): string =>
   deriveProviderDisplayName(getMsuicodeBaseUrl())
 
+// Hostname of the relay currently serving requests, for per-request usage
+// attribution. 'openrouter.ai' for OpenRouter; the custom base's host for
+// the msuicode slot (e.g. 'api.camel-hub.com'). Lets us tell which upstream
+// actually served a row when several relays share the msuicode slot.
+export const getActiveRelayHost = (id?: ProviderId): string => {
+  const provider = id ?? getActiveProvider()
+  if (provider === 'openrouter') return 'openrouter.ai'
+  try {
+    return new URL(getMsuicodeBaseUrl()).hostname
+  } catch {
+    return 'unknown'
+  }
+}
+
 const trimSlash = (s: string) => s.replace(/\/+$/, '')
 
 export const getActiveProvider = (): ProviderId => {

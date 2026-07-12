@@ -1,4 +1,5 @@
 import { supabase } from '../supabase/client'
+import { getActiveRelayHost, type ProviderId } from './apiProvider'
 
 export type UsageSource = 'chat' | 'snacks' | 'syzygy' | 'memory_extract' | 'other'
 
@@ -11,6 +12,8 @@ export type UsageLogInput = {
   cachedTokens?: number
   source?: UsageSource | string
   provider?: string
+  // Actual relay hostname. Defaults to the active relay's host when omitted.
+  relayHost?: string
   sessionId?: string | null
   latencyMs?: number
   rawUsage?: unknown
@@ -38,6 +41,7 @@ export type UsageLogRow = {
   latencyMs: number | null
   source: string
   provider: string
+  relayHost: string | null
   sessionId: string | null
   sessionTitle: string | null
   createdAt: string
@@ -53,6 +57,7 @@ type UsageLogRecord = {
   cached_tokens: number | null
   source: string
   provider: string | null
+  relay_host?: string | null
   session_id: string | null
   created_at: string
   latency_ms?: number | null
@@ -82,6 +87,7 @@ const mapRow = (row: UsageLogRecord): UsageLogRow => ({
   latencyMs: typeof row.latency_ms === 'number' ? row.latency_ms : null,
   source: row.source,
   provider: row.provider ?? 'openrouter',
+  relayHost: row.relay_host ?? null,
   sessionId: row.session_id,
   sessionTitle: Array.isArray(row.sessions)
     ? row.sessions[0]?.title ?? null
@@ -109,6 +115,7 @@ export const recordUsage = async (input: UsageLogInput): Promise<void> => {
     cached_tokens: cachedTokens,
     source: input.source ?? 'chat',
     provider: input.provider ?? 'openrouter',
+    relay_host: input.relayHost ?? getActiveRelayHost(input.provider as ProviderId | undefined),
     session_id: input.sessionId ?? null,
     latency_ms: typeof input.latencyMs === 'number' ? Math.round(input.latencyMs) : null,
     raw_usage: input.rawUsage ?? null,
@@ -128,7 +135,7 @@ export const fetchUsageLogs = async (
   }
   let query = supabase
     .from('usage_logs')
-    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,cached_tokens,latency_ms,raw_usage,source,provider,session_id,created_at,sessions(title)')
+    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,cached_tokens,latency_ms,raw_usage,source,provider,relay_host,session_id,created_at,sessions(title)')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(5000)
