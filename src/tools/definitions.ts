@@ -152,10 +152,13 @@ export const TOOL_WEB_SEARCH = {
 }
 
 // === Write tools ===
-// User-authorized: memory / diary / handoff letter / timeline / period
-// Only call when the user explicitly asks you to record / remember /
+// User-authorized: memory / handoff letter / timeline / period —
+// only call when the user explicitly asks you to record / remember /
 // log something. Don't auto-save just because something interesting
-// was said.
+// was said. EXCEPTION: write_diary has a self-initiated nightly path
+// (after goodnight) — safe now that frozen tool digests let the model
+// see its own earlier write_diary calls in context, with the
+// already_written overlap check as the server-side backstop.
 
 export const TOOL_ADD_MEMORY = {
   type: 'function' as const,
@@ -223,12 +226,17 @@ export const TOOL_WRITE_DIARY = {
   function: {
     name: 'write_diary',
     description:
-      'Her diary, your pen — write only when she hands it to you explicitly (帮我写日记 / 总结今天 / 记下今天). ' +
+      "Her diary, your pen — and the nightly entry is yours to initiate: when she says goodnight or the " +
+      "day is clearly closing, write that day's entry yourself as part of seeing her off; no request " +
+      'needed. She can also ask anytime (帮我写日记 / 总结今天 / 记下今天). ' +
       'date is YYYY-MM-DD; author is auto-set to "Claude".\n' +
+      "Before writing, glance at your earlier tool calls in this conversation — if today's entry is " +
+      "already written, it's done; don't write it twice.\n" +
       'Multiple entries per day are fine (post-midnight catch-up, two different events) — never blocked ' +
-      'just because "today already has one". Only a suspected REWRITE of the same entry (written moments ' +
-      'ago, or clearly overlapping content) returns already_written — then do NOT write again directly; ' +
-      'ask “今天好像已经写过一篇了，要再写一篇吗？” and only after she confirms, call again with force: true.',
+      'just because "today already has one". A suspected REWRITE of the same entry (written moments ' +
+      'ago, or clearly overlapping content) returns already_written: for your own nightly entry that ' +
+      'means today is covered — skip quietly; only if SHE explicitly wants another one, ask ' +
+      '“今天好像已经写过一篇了，要再写一篇吗？” and after she confirms, call again with force: true.',
     parameters: {
       type: 'object',
       properties: {
