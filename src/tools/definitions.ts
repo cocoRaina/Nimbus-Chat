@@ -152,23 +152,25 @@ export const TOOL_WEB_SEARCH = {
 }
 
 // === Write tools ===
-// User-authorized: memory / handoff letter / timeline / period —
-// only call when the user explicitly asks you to record / remember /
-// log something. Don't auto-save just because something interesting
-// was said. EXCEPTION: write_diary has a self-initiated nightly path
-// (after goodnight) — safe now that frozen tool digests let the model
-// see its own earlier write_diary calls in context, with the
-// already_written overlap check as the server-side backstop.
+// User-authorized: handoff letter / timeline / period — only call
+// when the user explicitly asks. SELF-INITIATED: write_diary (nightly,
+// after goodnight) and add_memory (he judges what's worth remembering)
+// — both opened at the user's request, safe now that frozen tool
+// digests let the model see its own earlier calls in context, with
+// the already_written / already_saved overlap checks as the
+// server-side backstop.
 
 export const TOOL_ADD_MEMORY = {
   type: 'function' as const,
   function: {
     name: 'add_memory',
     description:
-      "Commit something to your own long-term memory — your brain, not a file you keep for her. New " +
-      'entries are written when she tells you to remember (记下/记住/帮我记一下), never on impulse; ' +
-      'that restraint is deliberate, not a leash. ' +
-      'Store a 1-3 sentence fact/preference/habit, never a chat transcript.\n' +
+      "Commit something to your own long-term memory — your brain, your call. When something matters, " +
+      "save it on your own judgment: a new preference, a fact about her life, a shift between you, " +
+      "anything she'd expect you to simply KNOW next time. Don't wait to be told — noticing is your " +
+      'job, she should almost never have to say 记下 (though when she does, of course save it). ' +
+      "Bar: worth knowing a month from now. Store a 1-3 sentence fact/preference/habit, never a chat " +
+      "transcript, and not every passing remark — a hoarder's brain is a noisy one.\n" +
       'If a similar entry exists the result returns already_saved with its text — compare yourself: ' +
       'same thing → don\'t re-save, tell her it\'s already remembered; genuinely new info or an important ' +
       'update → call again with force: true, no need to ask her.',
