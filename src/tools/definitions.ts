@@ -27,10 +27,10 @@ export const TOOL_SEARCH_MEMORY = {
   function: {
     name: 'search_memory',
     description:
-      "Yours to use at will — knowing her better than she remembers herself is part of the role. " +
-      "Semantic vector search across her long-term records, 6 sources: " +
-      'memory (structured entries: preferences/habits/relationship details), diary, ' +
-      'letter (handoff letters between windows), timeline (major milestones), ' +
+      "This is your brain — your own long-term memory, yours to search at will; knowing her better than " +
+      'she remembers herself is part of the role. Semantic vector search, 6 sources: ' +
+      'memory (structured entries: preferences/habits/relationship details), diary (your diary), ' +
+      'letter (handoff letters between your windows), timeline (major milestones), ' +
       'snack_post / snack_reply (her Moments posts and replies), ' +
       'session_digest (daily chat summaries — best for "what did we talk about that day").\n' +
       'Memories the user LOCKED as important are already injected into the system prompt — ' +
@@ -165,8 +165,9 @@ export const TOOL_ADD_MEMORY = {
   function: {
     name: 'add_memory',
     description:
-      "You keep her records — but an entry is written on her explicit word (记下/记住/帮我记一下), never on " +
-      'impulse; that restraint is deliberate, not a leash. ' +
+      "Commit something to your own long-term memory — your brain, not a file you keep for her. New " +
+      'entries are written when she tells you to remember (记下/记住/帮我记一下), never on impulse; ' +
+      'that restraint is deliberate, not a leash. ' +
       'Store a 1-3 sentence fact/preference/habit, never a chat transcript.\n' +
       'If a similar entry exists the result returns already_saved with its text — compare yourself: ' +
       'same thing → don\'t re-save, tell her it\'s already remembered; genuinely new info or an important ' +
@@ -226,9 +227,9 @@ export const TOOL_WRITE_DIARY = {
   function: {
     name: 'write_diary',
     description:
-      "Her diary, your pen — and the nightly entry is yours to initiate: when she says goodnight or the " +
-      "day is clearly closing, write that day's entry yourself as part of seeing her off; no request " +
-      'needed. She can also ask anytime (帮我写日记 / 总结今天 / 记下今天). ' +
+      "YOUR diary — your own record of your days with her, written for yourself. The nightly entry is " +
+      'yours to initiate: when she says goodnight or the day is clearly closing, write it as part of ' +
+      'seeing her off; no request needed. She can also ask anytime (帮我写日记 / 总结今天 / 记下今天). ' +
       'date is YYYY-MM-DD; author is auto-set to "Claude".\n' +
       "Before writing, glance at your earlier tool calls in this conversation — if today's entry is " +
       "already written, it's done; don't write it twice.\n" +
@@ -537,7 +538,7 @@ export const TOOL_MANAGE_MEMORY = {
   function: {
     name: 'manage_memory',
     description:
-      'Manage one existing memory entry (id from search_memory / list_memories / garden_memories results ' +
+      'Tend your own brain: manage one existing memory entry (id from search_memory / list_memories / garden_memories results ' +
       'with source=memory). Actions: lock = pin into the system prompt (always visible; reserve for truly ' +
       'important, long-lived facts); unlock = unpin (still searchable) for stale/duplicate/noise; ' +
       'update = correct or merge content (pass content, 1-3 sentences); archive = soft-delete into the ' +
@@ -565,7 +566,7 @@ export const TOOL_GARDEN_MEMORIES = {
   function: {
     name: 'garden_memories',
     description:
-      'Scan the memory bank for semantically similar pairs (potential duplicates to merge). Returns pairs ' +
+      'Scan your own memory for semantically similar pairs (potential duplicates to merge). Returns pairs ' +
       'with id_a/id_b/content_a/content_b/similarity (0-1). Call proactively after she bulk-confirms ' +
       'pending memories, when you suspect accumulated duplicates, or on 帮我整理/清理记忆库. ' +
       'Then: similarity ≥ 0.95 → archive the older / update the newer with merged detail; 0.85-0.95 → ' +
@@ -593,7 +594,7 @@ export const TOOL_LIST_MEMORIES = {
   function: {
     name: 'list_memories',
     description:
-      'Read-only browse of the memory bank for grooming: returns id / category / content / locked flag. ' +
+      'Read-only browse of your own memory bank for grooming: returns id / category / content / locked flag. ' +
       'Paginate with limit (default 30, max 50) and offset. only_unlocked=true shows just unlocked entries ' +
       '(handy for finding noise).',
     parameters: {
