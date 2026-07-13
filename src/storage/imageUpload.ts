@@ -1,8 +1,17 @@
 import { supabase } from '../supabase/client'
 
 const BUCKET = 'chat-images'
-const MAX_DIMENSION = 1568 // Claude vision recommended long-side max
-const TARGET_QUALITY = 0.85
+// Size directly drives cost on relays that bill images by base64 length
+// (~1.4 chars/token — a 148KB jpeg billed ~139k tokens, 10x a whole chat
+// turn; see docs/caching.md §8). 1024px long side is still near Claude
+// vision's physical-token sweet spot (~1092px); WebP shaves another ~30%
+// over JPEG at like quality. Trade-off: fine print in screenshots gets
+// slightly softer than the old 1568px/jpeg-0.85.
+const MAX_DIMENSION = 1024
+const WEBP_QUALITY = 0.8
+// Fallback for engines whose canvas.toBlob can't encode WebP (they return
+// a blob of a different type instead) — e.g. iOS Safari yields PNG.
+const JPEG_QUALITY = 0.82
 
 export type UploadedImage = {
   url: string
@@ -35,18 +44,21 @@ const compressImage = async (file: File): Promise<Blob> => {
   } finally {
     bitmap.close()
   }
-  const blob: Blob | null = await new Promise((resolve) =>
-    canvas.toBlob((b) => resolve(b), 'image/jpeg', TARGET_QUALITY),
-  )
+  const encode = (type: string, quality: number): Promise<Blob | null> =>
+    new Promise((resolve) => canvas.toBlob((b) => resolve(b), type, quality))
+  let blob = await encode('image/webp', WEBP_QUALITY)
+  if (!blob || blob.type !== 'image/webp') {
+    blob = await encode('image/jpeg', JPEG_QUALITY)
+  }
   if (!blob) {
     throw new Error('图片压缩失败')
   }
   return blob
 }
 
-const randomFilename = () => {
+const randomFilename = (ext: string) => {
   const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  return `${id}.jpg`
+  return `${id}.${ext}`
 }
 
 export const uploadChatImage = async (file: File): Promise<UploadedImage> => {
@@ -57,9 +69,9 @@ export const uploadChatImage = async (file: File): Promise<UploadedImage> => {
     throw new Error('只支持图片文件')
   }
   const blob = await compressImage(file)
-  const path = randomFilename()
+  const path = randomFilename(blob.type === 'image/webp' ? 'webp' : 'jpg')
   const { error } = await supabase.storage.from(BUCKET).upload(path, blob, {
-    contentType: 'image/jpeg',
+    contentType: blob.type,
     upsert: false,
   })
   if (error) {
