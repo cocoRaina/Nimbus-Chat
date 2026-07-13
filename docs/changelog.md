@@ -8,6 +8,12 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### BP0：工具定义挂上第 4 个缓存断点（2026-07-13）
+
+**依据**：对照 Anthropic 官方缓存文档发现「三层失效结构」——缓存键分 tools → system → messages 三层，改动只打碎自己那层及以下。改 system（人设/锁定记忆/新 APK）时 **tools 层幸存**，但要在 tools 边界有断点才能兑现成命中。Nimbus 原来只用 3 个断点（BP1/BP4/HEAD，上限 4），tools 无锚 → 每次 system 层改动，工具 schema 陪着 2× 全量重写。
+
+**修**（`anthropic.ts` `convertOpenAiRequestToAnthropic`，需新 APK）：最后一个工具定义挂 `cache_control ttl:1h`（仅在请求已带缓存标时附加，非缓存请求不受影响）。收益：每次「免费改动窗口」外的 system 改动省 ~6-8k token 的 2× 写 + 后续 0.1× 读命中。副产品：官方文档确认 thinking 开关/`tool_choice`/图片增减只打碎 messages 层（此前实测的"两条缓存链"是 messages 层现象），tools+system 不受影响——已补进 caching.md §7。cache_control 标记本身不改变前缀字节，上线零冷写。
+
 ### 工具定义英文化精简：~2.7万 → ~6-8k token（2026-07-13）
 
 **动机**：25 个工具的 schema 每条消息都随请求发送，服务端实测占 ~2.7万 token（首条消息 40,658 里的大头）。在模拟计费渠道上这笔开销每条都实付；对弱模型也是注意力负担。中文在 Claude 分词器下 ~1-1.7 字符/token，英文 ~4 字符/token——同样内容英文省 30-50%。

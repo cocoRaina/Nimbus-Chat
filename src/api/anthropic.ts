@@ -347,11 +347,37 @@ export const convertOpenAiRequestToAnthropic = async (
     messages.pop()
   }
 
-  const tools = body.tools?.map((t) => ({
+  const tools: AnthropicRequest['tools'] = body.tools?.map((t) => ({
     name: t.function.name,
     description: t.function.description,
     input_schema: (t.function.parameters as Record<string, unknown>) ?? { type: 'object', properties: {} },
   }))
+
+  // BP0: mark the LAST tool definition. Anthropic's cache invalidation is
+  // three-tiered (tools → system → messages): editing the system prompt
+  // (persona tweak, memory lock/unlock, new APK changing injected sections)
+  // only invalidates the system+messages tiers — the tools tier survives,
+  // BUT only if a breakpoint exists at the tools boundary to anchor a cache
+  // entry there. Without this marker a persona edit re-writes the tool
+  // schemas at 2x along with everything else; with it they read at 0.1x.
+  // Uses the 4th breakpoint slot (BP1/BP4/HEAD use three; tool-iteration
+  // requests use two). Only attached when the request is already cache-
+  // marked, so non-cached bodies through this converter stay untouched.
+  if (tools && tools.length > 0) {
+    const requestHasCacheMarkers =
+      systemBlocks.some((b) => b.cache_control) ||
+      messages.some(
+        (m) =>
+          Array.isArray(m.content) &&
+          (m.content as Array<{ cache_control?: unknown }>).some((b) => b.cache_control),
+      )
+    if (requestHasCacheMarkers) {
+      tools[tools.length - 1] = {
+        ...tools[tools.length - 1],
+        cache_control: { type: 'ephemeral', ttl: '1h' },
+      }
+    }
+  }
 
   // Translate OpenAI's tool_choice → Anthropic's. Without this the field
   // got silently dropped during conversion, so the finalizer (which sets

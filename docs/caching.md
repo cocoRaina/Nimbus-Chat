@@ -98,7 +98,10 @@ Nimbus 现状:`anthropic.ts` 把 OpenAI 风格的 `body.user` 映射成 `metadat
 
 缓存是**前缀匹配**:从第一个字节起,有一个字节变了,从那往后全部失效重算。所以把请求按「最不会变 → 最会变」码好,只给前面稳定的部分挂标。
 
-Nimbus 的做法(`applyClaudeCaching`):
+⚠️ **官方三层失效结构(2026-07-13 对照 Anthropic 文档补记)**:缓存键分三层 **tools → system → messages**,改动只打碎自己那层及以下——改 system 提示词(人设/锁定记忆)**tools 层幸存**;改 `tool_choice`/图片增减/thinking 开关只打碎 **messages 层**,tools+system 幸存;只有改工具定义或换模型才全打碎。注意「幸存」要有断点锚着才兑现成命中——这就是 BP0 的由来。另:此前实测的「thinking 开关 = 两条缓存链」「stream 分链」都是 messages 层现象(或中转侧行为),tools+system 层按官方语义不受影响。
+
+Nimbus 的做法(`applyClaudeCaching` + `anthropic.ts`):
+- **BP0(2026-07-13 加)**:挂在**最后一个工具定义**上(`convertOpenAiRequestToAnthropic`,仅原生路径、且请求已带缓存标时)。作用:改人设/锁定解锁记忆/装新 APK 这些 system 层改动发生时,工具 schema(~6-8k token)仍按 0.1× 读,不再陪葬 2× 重写。用掉第 4 个断点空位(Anthropic 上限 4)。
 - **BP1**:第一条 system(人设 + 工具 schema),最稳的垫底锚点。
 - **BP4(rolling)**:挂在**倒数第二条 user 消息**上,把全部历史纳入缓存边界。挂倒数第二条而非最后一条,因为最后一条是本轮新输入、每次都不同。
 - **工具迭代**:若最后一条 user 之后还有 tool 块,挂 **BP1 + 最后一条 user 消息**(=本轮 HEAD,它就是上一次请求已写过的缓存前缀的末端)。**故意不标 tool_result 本身**——那段前缀含工具块、下一轮读不到,写了纯浪费 2× 写入费。
