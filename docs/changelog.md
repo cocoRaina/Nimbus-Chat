@@ -8,6 +8,14 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### camel 全线 400：Bedrock 上游拒绝 extended-cache-ttl beta header（2026-07-14）
+
+**症状**：用户装新 APK 后切回 camel，所有请求 400。控制台报错 `ValidationException: invalid beta flag`（Bedrock Runtime InvokeModelWithResponseStream）；另一节点报 `Provider API error: The provided Content…`（措辞不同的同类拒绝）。
+
+**根因**：07-12 为防中转把 1h TTL 降级成 5min，在 x-api-key 路径无条件加了 `anthropic-beta: extended-cache-ttl-2025-04-11`。camel 的上游是 **AWS Bedrock 节点池**，Bedrock 对不认识的 beta flag 硬 400。旧 APK 没这个头所以 camel 一直正常——「新 APK + camel」组合首次相遇即全灭。**教训：对中转发任何非必需 header 都要有退路，中转上游是什么家底你不知道。**
+
+**修**（`anthropic.ts`，需新 APK）：header 改为「默认发 + 400 自愈」——带头吃到 400 就摘头重试一次（400 不计费，多一跳零成本），重试成功（或错误明说 beta）就把该渠道 host 记进 localStorage 黑名单，后续请求直接不发。需要这个头的渠道（防降级）不受影响。**连带保险**：若上游连请求体里的 `cache_control.ttl:'1h'` 也拒（错误提及 ttl/cache_control），同样自动剥掉 ttl 降级 5m 标记并按渠道记住——宁可缓存变短也不让聊天挂死。等新 APK 期间的临时出路：换回模拟渠道或 OpenRouter（bearer 路径从不发这个头）。
+
 ### BP0：工具定义挂上第 4 个缓存断点（2026-07-13）
 
 **依据**：对照 Anthropic 官方缓存文档发现「三层失效结构」——缓存键分 tools → system → messages 三层，改动只打碎自己那层及以下。改 system（人设/锁定记忆/新 APK）时 **tools 层幸存**，但要在 tools 边界有断点才能兑现成命中。Nimbus 原来只用 3 个断点（BP1/BP4/HEAD，上限 4），tools 无锚 → 每次 system 层改动，工具 schema 陪着 2× 全量重写。

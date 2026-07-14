@@ -834,6 +834,60 @@ type AnthropicCallOptions = {
   keepModelSlug?: boolean
 }
 
+// Per-relay-host opt-out for the extended-cache-ttl beta header. Some relay
+// upstreams (camel's AWS Bedrock nodes: "ValidationException: invalid beta
+// flag") hard-400 on beta flags they don't recognize, while other relays NEED
+// the header or they silently downgrade 1h cache TTL to 5min. So: send it by
+// default, and on a 400 that mentions "beta" retry once without it and
+// remember the host — subsequent requests skip the header immediately.
+const CACHE_BETA_OPTOUT_KEY = 'nimbus_cache_beta_optout_v1'
+// Same idea for the body-level cache_control ttl:'1h': if a relay's upstream
+// rejects the ttl field itself, we drop to the default 5-minute marker for
+// that host instead of hard-failing (worse cache, but the chat works).
+const CACHE_TTL_OPTOUT_KEY = 'nimbus_cache_ttl_optout_v1'
+const readHostOptOuts = (key: string): Record<string, boolean> => {
+  if (typeof window === 'undefined') return {}
+  try {
+    return JSON.parse(window.localStorage.getItem(key) ?? '{}') as Record<string, boolean>
+  } catch {
+    return {}
+  }
+}
+const rememberHostOptOut = (key: string, host: string) => {
+  if (typeof window === 'undefined') return
+  try {
+    const map = readHostOptOuts(key)
+    map[host] = true
+    window.localStorage.setItem(key, JSON.stringify(map))
+  } catch {
+    // ignore quota errors
+  }
+}
+const hostOfEndpoint = (endpoint: string): string => {
+  try {
+    return new URL(endpoint).host
+  } catch {
+    return endpoint
+  }
+}
+
+// Deep-clone the request with every cache_control's ttl removed (markers stay,
+// so caching still works at the upstream's default 5m TTL).
+const stripCacheTtl = (body: AnthropicRequest): AnthropicRequest => {
+  const clone = JSON.parse(JSON.stringify(body)) as AnthropicRequest
+  const strip = (b: { cache_control?: { type: string; ttl?: string } } | undefined) => {
+    if (b?.cache_control?.ttl) delete b.cache_control.ttl
+  }
+  if (Array.isArray(clone.system)) clone.system.forEach(strip)
+  clone.tools?.forEach(strip)
+  for (const m of clone.messages) {
+    if (Array.isArray(m.content)) {
+      ;(m.content as Array<{ cache_control?: { type: string; ttl?: string } }>).forEach(strip)
+    }
+  }
+  return clone
+}
+
 export const fetchAnthropicAsOpenAi = async (
   baseUrl: string,
   apiKey: string,
@@ -880,51 +934,112 @@ export const fetchAnthropicAsOpenAi = async (
     // an older upstream still gate 1h behind this beta header — without it they
     // silently downgrade our ttl:'1h' to the default 5-minute cache, so a >5min
     // gap cold-writes and the 55-min keepalive ping guards a cache that's
-    // already dead. Harmless where 1h is GA; only sent on the native (x-api-key)
-    // relay path — NOT the OpenRouter bearer path, whose CORS preflight rejects
-    // extra anthropic-* headers.
-    headers['anthropic-beta'] = 'extended-cache-ttl-2025-04-11'
-  }
-  const bodyJson = JSON.stringify(anthropicBody)
-
-  // On native, a streaming chat tries the StreamHttp plugin first: CapacitorHttp
-  // (kept on for CORS bypass) buffers window.fetch, so plain fetch here arrives
-  // as one lump. The plugin bypasses CORS AND streams. But it's unproven on real
-  // devices, so nativeStreamFetchOrThrow only commits to it once the first byte
-  // is confirmed — if it stalls, we fall through to the buffered fetch below
-  // (works, just not live). The chat can never hang on a broken native path.
-  if (wantsStream && isNativeStreamAvailable()) {
-    try {
-      const upstream = await nativeStreamFetchOrThrow(endpoint, {
-        method: 'POST',
-        headers,
-        body: bodyJson,
-        signal,
-      })
-      if (!upstream.ok) return upstream
-      return translateAnthropicStream(upstream)
-    } catch {
-      // Native streaming stalled/failed. cancelStream is an async Capacitor
-      // call — give it ~500 ms to reach Java and close the TCP connection
-      // before we retry on the buffered path. Without this the relay sees two
-      // concurrent connections and can 429/concurrency-limit the second one.
-      await new Promise((r) => setTimeout(r, 500))
+    // already dead. Only sent on the native (x-api-key) relay path — NOT the
+    // OpenRouter bearer path, whose CORS preflight rejects extra anthropic-*
+    // headers. NOT harmless everywhere: relays whose upstream is AWS Bedrock
+    // (camel) 400 with "ValidationException: invalid beta flag" — those hosts
+    // get remembered in the opt-out map below and skip the header.
+    if (!readHostOptOuts(CACHE_BETA_OPTOUT_KEY)[hostOfEndpoint(endpoint)]) {
+      headers['anthropic-beta'] = 'extended-cache-ttl-2025-04-11'
     }
   }
+  const relayHost = hostOfEndpoint(endpoint)
+  let effectiveBody = anthropicBody
+  if (readHostOptOuts(CACHE_TTL_OPTOUT_KEY)[relayHost]) {
+    effectiveBody = stripCacheTtl(effectiveBody)
+  }
+  let bodyJson = JSON.stringify(effectiveBody)
 
-  const upstream = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: bodyJson,
-    signal,
-  })
-  if (!upstream.ok) {
-    return upstream
+  const sendOnce = async (hdrs: Record<string, string>): Promise<Response> => {
+    // On native, a streaming chat tries the StreamHttp plugin first: CapacitorHttp
+    // (kept on for CORS bypass) buffers window.fetch, so plain fetch here arrives
+    // as one lump. The plugin bypasses CORS AND streams. But it's unproven on real
+    // devices, so nativeStreamFetchOrThrow only commits to it once the first byte
+    // is confirmed — if it stalls, we fall through to the buffered fetch below
+    // (works, just not live). The chat can never hang on a broken native path.
+    if (wantsStream && isNativeStreamAvailable()) {
+      try {
+        const upstream = await nativeStreamFetchOrThrow(endpoint, {
+          method: 'POST',
+          headers: hdrs,
+          body: bodyJson,
+          signal,
+        })
+        if (!upstream.ok) return upstream
+        return translateAnthropicStream(upstream)
+      } catch {
+        // Native streaming stalled/failed. cancelStream is an async Capacitor
+        // call — give it ~500 ms to reach Java and close the TCP connection
+        // before we retry on the buffered path. Without this the relay sees two
+        // concurrent connections and can 429/concurrency-limit the second one.
+        await new Promise((r) => setTimeout(r, 500))
+      }
+    }
+
+    const upstream = await fetch(endpoint, {
+      method: 'POST',
+      headers: hdrs,
+      body: bodyJson,
+      signal,
+    })
+    if (!upstream.ok) {
+      return upstream
+    }
+    if (wantsStream) {
+      return translateAnthropicStream(upstream)
+    }
+    return collectAnthropicStreamAsJson(upstream)
   }
-  if (wantsStream) {
-    return translateAnthropicStream(upstream)
+
+  let response = await sendOnce(headers)
+
+  // Beta-flag fallback: a 400 mentioning "beta" while we sent the extended-TTL
+  // header means this relay's upstream rejects unknown beta flags (camel's AWS
+  // Bedrock nodes: "ValidationException: invalid beta flag"). Drop the header,
+  // remember the host, retry once. Failed 400s are unbilled, so the extra
+  // round-trip costs nothing; every later request skips straight to the
+  // header-less shape.
+  // camel is a multi-node pool and different upstream nodes phrase the
+  // rejection differently ("invalid beta flag" from Bedrock, "The provided
+  // Content…" elsewhere), so don't gate the retry on error text: ANY 400
+  // while the header was sent gets one header-less retry. The opt-out is
+  // only remembered when that retry succeeds (or the error explicitly
+  // blamed the beta flag) — unrelated 400s just fail twice, unbilled.
+  if (response.status === 400 && headers['anthropic-beta']) {
+    let errText = ''
+    try {
+      errText = await response.clone().text()
+    } catch {
+      // body unreadable — retry anyway
+    }
+    const blamedBeta = /beta/i.test(errText)
+    delete headers['anthropic-beta']
+    const retried = await sendOnce(headers)
+    if (retried.ok || blamedBeta) {
+      console.warn('中转拒绝 extended-cache-ttl beta header,已按渠道停发', relayHost)
+      rememberHostOptOut(CACHE_BETA_OPTOUT_KEY, relayHost)
+    }
+    response = retried
   }
-  return collectAnthropicStreamAsJson(upstream)
+
+  // ttl fallback: still 400 and the error mentions ttl/cache_control → this
+  // upstream rejects the body-level 1h TTL field. Strip ttl (markers stay at
+  // the default 5m), remember the host, retry once.
+  if (response.status === 400) {
+    let errText = ''
+    try {
+      errText = await response.clone().text()
+    } catch {
+      // body unreadable — give up, return the 400 as-is
+    }
+    if (/ttl|cache_control/i.test(errText)) {
+      console.warn('中转拒绝 cache_control ttl:1h,已按渠道降级 5m 并重试', relayHost)
+      rememberHostOptOut(CACHE_TTL_OPTOUT_KEY, relayHost)
+      bodyJson = JSON.stringify(stripCacheTtl(effectiveBody))
+      response = await sendOnce(headers)
+    }
+  }
+  return response
 }
 
 // Carry a SAFE allowlist of upstream headers onto our synthesized JSON
