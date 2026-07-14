@@ -5,6 +5,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import LocalAvatar from '../components/LocalAvatar'
 import RelayChannelPanel, { type ChannelTarget } from '../components/RelayChannelPanel'
 import { fetchOpenRouterModels } from '../api/openrouter'
+import { getRelaySelfHealHosts, clearRelaySelfHealRecords } from '../api/anthropic'
 import type { UserSettings } from '../types'
 import { supabase } from '../supabase/client'
 import {
@@ -113,6 +114,20 @@ const SettingsPage = ({
   const [msuicodeApiKeyStatus, setMsuicodeApiKeyStatus] = useState<'idle' | 'saved'>('idle')
   const [msuicodeFormat, setMsuicodeFormatState] = useState<ApiFormat>(() => getMsuicodeFormat())
   const [msuicodeBaseUrlInput, setMsuicodeBaseUrlInput] = useState(() => getMsuicodeBaseUrl())
+  const [selfHealHosts, setSelfHealHosts] = useState(() => getRelaySelfHealHosts())
+  const [selfHealResetStatus, setSelfHealResetStatus] = useState<'idle' | 'done'>('idle')
+  const selfHealSummary = useMemo(() => {
+    const parts: string[] = []
+    for (const h of selfHealHosts.thinking) parts.push(`${h} 已停用原生思考回传(改发文字)`)
+    for (const h of selfHealHosts.beta) parts.push(`${h} 已停发 1h 缓存 beta 头`)
+    for (const h of selfHealHosts.ttl) parts.push(`${h} 缓存 TTL 已降级 5 分钟`)
+    return parts
+  }, [selfHealHosts])
+  const handleResetSelfHeal = useCallback(() => {
+    clearRelaySelfHealRecords()
+    setSelfHealHosts(getRelaySelfHealHosts())
+    setSelfHealResetStatus('done')
+  }, [])
   const [avatarSectionExpanded, setAvatarSectionExpanded] = useState(false)
   const [ttsSectionExpanded, setTtsSectionExpanded] = useState(false)
   const [weatherSectionExpanded, setWeatherSectionExpanded] = useState(false)
@@ -1220,6 +1235,21 @@ const SettingsPage = ({
 
             <label>余额 · 花费 · 模型</label>
             <RelayChannelPanel targets={channelTargets} />
+
+            <label>渠道自愈记录</label>
+            <div className="system-prompt-actions">
+              <button type="button" className="ghost small" onClick={handleResetSelfHeal}>
+                重置渠道自愈记录
+              </button>
+              {selfHealResetStatus === 'done' ? (
+                <span className="system-prompt-status">已重置,下次请求将重试最优形态</span>
+              ) : null}
+            </div>
+            <span className="settings-hint">
+              {selfHealSummary.length > 0
+                ? `当前记录:${selfHealSummary.join(';')}。渠道换池子/升级后可重置让 App 重试最优请求形态——不兼容会自动再降级,重置永远安全。`
+                : '暂无降级记录。撞到不兼容的中转节点时,App 会自动降级(如停用原生思考回传)并按渠道记住,这里可以随时清除重试。'}
+            </span>
           </div>
         ) : null}
       </section>

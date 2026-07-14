@@ -887,6 +887,27 @@ const THINKING_REPLAY_OPTOUT_KEY = 'nimbus_thinking_replay_optout_v1'
 export const isThinkingReplayDisabledForHost = (host: string): boolean =>
   readHostOptOuts(THINKING_REPLAY_OPTOUT_KEY)[host] === true
 
+// Settings-page surface for the self-heal records: relay pools change over
+// time (nodes get swapped weekly), so a blacklist that was correct on Monday
+// may be stale by Friday. The user can inspect which hosts got downgraded
+// and reset everything — worst case the next incompatible request heals
+// itself right back, so resetting is always safe to try.
+export const getRelaySelfHealHosts = (): { beta: string[]; ttl: string[]; thinking: string[] } => ({
+  beta: Object.keys(readHostOptOuts(CACHE_BETA_OPTOUT_KEY)),
+  ttl: Object.keys(readHostOptOuts(CACHE_TTL_OPTOUT_KEY)),
+  thinking: Object.keys(readHostOptOuts(THINKING_REPLAY_OPTOUT_KEY)),
+})
+export const clearRelaySelfHealRecords = (): void => {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(CACHE_BETA_OPTOUT_KEY)
+    window.localStorage.removeItem(CACHE_TTL_OPTOUT_KEY)
+    window.localStorage.removeItem(THINKING_REPLAY_OPTOUT_KEY)
+  } catch {
+    // ignore storage errors
+  }
+}
+
 // Remove REPLAYED (historical) thinking blocks: thinking/redacted_thinking in
 // assistant messages that carry no tool_use sibling. Tool-loop messages keep
 // theirs — stripping those would 400 differently (thinking must precede
