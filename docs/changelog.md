@@ -8,6 +8,12 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### 思考回传降级不丢内容：产地不符改发纯文本（2026-07-14）
+
+**动机**：产地门控（下条）虽然止血，但「产地不符/无戳老块直接丢弃、自愈触发后整个渠道永久失去思考回传」代价太狠。官方文档确认 signature = **加密的完整思考、只有产出后端能解**——原生块跨渠道无解，但思考的**文字**一直存在本地 `meta.thinkingBlocks.thinking` 里。
+
+**修**（`App.tsx` + `anthropic.ts` 导出 `isThinkingReplayDisabledForHost`，需新 APK）：回传分两档——产地=当前渠道且该渠道未被自愈拉黑 → 原生块（最优，模型看到自己的原始思考）；否则 → 思考文字以 `[本轮思考] …` 纯文本拼进该条 assistant 消息（同 toolDigest 模式），跨渠道连续性保住、零 400 风险。按（渠道,消息）确定性渲染，前缀按渠道各自字节稳定。副作用：换渠道/自愈触发时历史渲染变化 → 该渠道一次冷写（本来也要冷写）。redacted_thinking 无文字可降级，跳过。
+
 ### 换渠道 400 第二弹：thinking 签名跨后端无效（2026-07-14）
 
 **症状**：beta header 修复后 camel 仍 400：`ValidationException: messages.X.content.0: Invalid signature in thinking block`（Bedrock）。

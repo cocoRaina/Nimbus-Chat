@@ -106,7 +106,7 @@ import {
 } from './constants/aiOverlays'
 import { resolveModelId } from './utils/modelResolver'
 import { fetchOpenRouter } from './api/openrouter'
-import { convertOpenAiRequestToAnthropic } from './api/anthropic'
+import { convertOpenAiRequestToAnthropic, isThinkingReplayDisabledForHost } from './api/anthropic'
 import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './storage/apiProvider'
 import { ensureImageCaption, getImageCaption, syncImageCaptionsFromCloud } from './storage/imageCaptions'
 import { fetchAutoRecall } from './storage/memoryRecall'
@@ -2208,6 +2208,11 @@ const App = () => {
           const lastUserMsgIdx = compressionOutcome.recentMessages.reduce(
             (acc, msg, i) => (msg.role === 'user' ? i : acc), -1
           )
+          // Hoisted once per request: which relay signs thinking blocks right
+          // now, and whether native thinking replay has been disabled for it
+          // (self-healed after a signature/content-type rejection).
+          const currentThinkingHost = thinkingOriginHost()
+          const nativeThinkingReplayDisabled = isThinkingReplayDisabledForHost(currentThinkingHost)
           for (let msgIdx = 0; msgIdx < compressionOutcome.recentMessages.length; msgIdx++) {
             const message = compressionOutcome.recentMessages[msgIdx]
             const isCurrentTurn = msgIdx === lastUserMsgIdx
@@ -2289,25 +2294,44 @@ const App = () => {
               // reasoning toggle already invalidates the message cache anyway.
               // Blocks are frozen at save time → byte-stable → the rolling
               // cache prefix grows but never wobbles.
-              // Origin gate: only replay blocks signed by the CURRENT relay
-              // (meta.thinkingHost) — foreign signatures 400 on Bedrock-backed
-              // relays. Blocks saved before the stamp existed never replay
-              // (their origin is unknowable; on any channel switch they'd be
-              // poison). Per-host the included set is byte-stable, and caches
-              // are per-relay anyway, so this stays cold-write-neutral.
-              const replayThinking =
+              // Origin gate: NATIVE replay (verbatim blocks with signature)
+              // only for blocks signed by the CURRENT relay — the signature is
+              // encrypted thinking that only the producing backend can decrypt;
+              // foreign signatures 400 on strict backends (Bedrock). Everything
+              // else — foreign-origin blocks, unstamped legacy blocks, or any
+              // block once the host self-healed into native-replay-optout —
+              // falls back to PLAIN TEXT: the thinking text is stored locally,
+              // so continuity survives as `[本轮思考]` prose with no signature
+              // involved. Per (host, message) the rendering is deterministic,
+              // so prefixes stay byte-stable per relay.
+              const frozenThinking =
                 message.role === 'assistant' &&
                 reasoningEnabled &&
                 isClaudeModel(effectiveModel) &&
-                message.meta?.thinkingHost === thinkingOriginHost() &&
                 Array.isArray(message.meta?.thinkingBlocks) &&
                 message.meta.thinkingBlocks.length > 0
                   ? message.meta.thinkingBlocks
                   : null
+              const nativeReplay =
+                frozenThinking &&
+                message.meta?.thinkingHost === currentThinkingHost &&
+                !nativeThinkingReplayDisabled
+                  ? frozenThinking
+                  : null
+              if (frozenThinking && !nativeReplay) {
+                const thoughts = frozenThinking
+                  .filter((b): b is { type: 'thinking'; thinking: string; signature: string } => b.type === 'thinking')
+                  .map((b) => b.thinking)
+                  .join('\n')
+                  .trim()
+                if (thoughts.length > 0) {
+                  content = `[本轮思考] ${thoughts}\n\n${content}`
+                }
+              }
               baseMessages.push({
                 role: message.role,
                 content,
-                ...(replayThinking ? { thinking_blocks: replayThinking } : {}),
+                ...(nativeReplay ? { thinking_blocks: nativeReplay } : {}),
               } as ChatRequestMessage)
             }
           }

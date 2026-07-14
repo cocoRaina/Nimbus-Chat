@@ -881,6 +881,12 @@ const hostOfEndpoint = (endpoint: string): string => {
 // requires those, and their signatures are seconds old).
 const THINKING_REPLAY_OPTOUT_KEY = 'nimbus_thinking_replay_optout_v1'
 
+// Exposed so App.tsx can render frozen thinking as PLAIN TEXT instead of
+// native blocks for hosts that rejected native replay — continuity survives
+// as text (no signature involved) while the native path stays disabled.
+export const isThinkingReplayDisabledForHost = (host: string): boolean =>
+  readHostOptOuts(THINKING_REPLAY_OPTOUT_KEY)[host] === true
+
 // Remove REPLAYED (historical) thinking blocks: thinking/redacted_thinking in
 // assistant messages that carry no tool_use sibling. Tool-loop messages keep
 // theirs — stripping those would 400 differently (thinking must precede
