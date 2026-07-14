@@ -1070,9 +1070,15 @@ export const fetchAnthropicAsOpenAi = async (
     }
   }
 
-  // Thinking-signature fallback: this upstream can't verify the signatures on
-  // replayed thinking blocks ("Invalid signature in thinking block"). Strip
-  // the historical blocks, remember the host, retry once.
+  // Thinking-replay fallback: some upstream node families choke on replayed
+  // thinking blocks, with different phrasings — Bedrock verifies and rejects
+  // the signature ("Invalid signature in thinking block"), other/older
+  // upstreams don't know the block type at all ("Content Type is invalid or
+  // not supported for this model"). Both mean the same thing for us: this
+  // relay can't take historical thinking. Strip the blocks, remember the
+  // host, retry once. Only fires when the request actually carried replayed
+  // thinking, so genuine content-type errors (e.g. an image format) are
+  // never misattributed.
   if (response.status === 400) {
     let errText = ''
     try {
@@ -1080,10 +1086,12 @@ export const fetchAnthropicAsOpenAi = async (
     } catch {
       // body unreadable — give up, return the 400 as-is
     }
-    if (/signature/i.test(errText)) {
-      console.warn('中转拒绝历史 thinking 签名,已按渠道停用思考链回传并重试', relayHost)
+    const stripped = stripReplayedThinking(effectiveBody)
+    const carriedReplayedThinking = JSON.stringify(stripped) !== JSON.stringify(effectiveBody)
+    if (carriedReplayedThinking && /signature|content[\s_-]?type/i.test(errText)) {
+      console.warn('中转拒绝历史 thinking 块,已按渠道停用思考链回传并重试', relayHost)
       rememberHostOptOut(THINKING_REPLAY_OPTOUT_KEY, relayHost)
-      effectiveBody = stripReplayedThinking(effectiveBody)
+      effectiveBody = stripped
       bodyJson = JSON.stringify(effectiveBody)
       response = await sendOnce(headers)
     }
