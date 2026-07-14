@@ -86,6 +86,11 @@ export type ChatMessage = {
       | { type: 'thinking'; thinking: string; signature: string }
       | { type: 'redacted_thinking'; data: string }
     >
+    // 产地戳：这批 thinking block 是哪个渠道签的（'openrouter' / 中转 host）。
+    // 签名只在产出它的后端族有效——Bedrock 验不了别家上游的签名（Invalid
+    // signature in thinking block，2026-07-14 换渠道踩坑），重放时只回传
+    // 产地与当前渠道一致的块；无戳的老块永不重放。
+    thinkingHost?: string
   }
   pending?: boolean
 }

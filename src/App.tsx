@@ -595,6 +595,23 @@ const isToolCapableModel = (model: string) =>
 
 const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
 
+// Which backend "signs" thinking blocks right now. Thinking signatures are
+// only verifiable by the backend family that produced them — camel's AWS
+// Bedrock nodes 400 with "Invalid signature in thinking block" when fed
+// blocks signed by a different relay's upstream (2026-07-14, first channel
+// switch after thinking replay shipped). So blocks are stamped with their
+// origin host at save time and only replayed when it matches the current
+// one. Cache-consistent: caches are per-relay anyway, and per-host the
+// included block set is byte-stable.
+const thinkingOriginHost = (): string => {
+  if (getActiveProvider() === 'openrouter') return 'openrouter'
+  try {
+    return new URL(getProviderConfig('msuicode').baseUrl).host
+  } catch {
+    return 'msuicode'
+  }
+}
+
 const IMAGE_CAPTION_FAIL_MESSAGE =
   '图片描述生成失败：这张图会继续以原图发送，比较费 token。多半是当前模型或中转不支持读图，换一个支持视觉的模型重发一次即可。'
 
@@ -2036,6 +2053,7 @@ const App = () => {
           // never wobbles; messages without it replay exactly as before.
           if (!streaming && finalThinkingBlocks.length > 0) {
             meta.thinkingBlocks = finalThinkingBlocks
+            meta.thinkingHost = thinkingOriginHost()
           }
           if (!streaming && flowEvents.length > 0) {
             meta.flow = flowEvents
@@ -2271,10 +2289,17 @@ const App = () => {
               // reasoning toggle already invalidates the message cache anyway.
               // Blocks are frozen at save time → byte-stable → the rolling
               // cache prefix grows but never wobbles.
+              // Origin gate: only replay blocks signed by the CURRENT relay
+              // (meta.thinkingHost) — foreign signatures 400 on Bedrock-backed
+              // relays. Blocks saved before the stamp existed never replay
+              // (their origin is unknowable; on any channel switch they'd be
+              // poison). Per-host the included set is byte-stable, and caches
+              // are per-relay anyway, so this stays cold-write-neutral.
               const replayThinking =
                 message.role === 'assistant' &&
                 reasoningEnabled &&
                 isClaudeModel(effectiveModel) &&
+                message.meta?.thinkingHost === thinkingOriginHost() &&
                 Array.isArray(message.meta?.thinkingBlocks) &&
                 message.meta.thinkingBlocks.length > 0
                   ? message.meta.thinkingBlocks

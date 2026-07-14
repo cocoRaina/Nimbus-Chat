@@ -871,6 +871,32 @@ const hostOfEndpoint = (endpoint: string): string => {
   }
 }
 
+// Hosts where replayed thinking blocks proved toxic ("Invalid signature in
+// thinking block"). Signatures are only verifiable by the backend family that
+// produced them; App.tsx already gates replay on the block's origin host, but
+// a heterogeneous relay pool (camel mixes Bedrock and other upstreams) can
+// still reject its own relay's blocks when a request lands on a different
+// node family. Once a host rejects a signature we stop replaying HISTORICAL
+// thinking to it entirely — in-flight tool-loop blocks are untouched (the API
+// requires those, and their signatures are seconds old).
+const THINKING_REPLAY_OPTOUT_KEY = 'nimbus_thinking_replay_optout_v1'
+
+// Remove REPLAYED (historical) thinking blocks: thinking/redacted_thinking in
+// assistant messages that carry no tool_use sibling. Tool-loop messages keep
+// theirs — stripping those would 400 differently (thinking must precede
+// tool_use when thinking is on).
+const stripReplayedThinking = (body: AnthropicRequest): AnthropicRequest => {
+  const clone = JSON.parse(JSON.stringify(body)) as AnthropicRequest
+  for (const m of clone.messages) {
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) continue
+    const blocks = m.content as AnthropicContentBlock[]
+    if (blocks.some((b) => b.type === 'tool_use')) continue
+    const kept = blocks.filter((b) => b.type !== 'thinking' && b.type !== 'redacted_thinking')
+    if (kept.length > 0 && kept.length !== blocks.length) m.content = kept
+  }
+  return clone
+}
+
 // Deep-clone the request with every cache_control's ttl removed (markers stay,
 // so caching still works at the upstream's default 5m TTL).
 const stripCacheTtl = (body: AnthropicRequest): AnthropicRequest => {
@@ -947,6 +973,9 @@ export const fetchAnthropicAsOpenAi = async (
   let effectiveBody = anthropicBody
   if (readHostOptOuts(CACHE_TTL_OPTOUT_KEY)[relayHost]) {
     effectiveBody = stripCacheTtl(effectiveBody)
+  }
+  if (readHostOptOuts(THINKING_REPLAY_OPTOUT_KEY)[relayHost]) {
+    effectiveBody = stripReplayedThinking(effectiveBody)
   }
   let bodyJson = JSON.stringify(effectiveBody)
 
@@ -1035,7 +1064,27 @@ export const fetchAnthropicAsOpenAi = async (
     if (/ttl|cache_control/i.test(errText)) {
       console.warn('中转拒绝 cache_control ttl:1h,已按渠道降级 5m 并重试', relayHost)
       rememberHostOptOut(CACHE_TTL_OPTOUT_KEY, relayHost)
-      bodyJson = JSON.stringify(stripCacheTtl(effectiveBody))
+      effectiveBody = stripCacheTtl(effectiveBody)
+      bodyJson = JSON.stringify(effectiveBody)
+      response = await sendOnce(headers)
+    }
+  }
+
+  // Thinking-signature fallback: this upstream can't verify the signatures on
+  // replayed thinking blocks ("Invalid signature in thinking block"). Strip
+  // the historical blocks, remember the host, retry once.
+  if (response.status === 400) {
+    let errText = ''
+    try {
+      errText = await response.clone().text()
+    } catch {
+      // body unreadable — give up, return the 400 as-is
+    }
+    if (/signature/i.test(errText)) {
+      console.warn('中转拒绝历史 thinking 签名,已按渠道停用思考链回传并重试', relayHost)
+      rememberHostOptOut(THINKING_REPLAY_OPTOUT_KEY, relayHost)
+      effectiveBody = stripReplayedThinking(effectiveBody)
+      bodyJson = JSON.stringify(effectiveBody)
       response = await sendOnce(headers)
     }
   }

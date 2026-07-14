@@ -8,6 +8,17 @@
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。
 
+### 换渠道 400 第二弹：thinking 签名跨后端无效（2026-07-14）
+
+**症状**：beta header 修复后 camel 仍 400：`ValidationException: messages.X.content.0: Invalid signature in thinking block`（Bedrock）。
+
+**根因**：07-09 上线的「thinking 跨轮回传」把历史 assistant 消息的 thinking block 连 `signature` 原样发回。**签名只在产出它的后端族可验**——昨天在别的渠道产生的签名，camel 的 Bedrock 上游验不了，直接 400。思考链回传上线后第一次换渠道就会踩，之前没换过所以一直潜伏。
+
+**修**（`App.tsx` + `types.ts` + `anthropic.ts`，需新 APK）：
+- **产地戳**：保存 `meta.thinkingBlocks` 时同时存 `meta.thinkingHost`（'openrouter' / 中转 host）；重放只回传产地与当前渠道一致的块。无戳的存量老块永不重放（产地不可考，换渠道即毒）。按渠道各自字节稳定，缓存本来就按渠道隔离，零额外冷写。
+- **兜底自愈**（防中转池内异构节点互踩）：400 提及 signature → 剥掉历史 thinking 块（工具循环内的新鲜块保留，API 要求）重试一次，并按渠道记住、后续直接不带。
+- **当前 APK 的临时解法**：设置里关掉思考链（回传门控在 reasoningEnabled 上），camel 立即可用；或换回 OR/模拟渠道等新包。
+
 ### camel 全线 400：Bedrock 上游拒绝 extended-cache-ttl beta header（2026-07-14）
 
 **症状**：用户装新 APK 后切回 camel，所有请求 400。控制台报错 `ValidationException: invalid beta flag`（Bedrock Runtime InvokeModelWithResponseStream）；另一节点报 `Provider API error: The provided Content…`（措辞不同的同类拒绝）。
