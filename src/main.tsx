@@ -51,6 +51,27 @@ if (Capacitor.getPlatform() === 'android') {
     sound: 'default',
     vibration: true,
   })
+  // 📞 来电专用高优先级渠道（importance 5 = MAX → heads-up 弹出 + 响铃）。
+  // 预约拨号到点时用它,配上「接听/挂断」按钮 + ongoing(常驻不可划走)。
+  void LocalNotifications.createChannel({
+    id: 'incoming_call',
+    name: '来电',
+    description: '预约拨号到点时的来电提醒',
+    importance: 5,
+    sound: 'default',
+    vibration: true,
+  })
+  // 通知上的「接听 / 挂断」按钮。点击后由 App.tsx 的
+  // localNotificationActionPerformed 监听按 actionId 处理。
+  void LocalNotifications.registerActionTypes({
+    types: [{
+      id: 'INCOMING_CALL',
+      actions: [
+        { id: 'answer', title: '接听' },
+        { id: 'decline', title: '挂断', destructive: true },
+      ],
+    }],
+  })
 }
 
 createRoot(document.getElementById('root')!).render(

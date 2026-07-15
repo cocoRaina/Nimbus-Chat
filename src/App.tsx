@@ -8,7 +8,7 @@ import ConfirmDialog from './components/ConfirmDialog'
 import type { ChatMessage, ChatSession, MessageAttachment, UserSettings } from './types'
 import { usePendingShare } from './hooks/useShareReceiver'
 import { hydrateTtsConfig, buildVoiceSystemSection } from './storage/ttsConfig'
-import { buildCallSystemSection, createScheduledCallInvite, getCallConfig } from './storage/callConfig'
+import { buildCallSystemSection, createScheduledCallInvite, getCallConfig, handleCallNotificationAction } from './storage/callConfig'
 import { getKeepaliveEnabled, setKeepaliveEnabledPref, hydrateKeepalivePref } from './storage/keepalivePref'
 import {
   getMoodEnabled,
@@ -1203,7 +1203,14 @@ const App = () => {
     })
     const notifSubPromise = LocalNotifications.addListener(
       'localNotificationActionPerformed',
-      () => handleVisibilityChange(),
+      (event) => {
+        // 来电通知上的「接听/挂断」按钮:认领邀请、撤通知、标记接通/拒接。
+        const extra = (event.notification?.extra ?? {}) as { inviteId?: string }
+        if (event.actionId === 'answer' || event.actionId === 'decline') {
+          void handleCallNotificationAction(event.actionId, extra.inviteId)
+        }
+        handleVisibilityChange()
+      },
     )
     const coldStartId = window.setTimeout(() => handleVisibilityChange(), 0)
     return () => {

@@ -47,6 +47,7 @@ import {
   CALL_EVENT,
   cancelIncomingCallNotification,
   claimCallInvite,
+  consumeAutoAnswer,
   extractDialRequest,
   extractDndMarker,
   fetchLiveCallInvites,
@@ -856,6 +857,13 @@ const ChatPage = ({
             continue
           }
           if (row.status !== 'pending' || callRef.current || getCallConfig().dnd) continue
+          // 用户从通知的「接听」进来 → 直接接通,跳过响铃页
+          if (consumeAutoAnswer() === row.id) {
+            if (!(await claimCallInvite(row.id, 'pending', 'accepted'))) continue
+            setCall({ phase: 'active', startedAt: Date.now(), inviteId: row.id })
+            void sendMessageRef.current(CALL_EVENT.connectedIn)
+            continue
+          }
           if (!(await claimCallInvite(row.id, 'pending', 'ringing'))) continue
           setCall({ phase: 'ringing', reason: row.reason, startedAt: Date.now(), inviteId: row.id })
           if (document.visibilityState === 'hidden') void notifyIncomingCall(row.reason)

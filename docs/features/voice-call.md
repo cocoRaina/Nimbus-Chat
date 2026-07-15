@@ -66,6 +66,15 @@
 - pending/ringing 已过期（App 关着没接到）→ 认领成 missed → 发未接事件 → AI 留语音留言
 - 接听/拒接/响铃超时 → 邀请行写 accepted/declined/missed
 
+### 预约拨号的来电通知（schedule_call，App 在后台/关闭时）
+
+`schedule_call` 到点时,除了 App 内轮询响铃,还弹一条**来电通知**(`createScheduledCallInvite` 里 `LocalNotifications.schedule` 排在 `fire_at`):
+- 专用高优先级渠道 `incoming_call`(importance 5 → heads-up 弹出 + 响铃),`ongoing:true` + `autoCancel:false` → **常驻、划不走**,像真来电
+- 通知上带 **「接听 / 挂断」按钮**(`registerActionTypes` 的 `INCOMING_CALL`,在 `main.tsx` 注册),`extra.inviteId` 带上邀请 id
+- 按钮点击 → `App.tsx` 的 `localNotificationActionPerformed` → `handleCallNotificationAction`:撤通知 + 接听打 `nimbus_call_autoanswer_v1` 本地标记 / 挂断认领邀请 `declined`
+- 「接听」进 App 后:ChatPage 轮询捞到这条邀请、`consumeAutoAnswer()` 命中 → 直接认领 `accepted` 进**接通态**(跳过响铃页),不用再点一次
+- **无原生插件**:纯 Capacitor LocalNotifications(动作按钮 + ongoing + 高优先级渠道)。不是锁屏整屏 intent(那要 FCM/原生),但满足"弹窗常驻 + 通知上直接接听/挂断"。需真机验证(通知行为在这个环境无法跑)
+
 **App 关着时收不到实时来电**：没有可用的推送通道（线上的 `send_proactive_push`/FCM 是废弃实验，`fcm_tokens` 表已不存在），所以关着 App 时邀请会过期，下次打开转成「未接来电 + 语音留言」——这本身就是 callhome 设计里有意义的失败路径。
 
 ## 关键实现点

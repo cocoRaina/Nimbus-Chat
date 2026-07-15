@@ -117,29 +117,66 @@ export const createScheduledCallInvite = async (
   const delay = Math.max(1, Math.min(1440, Math.round(delayMinutes)))
   const fireAt = new Date(Date.now() + delay * 60_000)
   const expiresAt = new Date(fireAt.getTime() + 90_000)
-  const { error } = await supabase.from('call_invites').insert({
-    user_id: userId,
-    reason,
-    status: 'pending',
-    fire_at: fireAt.toISOString(),
-    expires_at: expiresAt.toISOString(),
-  })
+  const { data, error } = await supabase
+    .from('call_invites')
+    .insert({
+      user_id: userId,
+      reason,
+      status: 'pending',
+      fire_at: fireAt.toISOString(),
+      expires_at: expiresAt.toISOString(),
+    })
+    .select('id')
+    .single()
   if (error) return { error: error.message }
-  // App 后台/关闭时的兜底提醒（在响铃时刻弹一条本地通知）
+  const inviteId = (data as { id: string }).id
+  // 到点弹一条"来电"通知：常驻不可划走 + 「接听/挂断」按钮 + 高优先级弹出。
+  // App 开着时聊天页轮询会走整屏响铃页；这条通知覆盖 App 在后台/关闭的情况。
   if (Capacitor.getPlatform() !== 'web') {
     try {
       await LocalNotifications.schedule({
         notifications: [{
           id: 2004,
-          title: `📞 ${getAssistantName()} 想打给你`,
+          title: `📞 ${getAssistantName()} 来电`,
           body: reason,
           schedule: { at: fireAt },
-          channelId: 'proactive',
+          channelId: 'incoming_call',
+          ongoing: true,               // 常驻,划不走(像真来电)
+          autoCancel: false,
+          actionTypeId: 'INCOMING_CALL', // 接听/挂断 按钮
+          extra: { inviteId, reason },
         }],
       })
     } catch { /* 无通知权限：App 内轮询照样响 */ }
   }
   return { ok: true, fireAt: fireAt.toISOString() }
+}
+
+// 通知上「接听/挂断」按下后：认领邀请 + 撤掉通知。answer 让聊天页直接进
+// 接通态(不再从响铃开始)；decline 标记拒接。
+const ANSWER_FLAG = 'nimbus_call_autoanswer_v1'
+
+export const consumeAutoAnswer = (): string | null => {
+  try {
+    const v = localStorage.getItem(ANSWER_FLAG)
+    if (v) localStorage.removeItem(ANSWER_FLAG)
+    return v
+  } catch { return null }
+}
+
+export const handleCallNotificationAction = async (
+  actionId: string,
+  inviteId: string | undefined,
+): Promise<void> => {
+  if (Capacitor.getPlatform() !== 'web') {
+    try { await LocalNotifications.cancel({ notifications: [{ id: 2004 }] }) } catch { /* noop */ }
+  }
+  if (actionId === 'answer' && inviteId) {
+    // 打个标记：聊天页轮询捞到这条邀请时,直接进接通态而不是响铃
+    try { localStorage.setItem(ANSWER_FLAG, inviteId) } catch { /* noop */ }
+  } else if (actionId === 'decline' && inviteId) {
+    await claimCallInvite(inviteId, 'pending', 'declined').catch(() => {})
+  }
 }
 
 // 原子认领：只有 from 状态还成立时才改成 to，返回是否抢到（防多开互踩）。
