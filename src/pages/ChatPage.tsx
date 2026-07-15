@@ -57,6 +57,7 @@ import {
   isInviteHandled,
   markInviteHandled,
   notifyIncomingCall,
+  sanitizeForSpeech,
   saveCallConfig,
   stripCallMarkers,
   syncCallStateToServer,
@@ -198,6 +199,9 @@ type MessageRowProps = {
   onStartLongPress: (event: ReactPointerEvent<HTMLDivElement>, messageId: string) => void
   onCancelLongPress: () => void
   onContextMenuOpen: (event: ReactMouseEvent<HTMLDivElement>, messageId: string) => void
+  // 📞 通话中的小机回复：整条当语音条渲染（通话里本来就是说出来的），
+  // 而不是露出 [sighs] 这些标签的文字气泡。
+  isCallTurn?: boolean
 }
 
 // 发送中的小时钟：两根指针绕表心转（SMIL，旋转中心写死 12,12，不依赖
@@ -222,6 +226,7 @@ const MessageRow = memo(function MessageRow({
   onStartLongPress,
   onCancelLongPress,
   onContextMenuOpen,
+  isCallTurn,
 }: MessageRowProps) {
   // 用户的表情回应消息（`[react:…] 「摘录」`）不渲染成气泡——emoji 已经以
   // 角标贴在目标 assistant 气泡上（见 ChatPage reactionByMessageId）。
@@ -247,11 +252,18 @@ const MessageRow = memo(function MessageRow({
     message.role === 'assistant'
       ? stripCallMarkers(stripReactionTokens(message.content))
       : message.content
+  // 📞 通话中的小机回复：整条清洗成"说出口的话"，当一条语音条渲染（复用
+  // [voice] 语音条那套），而不是露标签的文字气泡。TTS 没配时 VoiceBubble
+  // 自动降级回文字。
+  const callSpoken =
+    message.role === 'assistant' && isCallTurn ? sanitizeForSpeech(message.content) : ''
   const segments: MsgSegment[] = (
     message.role === 'assistant'
-      ? assistantText.trim()
-        ? splitAssistantSegments(assistantText)
-        : []
+      ? callSpoken
+        ? [{ type: 'voice' as const, text: callSpoken }]
+        : assistantText.trim()
+          ? splitAssistantSegments(assistantText)
+          : []
       : [{ type: 'text' as const, text: message.content }]
   ).flatMap((seg) => (seg.type === 'text' ? splitStickerSegments(seg.text) : [seg]))
   const isOut = message.role === 'user'
@@ -591,6 +603,21 @@ const ChatPage = ({
       }
     }
     return map
+  }, [messages])
+  // 📞 通话回合归属：`📞 已接通` 到 `📞 通话结束` 之间的小机回复算"通话中"，
+  // 整条渲染成语音条。走消息流一遍算 inCall 状态，稳、不靠单条标记。
+  const callTurnIds = useMemo(() => {
+    const set = new Set<string>()
+    let inCall = false
+    for (const m of messages) {
+      if (m.role === 'user' && isCallEventMessage(m.content)) {
+        if (m.content.startsWith('📞 已接通')) inCall = true
+        else if (m.content.startsWith('📞 通话结束')) inCall = false
+        continue
+      }
+      if (inCall && m.role === 'assistant') set.add(m.id)
+    }
+    return set
   }, [messages])
   // 氛围偏好：聊天壁纸 + 消息音效（storage/chatFeel.ts，localStorage 持久化）。
   const [wallpaper, setWallpaperState] = useState<WallpaperId>(() => getWallpaper())
@@ -1748,6 +1775,7 @@ const ChatPage = ({
                   onStartLongPress={startLongPress}
                   onCancelLongPress={cancelLongPress}
                   onContextMenuOpen={handleContextMenuOpen}
+                  isCallTurn={callTurnIds.has(message.id)}
                 />
               </Fragment>
             )
