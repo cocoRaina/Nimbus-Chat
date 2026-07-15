@@ -91,14 +91,55 @@ export type CallInviteRow = {
 
 export const fetchLiveCallInvites = async (): Promise<CallInviteRow[]> => {
   if (!supabase) return []
+  // fire_at <= now：预约拨号（schedule_call）约到未来的邀请，到点前不响铃。
+  // 升级拨号和即时邀请的 fire_at=now，立刻满足；过期未接的 fire_at 也 < now，
+  // 仍会被捞到走 missed 流程。
   const { data, error } = await supabase
     .from('call_invites')
     .select('id, reason, status, expires_at')
     .in('status', ['pending', 'ringing'])
+    .lte('fire_at', new Date().toISOString())
     .order('created_at', { ascending: false })
     .limit(5)
   if (error) throw error
   return (data ?? []) as CallInviteRow[]
+}
+
+// 📞 schedule_call：小机预约"待会打给你"。写一条未来生效的 call_invites，
+// 到点客户端轮询捞到 → 响铃；App 关着错过则过期转未接留言。顺手预排一条
+// 本地通知，App 后台时也能在约定时刻提醒（和 wake-up 提醒一个路子）。
+export const createScheduledCallInvite = async (
+  userId: string,
+  reason: string,
+  delayMinutes: number,
+): Promise<{ ok: true; fireAt: string } | { error: string }> => {
+  if (!supabase) return { error: 'Supabase 未配置' }
+  const delay = Math.max(1, Math.min(1440, Math.round(delayMinutes)))
+  const fireAt = new Date(Date.now() + delay * 60_000)
+  const expiresAt = new Date(fireAt.getTime() + 90_000)
+  const { error } = await supabase.from('call_invites').insert({
+    user_id: userId,
+    reason,
+    status: 'pending',
+    fire_at: fireAt.toISOString(),
+    expires_at: expiresAt.toISOString(),
+  })
+  if (error) return { error: error.message }
+  // App 后台/关闭时的兜底提醒（在响铃时刻弹一条本地通知）
+  if (Capacitor.getPlatform() !== 'web') {
+    try {
+      await LocalNotifications.schedule({
+        notifications: [{
+          id: 2004,
+          title: `📞 ${getAssistantName()} 想打给你`,
+          body: reason,
+          schedule: { at: fireAt },
+          channelId: 'proactive',
+        }],
+      })
+    } catch { /* 无通知权限：App 内轮询照样响 */ }
+  }
+  return { ok: true, fireAt: fireAt.toISOString() }
 }
 
 // 原子认领：只有 from 状态还成立时才改成 to，返回是否抢到（防多开互踩）。

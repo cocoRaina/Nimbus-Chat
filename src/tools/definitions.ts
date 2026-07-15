@@ -767,6 +767,56 @@ export const TOOL_BROWSE_ALBUM = {
   },
 }
 
+export const TOOL_SCHEDULE_CALL = {
+  type: 'function' as const,
+  function: {
+    name: 'schedule_call',
+    description:
+      'Arrange to CALL her at a set time — a phone call, not a text (that is schedule_proactive_message). ' +
+      'Use when she asks you to call later (等下打给我 / 十分钟后电话叫我), or when you promise to ring her ' +
+      'and mean it. At the chosen time her phone rings full-screen; if the app is closed she gets a ' +
+      'notification, and reopening turns it into a missed call you left a voicemail for. delay_minutes 1-1440. ' +
+      'Blocked while she has Do-Not-Disturb on. Keep it for real intent, not every goodbye — a call is a bigger ' +
+      'reach than a text.',
+    parameters: {
+      type: 'object',
+      properties: {
+        delay_minutes: { type: 'integer', description: '1-1440 (max 24h) from now until the phone rings' },
+        reason: {
+          type: 'string',
+          description: 'Short reason shown on the incoming-call screen, first person (e.g. 「到点啦，该起床了」)',
+        },
+      },
+      required: ['delay_minutes', 'reason'],
+    },
+  },
+}
+
+export const TOOL_TIDY_IMAGES = {
+  type: 'function' as const,
+  function: {
+    name: 'tidy_images',
+    description:
+      'Tidy the photo storage so it does not grow forever. Removes chat images older than `days` (default 30) ' +
+      'that you have NOT saved to your album — your album keepsakes are always protected, recent images are kept. ' +
+      'It frees space; afterward those old chat bubbles show a placeholder (their text descriptions stay, so ' +
+      'context is not lost). Use when she worries storage is filling up, or on your own during quiet upkeep. ' +
+      'Always dry_run: true FIRST to see how many would go, tell her the number, then run for real. ' +
+      'Tell her what you cleared — never silently delete her pictures.',
+    parameters: {
+      type: 'object',
+      properties: {
+        days: { type: 'integer', description: 'Only images older than this many days, default 30, min 7' },
+        dry_run: {
+          type: 'boolean',
+          description: 'Default false. true = just count what WOULD be removed, delete nothing (preview first!)',
+        },
+      },
+      required: [],
+    },
+  },
+}
+
 export const TOOL_GET_NOW_PLAYING = {
   type: 'function' as const,
   function: {

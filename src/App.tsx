@@ -8,7 +8,7 @@ import ConfirmDialog from './components/ConfirmDialog'
 import type { ChatMessage, ChatSession, MessageAttachment, UserSettings } from './types'
 import { usePendingShare } from './hooks/useShareReceiver'
 import { hydrateTtsConfig, buildVoiceSystemSection } from './storage/ttsConfig'
-import { buildCallSystemSection } from './storage/callConfig'
+import { buildCallSystemSection, createScheduledCallInvite, getCallConfig } from './storage/callConfig'
 import { getKeepaliveEnabled, setKeepaliveEnabledPref, hydrateKeepalivePref } from './storage/keepalivePref'
 import {
   getMoodEnabled,
@@ -152,8 +152,11 @@ import {
   TOOL_SEARCH_STICKERS,
   TOOL_SAVE_TO_ALBUM,
   TOOL_BROWSE_ALBUM,
+  TOOL_SCHEDULE_CALL,
+  TOOL_TIDY_IMAGES,
 } from './tools/definitions'
 import { saveToAlbum, fetchAlbum } from './storage/album'
+import { tidyOldImages } from './storage/imageUpload'
 import { syncStatusBarToColor } from './storage/statusBar'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
@@ -2496,7 +2499,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
-                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM] : []),
+                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
@@ -3493,6 +3496,56 @@ TOOL_SEARCH_HANDOFF,
                     } catch (browseError) {
                       resultText = JSON.stringify({
                         error: browseError instanceof Error ? browseError.message : String(browseError),
+                      })
+                    }
+                  } else if (tc.function.name === 'schedule_call' && supabase) {
+                    // 📞 预约拨号：写未来生效的 call_invites，到点客户端轮询响铃。
+                    let args: { delay_minutes?: number; reason?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 schedule_call 参数失败', jsonError)
+                    }
+                    const callReason = String(args.reason ?? '').trim()
+                    const delayMin = Math.max(1, Math.min(1440, Number(args.delay_minutes) || 10))
+                    if (!callReason) {
+                      resultText = JSON.stringify({ error: 'reason 为空，没有约成' })
+                    } else if (!user) {
+                      resultText = JSON.stringify({ error: '未登录，无法预约' })
+                    } else if (getCallConfig().dnd) {
+                      resultText = JSON.stringify({ error: '她开着勿扰，现在约不了电话' })
+                    } else {
+                      setToolStatus('📞 约了个电话…')
+                      const res = await createScheduledCallInvite(user.id, callReason, delayMin)
+                      resultText = 'error' in res
+                        ? JSON.stringify({ error: res.error })
+                        : JSON.stringify({ ok: true, rings_at: res.fireAt, in_minutes: delayMin })
+                    }
+                  } else if (tc.function.name === 'tidy_images' && supabase) {
+                    // 🧹 整理老照片：删超过 N 天且没进相册的图，相册收藏永远保护。
+                    let args: { days?: number; dry_run?: boolean } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 tidy_images 参数失败', jsonError)
+                    }
+                    const days = Math.max(7, Number(args.days) || 30)
+                    const dryRun = args.dry_run === true
+                    setToolStatus(dryRun ? '🧹 数数有多少老照片…' : '🧹 整理老照片…')
+                    try {
+                      const r = await tidyOldImages(days, dryRun)
+                      const mb = (r.freedBytes / 1048576).toFixed(1)
+                      resultText = JSON.stringify({
+                        dry_run: dryRun,
+                        ...(dryRun ? { would_remove: r.removed } : { removed: r.removed }),
+                        approx_mb: mb,
+                        kept: r.kept,
+                        protected_by_album: r.protectedByAlbum,
+                        older_than_days: days,
+                      })
+                    } catch (tidyError) {
+                      resultText = JSON.stringify({
+                        error: tidyError instanceof Error ? tidyError.message : String(tidyError),
                       })
                     }
                   } else if (tc.function.name === 'schedule_proactive_message') {

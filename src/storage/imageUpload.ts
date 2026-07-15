@@ -103,3 +103,64 @@ export const deleteChatImage = async (path: string): Promise<void> => {
     console.warn('删除图片失败', error)
   }
 }
+
+// 🧹 整理 chat-images 桶：删掉超过 days 天、且没被收藏进相册的老图。
+// 相册收藏的（assistant_album.image_path）永远保护。dry_run 只统计不删。
+// 老气泡里被删的图会显示占位，但文字描述（imageCaptions）还在，上下文不丢。
+export type TidyResult = { removed: number; freedBytes: number; kept: number; protectedByAlbum: number }
+
+export const tidyOldImages = async (
+  days = 30,
+  dryRun = false,
+): Promise<TidyResult> => {
+  if (!supabase) throw new Error('Supabase 未配置')
+  const cutoffDays = Math.max(7, Math.round(days))
+  const cutoff = Date.now() - cutoffDays * 86400_000
+
+  // 相册保护清单：收藏图的 bucket path
+  const { data: albumRows } = await supabase.from('assistant_album').select('image_path')
+  const protectedPaths = new Set(
+    (albumRows ?? [])
+      .map((r) => (r as { image_path: string | null }).image_path)
+      .filter((p): p is string => Boolean(p)),
+  )
+
+  // 列桶（分页，flat 路径——上传用的是随机文件名无子目录）
+  type BucketFile = { name: string; created_at?: string; metadata?: { size?: number } | null }
+  const all: BucketFile[] = []
+  const PAGE = 1000
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .list('', { limit: PAGE, offset, sortBy: { column: 'created_at', order: 'asc' } })
+    if (error) throw error
+    const batch = (data ?? []) as BucketFile[]
+    all.push(...batch)
+    if (batch.length < PAGE) break
+  }
+
+  const doomed = all.filter((f) => {
+    if (protectedPaths.has(f.name)) return false // 相册收藏，保护
+    const created = f.created_at ? new Date(f.created_at).getTime() : 0
+    return created > 0 && created < cutoff // 够老才删
+  })
+  const freedBytes = doomed.reduce((s, f) => s + (f.metadata?.size ?? 0), 0)
+  const result: TidyResult = {
+    removed: 0,
+    freedBytes,
+    kept: all.length - doomed.length,
+    protectedByAlbum: protectedPaths.size,
+  }
+  if (dryRun || doomed.length === 0) {
+    result.removed = 0
+    return { ...result, removed: dryRun ? doomed.length : 0 }
+  }
+  // 分批删（storage remove 一次别塞太多）
+  for (let i = 0; i < doomed.length; i += 100) {
+    const names = doomed.slice(i, i + 100).map((f) => f.name)
+    const { error } = await supabase.storage.from(BUCKET).remove(names)
+    if (error) throw error
+    result.removed += names.length
+  }
+  return result
+}
