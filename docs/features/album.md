@@ -24,9 +24,9 @@
 2. 前端执行时从 `messagesRef` **倒序找最近一条带 image 附件的消息**,取它的 url
 3. 收藏那张
 
-覆盖 "这张我想留着" 的主场景(通常指刚发的图)。已收藏返回 `already_saved` + 原 note。**note 必填**:执行层强制,没写理由直接返回 error 逼模型补一句(这是它自己的相册,留言是收藏的意义)。
+覆盖 "这张我想留着" 的主场景(通常指刚发的图)。**note 必填**:执行层强制,没写理由直接返回 error 逼模型补一句(这是它自己的相册,留言是收藏的意义)。**补/改备注**:已收藏的图再调一次 `save_to_album` 带上不同的 note → 更新备注(返回 `updated_note`);同 note/没 note → `already_saved` 不动。这就是小机给旧图补备注的路径(旧版没有编辑口子,小机会说"加不上备注")。
 
-`list_photos` 让小机"看"整个图库:列 storage 所有照片,靠 image_captions 的**文字描述**呈现(不重喂像素、便宜),带在不在相册。`browse_album` 回传 note/tags/time,**不回传 url**(太长、对模型无意义)——它回看的是自己写的理由。
+`list_photos` 让小机"看"整个图库:列 storage 所有照片,靠 image_captions 的**文字描述**呈现(不重喂像素、便宜),带在不在相册。⚠️ **依赖 chat-images 的 SELECT RLS 策略**(`20260715140000_chat_images_select_policy.sql`)——桶原本只有 INSERT/DELETE 策略,客户端 `list()` 被挡成空,`list_photos`/`tidy_images` 都列不出图(公开 URL 显示图不走 objects RLS 所以没暴露)。补了 SELECT 才好使。`browse_album` 回传 note/tags/time,**不回传 url**(太长、对模型无意义)——它回看的是自己写的理由。
 
 ## 相册页(记忆库抽屉里)
 

@@ -3480,9 +3480,11 @@ TOOL_SEARCH_HANDOFF,
                       setToolStatus('🖼 收藏进相册…')
                       try {
                         const res = await saveToAlbum(user.id, recentImageUrl, note, albumTags)
-                        resultText = 'already_saved' in res
-                          ? JSON.stringify({ already_saved: true, note: res.already_saved.note })
-                          : JSON.stringify({ ok: true, saved_id: res.saved.id })
+                        resultText = 'updated' in res
+                          ? JSON.stringify({ ok: true, updated_note: true, note: res.updated.note })
+                          : 'already_saved' in res
+                            ? JSON.stringify({ already_saved: true, note: res.already_saved.note })
+                            : JSON.stringify({ ok: true, saved_id: res.saved.id })
                       } catch (albumError) {
                         resultText = JSON.stringify({
                           error: albumError instanceof Error ? albumError.message : String(albumError),

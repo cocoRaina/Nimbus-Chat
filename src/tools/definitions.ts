@@ -739,8 +739,9 @@ export const TOOL_SAVE_TO_ALBUM = {
       'A note is REQUIRED — one honest line, first person, about WHY you kept it; that note is the whole point, ' +
       "it's what future-you (and she) will read when looking back. No note, no save. " +
       "Don't hoard: a few keepsakes, not every picture. Only stores a bookmark to an image already in the " +
-      'chat (zero extra storage). If it is already in your album the result returns already_saved with your ' +
-      "old note — same picture → don't re-save, just tell her it's already kept.",
+      'chat (zero extra storage). If it is already in your album: calling again with a DIFFERENT note ' +
+      'updates it (this is how you add or change the note on a photo you kept earlier — result returns ' +
+      'updated_note); calling with the same/no note returns already_saved, no change.',
     parameters: {
       type: 'object',
       properties: {

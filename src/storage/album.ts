@@ -60,7 +60,7 @@ export const saveToAlbum = async (
   imageUrl: string,
   note: string | null,
   tags: string[],
-): Promise<{ saved: AlbumEntry } | { already_saved: AlbumEntry }> => {
+): Promise<{ saved: AlbumEntry } | { already_saved: AlbumEntry } | { updated: AlbumEntry }> => {
   if (!supabase) throw new Error('Supabase 未配置')
   const { data: existing } = await supabase
     .from('assistant_album')
@@ -68,7 +68,19 @@ export const saveToAlbum = async (
     .eq('user_id', userId)
     .eq('image_url', imageUrl)
     .maybeSingle()
-  if (existing) return { already_saved: toEntry(existing as AlbumRow) }
+  if (existing) {
+    const ex = toEntry(existing as AlbumRow)
+    const newNote = note?.trim() || null
+    // 已收藏，但这次带了新备注、且和原来不同（含"原来没备注"）→ 补/改备注
+    // （+ 有新标签就一并更新）。这就是小机给旧图补备注的路径。
+    if (newNote && newNote !== ex.note) {
+      const patch: { note: string; tags?: string[] } = { note: newNote }
+      if (tags.length > 0) patch.tags = tags
+      await updateAlbumEntry(ex.id, patch)
+      return { updated: { ...ex, note: newNote, tags: tags.length > 0 ? tags : ex.tags } }
+    }
+    return { already_saved: ex }
+  }
   const { data, error } = await supabase
     .from('assistant_album')
     .insert({
