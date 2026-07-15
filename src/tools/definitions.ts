@@ -103,7 +103,10 @@ export const TOOL_SCHEDULE_PROACTIVE = {
       'even if she comes back; only when she explicitly asks to be reminded/woken, never on your own initiative.\n' +
       'Dedup is automatic: same/near-duplicate pending items are not re-created — the result returns the ' +
       'existing one (already_scheduled); on success other_pending lists other queued items. Relay these ' +
-      'facts honestly instead of claiming a fresh booking.',
+      'facts honestly instead of claiming a fresh booking.\n' +
+      'TIME: for a CLOCK time ("明早8点叫我" / "晚上10点提醒"), use at_time (Beijing time) and let the app do ' +
+      'the math — do NOT compute minutes yourself, that is where mistakes happen. Use delay_minutes only for ' +
+      'relative gaps ("待会" / "半小时后").',
     parameters: {
       type: 'object',
       properties: {
@@ -113,7 +116,14 @@ export const TOOL_SCHEDULE_PROACTIVE = {
         },
         delay_minutes: {
           type: 'integer',
-          description: '1-1440 (max 24h), pick by scenario',
+          description: '1-1440 (max 24h). For a relative gap. Ignored if at_time is given.',
+        },
+        at_time: {
+          type: 'string',
+          description:
+            'Beijing-time clock target, preferred for "at X o\'clock" requests. "HH:MM" (e.g. 08:00 — today, ' +
+            'or tomorrow if already past) or "YYYY-MM-DD HH:MM". App converts to the right delay so you never ' +
+            'miscount hours. Must be within 24h.',
         },
         persist: {
           type: 'boolean',
@@ -121,7 +131,7 @@ export const TOOL_SCHEDULE_PROACTIVE = {
             'Default false. true only when the user explicitly asked for a fixed reminder/wake-up call.',
         },
       },
-      required: ['text', 'delay_minutes'],
+      required: ['text'],
     },
   },
 }
@@ -804,13 +814,19 @@ export const TOOL_SCHEDULE_CALL = {
     parameters: {
       type: 'object',
       properties: {
-        delay_minutes: { type: 'integer', description: '1-1440 (max 24h) from now until the phone rings' },
+        delay_minutes: { type: 'integer', description: '1-1440 (max 24h). For a relative gap. Ignored if at_time is given.' },
+        at_time: {
+          type: 'string',
+          description:
+            'Beijing-time clock target, preferred for "call me at X" ("HH:MM" e.g. 08:00, or "YYYY-MM-DD HH:MM"). ' +
+            'App converts to the right delay so you never miscount hours. Within 24h.',
+        },
         reason: {
           type: 'string',
           description: 'Short reason shown on the incoming-call screen, first person (e.g. 「到点啦，该起床了」)',
         },
       },
-      required: ['delay_minutes', 'reason'],
+      required: ['reason'],
     },
   },
 }

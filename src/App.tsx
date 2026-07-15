@@ -106,6 +106,7 @@ import {
   resolveSyzygyReplyPrompt,
 } from './constants/aiOverlays'
 import { resolveModelId } from './utils/modelResolver'
+import { chinaClockToDelayMinutes } from './utils/time'
 import { fetchOpenRouter } from './api/openrouter'
 import { convertOpenAiRequestToAnthropic, isThinkingReplayDisabledForHost } from './api/anthropic'
 import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './storage/apiProvider'
@@ -3535,15 +3536,26 @@ TOOL_SEARCH_HANDOFF,
                     }
                   } else if (tc.function.name === 'schedule_call' && supabase) {
                     // 📞 预约拨号：写未来生效的 call_invites，到点客户端轮询响铃。
-                    let args: { delay_minutes?: number; reason?: string } = {}
+                    let args: { delay_minutes?: number; reason?: string; at_time?: string } = {}
                     try {
                       args = JSON.parse(tc.function.arguments || '{}') as typeof args
                     } catch (jsonError) {
                       console.warn('解析 schedule_call 参数失败', jsonError)
                     }
                     const callReason = String(args.reason ?? '').trim()
-                    const delayMin = Math.max(1, Math.min(1440, Number(args.delay_minutes) || 10))
-                    if (!callReason) {
+                    // at_time（北京时间钟点）优先，客户端换算，免得模型算错
+                    let delayMin = Math.max(1, Math.min(1440, Number(args.delay_minutes) || 10))
+                    let callTimeErr: string | null = null
+                    if (args.at_time) {
+                      const mins = chinaClockToDelayMinutes(String(args.at_time))
+                      if (mins == null) callTimeErr = 'at_time 格式看不懂，用 "HH:MM" 或 "YYYY-MM-DD HH:MM"，按北京时间'
+                      else if (mins < 1) callTimeErr = '那个时间点已经过去了'
+                      else if (mins > 1440) callTimeErr = '目前只能约 24 小时以内的'
+                      else delayMin = mins
+                    }
+                    if (callTimeErr) {
+                      resultText = JSON.stringify({ error: callTimeErr })
+                    } else if (!callReason) {
                       resultText = JSON.stringify({ error: 'reason 为空，没有约成' })
                     } else if (!user) {
                       resultText = JSON.stringify({ error: '未登录，无法预约' })
@@ -3584,16 +3596,27 @@ TOOL_SEARCH_HANDOFF,
                       })
                     }
                   } else if (tc.function.name === 'schedule_proactive_message') {
-                    let args: { text?: string; delay_minutes?: number; persist?: boolean } = {}
+                    let args: { text?: string; delay_minutes?: number; persist?: boolean; at_time?: string } = {}
                     try {
                       args = JSON.parse(tc.function.arguments || '{}') as typeof args
                     } catch (jsonError) {
                       console.warn('解析 schedule_proactive_message 失败', jsonError)
                     }
                     const proText = (args.text ?? '').trim()
-                    const delayMin = Math.max(1, Math.min(1440, Number(args.delay_minutes) || 60))
+                    // at_time（北京时间钟点）优先：客户端换算成延迟，免得模型算错。
+                    let delayMin = Math.max(1, Math.min(1440, Number(args.delay_minutes) || 60))
+                    let timeErr: string | null = null
+                    if (args.at_time) {
+                      const mins = chinaClockToDelayMinutes(String(args.at_time))
+                      if (mins == null) timeErr = 'at_time 格式看不懂，用 "HH:MM"（如 08:00）或 "YYYY-MM-DD HH:MM"，按北京时间'
+                      else if (mins < 1) timeErr = '那个时间点已经过去了，改个未来的时间'
+                      else if (mins > 1440) timeErr = '目前只能定 24 小时以内的'
+                      else delayMin = mins
+                    }
                     const persist = args.persist === true
-                    if (proText && shouldScheduleProactive(delayMin * 60 * 1000)) {
+                    if (timeErr) {
+                      resultText = JSON.stringify({ ok: false, error: timeErr })
+                    } else if (proText && shouldScheduleProactive(delayMin * 60 * 1000)) {
                       const delayMs = delayMin * 60 * 1000
                       const fireAt = Date.now() + delayMs
                       // 跨窗口失忆去重：模型看不到自己前几轮/前几天约过什么
