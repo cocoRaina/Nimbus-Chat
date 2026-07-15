@@ -4,6 +4,29 @@
 
 ---
 
+## 🛠 相册 + 通话 + 定时的一轮打磨（2026-07-15，同日迭代）
+
+> 上面几条落地后，围绕真机试用反馈做的一批细节迭代。都在 `main` / `claude/callhome-project-xnqyvn`，纯前端为主，需等新 APK。
+
+**相册**
+- `save_to_album` **note 必填**：执行层强制，没写理由直接返回 error 逼模型补一句（这是它自己的相册，留言=收藏的意义）。工具描述改成"这是你自己的相册，想留想删随你"。
+- 新工具 `list_photos`（工具数 → 29）：列 `chat-images` 里所有照片给小机"看"——靠 `image_captions` 的**文字描述**呈现（不重喂像素、便宜）+ 时间 + 在不在相册。它靠描述"看"整个图库、挑值得收藏的。`imageUpload.listStoredPhotos`（抽出 `listBucketFiles` 复用）。
+- 相册详情：备注为空时显示淡色占位「小机这次没写收藏理由～」（不再空白像坏了）；「移出相册」改成和「关闭」同款胶囊、红底白字。
+- 记忆库顶栏：标题居中、☰ 挪到最右（原来四个子元素塞进 `1fr auto 1fr` grid 把标题挤歪了 → 回三子元素）。
+
+**通话**
+- **通话中小机的回复也渲染成语音条**（复用 `[voice]` 的 VoiceBubble）：`callTurnIds` 走消息流一遍，`📞已接通`→`📞通话结束` 之间的 assistant 消息算通话回合，`sanitizeForSpeech` 后当一条语音条——不再露 `[sighs]` 等标签的文字气泡。纯渲染层判定，历史通话追溯生效。
+- **预约拨号来电通知**（App 后台/关闭时）：专用高优先级渠道 `incoming_call`（importance 5）+ `ongoing`（常驻划不走）+ 「接听/挂断」按钮（`registerActionTypes`）。接听打 `nimbus_call_autoanswer_v1` 标记 → 进 App 后 ChatPage 轮询命中直接接通态（跳过响铃页）；挂断认领 `declined`。**纯 Capacitor LocalNotifications、无原生插件**（锁屏整屏 intent 才要 FCM/原生，没做）。
+- **半流式播报**：原来等整段生成完才 TTS（大段沉默），改成"写完一句就念"——effect 每次流式增量把已写完的整句排进队列，第一句写完立刻开口，后面边生成边接上。`spokenCharsRef`（已入队字符数，基于 `sanitizeForSpeech` 稳定前缀）+ `abandonedRef`（barge-in 后剩余不念）+ `speakCountRef`。`[hangup]` 仍整条播完才处理。
+- **更跟手**：免提默认开（`getHandsFree` 默认 true，除非显式关）+ 说完停顿 **0.9s** 就自动发（原 1.2s）。真·全双工（同时说话/零延迟）没做。
+
+**定时（修"时间设错"）**
+- 主动消息/预约电话原来只收 `delay_minutes`（相对延迟），"明早8点叫我"要模型自己算"还有几小时→几分钟"，LLM 偶尔算错。新增 `chinaClockToDelayMinutes`（`utils/time`）：北京时间钟点（`HH:MM` 今天/顺延明天，或 `YYYY-MM-DD HH:MM`）→ 延迟。中国固定 UTC+8 无夏令时，拼 `+08:00` 解析，无歧义。
+- `schedule_proactive_message` / `schedule_call` 加可选 `at_time`，优先于 `delay_minutes`；越界/格式错返回 error。工具描述明确"钟点用 at_time、别自己算分钟"。模型看到的当前时间本来就是东八区（`[当前时间]` 前缀 Asia/Shanghai），这次只是把算术从模型挪到客户端。
+
+**引用回复**
+- 气泡里被引用的 `> …`（用户气泡纯文本渲染，`>` 裸露很丑）→ 渲染时拆出开头引用块做成 **Telegram 式引用卡片**（左色条 + 半透明白底），下面才是正文。发送仍按 `> ` 前缀进正文让 AI 看到上下文，只美化渲染。引用预览条「AI：」→ 助手名字。
+
 ## 🖼 小机的相册 + 照片整理 + 预约拨号（2026-07-15）
 
 **相册**:小机自己收藏聊天里出现过的图、自己翻看。只存书签(图引用 + 收藏理由),图早在 chat-images,零额外存储——化解"撑爆 Supabase"担心。新表 `assistant_album`(RLS)、`album.ts`、工具 `save_to_album`(收藏最近一张图,模型多模态看图不知 URL → 前端从消息流找)/`browse_album`(回看自己写的理由)。记忆库从横 tab 改成**抽屉式侧边栏**(☰ 滑出),新增相册页(网格 + 点开看大图/理由/标签/移出)。
