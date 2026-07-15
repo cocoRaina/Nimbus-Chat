@@ -39,7 +39,7 @@ type Props = {
   onEnd: (durationMs: number, endedBy: 'user' | 'assistant') => void
   onSendVoiceTurn: (
     text: string,
-    options: { attachments?: MessageAttachment[]; voiceEmotion?: string; soft?: boolean },
+    options: { attachments?: MessageAttachment[]; voiceEmotion?: string; tones?: string[] },
   ) => Promise<void>
 }
 
@@ -73,7 +73,7 @@ const buildCallLines = (messages: ChatMessage[], startedAt: number): CallLine[] 
       if (!m.content.startsWith('[通话中]')) continue
       let text = m.content.replace(/^\[通话中\]\s*/, '')
       let emotion: string | undefined
-      const em = /（语气：([^）]{1,8})）\s*$/.exec(text)
+      const em = /（语气：([^）]{1,24})）\s*$/.exec(text)
       if (em) { emotion = em[1]; text = text.slice(0, em.index) }
       if (text.trim()) {
         lines.push({ key, who: 'me', text: text.trim(), emotion })
@@ -124,10 +124,14 @@ const CallOverlay = ({
   const recChunksRef = useRef<Blob[]>([])
   const recStartRef = useRef(0)
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  // 轻声检测：整句有声帧的平均 RMS 低于阈值 → 轻声（TA 播报降到 0.5×，
-  // 语气标签带上「轻声」让 TA 也压低声音回）
+  // 语调检测（轻声/停顿多/语速慢）：录音时按帧采 RMS——
+  //   轻声   = 有声帧平均 norm < 22 → TA 播报降 0.5×，标签带「轻声」
+  //   停顿多 = 有声时长占比 < 45%（≥3s 的话才算，短句不评）
+  //   语速慢 = 转写字数 ÷ 有声秒数 < 2.8（≥2s 有声才算）
   const voicedSumRef = useRef(0)
   const voicedCntRef = useRef(0)
+  const voicedMsRef = useRef(0)
+  const totalMsRef = useRef(0)
   const softModeRef = useRef(false)
   const pttAudioCtxRef = useRef<AudioContext | null>(null)
   const pttAnalyserRef = useRef<AnalyserNode | null>(null)
@@ -257,6 +261,8 @@ const CallOverlay = ({
       mr.start(200)
       voicedSumRef.current = 0
       voicedCntRef.current = 0
+      voicedMsRef.current = 0
+      totalMsRef.current = 0
       try {
         const ctx = new AudioContext()
         pttAudioCtxRef.current = ctx
@@ -275,14 +281,26 @@ const CallOverlay = ({
           an.getByteTimeDomainData(data)
           const rms = Math.sqrt(data.reduce((sum, v) => sum + (v - 128) ** 2, 0) / data.length)
           const norm = Math.min(100, rms * 2.2)
-          if (norm >= 10) { voicedSumRef.current += norm; voicedCntRef.current += 1 }
+          totalMsRef.current += 200
+          if (norm >= 10) {
+            voicedSumRef.current += norm
+            voicedCntRef.current += 1
+            voicedMsRef.current += 200
+          }
         }
       }, 200)
     } catch { /* 无权限/无麦克风 */ }
   }, [recState, phase, clearLinger, stopPlayback])
 
   // 录音 blob → 上传 → 转写（带情绪）→ 发送为通话轮次。PTT 和 VAD 共用。
-  const sendRecordingBlob = useCallback(async (blob: Blob, durationMs: number, mimeType: string, soft: boolean) => {
+  // stats 来自录音期间的 RMS 采样，转写完成后合成语调标签。
+  const sendRecordingBlob = useCallback(async (
+    blob: Blob,
+    durationMs: number,
+    mimeType: string,
+    stats: { voicedAvg: number; voicedMs: number; totalMs: number },
+  ) => {
+    const soft = stats.voicedAvg < 22
     softModeRef.current = soft
     setRecState('sending')
     try {
@@ -298,6 +316,12 @@ const CallOverlay = ({
       } catch (err) {
         console.warn('通话转写失败，按语音消息发送', err)
       }
+      const tones: string[] = []
+      if (soft) tones.push('轻声')
+      const effTotal = Math.max(stats.voicedMs, stats.totalMs)
+      if (effTotal >= 3000 && stats.voicedMs / effTotal < 0.45) tones.push('停顿多')
+      const chars = (text.match(/[一-鿿a-zA-Z0-9]/g) ?? []).length
+      if (chars > 0 && stats.voicedMs >= 2000 && chars / (stats.voicedMs / 1000) < 2.8) tones.push('语速慢')
       await onSendVoiceTurn(text || '[语音消息]', {
         attachments: [{
           type: 'voice' as const,
@@ -307,7 +331,7 @@ const CallOverlay = ({
           emotion: emotion ?? undefined,
         }],
         ...(emotion ? { voiceEmotion: emotion } : {}),
-        ...(soft ? { soft: true } : {}),
+        ...(tones.length ? { tones } : {}),
       })
     } catch (err) {
       console.error('通话语音发送失败', err)
@@ -324,8 +348,11 @@ const CallOverlay = ({
     void pttAudioCtxRef.current?.close().catch(() => {})
     pttAudioCtxRef.current = null
     pttAnalyserRef.current = null
-    const voicedAvg = voicedCntRef.current > 0 ? voicedSumRef.current / voicedCntRef.current : 99
-    const soft = voicedAvg < 22
+    const stats = {
+      voicedAvg: voicedCntRef.current > 0 ? voicedSumRef.current / voicedCntRef.current : 99,
+      voicedMs: voicedMsRef.current,
+      totalMs: totalMsRef.current,
+    }
     mr.onstop = () => {
       const durationMs = Date.now() - recStartRef.current
       mr.stream.getTracks().forEach((t) => t.stop())
@@ -337,7 +364,7 @@ const CallOverlay = ({
         setRecState('idle')
         return
       }
-      void sendRecordingBlob(blob, durationMs, mimeType, soft)
+      void sendRecordingBlob(blob, durationMs, mimeType, stats)
     }
     mr.stop()
   }, [recState, sendRecordingBlob])
@@ -366,8 +393,12 @@ const CallOverlay = ({
       mr = null
       if (!rec) return
       if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null }
-      const voicedAvg = voicedCntRef.current > 0 ? voicedSumRef.current / voicedCntRef.current : 99
-      const soft = voicedAvg < 22
+      const stats = {
+        voicedAvg: voicedCntRef.current > 0 ? voicedSumRef.current / voicedCntRef.current : 99,
+        voicedMs: voicedMsRef.current,
+        // 免提靠 1.2s 尾部静默判停，这段不该算成「停顿」
+        totalMs: Math.max(voicedMsRef.current, totalMsRef.current - 1200),
+      }
       rec.onstop = () => {
         const durationMs = Date.now() - startAt
         const mimeType = rec.mimeType || 'audio/webm'
@@ -377,7 +408,7 @@ const CallOverlay = ({
           setRecState('idle')
           return
         }
-        void sendRecordingBlob(blob, durationMs, mimeType, soft)
+        void sendRecordingBlob(blob, durationMs, mimeType, stats)
       }
       rec.stop()
     }
@@ -435,15 +466,19 @@ const CallOverlay = ({
           lastVoiceAt = startAt
           voicedSumRef.current = 0
           voicedCntRef.current = 0
+          voicedMsRef.current = 0
+          totalMsRef.current = 0
           mr.start(200)
           setRecState('recording')
           setRecMs(0)
           recTimerRef.current = setInterval(() => setRecMs(Date.now() - startAt), 200)
         } else {
+          totalMsRef.current += 100
           if (norm >= 10) {
             lastVoiceAt = Date.now()
             voicedSumRef.current += norm
             voicedCntRef.current += 1
+            voicedMsRef.current += 100
           }
           if (Date.now() - lastVoiceAt > 1200 || Date.now() - startAt > 60_000) stopRecorder(true)
         }

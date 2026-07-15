@@ -4390,10 +4390,10 @@ TOOL_SEARCH_HANDOFF,
         voiceEmotion?: string
         // 📞 语音通话（callhome）：callMode 给内容加 [通话中] 前缀，让模型知道
         // 这句是电话里说的；silent 只落库不触发回复（通话结束的记录行）；
-        // soft = 这句是轻声说的（语气标签带上「轻声」，TA 会压低声音回）。
+        // tones = 语调标签（轻声/停顿多/语速慢），和情绪一起拼进语气标注。
         callMode?: boolean
         silent?: boolean
-        soft?: boolean
+        tones?: string[]
       },
     ): Promise<void> => {
       // 语音情绪：仅作为括号文字追加到消息内容末尾，让沈暮自然感知语气；
@@ -4412,11 +4412,13 @@ TOOL_SEARCH_HANDOFF,
         : voiceAtt
           ? (content === '[语音消息]' ? '[语音消息]' : `[语音] ${content}`)
           : content
-      const softLabel = options?.callMode && options?.soft ? '轻声' : null
-      const toneLabel = emotionLabel && softLabel
-        ? `${emotionLabel}·${softLabel}`
-        : emotionLabel ?? softLabel
-      const finalContent = toneLabel ? `${baseContent}（语气：${toneLabel}）` : baseContent
+      const toneParts = [
+        emotionLabel,
+        ...(options?.callMode && options?.tones ? options.tones : []),
+      ].filter((t): t is string => Boolean(t))
+      const finalContent = toneParts.length > 0
+        ? `${baseContent}（语气：${toneParts.join('·')}）`
+        : baseContent
       persistUserMessage(sessionId, finalContent, options?.attachments ?? [])
       if (!options?.silent) armBatchTimer(sessionId)
     },
