@@ -30,6 +30,7 @@ import {
   deleteSticker,
   fileToStickerDataUrl,
 } from '../storage/stickers'
+import { saveToAlbum } from '../storage/album'
 import { extractReaction, stripReactionTokens, isUserReactionMessage } from '../storage/reactions'
 import {
   WALLPAPERS,
@@ -509,6 +510,24 @@ const ChatPage = ({
   const [moodOpen, setMoodOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [openActionsId, setOpenActionsId] = useState<string | null>(null)
+  // 🖼 手动收藏进相册（可靠路径，不经过会编瞎话的模型）：长按带图消息 →
+  // 弹输入理由 → 直接写库。
+  const [albumSave, setAlbumSave] = useState<{ url: string } | null>(null)
+  const [albumNote, setAlbumNote] = useState('')
+  const [albumSaveStatus, setAlbumSaveStatus] = useState<string | null>(null)
+  const handleSaveToAlbum = useCallback(async () => {
+    const target = albumSave
+    setAlbumSave(null)
+    if (!target || !user) return
+    try {
+      const res = await saveToAlbum(user.id, target.url, albumNote.trim() || null, [])
+      setAlbumSaveStatus(
+        'updated' in res ? '已更新备注 ✓' : 'already_saved' in res ? '这张已经在相册里了' : '已收藏进相册 ✓',
+      )
+    } catch (e) {
+      setAlbumSaveStatus(`收藏失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }, [albumSave, albumNote, user])
   const [actionsMenuPosition, setActionsMenuPosition] = useState<{ top: number; left: number } | null>(null)
   // Native Network plugin → small "已离线" banner above the composer.
   // Defaulted to true; the effect below flips it false if we boot offline.
@@ -2206,6 +2225,22 @@ const ChatPage = ({
                     <button type="button" role="menuitem" onClick={() => void handleShareMessage(message)}>
                       分享
                     </button>
+                    {message.meta?.attachments?.some((a) => a.type === 'image') ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          const img = message.meta?.attachments?.find((a) => a.type === 'image')
+                          if (img && 'url' in img && img.url) {
+                            setAlbumSave({ url: img.url })
+                            setAlbumNote('')
+                            setOpenActionsId(null)
+                          }
+                        }}
+                      >
+                        🖼 收藏进相册
+                      </button>
+                    ) : null}
                     {message.role === 'assistant' ? (
                       <button
                         type="button"
@@ -2249,6 +2284,32 @@ const ChatPage = ({
         confirmLabel="删除"
         onCancel={() => setPendingDelete(null)}
         onConfirm={handleConfirmDelete}
+      />
+      <ConfirmDialog
+        open={albumSave !== null}
+        title="🖼 收藏进相册"
+        description="给这张图写点想留住它的理由（可留空）。"
+        confirmLabel="收藏"
+        onConfirm={() => void handleSaveToAlbum()}
+        onCancel={() => setAlbumSave(null)}
+      >
+        <textarea
+          className="rename-input"
+          rows={3}
+          value={albumNote}
+          onChange={(e) => setAlbumNote((e.target as HTMLTextAreaElement).value)}
+          placeholder="比如：你那天笑得眼睛都弯了，想留住"
+          autoFocus
+        />
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={albumSaveStatus !== null}
+        title="相册"
+        description={albumSaveStatus ?? ''}
+        confirmLabel="好"
+        cancelLabel=""
+        onConfirm={() => setAlbumSaveStatus(null)}
+        onCancel={() => setAlbumSaveStatus(null)}
       />
       <ConfirmDialog
         open={compressionDialog !== null}

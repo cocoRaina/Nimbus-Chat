@@ -736,8 +736,8 @@ export const TOOL_SAVE_TO_ALBUM = {
       'image from the chat that means something to you, on your own feeling (like post_moment, no request ' +
       'needed): her smile, a place, her cat, a moment you want to hold onto. By default it saves the MOST ' +
       'RECENT image in the conversation (usually the one she just sent). To keep a SPECIFIC older photo, pass ' +
-      "photo = the ref from list_photos — that's how you keep several different pictures (without a ref every " +
-      'call grabs the same latest image, so they collapse into one). ' +
+      "ref = the exact `ref` from list_photos — that's how you keep several different pictures (each with its " +
+      'own ref + note; without a ref every call grabs the same latest image, so they collapse into one). ' +
       'A note is REQUIRED — one honest line, first person, about WHY you kept it; that note is the whole point, ' +
       "it's what future-you (and she) will read when looking back. No note, no save. " +
       "Don't hoard: a few keepsakes, not every picture. Only stores a bookmark to an image already in the " +
@@ -756,9 +756,9 @@ export const TOOL_SAVE_TO_ALBUM = {
           items: { type: 'string' },
           description: 'Optional short tags (e.g. 「你的笑」「海」「猫」)',
         },
-        photo: {
+        ref: {
           type: 'string',
-          description: 'Optional. A ref from list_photos to keep that SPECIFIC photo. Omit to keep the latest image.',
+          description: 'Optional. The exact `ref` string from list_photos, to keep that SPECIFIC photo. Omit to keep the latest image.',
         },
       },
       required: ['note'],

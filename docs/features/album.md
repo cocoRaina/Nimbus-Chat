@@ -24,7 +24,7 @@
 2. 前端执行时从 `messagesRef` **倒序找最近一条带 image 附件的消息**,取它的 url
 3. 收藏那张
 
-覆盖 "这张我想留着" 的主场景(通常指刚发的图)。**收藏指定的图**:`list_photos` 每张给一个 `ref`,`save_to_album` 传 `photo=ref` 就收藏那一张——**否则每次都抓最新那张,想存好几张不同的图会全塌成一张**(踩过:小机存了好几张,相册里只剩 1 张 + 最后一次的备注)。`ref` = bucket path,`chatImagePublicUrl(path)` 还原 URL。**note 必填**:执行层强制,没写理由直接返回 error 逼模型补一句(这是它自己的相册,留言是收藏的意义)。**补/改备注**:已收藏的图再调一次 `save_to_album` 带上不同的 note → 更新备注(返回 `updated_note`);同 note/没 note → `already_saved` 不动。这就是小机给旧图补备注的路径(旧版没有编辑口子,小机会说"加不上备注")。
+覆盖 "这张我想留着" 的主场景(通常指刚发的图)。**收藏指定的图**:`list_photos` 每张给一个 `ref`,`save_to_album` 传 `photo=ref` 就收藏那一张——**否则每次都抓最新那张,想存好几张不同的图会全塌成一张**(踩过:小机存了好几张,相册里只剩 1 张 + 最后一次的备注)。`ref` = bucket path,`chatImagePublicUrl(path)` 还原 URL。**踩坑**:list_photos 返回的字段叫 `ref`,模型很自然照着传 `ref`,但 save_to_album 早期参数名写成 `photo` → 两边对不上、读不到 → 每次退回"存最近一张"、全塌成 1 张(数据库铁证:永远 1 行、备注被反复覆盖)。修法:参数统一叫 `ref`(handler 还兼容 photo/photo_ref)。**另有可靠的手动路径**:聊天里长按带图消息 →「🖼 收藏进相册」→ 写备注 → 直接写库,不经过模型。**note 必填**:执行层强制,没写理由直接返回 error 逼模型补一句(这是它自己的相册,留言是收藏的意义)。**补/改备注**:已收藏的图再调一次 `save_to_album` 带上不同的 note → 更新备注(返回 `updated_note`);同 note/没 note → `already_saved` 不动。这就是小机给旧图补备注的路径(旧版没有编辑口子,小机会说"加不上备注")。
 
 `list_photos` 让小机"看"整个图库:列 storage 所有照片,靠 image_captions 的**文字描述**呈现(不重喂像素、便宜),带在不在相册。⚠️ **依赖 chat-images 的 SELECT RLS 策略**(`20260715140000_chat_images_select_policy.sql`)——桶原本只有 INSERT/DELETE 策略,客户端 `list()` 被挡成空,`list_photos`/`tidy_images` 都列不出图(公开 URL 显示图不走 objects RLS 所以没暴露)。补了 SELECT 才好使。`browse_album` 回传 note/tags/time,**不回传 url**(太长、对模型无意义)——它回看的是自己写的理由。
 

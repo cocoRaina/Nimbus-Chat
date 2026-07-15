@@ -3453,7 +3453,7 @@ TOOL_SEARCH_HANDOFF,
                     // 🖼 小机收藏。默认收藏聊天里最近一张图（模型多模态看图、不知
                     // URL，前端从消息流找）；也可传 photo=list_photos 给的 ref 来收藏
                     // 指定的那张（这样才能一次存好几张不同的图，而不是都指向最新那张）。
-                    let args: { note?: string; tags?: string[]; photo?: string } = {}
+                    let args: { note?: string; tags?: string[]; photo?: string; ref?: string; photo_ref?: string } = {}
                     try {
                       args = JSON.parse(tc.function.arguments || '{}') as typeof args
                     } catch (jsonError) {
@@ -3463,7 +3463,8 @@ TOOL_SEARCH_HANDOFF,
                     const albumTags = Array.isArray(args.tags)
                       ? args.tags.map((t) => String(t).trim()).filter(Boolean)
                       : []
-                    const photoRef = String(args.photo ?? '').trim()
+                    // 参数名容错：模型可能写 photo / ref / photo_ref（都指 list_photos 的 ref）
+                    const photoRef = String(args.photo ?? args.ref ?? args.photo_ref ?? '').trim()
                     // 指定了 ref → 按 ref 还原那张图的 URL；否则倒序找最近一条带 image
                     // 附件的消息（用户发的、或历史里的）
                     let targetImageUrl: string | null = null
