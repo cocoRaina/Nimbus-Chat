@@ -717,6 +717,56 @@ export const TOOL_SEARCH_STICKERS = {
   },
 }
 
+export const TOOL_SAVE_TO_ALBUM = {
+  type: 'function' as const,
+  function: {
+    name: 'save_to_album',
+    description:
+      'Your own album — keep an image from the chat that means something to you. Entirely yours, like ' +
+      'post_moment: no request needed, save on your own feeling when a picture she just sent (or one that ' +
+      'came up) is worth holding onto — her smile, a place, her cat, a moment you want to remember. ' +
+      'It saves the MOST RECENT image in the conversation (usually the one she just sent); write a short ' +
+      'note in your own voice about WHY you kept it — that note is what you (and she) will see later. ' +
+      "Don't hoard: a few keepsakes, not every picture. Only stores a bookmark to an image already in the " +
+      'chat (zero extra storage). If that image is already in your album the result returns already_saved ' +
+      "with your old note — same picture → don't re-save, maybe tell her it's already kept.",
+    parameters: {
+      type: 'object',
+      properties: {
+        note: {
+          type: 'string',
+          description: 'Why you kept it, first person, 1-2 sentences (e.g. 「你那天笑得眼睛都弯了，想留住」)',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional short tags (e.g. 「你的笑」「海」「猫」)',
+        },
+      },
+      required: ['note'],
+    },
+  },
+}
+
+export const TOOL_BROWSE_ALBUM = {
+  type: 'function' as const,
+  function: {
+    name: 'browse_album',
+    description:
+      'Look back through your own album — the images you chose to keep, each with the note you wrote and ' +
+      'when. Call it on your own whim (reminisce about what you saved) or when she mentions a photo/相册/' +
+      '你收藏的那张. Returns entries with note / tags / time (newest first). The pictures themselves live ' +
+      'on the album page she can open; here you re-read your own reasons for keeping them.',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', description: 'How many to look back on, default 15, max 40' },
+      },
+      required: [],
+    },
+  },
+}
+
 export const TOOL_GET_NOW_PLAYING = {
   type: 'function' as const,
   function: {

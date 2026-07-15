@@ -150,7 +150,10 @@ import {
   TOOL_CONTROL_MEDIA,
   TOOL_GET_NOW_PLAYING,
   TOOL_SEARCH_STICKERS,
+  TOOL_SAVE_TO_ALBUM,
+  TOOL_BROWSE_ALBUM,
 } from './tools/definitions'
+import { saveToAlbum, fetchAlbum } from './storage/album'
 import { syncStatusBarToColor } from './storage/statusBar'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
@@ -2493,7 +2496,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
-                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT] : []),
+                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
@@ -3433,6 +3436,64 @@ TOOL_SEARCH_HANDOFF,
                           error: replyError instanceof Error ? replyError.message : String(replyError),
                         })
                       }
+                    }
+                  } else if (tc.function.name === 'save_to_album' && supabase) {
+                    // 🖼 小机自主收藏聊天里最近的一张图。模型是多模态"看到"图的、
+                    // 不知道 URL 字符串，所以由前端从消息流里找最近的 image 附件，
+                    // 只让模型写收藏理由（note）+ 可选标签。
+                    let args: { note?: string; tags?: string[] } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 save_to_album 参数失败', jsonError)
+                    }
+                    const note = String(args.note ?? '').trim()
+                    const albumTags = Array.isArray(args.tags)
+                      ? args.tags.map((t) => String(t).trim()).filter(Boolean)
+                      : []
+                    // 倒序找最近一条带 image 附件的消息（用户发的、或历史里的）
+                    let recentImageUrl: string | null = null
+                    for (let i = messagesRef.current.length - 1; i >= 0; i--) {
+                      const att = messagesRef.current[i].meta?.attachments?.find((a) => a.type === 'image')
+                      if (att && 'url' in att && att.url) { recentImageUrl = att.url; break }
+                    }
+                    if (!recentImageUrl) {
+                      resultText = JSON.stringify({ error: '最近的对话里没有找到图片，没有可收藏的' })
+                    } else if (!user) {
+                      resultText = JSON.stringify({ error: '未登录，无法收藏' })
+                    } else {
+                      setToolStatus('🖼 收藏进相册…')
+                      try {
+                        const res = await saveToAlbum(user.id, recentImageUrl, note, albumTags)
+                        resultText = 'already_saved' in res
+                          ? JSON.stringify({ already_saved: true, note: res.already_saved.note })
+                          : JSON.stringify({ ok: true, saved_id: res.saved.id })
+                      } catch (albumError) {
+                        resultText = JSON.stringify({
+                          error: albumError instanceof Error ? albumError.message : String(albumError),
+                        })
+                      }
+                    }
+                  } else if (tc.function.name === 'browse_album' && supabase) {
+                    let args: { limit?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 browse_album 参数失败', jsonError)
+                    }
+                    const albumLimit = Math.max(1, Math.min(40, Number(args.limit) || 15))
+                    setToolStatus('🖼 翻看相册…')
+                    try {
+                      const entries = await fetchAlbum(albumLimit)
+                      // url 不回传（太长、对模型无意义）——它回看的是自己写的 note
+                      resultText = JSON.stringify({
+                        count: entries.length,
+                        album: entries.map((e) => ({ note: e.note, tags: e.tags, time: e.createdAt })),
+                      })
+                    } catch (browseError) {
+                      resultText = JSON.stringify({
+                        error: browseError instanceof Error ? browseError.message : String(browseError),
+                      })
                     }
                   } else if (tc.function.name === 'schedule_proactive_message') {
                     let args: { text?: string; delay_minutes?: number; persist?: boolean } = {}
