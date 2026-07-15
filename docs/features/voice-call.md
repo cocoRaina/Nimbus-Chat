@@ -42,7 +42,7 @@
 
 1. 按住说话 → MediaRecorder 录音 → 传 `voice-recordings` bucket → `transcribe-voice`（SenseVoice，带情绪）
 2. 发送为 `[通话中] 转写文字（语气：情绪）` + voice 附件（聊天里正常显示语音条）
-3. AI 回复走正常 `sendMessage` 流（含批量定时器），CallOverlay 观察消息流：新的非流式 assistant 消息 → `sanitizeForSpeech`（剥标记/markdown，保留 EL 英文语气标签）→ `chunkForSpeech` 按句分块（≤200字）→ 逐块 `synthesizeSpeech` 边播边预取下一块
+3. AI 回复走正常 `sendMessage` 流（含批量定时器），CallOverlay **半流式**播报：不等整段生成完，effect 在每次流式增量时把"已写完的整句"排进播报队列——**写完第一句就开口**，后面几句边生成边接上，砍掉"等整段写完"的沉默。逐句 `sanitizeForSpeech`（剥标记/markdown，保留 EL 语气标签）→ `chunkForSpeech` → `synthesizeSpeech` 边播边预取。状态用 `spokenCharsRef`（每条已入队字符数）+ `abandonedRef`（barge-in 后剩余不念）+ `speakCountRef`（驱动"对方说话中"）。整条完成后才处理 `[hangup]`。真·全双工（同时说话/零延迟）仍没做
 4. 用户按住说话会**打断**当前播报（barge-in，剩余分块不播）
 5. **实时字幕流**（callhome ui-concept 式）：通话页中段渲染本次通话的消息——你的转写（右侧气泡 + 语气小标签）、TA 的回复（左侧气泡，**流式时文字实时长出来**）、系统小字（"接通了 · 直接说话就行"）。顶部渐隐 mask、新内容贴底滚动。字幕只是通话的影子，完整记录仍在聊天页
 6. **语调三件套**（librosa 音学特征的 JS 简化版，PTT 和免提都生效，PTT 录音时挂独立 analyser 采样）：

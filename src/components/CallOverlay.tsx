@@ -116,7 +116,12 @@ const CallOverlay = ({
   const [handsFree, setHandsFreeState] = useState(() => getHandsFree())
 
   const endedRef = useRef(false)
-  const spokenRef = useRef<Set<string>>(new Set())
+  // 半流式播报状态：不再等整段生成完，写完一句就念一句。
+  const spokenCharsRef = useRef<Map<string, number>>(new Map()) // 每条消息已入队播报的（清洗后）字符数
+  const hangupDoneRef = useRef<Set<string>>(new Set())          // 挂断意图已处理的消息
+  const abandonedRef = useRef<Set<string>>(new Set())           // 被打断、剩余不再念的消息
+  const speakingKeyRef = useRef<string | null>(null)            // 当前在念哪条
+  const speakCountRef = useRef(0)                               // 队列里还没念完的段数（驱动"对方说话中"）
   const speakChainRef = useRef<Promise<void>>(Promise.resolve())
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const lingerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -174,71 +179,107 @@ const CallOverlay = ({
     return () => { stopRingtone(); clearTimeout(t) }
   }, [phase])
 
-  // ---- 通话阶段：自动播报 TA 的新回复 ----
+  // ---- 通话阶段：半流式播报 TA 的回复 ----
+  // 不等整段生成完：这个 effect 在每次流式增量（messages 变化）时跑，把"已
+  // 经写完的整句"排进播报队列，写完第一句就开口，后面几句边生成边接上。
+  const bumpSpeaking = (delta: number) => {
+    speakCountRef.current = Math.max(0, speakCountRef.current + delta)
+    setSpeaking(speakCountRef.current > 0)
+  }
+  // 把一段（≥1 个完整句子）排进播报链：合成 + 播放，播时预取下一块。
+  const enqueueSpeech = (key: string, text: string) => {
+    const clean = text.trim()
+    if (!clean) return
+    speakingKeyRef.current = key
+    bumpSpeaking(1)
+    speakChainRef.current = speakChainRef.current.then(async () => {
+      if (endedRef.current || interruptRef.current || abandonedRef.current.has(key)) { bumpSpeaking(-1); return }
+      setSpeakError(null)
+      try {
+        const chunks = chunkForSpeech(clean)
+        let pending: Promise<string> | null = synthesizeSpeech(chunks[0])
+        for (let i = 0; i < chunks.length; i++) {
+          if (endedRef.current || interruptRef.current || abandonedRef.current.has(key)) break
+          const url = await (pending as Promise<string>)
+          pending = i + 1 < chunks.length ? synthesizeSpeech(chunks[i + 1]) : null
+          if (endedRef.current || interruptRef.current || abandonedRef.current.has(key)) break
+          await new Promise<void>((resolve) => {
+            const a = new Audio(url)
+            a.volume = softModeRef.current ? 0.5 : 1
+            audioRef.current = a
+            a.onended = () => resolve()
+            a.onpause = () => resolve() // barge-in
+            a.onerror = () => resolve()
+            void a.play().catch(() => resolve())
+          })
+        }
+      } catch (e) {
+        setSpeakError(e instanceof Error ? e.message : '语音合成失败')
+      }
+      bumpSpeaking(-1)
+    })
+  }
+
   useEffect(() => {
     if (phase !== 'active') return
+    // 找到本通话内最后一条 assistant 消息（正在流式或刚完成的那条）
     for (const m of messages) {
       if (m.role !== 'assistant') continue
-      if (m.meta?.streaming || m.pending) continue
-      if (!m.content.trim()) continue
       const created = new Date(m.clientCreatedAt ?? m.createdAt).getTime()
       if (created < startedAt) continue
       const key = m.clientId ?? m.id
-      if (spokenRef.current.has(key)) continue
-      spokenRef.current.add(key)
-      const content = m.content
-      speakChainRef.current = speakChainRef.current.then(async () => {
-        if (endedRef.current) return
+      if (abandonedRef.current.has(key)) continue
+      const done = !(m.meta?.streaming || m.pending)
+      // 第一次见到这条（新回合）→ 复位打断标记，让它能开口
+      if (!spokenCharsRef.current.has(key)) {
+        spokenCharsRef.current.set(key, 0)
         interruptRef.current = false
-        const text = sanitizeForSpeech(content)
-        if (text) {
-          setSpeaking(true)
-          setSpeakError(null)
-          try {
-            // 首块合成完立刻播，播的同时预取下一块（缩短句间空档）
-            const chunks = chunkForSpeech(text)
-            let pending: Promise<string> | null = synthesizeSpeech(chunks[0])
-            for (let i = 0; i < chunks.length; i++) {
-              if (endedRef.current || interruptRef.current) break
-              const url = await (pending as Promise<string>)
-              pending = i + 1 < chunks.length ? synthesizeSpeech(chunks[i + 1]) : null
-              if (endedRef.current || interruptRef.current) break
-              await new Promise<void>((resolve) => {
-                const a = new Audio(url)
-                a.volume = softModeRef.current ? 0.5 : 1
-                audioRef.current = a
-                a.onended = () => resolve()
-                a.onpause = () => resolve() // 用户按住说话打断（barge-in）
-                a.onerror = () => resolve()
-                void a.play().catch(() => resolve())
-              })
-            }
-          } catch (e) {
-            setSpeakError(e instanceof Error ? e.message : '语音合成失败')
-          }
-          setSpeaking(false)
-        }
-        // 播完这条后 TA 想挂 → 停留窗口倒计时，开口即留住。用户中途按住
-        // 说话（interrupt）说明还想聊，这条的挂断意图作废。
-        if (!endedRef.current && !interruptRef.current && hasHangupMarker(content)) {
-          setLingerLeft(LINGER_SECONDS)
-          if (lingerTimerRef.current) clearInterval(lingerTimerRef.current)
-          lingerTimerRef.current = setInterval(() => {
-            setLingerLeft((left) => {
-              if (left === null) return null
-              if (left <= 1) {
-                if (lingerTimerRef.current) { clearInterval(lingerTimerRef.current); lingerTimerRef.current = null }
-                if (!endedRef.current) {
-                  endedRef.current = true
-                  onEndRef.current(Date.now() - startedAt, 'assistant')
+      }
+      const sanitized = sanitizeForSpeech(m.content)
+      const already = spokenCharsRef.current.get(key) ?? 0
+      const pendingText = already <= sanitized.length ? sanitized.slice(already) : ''
+      // 取到"最后一个完整句子结束"为止；没写完的半句先等（除非整条已完成）
+      let ready = ''
+      if (done) {
+        ready = pendingText
+      } else {
+        const re = /[。！？!?…]|\.(?=\s|$)|\n/g
+        let idx = -1
+        let mm: RegExpExecArray | null
+        while ((mm = re.exec(pendingText)) !== null) idx = mm.index + mm[0].length
+        ready = idx > 0 ? pendingText.slice(0, idx) : ''
+      }
+      if (ready.trim()) {
+        spokenCharsRef.current.set(key, already + ready.length)
+        enqueueSpeech(key, ready)
+      }
+      // 整条完成后处理挂断意图（排在所有语音之后，播完再倒计时）
+      if (done && !hangupDoneRef.current.has(key)) {
+        hangupDoneRef.current.add(key)
+        spokenCharsRef.current.set(key, sanitized.length)
+        const content = m.content
+        speakChainRef.current = speakChainRef.current.then(async () => {
+          if (endedRef.current || interruptRef.current || abandonedRef.current.has(key)) return
+          if (hasHangupMarker(content)) {
+            setLingerLeft(LINGER_SECONDS)
+            if (lingerTimerRef.current) clearInterval(lingerTimerRef.current)
+            lingerTimerRef.current = setInterval(() => {
+              setLingerLeft((left) => {
+                if (left === null) return null
+                if (left <= 1) {
+                  if (lingerTimerRef.current) { clearInterval(lingerTimerRef.current); lingerTimerRef.current = null }
+                  if (!endedRef.current) {
+                    endedRef.current = true
+                    onEndRef.current(Date.now() - startedAt, 'assistant')
+                  }
+                  return null
                 }
-                return null
-              }
-              return left - 1
-            })
-          }, 1000)
-        }
-      })
+                return left - 1
+              })
+            }, 1000)
+          }
+        })
+      }
     }
   }, [phase, messages, startedAt])
 
@@ -249,6 +290,9 @@ const CallOverlay = ({
     if (recState !== 'idle' || phase !== 'active') return
     clearLinger() // 开口 = 留住 TA
     interruptRef.current = true // 剩余分块不再播（barge-in）
+    if (speakingKeyRef.current) abandonedRef.current.add(speakingKeyRef.current) // 这条剩余的句子也别念了
+    speakCountRef.current = 0
+    setSpeaking(false)
     stopPlayback() // 打断正在播的话
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
@@ -456,6 +500,9 @@ const CallOverlay = ({
           voiceRun = 0
           clearLinger() // 开口 = 留住 TA
           interruptRef.current = true
+          if (speakingKeyRef.current) abandonedRef.current.add(speakingKeyRef.current)
+          speakCountRef.current = 0
+          setSpeaking(false)
           stopPlayback()
           try {
             mr = new MediaRecorder(stream, { mimeType })
