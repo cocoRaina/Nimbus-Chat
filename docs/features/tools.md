@@ -1,4 +1,4 @@
-# Claude 工具（共 28 个）
+# Claude 工具（共 29 个）
 
 每次工具调用记录在消息 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回。
 
@@ -28,6 +28,7 @@
 | `reply_moment` | 回复 Moments 里某条帖子（`post_id`+`post_kind` 来自 `browse_moments`）。用户帖回复写 `snack_replies`（role=assistant），AI 帖回复写 assistant 回复表（authorRole=ai），和页面上的 ✦ Claude 回复按钮同路。同样 AI 自主决定，描述里叮嘱了别刷屏 |
 | `save_to_album` | **AI 自主收藏图**（写 `assistant_album`）。收藏"聊天里最近一张图"——模型多模态看图、不知 URL 字符串，所以前端从消息流倒序找最近 image 附件，只让模型写收藏理由 note + 可选标签。只存书签（图早在 chat-images，零额外存储）；同图已收藏返回 already_saved。相册页在记忆库抽屉里。见 [features/album.md](album.md) |
 | `browse_album` | 翻看自己收藏的（回传 note/tags/time，url 不回传——它回看的是自己写的理由）。AI 自主，或用户提"相册/你收藏的那张"时调 |
+| `list_photos` | **列 storage 里所有照片**给小机"看"——回传每张的**描述**（image_captions 里那句）+ 时间 + 在不在相册。小机靠描述"看"整个图库（不重喂像素、便宜），能挑值得收藏的、聊起旧图。描述为"（还没有描述）"的是没走过 caption 的老图。收藏仍只针对最近一张，想收旧图让用户重发 |
 | `tidy_images` | **整理 chat-images 桶**：删超过 N 天（默认30、最小7）且没进相册的老图，相册收藏（`image_path` 交叉比对）永远保护。`dry_run:true` 先预览个数、报释放多少 MB，再真删。老气泡图变占位但文字描述（imageCaptions）还在。描述里要求先 dry_run 再删、且告诉用户 |
 
 ## 记忆管理（Claude 自己整理记忆库）

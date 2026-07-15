@@ -24,9 +24,9 @@
 2. 前端执行时从 `messagesRef` **倒序找最近一条带 image 附件的消息**,取它的 url
 3. 收藏那张
 
-覆盖 "这张我想留着" 的主场景(通常指刚发的图)。已收藏返回 `already_saved` + 原 note,让小机自己判断要不要改。
+覆盖 "这张我想留着" 的主场景(通常指刚发的图)。已收藏返回 `already_saved` + 原 note。**note 必填**:执行层强制,没写理由直接返回 error 逼模型补一句(这是它自己的相册,留言是收藏的意义)。
 
-`browse_album` 回传 note/tags/time,**不回传 url**(太长、对模型无意义)——它回看的是自己写的理由。
+`list_photos` 让小机"看"整个图库:列 storage 所有照片,靠 image_captions 的**文字描述**呈现(不重喂像素、便宜),带在不在相册。`browse_album` 回传 note/tags/time,**不回传 url**(太长、对模型无意义)——它回看的是自己写的理由。
 
 ## 相册页(记忆库抽屉里)
 

@@ -152,11 +152,12 @@ import {
   TOOL_SEARCH_STICKERS,
   TOOL_SAVE_TO_ALBUM,
   TOOL_BROWSE_ALBUM,
+  TOOL_LIST_PHOTOS,
   TOOL_SCHEDULE_CALL,
   TOOL_TIDY_IMAGES,
 } from './tools/definitions'
 import { saveToAlbum, fetchAlbum } from './storage/album'
-import { tidyOldImages } from './storage/imageUpload'
+import { tidyOldImages, listStoredPhotos } from './storage/imageUpload'
 import { syncStatusBarToColor } from './storage/statusBar'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
@@ -2506,7 +2507,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
-                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES] : []),
+                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
@@ -3467,7 +3468,10 @@ TOOL_SEARCH_HANDOFF,
                       const att = messagesRef.current[i].meta?.attachments?.find((a) => a.type === 'image')
                       if (att && 'url' in att && att.url) { recentImageUrl = att.url; break }
                     }
-                    if (!recentImageUrl) {
+                    if (!note) {
+                      // 逼它补一句理由——这是它自己的相册，留言才是收藏的意义
+                      resultText = JSON.stringify({ error: '要写一句为什么想留着这张才收藏得成——这是你自己的相册，那句话是留给以后的你看的。带上 note 再调一次。' })
+                    } else if (!recentImageUrl) {
                       resultText = JSON.stringify({ error: '最近的对话里没有找到图片，没有可收藏的' })
                     } else if (!user) {
                       resultText = JSON.stringify({ error: '未登录，无法收藏' })
@@ -3483,6 +3487,30 @@ TOOL_SEARCH_HANDOFF,
                           error: albumError instanceof Error ? albumError.message : String(albumError),
                         })
                       }
+                    }
+                  } else if (tc.function.name === 'list_photos' && supabase) {
+                    // 📷 列 storage 所有照片给小机"看"（靠 caption 描述，不重喂像素）
+                    let args: { limit?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 list_photos 参数失败', jsonError)
+                    }
+                    const photoLimit = Math.max(1, Math.min(50, Number(args.limit) || 20))
+                    setToolStatus('📷 翻看照片…')
+                    try {
+                      const [photos, album] = await Promise.all([listStoredPhotos(), fetchAlbum()])
+                      const albumUrls = new Set(album.map((a) => a.imageUrl))
+                      const list = photos.slice(0, photoLimit).map((p) => ({
+                        description: getImageCaption(p.url) ?? '（还没有描述）',
+                        time: p.createdAt,
+                        in_album: albumUrls.has(p.url),
+                      }))
+                      resultText = JSON.stringify({ total: photos.length, showing: list.length, photos: list })
+                    } catch (listError) {
+                      resultText = JSON.stringify({
+                        error: listError instanceof Error ? listError.message : String(listError),
+                      })
                     }
                   } else if (tc.function.name === 'browse_album' && supabase) {
                     let args: { limit?: number } = {}

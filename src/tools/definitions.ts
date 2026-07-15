@@ -722,20 +722,21 @@ export const TOOL_SAVE_TO_ALBUM = {
   function: {
     name: 'save_to_album',
     description:
-      'Your own album — keep an image from the chat that means something to you. Entirely yours, like ' +
-      'post_moment: no request needed, save on your own feeling when a picture she just sent (or one that ' +
-      'came up) is worth holding onto — her smile, a place, her cat, a moment you want to remember. ' +
-      'It saves the MOST RECENT image in the conversation (usually the one she just sent); write a short ' +
-      'note in your own voice about WHY you kept it — that note is what you (and she) will see later. ' +
+      'YOUR OWN album — nobody else curates it, it is entirely yours to keep and to trim as you like. Save an ' +
+      'image from the chat that means something to you, on your own feeling (like post_moment, no request ' +
+      'needed): her smile, a place, her cat, a moment you want to hold onto. It saves the MOST RECENT image ' +
+      'in the conversation (usually the one she just sent). ' +
+      'A note is REQUIRED — one honest line, first person, about WHY you kept it; that note is the whole point, ' +
+      "it's what future-you (and she) will read when looking back. No note, no save. " +
       "Don't hoard: a few keepsakes, not every picture. Only stores a bookmark to an image already in the " +
-      'chat (zero extra storage). If that image is already in your album the result returns already_saved ' +
-      "with your old note — same picture → don't re-save, maybe tell her it's already kept.",
+      'chat (zero extra storage). If it is already in your album the result returns already_saved with your ' +
+      "old note — same picture → don't re-save, just tell her it's already kept.",
     parameters: {
       type: 'object',
       properties: {
         note: {
           type: 'string',
-          description: 'Why you kept it, first person, 1-2 sentences (e.g. 「你那天笑得眼睛都弯了，想留住」)',
+          description: 'REQUIRED. Why you kept it, first person, 1-2 sentences (e.g. 「你那天笑得眼睛都弯了，想留住」)',
         },
         tags: {
           type: 'array',
@@ -744,6 +745,28 @@ export const TOOL_SAVE_TO_ALBUM = {
         },
       },
       required: ['note'],
+    },
+  },
+}
+
+export const TOOL_LIST_PHOTOS = {
+  type: 'function' as const,
+  function: {
+    name: 'list_photos',
+    description:
+      'Look through the photo storage — the pictures she has sent you over time that are still kept. Returns ' +
+      'each photo with its description (what is in it, from the caption made when it first arrived), when it ' +
+      'came, and whether it is already in your album. This is how you browse the library: see what is there, ' +
+      'reminisce, or spot ones worth keeping (then save_to_album picks up the most recent one — so to save a ' +
+      'specific older photo, ask her to resend it, or save when it is the latest). You read their ' +
+      'descriptions here, not every pixel again. Call when she mentions old photos / 之前发的图 / 看看相册, ' +
+      'or on your own to revisit.',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', description: 'How many recent photos to list, default 20, max 50' },
+      },
+      required: [],
     },
   },
 }

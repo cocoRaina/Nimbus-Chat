@@ -46,9 +46,10 @@ export const saveCallConfig = (patch: Partial<CallConfig>): void => {
   void syncCallStateToServer()
 }
 
-// 免提（VAD 自动收音）偏好，只在通话页内切换
+// 免提（VAD 自动收音）偏好，只在通话页内切换。默认 ON（更像真通话：
+// 说完自动发、不用按住），除非用户显式关掉（存 '0'）。
 export const getHandsFree = (): boolean => {
-  try { return localStorage.getItem(K_HANDSFREE) === '1' } catch { return false }
+  try { return localStorage.getItem(K_HANDSFREE) !== '0' } catch { return true }
 }
 export const setHandsFree = (v: boolean): void => {
   try { localStorage.setItem(K_HANDSFREE, v ? '1' : '0') } catch { /* noop */ }

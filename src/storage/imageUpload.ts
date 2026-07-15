@@ -104,6 +104,41 @@ export const deleteChatImage = async (path: string): Promise<void> => {
   }
 }
 
+type BucketFile = { name: string; created_at?: string; metadata?: { size?: number } | null }
+
+// 列 chat-images 桶（分页，flat 路径——上传用随机文件名无子目录）。
+const listBucketFiles = async (): Promise<BucketFile[]> => {
+  if (!supabase) return []
+  const all: BucketFile[] = []
+  const PAGE = 1000
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .list('', { limit: PAGE, offset, sortBy: { column: 'created_at', order: 'asc' } })
+    if (error) throw error
+    const batch = (data ?? []) as BucketFile[]
+    all.push(...batch)
+    if (batch.length < PAGE) break
+  }
+  return all
+}
+
+// 📷 列出 storage 里所有照片（给小机的 list_photos 用）：公网 URL + path +
+// 时间，newest first。描述(caption)和在不在相册由调用方补。
+export type StoredPhoto = { url: string; path: string; createdAt: string | null }
+
+export const listStoredPhotos = async (): Promise<StoredPhoto[]> => {
+  if (!supabase) return []
+  const files = await listBucketFiles()
+  return files
+    .map((f) => ({
+      url: supabase!.storage.from(BUCKET).getPublicUrl(f.name).data.publicUrl,
+      path: f.name,
+      createdAt: f.created_at ?? null,
+    }))
+    .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
+}
+
 // 🧹 整理 chat-images 桶：删掉超过 days 天、且没被收藏进相册的老图。
 // 相册收藏的（assistant_album.image_path）永远保护。dry_run 只统计不删。
 // 老气泡里被删的图会显示占位，但文字描述（imageCaptions）还在，上下文不丢。
@@ -125,20 +160,7 @@ export const tidyOldImages = async (
       .filter((p): p is string => Boolean(p)),
   )
 
-  // 列桶（分页，flat 路径——上传用的是随机文件名无子目录）
-  type BucketFile = { name: string; created_at?: string; metadata?: { size?: number } | null }
-  const all: BucketFile[] = []
-  const PAGE = 1000
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await supabase.storage
-      .from(BUCKET)
-      .list('', { limit: PAGE, offset, sortBy: { column: 'created_at', order: 'asc' } })
-    if (error) throw error
-    const batch = (data ?? []) as BucketFile[]
-    all.push(...batch)
-    if (batch.length < PAGE) break
-  }
-
+  const all = await listBucketFiles()
   const doomed = all.filter((f) => {
     if (protectedPaths.has(f.name)) return false // 相册收藏，保护
     const created = f.created_at ? new Date(f.created_at).getTime() : 0

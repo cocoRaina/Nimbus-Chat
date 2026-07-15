@@ -397,7 +397,7 @@ const CallOverlay = ({
         voicedAvg: voicedCntRef.current > 0 ? voicedSumRef.current / voicedCntRef.current : 99,
         voicedMs: voicedMsRef.current,
         // 免提靠 1.2s 尾部静默判停，这段不该算成「停顿」
-        totalMs: Math.max(voicedMsRef.current, totalMsRef.current - 1200),
+        totalMs: Math.max(voicedMsRef.current, totalMsRef.current - 900),
       }
       rec.onstop = () => {
         const durationMs = Date.now() - startAt
@@ -480,7 +480,8 @@ const CallOverlay = ({
             voicedCntRef.current += 1
             voicedMsRef.current += 100
           }
-          if (Date.now() - lastVoiceAt > 1200 || Date.now() - startAt > 60_000) stopRecorder(true)
+          // 停顿 0.9s 就当说完、自动发（原 1.2s）——更跟手、更像真通话
+          if (Date.now() - lastVoiceAt > 900 || Date.now() - startAt > 60_000) stopRecorder(true)
         }
       }, 100)
     }
