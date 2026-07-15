@@ -126,6 +126,24 @@ export type ChatPageProps = {
 // Claude desktop/web app: long replies = one long bubble, short replies =
 // one short bubble. If you want a multi-bubble feel, instruct Claude to
 // drop [NEXT] between bubbles (case-insensitive).
+// 引用回复：发送时把被引用的消息按 `> 每行` 前缀进正文（让 AI 也看到
+// 上下文），正文再跟在空行之后。渲染时把开头这段 `> …` 拆出来，做成好看的
+// 引用卡片，而不是让 `>` 裸露成文字。
+const extractLeadingQuote = (text: string): { quote: string; body: string } | null => {
+  if (!text.startsWith('>')) return null
+  const lines = text.split('\n')
+  const q: string[] = []
+  let i = 0
+  for (; i < lines.length; i++) {
+    if (lines[i].startsWith('> ')) q.push(lines[i].slice(2))
+    else if (lines[i].startsWith('>')) q.push(lines[i].slice(1))
+    else break
+  }
+  if (q.length === 0) return null
+  while (i < lines.length && lines[i].trim() === '') i++ // 跳过空行分隔
+  return { quote: q.join('\n').trim(), body: lines.slice(i).join('\n') }
+}
+
 const splitAssistantContent = (content: string): string[] =>
   content
     .split(/\[NEXT\]/i)
@@ -400,7 +418,18 @@ const MessageRow = memo(function MessageRow({
                 <MarkdownRenderer content={chunk} />
               </div>
             ) : message.meta?.attachments?.some(a => a.type === 'voice') ? null : (
-              <p>{chunk}</p>
+              (() => {
+                // 引用回复：内容开头的 `> …` 块渲染成 Telegram 式引用卡片
+                // （左侧色条 + 淡底），下面才是正文，而不是裸露的 > 符号。
+                const q = extractLeadingQuote(chunk)
+                if (!q) return <p>{chunk}</p>
+                return (
+                  <>
+                    <div className="msg-quote">{q.quote}</div>
+                    {q.body.trim() ? <p>{q.body}</p> : null}
+                  </>
+                )
+              })()
             )}
           </div>
         )
@@ -1825,7 +1854,7 @@ const ChatPage = ({
         ) : null}
         {quoted ? (
           <div className="quote-preview">
-            <span className="quote-preview-label">{quoted.role === 'assistant' ? 'AI' : '我'}：</span>
+            <span className="quote-preview-label">{quoted.role === 'assistant' ? assistantName : '我'}</span>
             <span className="quote-preview-content">{quoted.content}</span>
             <button
               type="button"

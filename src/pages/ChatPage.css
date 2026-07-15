@@ -831,7 +831,23 @@
 .quote-preview-label {
   flex-shrink: 0;
   font-weight: 600;
-  color: var(--ab-deep-soft);
+  color: var(--ab-strong);
+}
+
+/* 气泡里的引用卡片（Telegram 式）：出向蓝气泡内，用半透明白 + 左色条 */
+.msg-quote {
+  border-left: 3px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  padding: 5px 10px;
+  margin-bottom: 6px;
+  font-size: 0.85em;
+  line-height: 1.42;
+  opacity: 0.95;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 5em;
+  overflow: hidden;
 }
 
 .quote-preview-content {
