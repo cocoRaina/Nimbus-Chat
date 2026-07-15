@@ -4,6 +4,16 @@
 
 ---
 
+## 🖼 小机的相册 + 照片整理 + 预约拨号（2026-07-15）
+
+**相册**:小机自己收藏聊天里出现过的图、自己翻看。只存书签(图引用 + 收藏理由),图早在 chat-images,零额外存储——化解"撑爆 Supabase"担心。新表 `assistant_album`(RLS)、`album.ts`、工具 `save_to_album`(收藏最近一张图,模型多模态看图不知 URL → 前端从消息流找)/`browse_album`(回看自己写的理由)。记忆库从横 tab 改成**抽屉式侧边栏**(☰ 滑出),新增相册页(网格 + 点开看大图/理由/标签/移出)。
+
+**tidy_images**:整理 chat-images 桶,删超 N 天(默30)且没进相册的老图,相册收藏永远保护,dry_run 先预览。释放空间,老气泡图变占位但描述还在。
+
+**schedule_call**:小机预约"待会打给你",写未来生效的 call_invites(`fire_at`),到点轮询响铃、错过转未接留言,本地通知兜底,勿扰时拒绝。
+
+详见 [features/album.md](features/album.md)、[features/voice-call.md](features/voice-call.md)。均在 `claude/callhome-project-xnqyvn` 分支,迁移已 apply(表为空)。前端需等新 APK。
+
 ## 📞 callhome 收尾：语调三件套（2026-07-15）
 
 轻声之外补齐「停顿多」（有声占比<45%，≥3s 才评，免提尾部判停静默不计）和「语速慢」（转写字数÷有声秒<2.8，≥2s 才评），librosa 音学特征的 JS 简化版——零服务端、复用录音期 RMS 采样。标签拼进语气标注（「难过·轻声·停顿多」），系统提示教 TA 读线索。通话总结决定不做（记录里有原文，不值一次模型调用）。

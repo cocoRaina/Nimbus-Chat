@@ -1,4 +1,4 @@
-# Claude 工具（共 24 个）
+# Claude 工具（共 28 个）
 
 每次工具调用记录在消息 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回。
 
@@ -26,6 +26,9 @@
 | `log_health` | 记录睡眠/步数/心率/状态，按日期 upsert。用户随口提到身体状态时就顺手记，不需要她说"帮我记" |
 | `post_moment` | 在 Moments 发一条 AI 自己的帖子（写 `assistant_posts` 表，和 Moments 页 ✦ Claude 按钮同一张表）。**完全由 AI 自主决定的写入工具**——聊天里有触动就发、没有就不发，描述里限了频率感（约一天一两条、一场对话最多一条）。手动按钮照旧保留，两条路并存 |
 | `reply_moment` | 回复 Moments 里某条帖子（`post_id`+`post_kind` 来自 `browse_moments`）。用户帖回复写 `snack_replies`（role=assistant），AI 帖回复写 assistant 回复表（authorRole=ai），和页面上的 ✦ Claude 回复按钮同路。同样 AI 自主决定，描述里叮嘱了别刷屏 |
+| `save_to_album` | **AI 自主收藏图**（写 `assistant_album`）。收藏"聊天里最近一张图"——模型多模态看图、不知 URL 字符串，所以前端从消息流倒序找最近 image 附件，只让模型写收藏理由 note + 可选标签。只存书签（图早在 chat-images，零额外存储）；同图已收藏返回 already_saved。相册页在记忆库抽屉里。见 [features/album.md](album.md) |
+| `browse_album` | 翻看自己收藏的（回传 note/tags/time，url 不回传——它回看的是自己写的理由）。AI 自主，或用户提"相册/你收藏的那张"时调 |
+| `tidy_images` | **整理 chat-images 桶**：删超过 N 天（默认30、最小7）且没进相册的老图，相册收藏（`image_path` 交叉比对）永远保护。`dry_run:true` 先预览个数、报释放多少 MB，再真删。老气泡图变占位但文字描述（imageCaptions）还在。描述里要求先 dry_run 再删、且告诉用户 |
 
 ## 记忆管理（Claude 自己整理记忆库）
 
@@ -40,7 +43,8 @@
 | 工具 | 说明 |
 |------|------|
 | `run_code` | 通过用户配的代码沙盒跑 Python/JS（需配 endpoint） |
-| `schedule_proactive_message` | 预设一条未来主动消息（1-1440 分钟 / 最长 24h；可选 `persist` 区分"普通 ping"和"叫起床这种不可取消提醒"）。仅 APK |
+| `schedule_proactive_message` | 预设一条未来主动**文字**消息（1-1440 分钟 / 最长 24h；可选 `persist` 区分"普通 ping"和"叫起床这种不可取消提醒"）。仅 APK |
+| `schedule_call` | 预约**打电话**（不是文字）：写未来生效的 `call_invites`（`fire_at`），到点客户端轮询响铃；App 关着错过则过期转未接留言。顺手预排本地通知兜底。勿扰时拒绝。见 [features/voice-call.md](voice-call.md) |
 | `get_device_state` | 查手机电量 / 充电 / 今日总屏幕时长 / Top 5 app 时长。不需要等用户提手机，对话开始 / 聊了 30 分钟 / 出门前主动查。APK 限定；屏幕时间需在系统设置开「使用情况访问权限」 |
 
 ## 🎵 音乐 / 媒体控制（APK 限定）
