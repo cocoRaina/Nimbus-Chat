@@ -4,6 +4,10 @@
 
 ---
 
+## 🧹 数据库瘦身：清日志垃圾 ~180MB→53MB（2026-07-15）
+
+用户报"Supabase 内存三分之一"。查明**不是 storage**（chat-images 127 张才 20MB、语音 0.5MB，占 1GB 上限的 2%），是**数据库**（免费档 500MB）里的**日志垃圾**：`net._http_response`（pg_net 的 HTTP 响应缓存）47MB + `cron.job_run_details`（pg_cron 运行日志）34MB —— 主因是 proactive-dispatch cron **每分钟**跑一次、每跑留两条日志。真实数据（messages 22MB 等）没问题。一次性 `truncate net._http_response` + `delete` 旧 job_run_details + `VACUUM FULL` → 库从 ~180MB 压到 **53MB**；加每日 4:00 清理 cron（`20260715150000_log_tables_cleanup_cron.sql`）防再堆。备查：以后看到"内存涨"先分清 **storage(1GB)** vs **database(500MB)**，日志表是常见元凶。
+
 ## 🛠 相册 + 通话 + 定时的一轮打磨（2026-07-15，同日迭代）
 
 > 上面几条落地后，围绕真机试用反馈做的一批细节迭代。都在 `main` / `claude/callhome-project-xnqyvn`，纯前端为主，需等新 APK。
