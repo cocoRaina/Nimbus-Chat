@@ -91,6 +91,43 @@
   color: #d4524b;
 }
 
+/* 装饰波形线：svg 宽 200%，平移一半自身宽度 = 整数个波周期，无缝循环。
+   说话/收音时提速提亮，安静时慢而淡。 */
+.call-wave {
+  width: min(72%, 300px);
+  height: 22px;
+  margin-top: 12px;
+  overflow: hidden;
+  opacity: 0.3;
+  transition: opacity 0.5s ease;
+}
+
+.call-wave.is-live {
+  opacity: 0.85;
+}
+
+.call-wave svg {
+  display: block;
+  width: 200%;
+  height: 100%;
+  animation: call-wave-scroll 5s linear infinite;
+}
+
+.call-wave.is-live svg {
+  animation-duration: 1.8s;
+}
+
+.call-wave path {
+  fill: none;
+  stroke: var(--ab-strong, #789EC8);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+@keyframes call-wave-scroll {
+  to { transform: translateX(-50%); }
+}
+
 /* 实时字幕流（callhome ui-concept 式）：占据头像区和按钮区之间的空当，
    顶部渐隐、贴底滚动。字幕只是通话的影子，聊天页才是完整记录。 */
 .call-transcript {

@@ -81,9 +81,11 @@ export type ChatPageProps = {
     options?: {
       attachments?: MessageAttachment[]
       voiceEmotion?: string
-      // 📞 通话（callhome）：callMode 标记这句是电话里说的；silent 只落库不触发回复
+      // 📞 通话（callhome）：callMode 标记这句是电话里说的；silent 只落库不触发
+      // 回复；soft = 轻声说的（语气标签带「轻声」）
       callMode?: boolean
       silent?: boolean
+      soft?: boolean
     },
   ) => Promise<void>
   onDeleteMessage: (messageId: string) => void | Promise<void>
@@ -906,7 +908,7 @@ const ChatPage = ({
   const handleCallVoiceTurn = useCallback(
     async (
       text: string,
-      options: { attachments?: MessageAttachment[]; voiceEmotion?: string },
+      options: { attachments?: MessageAttachment[]; voiceEmotion?: string; soft?: boolean },
     ) => {
       await sendMessageRef.current(text, { ...options, callMode: true })
     },

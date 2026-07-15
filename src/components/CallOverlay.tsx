@@ -39,7 +39,7 @@ type Props = {
   onEnd: (durationMs: number, endedBy: 'user' | 'assistant') => void
   onSendVoiceTurn: (
     text: string,
-    options: { attachments?: MessageAttachment[]; voiceEmotion?: string },
+    options: { attachments?: MessageAttachment[]; voiceEmotion?: string; soft?: boolean },
   ) => Promise<void>
 }
 
@@ -47,6 +47,10 @@ const fmtClock = (ms: number) => {
   const total = Math.max(0, Math.floor(ms / 1000))
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
+
+// 装饰波形线（callhome ui-concept 的那根线）：20 个正弦波周期，svg 宽 200%，
+// 平移一半自身宽度 = 整数个周期，无缝循环滚动；说话/收音时提速提亮。
+const WAVE_D = 'M0 12 ' + 'q6 -9 12 0 q6 9 12 0 '.repeat(20)
 
 // 通话页的实时字幕行（callhome ui-concept 的样子）：
 //   me  — 你说的话的转写（带语气小标签）
@@ -71,7 +75,11 @@ const buildCallLines = (messages: ChatMessage[], startedAt: number): CallLine[] 
       let emotion: string | undefined
       const em = /（语气：([^）]{1,8})）\s*$/.exec(text)
       if (em) { emotion = em[1]; text = text.slice(0, em.index) }
-      if (text.trim()) lines.push({ key, who: 'me', text: text.trim(), emotion })
+      if (text.trim()) {
+        lines.push({ key, who: 'me', text: text.trim(), emotion })
+        // 轻声说话 → 插一条系统小字（TA 的播报音量也真的降了）
+        if (emotion?.includes('轻声')) lines.push({ key: `${key}-soft`, who: 'sys', text: '轻声模式 · TA 也放低了声音' })
+      }
     } else {
       const text = sanitizeForSpeech(m.content)
       if (text) lines.push({ key, who: 'ta', text })
@@ -116,6 +124,13 @@ const CallOverlay = ({
   const recChunksRef = useRef<Blob[]>([])
   const recStartRef = useRef(0)
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // 轻声检测：整句有声帧的平均 RMS 低于阈值 → 轻声（TA 播报降到 0.5×，
+  // 语气标签带上「轻声」让 TA 也压低声音回）
+  const voicedSumRef = useRef(0)
+  const voicedCntRef = useRef(0)
+  const softModeRef = useRef(false)
+  const pttAudioCtxRef = useRef<AudioContext | null>(null)
+  const pttAnalyserRef = useRef<AnalyserNode | null>(null)
   const onEndRef = useRef(onEnd)
   onEndRef.current = onEnd
   const onMissedRef = useRef(onMissed)
@@ -186,6 +201,7 @@ const CallOverlay = ({
               if (endedRef.current || interruptRef.current) break
               await new Promise<void>((resolve) => {
                 const a = new Audio(url)
+                a.volume = softModeRef.current ? 0.5 : 1
                 audioRef.current = a
                 a.onended = () => resolve()
                 a.onpause = () => resolve() // 用户按住说话打断（barge-in）
@@ -239,14 +255,35 @@ const CallOverlay = ({
       mediaRecorderRef.current = mr
       recStartRef.current = Date.now()
       mr.start(200)
+      voicedSumRef.current = 0
+      voicedCntRef.current = 0
+      try {
+        const ctx = new AudioContext()
+        pttAudioCtxRef.current = ctx
+        const analyser = ctx.createAnalyser()
+        analyser.fftSize = 256
+        ctx.createMediaStreamSource(stream).connect(analyser)
+        pttAnalyserRef.current = analyser
+      } catch { /* 采不到就当正常音量 */ }
       setRecState('recording')
       setRecMs(0)
-      recTimerRef.current = setInterval(() => setRecMs(Date.now() - recStartRef.current), 200)
+      recTimerRef.current = setInterval(() => {
+        setRecMs(Date.now() - recStartRef.current)
+        const an = pttAnalyserRef.current
+        if (an) {
+          const data = new Uint8Array(an.frequencyBinCount)
+          an.getByteTimeDomainData(data)
+          const rms = Math.sqrt(data.reduce((sum, v) => sum + (v - 128) ** 2, 0) / data.length)
+          const norm = Math.min(100, rms * 2.2)
+          if (norm >= 10) { voicedSumRef.current += norm; voicedCntRef.current += 1 }
+        }
+      }, 200)
     } catch { /* 无权限/无麦克风 */ }
   }, [recState, phase, clearLinger, stopPlayback])
 
   // 录音 blob → 上传 → 转写（带情绪）→ 发送为通话轮次。PTT 和 VAD 共用。
-  const sendRecordingBlob = useCallback(async (blob: Blob, durationMs: number, mimeType: string) => {
+  const sendRecordingBlob = useCallback(async (blob: Blob, durationMs: number, mimeType: string, soft: boolean) => {
+    softModeRef.current = soft
     setRecState('sending')
     try {
       const { uploadVoiceRecording, transcribeVoice } = await import('../storage/voiceRecorder')
@@ -270,6 +307,7 @@ const CallOverlay = ({
           emotion: emotion ?? undefined,
         }],
         ...(emotion ? { voiceEmotion: emotion } : {}),
+        ...(soft ? { soft: true } : {}),
       })
     } catch (err) {
       console.error('通话语音发送失败', err)
@@ -283,6 +321,11 @@ const CallOverlay = ({
     const mr = mediaRecorderRef.current
     if (!mr || recState !== 'recording') return
     if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null }
+    void pttAudioCtxRef.current?.close().catch(() => {})
+    pttAudioCtxRef.current = null
+    pttAnalyserRef.current = null
+    const voicedAvg = voicedCntRef.current > 0 ? voicedSumRef.current / voicedCntRef.current : 99
+    const soft = voicedAvg < 22
     mr.onstop = () => {
       const durationMs = Date.now() - recStartRef.current
       mr.stream.getTracks().forEach((t) => t.stop())
@@ -294,7 +337,7 @@ const CallOverlay = ({
         setRecState('idle')
         return
       }
-      void sendRecordingBlob(blob, durationMs, mimeType)
+      void sendRecordingBlob(blob, durationMs, mimeType, soft)
     }
     mr.stop()
   }, [recState, sendRecordingBlob])
@@ -323,6 +366,8 @@ const CallOverlay = ({
       mr = null
       if (!rec) return
       if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null }
+      const voicedAvg = voicedCntRef.current > 0 ? voicedSumRef.current / voicedCntRef.current : 99
+      const soft = voicedAvg < 22
       rec.onstop = () => {
         const durationMs = Date.now() - startAt
         const mimeType = rec.mimeType || 'audio/webm'
@@ -332,7 +377,7 @@ const CallOverlay = ({
           setRecState('idle')
           return
         }
-        void sendRecordingBlob(blob, durationMs, mimeType)
+        void sendRecordingBlob(blob, durationMs, mimeType, soft)
       }
       rec.stop()
     }
@@ -388,12 +433,18 @@ const CallOverlay = ({
           mr.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
           startAt = Date.now()
           lastVoiceAt = startAt
+          voicedSumRef.current = 0
+          voicedCntRef.current = 0
           mr.start(200)
           setRecState('recording')
           setRecMs(0)
           recTimerRef.current = setInterval(() => setRecMs(Date.now() - startAt), 200)
         } else {
-          if (norm >= 10) lastVoiceAt = Date.now()
+          if (norm >= 10) {
+            lastVoiceAt = Date.now()
+            voicedSumRef.current += norm
+            voicedCntRef.current += 1
+          }
           if (Date.now() - lastVoiceAt > 1200 || Date.now() - startAt > 60_000) stopRecorder(true)
         }
       }, 100)
@@ -447,6 +498,9 @@ const CallOverlay = ({
         )}
         <h2 className="call-name">{assistantName}</h2>
         <p className="call-status" aria-live="polite">{statusLine}</p>
+        <div className={`call-wave ${speaking || recState === 'recording' ? 'is-live' : ''}`} aria-hidden="true">
+          <svg viewBox="0 0 480 24" preserveAspectRatio="none"><path d={WAVE_D} /></svg>
+        </div>
         {phase === 'ringing' && reason ? <p className="call-reason">「{reason}」</p> : null}
         {lingerLeft !== null ? (
           <p className="call-linger">TA 想挂了…开口说话可以留住 TA（{lingerLeft}s）</p>

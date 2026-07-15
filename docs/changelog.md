@@ -4,6 +4,10 @@
 
 ---
 
+## 📞 callhome 三期：字幕流 + 轻声模式 + 波形线 + 浅色主题（2026-07-15）
+
+通话页补齐 callhome ui-concept 的观感：**实时字幕流**（你的转写带语气标签、TA 回复流式长出、系统小字，顶部渐隐贴底滚）；**轻声模式**（整句平均 RMS<22 判轻声 → 语气标签「·轻声」+ TA 播报 0.5× 音量 + 系统提示约定 TA 压低声音）；**波形线**（svg 平移循环，说话时提速提亮）；配色从深夜蓝改成跟随主题 --ab-* 的冰蓝白浅色系。铃声不变（WebAudio 合成 A5→C6 风铃双音）。
+
 ## 📞 callhome 二期：免提 VAD + 升级拨号（2026-07-15）
 
 一期（下条）之上补两块：**🎙 免提**——通话页切免提后常驻 mic 流 + RMS 采样（echoCancellation 抑回声），说话自动开录、停顿 1.2s 自动发送，TA 播报中用更高 barge-in 阈值防误打断；**☎️ 升级拨号**——新表 `call_state`（enabled/dnd/时区，客户端 fire-and-forget 同步）+ `call_invites`（`pending→ringing→accepted/declined/missed` 状态机），`proactive_dispatch` cron（每分钟）里查：沉默 5h~7天 + 本地 12-23 点 + 当日未打 + 无存活邀请 → 写 90s 过期的 pending 邀请；客户端 8s 轮询原子抢占响铃，App 关着错过的下次打开认领成 missed → 语音留言。迁移已 apply、函数已部署（服务端即刻生效）；FCM 推送是废弃实验（`fcm_tokens` 表已删），关 App 收不到实时来电是已知边界。前端部分（VAD/轮询）需等新 APK。
