@@ -4,6 +4,12 @@
 
 ---
 
+## 📞 语音通话 callhome（2026-07-15）
+
+参考 [Cheiineeey/callhome](https://github.com/Cheiineeey/callhome) 的标记协议，做成 Nimbus 版轮次制语音通话：AI 用 `[call:理由]` 主动拨号（全屏响铃 90s + WebAudio 铃声 + 后台本地通知），未接自动转 `[voice]` 语音留言；接通后按住说话（SenseVoice 转写带情绪）、回复整条自动 TTS 分块播报（可 barge-in 打断）；`[hangup]` 挂断带 18s 停留窗口（开口留住）；`[dnd:on/off]` 对话切换勿扰；拒接可带理由；挂断落 `📞 通话结束 · 时长` 记录（silent 不触发回复）。新文件 `callConfig.ts` / `ttsClient.ts`（VoiceBubble 共用合成缓存）/ `CallOverlay.tsx/css`；`queueUserMessage` 加 `callMode`/`silent` 选项；系统提示注入静态 `buildCallSystemSection`（缓存友好）。设置在 🔊 语音区块底部。详见 [features/voice-call.md](features/voice-call.md)。未做：升级拨号（沉默5h自动打）、通话一行总结、librosa 语调特征。纯前端改动，**需等 CI 出新 APK**。
+
+---
+
 ## 🩹 Debug 日志（踩过的坑 + 修法）
 
 > 用于以后再撞同样的 bug 时直接定位。每条都对应一个已合并 commit。

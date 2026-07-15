@@ -26,6 +26,7 @@
 | 主页 widget 系统 | [features/widgets.md](features/widgets.md) |
 | 聊天界面交互 | [features/chat-ui.md](features/chat-ui.md) |
 | 语音消息（TTS·MiniMax） | [features/voice-tts.md](features/voice-tts.md) |
+| 语音通话（callhome：主动拨号/挂断/留言/勿扰） | [features/voice-call.md](features/voice-call.md) |
 
 ## 还没单独成文（要动到时看代码）
 

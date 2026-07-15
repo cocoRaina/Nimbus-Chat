@@ -42,6 +42,7 @@ import {
   type RelayPreset,
 } from '../storage/apiProvider'
 import { getTtsConfig, saveTtsConfig, commitTtsConfig, hydrateTtsConfig, readbackTtsActive, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
+import { getCallConfig, saveCallConfig, type CallConfig } from '../storage/callConfig'
 const TTS_MODELS = ['speech-2.8-turbo', 'speech-2.8-hd']
 const EL_MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_turbo_v2_5']
 import {
@@ -152,6 +153,12 @@ const SettingsPage = ({
   // to copy the key/voice id; Android can reclaim the WebView in the background
   // and reload, wiping any draft that lived only in React state. Saving on every
   // change means a reload re-reads the same values instead of losing them.
+  // 📞 语音通话（callhome）：开关 + 勿扰，挂在 TTS 区块里（通话依赖 TTS）
+  const [callCfg, setCallCfg] = useState<CallConfig>(() => getCallConfig())
+  const patchCall = useCallback((patch: Partial<CallConfig>) => {
+    setCallCfg((c) => ({ ...c, ...patch }))
+    saveCallConfig(patch)
+  }, [])
   const patchTts = useCallback((patch: Partial<TtsConfig>) => {
     setTtsDraft((d) => ({ ...d, ...patch }))
     saveTtsConfig(patch)
@@ -1401,6 +1408,31 @@ const SettingsPage = ({
             ) : null}
             {ttsError ? <span className="voice-bar__err">保存出错：{ttsError}</span> : null}
             <span className="settings-hint">边填边会自动保存；填完点一下「保存」更稳妥（确保写进系统存储，关 App 也不丢）。</span>
+
+            <hr />
+            <label className="header-menu-toggle" style={{ paddingLeft: 0 }}>
+              <input
+                type="checkbox"
+                checked={callCfg.enabled}
+                onChange={(e) => patchCall({ enabled: e.target.checked })}
+              />
+              <span>📞 开启语音通话（callhome）</span>
+            </label>
+            <span className="settings-hint">
+              开启后 TA 可以主动给你打电话（回复里带 [call:理由] 就会全屏响铃 90 秒），
+              没接到会留语音留言；聊天页右上角也会出现 📞 让你打给 TA。通话是「按住说话」
+              轮次制：你的话经 SenseVoice 转写（带情绪），TA 的回复自动用上面的 TTS 读出来。
+              需要先把上面的语音（TTS）配置好并开启。
+            </span>
+            <label className="header-menu-toggle" style={{ paddingLeft: 0 }}>
+              <input
+                type="checkbox"
+                checked={callCfg.dnd}
+                onChange={(e) => patchCall({ dnd: e.target.checked })}
+              />
+              <span>🔕 勿扰模式（拦下 TA 的主动来电）</span>
+            </label>
+            <span className="settings-hint">也可以直接在聊天里说「帮我开勿扰」——TA 会用 [dnd:on]/[dnd:off] 帮你切换。</span>
           </div>
         ) : null}
       </section>

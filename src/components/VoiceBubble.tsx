@@ -1,12 +1,8 @@
 import { memo, useRef, useState } from 'react'
-import { supabase } from '../supabase/client'
-import { getTtsConfig, isTtsReady } from '../storage/ttsConfig'
+import { isTtsReady } from '../storage/ttsConfig'
+import { synthesizeSpeech } from '../storage/ttsClient'
 import MarkdownRenderer from './MarkdownRenderer'
 import './VoiceBubble.css'
-
-// Module-level cache: text → object URL, so replaying (or re-rendering) a
-// voice bar doesn't re-synthesize (= re-bill MiniMax).
-const audioCache = new Map<string, string>()
 
 // Rough duration estimate before the first play: Chinese ~4.5 chars/sec,
 // latin words longer. Good enough for the "0:07" hint pre-load.
@@ -34,44 +30,16 @@ const VoiceBubble = memo(function VoiceBubble({ text }: Props) {
   }
 
   const ensureAudio = async (): Promise<HTMLAudioElement | null> => {
-    let url = audioCache.get(text)
-    if (!url) {
-      if (!supabase) return null
-      setLoading(true)
-      setError(null)
-      try {
-        const cfg = getTtsConfig()
-        const body = cfg.provider === 'elevenlabs'
-          ? {
-              provider: 'elevenlabs',
-              text,
-              voice_id: cfg.elVoiceId,
-              api_key: cfg.elApiKey,
-              model: cfg.elModel,
-              stability: cfg.elStability,
-            }
-          : {
-              provider: 'minimax',
-              text,
-              voice_id: cfg.voiceId,
-              api_key: cfg.apiKey,
-              group_id: cfg.groupId,
-              base_url: cfg.baseUrl,
-              model: cfg.model,
-            }
-        const { data, error: err } = await supabase.functions.invoke('tts', { body })
-        if (err) throw new Error(err.message ?? String(err))
-        const b64 = (data as { audio_base64?: string; error?: string })?.audio_base64
-        if (!b64) throw new Error((data as { error?: string })?.error ?? '合成失败')
-        const blob = await (await fetch(`data:audio/mp3;base64,${b64}`)).blob()
-        url = URL.createObjectURL(blob)
-        audioCache.set(text, url)
-      } catch (e) {
-        setError(e instanceof Error ? e.message : '合成失败')
-        return null
-      } finally {
-        setLoading(false)
-      }
+    let url: string
+    setLoading(true)
+    setError(null)
+    try {
+      url = await synthesizeSpeech(text)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '合成失败')
+      return null
+    } finally {
+      setLoading(false)
     }
     if (!audioRef.current) {
       const a = new Audio(url)

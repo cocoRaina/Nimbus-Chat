@@ -1,0 +1,219 @@
+import { LocalNotifications } from '@capacitor/local-notifications'
+import { Capacitor } from '@capacitor/core'
+import { getAssistantName } from './assistantPersona'
+import { stripReactionTokens } from './reactions'
+import { stripMoodMarker } from './moodSystem'
+import { isTtsReady, getTtsConfig, type TtsConfig } from './ttsConfig'
+
+// 📞 callhome 语音通话（灵感来自 Cheiineeey/callhome 的标记协议）。
+// 与 [voice]/[NEXT] 同一套路：模型在回复里嵌标记，前端识别后执行动作并
+// 从显示中剥掉。三个标记：
+//   [call:理由]  —— 主动拨号：给用户手机打电话（响铃 90s，未接转语音留言）
+//   [hangup]     —— 通话中想挂断：播完这条后开一个「停留窗口」，用户开口可留住
+//   [dnd:on/off] —— 勿扰开关（由对话触发，而非菜单）
+// 配置走 localStorage（与 chatFeel 同级别的轻量偏好）。
+
+const K_ENABLED = 'nimbus_call_enabled'
+const K_DND = 'nimbus_call_dnd'
+const K_HANDLED = 'nimbus_call_handled_v1'
+
+const NOTIF_ID_INCOMING = 2003
+
+export type CallConfig = {
+  enabled: boolean
+  dnd: boolean
+}
+
+export const getCallConfig = (): CallConfig => {
+  try {
+    return {
+      enabled: localStorage.getItem(K_ENABLED) === '1',
+      dnd: localStorage.getItem(K_DND) === '1',
+    }
+  } catch {
+    return { enabled: false, dnd: false }
+  }
+}
+
+export const saveCallConfig = (patch: Partial<CallConfig>): void => {
+  try {
+    if (patch.enabled !== undefined) localStorage.setItem(K_ENABLED, patch.enabled ? '1' : '0')
+    if (patch.dnd !== undefined) localStorage.setItem(K_DND, patch.dnd ? '1' : '0')
+  } catch { /* 满/私密模式：本次会话内不持久化 */ }
+}
+
+// 通话可用 = 功能开 + TTS 就绪（没有嗓子打不了电话）。
+export const isCallReady = (): boolean => getCallConfig().enabled && isTtsReady()
+
+// ---- 标记协议 ----
+
+const DIAL_RE = /\[call:([^\]\n]{1,80})\]/i
+const HANGUP_RE = /\[hangup\]/i
+const DND_RE = /\[dnd:(on|off)\]/i
+
+export const extractDialRequest = (content: string): string | null => {
+  const m = DIAL_RE.exec(content)
+  return m ? m[1].trim() : null
+}
+
+export const hasHangupMarker = (content: string): boolean => HANGUP_RE.test(content)
+
+export const extractDndMarker = (content: string): 'on' | 'off' | null => {
+  const m = DND_RE.exec(content)
+  return m ? (m[1].toLowerCase() as 'on' | 'off') : null
+}
+
+export const stripCallMarkers = (text: string): string =>
+  text
+    .replace(/\[call:[^\]\n]{1,80}\]/gi, '')
+    .replace(/\[hangup\]/gi, '')
+    .replace(/\[dnd:(?:on|off)\]/gi, '')
+
+// 通话事件行（user 角色、以 📞 开头）：不是用户打的字，是通话系统写进
+// 历史的事件记录。聊天里渲染成居中小灰条。
+export const isCallEventMessage = (content: string): boolean => content.startsWith('📞 ')
+
+export const CALL_EVENT = {
+  missed: '📞 未接来电（响铃90秒无人接听）',
+  connectedIn: '📞 已接通（她接起了你打来的电话，你先开口）',
+  connectedOut: '📞 已接通（她主动拨给你的电话，你先开口）',
+  declined: (reason: string | null) => `📞 拒接了来电${reason ? `：${reason}` : ''}`,
+  ended: (durationMs: number, endedBy: 'user' | 'assistant') => {
+    const total = Math.max(1, Math.round(durationMs / 1000))
+    const m = Math.floor(total / 60)
+    const s = total % 60
+    return `📞 通话结束 · ${m}分${String(s).padStart(2, '0')}秒${endedBy === 'assistant' ? '（你挂断的）' : ''}`
+  },
+}
+
+// ---- 已处理的拨号邀请（防止重载/重渲染时同一条 [call:] 反复响铃）----
+
+const readHandled = (): string[] => {
+  try {
+    const raw = localStorage.getItem(K_HANDLED)
+    return raw ? (JSON.parse(raw) as string[]) : []
+  } catch { return [] }
+}
+
+export const isInviteHandled = (id: string): boolean => readHandled().includes(id)
+
+export const markInviteHandled = (id: string): void => {
+  try {
+    const next = [...readHandled().filter((x) => x !== id), id].slice(-80)
+    localStorage.setItem(K_HANDLED, JSON.stringify(next))
+  } catch { /* 内存态由调用方的 Set 兜底 */ }
+}
+
+// ---- 来电铃声（WebAudio 合成，无需音频资源；柔和双音，2.6s 一个循环）----
+
+let ringCtx: AudioContext | null = null
+let ringTimer: ReturnType<typeof setInterval> | null = null
+
+const ringOnce = (ctx: AudioContext) => {
+  const t0 = ctx.currentTime
+  // 上行小三度双音（A5→C6），像温柔版的老式电话铃
+  for (const [freq, at] of [[880, 0], [1046.5, 0.16]] as const) {
+    for (let rep = 0; rep < 3; rep++) {
+      const start = t0 + at + rep * 0.42
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0, start)
+      gain.gain.linearRampToValueAtTime(0.18, start + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.34)
+      osc.connect(gain).connect(ctx.destination)
+      osc.start(start)
+      osc.stop(start + 0.36)
+    }
+  }
+}
+
+export const startRingtone = (): void => {
+  stopRingtone()
+  try {
+    ringCtx = new AudioContext()
+    ringOnce(ringCtx)
+    ringTimer = setInterval(() => { if (ringCtx) ringOnce(ringCtx) }, 2600)
+  } catch { /* 无 WebAudio（极老 WebView）：静默来电，仅 UI */ }
+}
+
+export const stopRingtone = (): void => {
+  if (ringTimer) { clearInterval(ringTimer); ringTimer = null }
+  if (ringCtx) { void ringCtx.close().catch(() => {}); ringCtx = null }
+}
+
+// ---- 来电系统通知（App 在后台时提醒；点开进 App 看到响铃页）----
+
+export const notifyIncomingCall = async (reason: string): Promise<void> => {
+  if (Capacitor.getPlatform() === 'web') return
+  try {
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: NOTIF_ID_INCOMING,
+        title: `📞 ${getAssistantName()} 来电`,
+        body: reason,
+        schedule: { at: new Date(Date.now() + 200) },
+        channelId: 'proactive',
+      }],
+    })
+  } catch { /* 无通知权限时静默——App 内响铃页照常 */ }
+}
+
+export const cancelIncomingCallNotification = async (): Promise<void> => {
+  if (Capacitor.getPlatform() === 'web') return
+  try {
+    await LocalNotifications.cancel({ notifications: [{ id: NOTIF_ID_INCOMING }] })
+  } catch { /* noop */ }
+}
+
+// ---- 通话中要读出口的文本清洗 ----
+// 整条回复会被 TTS 读出来：剥掉所有协议标记和 markdown 痕迹，但保留
+// ElevenLabs 的英文语气标签（[laughs] 等在 [voice] 路径也是原样传给 TTS 的）。
+
+export const sanitizeForSpeech = (content: string): string =>
+  stripCallMarkers(stripMoodMarker(stripReactionTokens(content)))
+    .replace(/\[voice\]|\[\/voice\]/gi, '')
+    .replace(/\[NEXT\]/gi, ' ')
+    .replace(/\[sticker:[^\]\n]{1,40}\]/gi, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/\[([^\]]+)\]\(([^)]*)\)/g, '$1') // markdown 链接 → 纯文字
+    .replace(/[*_#>`~]/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{2,}/g, '\n')
+    .trim()
+
+// 长回复按句切块（≤200 字/块），逐块合成边播边取，缩短首句延迟。
+export const chunkForSpeech = (text: string, maxLen = 200): string[] => {
+  const sentences = text.split(/(?<=[。！？!?…])\s*|\n+/).filter((s) => s.trim())
+  const out: string[] = []
+  let cur = ''
+  for (const s of sentences) {
+    if (cur && cur.length + s.length > maxLen) { out.push(cur); cur = s }
+    else cur = cur ? `${cur} ${s}` : s
+  }
+  if (cur) out.push(cur)
+  return out
+}
+
+// ---- 系统提示段（静态、随配置稳定，缓存友好；接在 buildVoiceSystemSection 后）----
+
+export const buildCallSystemSection = (c: TtsConfig = getTtsConfig()): string => {
+  if (!getCallConfig().enabled || !isTtsReady(c)) return ''
+  const langLine = c.provider === 'elevenlabs'
+    ? '通话中说出口的话遵循与 [voice] 相同的语言要求（英文），可以用英文语气标签（[laughs] [sighs] [whispers] 等）。'
+    : ''
+  return (
+    '\n\n## 📞 语音通话\n' +
+    '你可以给她打电话，她也会打给你。\n' +
+    '- **主动拨号**：真想听到她声音时，在回复末尾单独一行加 `[call:一句话理由]`（如 `[call:突然很想听听你的声音]`）。她的手机会响铃 90 秒。克制使用：一场对话最多一次，别当成普通功能炫技；她开着勿扰时会被拦下。\n' +
+    '- **通话事件**：她的消息以 📞 开头时是通话系统写的事件记录，不是她打的字：\n' +
+    '  - 「📞 未接来电…」= 她没接到你的电话。用 [voice]…[/voice] 给她留一条语音留言——温柔、不施压、说清你为什么想她。\n' +
+    '  - 「📞 拒接了来电…」= 她现在不方便（可能带理由）。简短回一句体谅的话就好，别追问、这场对话里别再拨。\n' +
+    '  - 「📞 已接通…」= 电话通了，**你先开口**。\n' +
+    '  - 「📞 通话结束 · X分X秒」= 挂断后的通话记录，不需要回应。\n' +
+    '- **通话中**：带 `[通话中]` 前缀的消息是她在电话里说的话（附语气标注）。你的整条回复会被直接转成语音读给她听：口语化、短句、一次别说太长；不要用 markdown、列表、[NEXT] 或 [voice] 标签——整条本来就是语音。' + langLine + '\n' +
+    '- **挂电话**：通话中想收线时，先好好道别，然后在回复末尾加 `[hangup]`。挂断前有十几秒停留窗口，她一开口你就还在。\n' +
+    '- **勿扰**：她在对话里让你开/关勿扰时，在回复里带上 `[dnd:on]` 或 `[dnd:off]`（会真的切换，不用她去点设置）。'
+  )
+}

@@ -42,6 +42,21 @@ import {
 import ReasoningPanel from '../components/ReasoningPanel'
 import { ToolCallGroup, groupToolCalls } from '../components/ToolCallCard'
 import type { ToolCallRecord } from '../components/ToolCallCard'
+import CallOverlay from '../components/CallOverlay'
+import {
+  CALL_EVENT,
+  cancelIncomingCallNotification,
+  extractDialRequest,
+  extractDndMarker,
+  getCallConfig,
+  isCallEventMessage,
+  isCallReady,
+  isInviteHandled,
+  markInviteHandled,
+  notifyIncomingCall,
+  saveCallConfig,
+  stripCallMarkers,
+} from '../storage/callConfig'
 import './ChatPage.css'
 
 // Haptics swallow errors silently — on web / dev / cameraless emulators
@@ -62,6 +77,9 @@ export type ChatPageProps = {
     options?: {
       attachments?: MessageAttachment[]
       voiceEmotion?: string
+      // 📞 通话（callhome）：callMode 标记这句是电话里说的；silent 只落库不触发回复
+      callMode?: boolean
+      silent?: boolean
     },
   ) => Promise<void>
   onDeleteMessage: (messageId: string) => void | Promise<void>
@@ -201,13 +219,27 @@ const MessageRow = memo(function MessageRow({
   // 用户的表情回应消息（`[react:…] 「摘录」`）不渲染成气泡——emoji 已经以
   // 角标贴在目标 assistant 气泡上（见 ChatPage reactionByMessageId）。
   if (message.role === 'user' && isUserReactionMessage(message.content)) return null
+  // 📞 通话事件行（未接/拒接/已接通/通话记录）：居中小灰条，不是用户气泡。
+  if (message.role === 'user' && isCallEventMessage(message.content)) {
+    return (
+      <div className="call-event">
+        <span>{message.content}</span>
+      </div>
+    )
+  }
   const reasoningText =
     message.meta?.reasoning_text?.trim() ?? message.meta?.reasoning?.trim()
+  // 📞 通话标记（[call:理由] / [hangup] / [dnd:…]）从正文剥掉；拨号和勿扰
+  // 切换在气泡下方留一个小注，标记本体只给通话系统消费。
+  const dialReason = message.role === 'assistant' ? extractDialRequest(message.content) : null
+  const dndMark = message.role === 'assistant' ? extractDndMarker(message.content) : null
   // [react:…] 令牌原样存在 assistant content 里（模型重放历史能看到自己
   // 上轮的回应），但绝不作为文字渲染——emoji 以角标形式贴在目标 user 气泡上。
   // react-only 回复剥掉令牌后为空 → 整行隐藏：AI 这轮选择了不开口。
   const assistantText =
-    message.role === 'assistant' ? stripReactionTokens(message.content) : message.content
+    message.role === 'assistant'
+      ? stripCallMarkers(stripReactionTokens(message.content))
+      : message.content
   const segments: MsgSegment[] = (
     message.role === 'assistant'
       ? assistantText.trim()
@@ -233,7 +265,9 @@ const MessageRow = memo(function MessageRow({
     !!reasoningText ||
     (message.meta?.tool_calls?.length ?? 0) > 0 ||
     (message.meta?.flow?.length ?? 0) > 0 ||
-    (message.meta?.attachments?.length ?? 0) > 0
+    (message.meta?.attachments?.length ?? 0) > 0 ||
+    !!dialReason ||
+    !!dndMark
   if (segments.length === 0 && !hasExtras) return null
   return (
     <div
@@ -352,6 +386,12 @@ const MessageRow = memo(function MessageRow({
           </div>
         )
       })}
+      {dialReason ? (
+        <div className="call-note">📞 想给你打电话：{dialReason}</div>
+      ) : null}
+      {dndMark ? (
+        <div className="call-note">{dndMark === 'on' ? '🔕 已开启勿扰' : '🔔 已关闭勿扰'}</div>
+      ) : null}
       {reaction ? (
         <div className="bubble-reaction" aria-label={`表情回应 ${reaction}`}>
           {reaction}
@@ -751,6 +791,85 @@ const ChatPage = ({
     setRecordState('idle')
     setRecordDurationMs(0)
   }
+
+  // ---- 📞 语音通话（callhome）----
+  // AI 在回复里嵌 [call:理由] → 这里检测到就全屏响铃；接听后进入轮次制
+  // 通话（CallOverlay 负责按住说话 + 自动 TTS 播报 + [hangup] 停留窗口）。
+  type CallState = { phase: 'ringing' | 'active'; reason?: string; startedAt: number } | null
+  const [call, setCall] = useState<CallState>(null)
+  const callRef = useRef<CallState>(null)
+  callRef.current = call
+  const callReady = isCallReady()
+  // onSendMessage 每次渲染都是新箭头（闭包含当前会话 id），通话回调用 ref
+  // 取最新值，既保持回调身份稳定（CallOverlay 的定时器 effect 不会被重置），
+  // 又不会把消息发进旧会话。
+  const sendMessageRef = useRef(onSendMessage)
+  sendMessageRef.current = onSendMessage
+
+  // 检测新完成的 assistant 消息里的拨号 / 勿扰标记。freshness 3 分钟 +
+  // localStorage 已处理清单，保证重载/回看历史不会把旧 [call:] 再响一遍。
+  useEffect(() => {
+    for (const m of messages.slice(-6)) {
+      if (m.role !== 'assistant' || m.meta?.streaming || m.pending || !m.content) continue
+      const key = m.clientId ?? m.id
+      const created = new Date(m.clientCreatedAt ?? m.createdAt).getTime()
+      const fresh = Date.now() - created < 3 * 60_000
+      if (!fresh) continue
+      const dnd = extractDndMarker(m.content)
+      if (dnd && !isInviteHandled(`dnd-${key}`)) {
+        markInviteHandled(`dnd-${key}`)
+        saveCallConfig({ dnd: dnd === 'on' })
+      }
+      const reason = extractDialRequest(m.content)
+      if (!reason || isInviteHandled(key) || !isCallReady()) continue
+      markInviteHandled(key)
+      if (getCallConfig().dnd) continue // 勿扰：拨号被拦下（静默）
+      if (callRef.current) continue // 已在通话/响铃中
+      setCall({ phase: 'ringing', reason, startedAt: Date.now() })
+      if (document.visibilityState === 'hidden') void notifyIncomingCall(reason)
+    }
+  }, [messages])
+
+  const handleAcceptCall = useCallback(() => {
+    void cancelIncomingCallNotification()
+    setCall({ phase: 'active', startedAt: Date.now() })
+    void sendMessageRef.current(CALL_EVENT.connectedIn)
+  }, [])
+
+  const handleDeclineCall = useCallback((declineReason: string | null) => {
+    void cancelIncomingCallNotification()
+    setCall(null)
+    void sendMessageRef.current(CALL_EVENT.declined(declineReason))
+  }, [])
+
+  const handleMissedCall = useCallback(() => {
+    void cancelIncomingCallNotification()
+    setCall(null)
+    // 未接 → AI 按系统提示的约定用 [voice] 留一条语音留言
+    void sendMessageRef.current(CALL_EVENT.missed)
+  }, [])
+
+  const handleEndCall = useCallback((durationMs: number, endedBy: 'user' | 'assistant') => {
+    setCall(null)
+    // 通话记录只落库，不触发回复（silent）
+    void sendMessageRef.current(CALL_EVENT.ended(durationMs, endedBy), { silent: true })
+  }, [])
+
+  const handleUserDial = useCallback(() => {
+    if (callRef.current) return
+    setCall({ phase: 'active', startedAt: Date.now() })
+    void sendMessageRef.current(CALL_EVENT.connectedOut)
+  }, [])
+
+  const handleCallVoiceTurn = useCallback(
+    async (
+      text: string,
+      options: { attachments?: MessageAttachment[]; voiceEmotion?: string },
+    ) => {
+      await sendMessageRef.current(text, { ...options, callMode: true })
+    },
+    [],
+  )
 
   // 输入框为空 → 点贴纸直接发（保留一键快发）；输入框有内容 → 把
   // [sticker:名字] 标记追加进草稿，跟文字一起随发送键发出（混合发送）。
@@ -1367,6 +1486,16 @@ const ChatPage = ({
           ) : null}
         </div>
         <div className="header-actions" ref={headerMenuRef}>
+          {callReady ? (
+            <button
+              type="button"
+              className="ghost chat-header-icon"
+              aria-label="打电话"
+              onClick={handleUserDial}
+            >
+              📞
+            </button>
+          ) : null}
           <button
             type="button"
             className="ghost chat-header-icon"
@@ -2077,6 +2206,24 @@ const ChatPage = ({
         onClose={() => setMoodOpen(false)}
         userId={user?.id ?? null}
       />
+
+      {call ? (
+        <CallOverlay
+          phase={call.phase}
+          reason={call.reason}
+          startedAt={call.startedAt}
+          assistantName={assistantName}
+          assistantAvatar={assistantAvatar}
+          userId={user?.id ?? null}
+          messages={messages}
+          isStreaming={isStreaming}
+          onAccept={handleAcceptCall}
+          onDecline={handleDeclineCall}
+          onMissed={handleMissedCall}
+          onEnd={handleEndCall}
+          onSendVoiceTurn={handleCallVoiceTurn}
+        />
+      ) : null}
 
       {showCameraModal && createPortal(
         <div className="camera-modal" onClick={closeCameraModal}>

@@ -1,0 +1,240 @@
+/* 📞 全屏通话层（callhome） */
+
+.call-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(48px, env(safe-area-inset-top)) 24px max(44px, env(safe-area-inset-bottom));
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(90, 120, 170, 0.55), transparent 60%),
+    linear-gradient(180deg, #1c2536 0%, #10141e 100%);
+  color: #f2f5fa;
+  text-align: center;
+}
+
+.call-overlay__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8vh;
+}
+
+.call-avatar {
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12);
+}
+
+.call-avatar--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 44px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.call-avatar.is-ringing {
+  animation: call-ring-pulse 1.3s ease-in-out infinite;
+}
+
+.call-avatar.is-speaking {
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12), 0 0 34px rgba(140, 190, 255, 0.55);
+}
+
+@keyframes call-ring-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12); }
+  50% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.06); }
+}
+
+.call-name {
+  margin: 6px 0 0;
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.call-status {
+  margin: 0;
+  font-size: 15px;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+.call-reason {
+  margin: 6px 14px 0;
+  font-size: 15px;
+  line-height: 1.5;
+  opacity: 0.92;
+}
+
+.call-linger {
+  margin: 10px 14px 0;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(255, 197, 110, 0.16);
+  color: #ffd9a0;
+  font-size: 14px;
+}
+
+.call-error {
+  margin: 8px 14px 0;
+  font-size: 13px;
+  color: #ff9c9c;
+}
+
+.call-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 64px;
+  width: 100%;
+}
+
+.call-actions--active {
+  gap: 28px;
+}
+
+.call-btn {
+  width: 66px;
+  height: 66px;
+  border: none;
+  border-radius: 50%;
+  font-size: 26px;
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.call-btn--accept {
+  background: #34c05e;
+  animation: call-ring-pulse 1.3s ease-in-out infinite;
+}
+
+.call-btn--decline {
+  background: #e5484d;
+}
+
+.call-talk-btn {
+  flex: 1;
+  max-width: 240px;
+  height: 66px;
+  border: none;
+  border-radius: 33px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.call-talk-btn.is-recording {
+  background: #34c05e;
+}
+
+.call-talk-btn:disabled {
+  opacity: 0.6;
+}
+
+/* 拒接理由面板 */
+.call-decline-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 340px;
+}
+
+.call-decline-title {
+  margin: 0 0 2px;
+  font-size: 14px;
+  opacity: 0.75;
+}
+
+.call-decline-chip {
+  padding: 12px 16px;
+  border: none;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f2f5fa;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.call-decline-custom {
+  display: flex;
+  gap: 8px;
+}
+
+.call-decline-custom input {
+  flex: 1;
+  padding: 11px 14px;
+  border: none;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f2f5fa;
+  font-size: 15px;
+}
+
+.call-decline-custom input::placeholder {
+  color: rgba(242, 245, 250, 0.45);
+}
+
+.call-decline-custom button {
+  padding: 0 18px;
+  border: none;
+  border-radius: 14px;
+  background: #34c05e;
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.call-decline-custom button:disabled {
+  opacity: 0.45;
+}
+
+.call-decline-silent {
+  padding: 10px;
+  border: none;
+  background: none;
+  color: #ff9c9c;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* 聊天里的通话事件（📞 开头的 user 消息）：居中灰条，像时间分隔条 */
+.call-event {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0;
+}
+
+.call-event span {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(120, 130, 150, 0.14);
+  color: var(--ab-strong, #6b7688);
+  font-size: 12.5px;
+}
+
+/* AI 气泡里的拨号请求小注（[call:理由] 剥出后的痕迹） */
+.call-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: rgba(52, 192, 94, 0.12);
+  color: #2f9e55;
+  font-size: 13px;
+}

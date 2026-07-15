@@ -8,6 +8,7 @@ import ConfirmDialog from './components/ConfirmDialog'
 import type { ChatMessage, ChatSession, MessageAttachment, UserSettings } from './types'
 import { usePendingShare } from './hooks/useShareReceiver'
 import { hydrateTtsConfig, buildVoiceSystemSection } from './storage/ttsConfig'
+import { buildCallSystemSection } from './storage/callConfig'
 import { getKeepaliveEnabled, setKeepaliveEnabledPref, hydrateKeepalivePref } from './storage/keepalivePref'
 import {
   getMoodEnabled,
@@ -1559,7 +1560,7 @@ const App = () => {
       // under a strong roleplay persona — recency boosts compliance.
       const moodRulesSection = getMoodEnabled() ? buildMoodRulesSection() : ''
       const systemPrompt =
-        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + buildReactionRulesSection() + buildVoiceSystemSection() + toolActionReminder + moodRulesSection
+        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + buildReactionRulesSection() + buildVoiceSystemSection() + buildCallSystemSection() + toolActionReminder + moodRulesSection
       const isFirstMessageInSession = !messagesRef.current.some(
         (message) =>
           message.sessionId === sessionId &&
@@ -4387,6 +4388,10 @@ TOOL_SEARCH_HANDOFF,
       options?: {
         attachments?: MessageAttachment[]
         voiceEmotion?: string
+        // 📞 语音通话（callhome）：callMode 给内容加 [通话中] 前缀，让模型知道
+        // 这句是电话里说的；silent 只落库不触发回复（通话结束的记录行）。
+        callMode?: boolean
+        silent?: boolean
       },
     ): Promise<void> => {
       // 语音情绪：仅作为括号文字追加到消息内容末尾，让沈暮自然感知语气；
@@ -4400,12 +4405,14 @@ TOOL_SEARCH_HANDOFF,
       const emotionLabel = options?.voiceEmotion ? EMOTION_ZH[options.voiceEmotion] : null
       // Prefix with [语音] so the AI knows this came from voice input.
       // The text content is hidden in ChatPage when there's a voice attachment — the bubble shows it.
-      const baseContent = voiceAtt
-        ? (content === '[语音消息]' ? '[语音消息]' : `[语音] ${content}`)
-        : content
+      const baseContent = options?.callMode
+        ? `[通话中] ${content}`
+        : voiceAtt
+          ? (content === '[语音消息]' ? '[语音消息]' : `[语音] ${content}`)
+          : content
       const finalContent = emotionLabel ? `${baseContent}（语气：${emotionLabel}）` : baseContent
       persistUserMessage(sessionId, finalContent, options?.attachments ?? [])
-      armBatchTimer(sessionId)
+      if (!options?.silent) armBatchTimer(sessionId)
     },
     [persistUserMessage, armBatchTimer],
   )
