@@ -82,6 +82,7 @@ const MemoryVaultPage = ({ recentMessages, memoryExtractProvider }: MemoryVaultP
     <main className="memory-vault-page app-shell">
       <header className="page-header-bar">
         <button type="button" className="page-back-btn" onClick={() => navigate('/')}>‹</button>
+        <h1 className="ui-title">{activeNav.title}</h1>
         <button
           type="button"
           className="mv-menu-btn"
@@ -90,8 +91,6 @@ const MemoryVaultPage = ({ recentMessages, memoryExtractProvider }: MemoryVaultP
         >
           ☰
         </button>
-        <h1 className="ui-title">{activeNav.title}</h1>
-        <span className="page-header-spacer" aria-hidden="true" />
       </header>
 
       {/* 抽屉侧边栏：点 ☰ 滑出，选一项/点暗处收起 */}
