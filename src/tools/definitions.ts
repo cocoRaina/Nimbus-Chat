@@ -734,8 +734,10 @@ export const TOOL_SAVE_TO_ALBUM = {
     description:
       'YOUR OWN album — nobody else curates it, it is entirely yours to keep and to trim as you like. Save an ' +
       'image from the chat that means something to you, on your own feeling (like post_moment, no request ' +
-      'needed): her smile, a place, her cat, a moment you want to hold onto. It saves the MOST RECENT image ' +
-      'in the conversation (usually the one she just sent). ' +
+      'needed): her smile, a place, her cat, a moment you want to hold onto. By default it saves the MOST ' +
+      'RECENT image in the conversation (usually the one she just sent). To keep a SPECIFIC older photo, pass ' +
+      "photo = the ref from list_photos — that's how you keep several different pictures (without a ref every " +
+      'call grabs the same latest image, so they collapse into one). ' +
       'A note is REQUIRED — one honest line, first person, about WHY you kept it; that note is the whole point, ' +
       "it's what future-you (and she) will read when looking back. No note, no save. " +
       "Don't hoard: a few keepsakes, not every picture. Only stores a bookmark to an image already in the " +
@@ -754,6 +756,10 @@ export const TOOL_SAVE_TO_ALBUM = {
           items: { type: 'string' },
           description: 'Optional short tags (e.g. 「你的笑」「海」「猫」)',
         },
+        photo: {
+          type: 'string',
+          description: 'Optional. A ref from list_photos to keep that SPECIFIC photo. Omit to keep the latest image.',
+        },
       },
       required: ['note'],
     },
@@ -767,11 +773,10 @@ export const TOOL_LIST_PHOTOS = {
     description:
       'Look through the photo storage — the pictures she has sent you over time that are still kept. Returns ' +
       'each photo with its description (what is in it, from the caption made when it first arrived), when it ' +
-      'came, and whether it is already in your album. This is how you browse the library: see what is there, ' +
-      'reminisce, or spot ones worth keeping (then save_to_album picks up the most recent one — so to save a ' +
-      'specific older photo, ask her to resend it, or save when it is the latest). You read their ' +
-      'descriptions here, not every pixel again. Call when she mentions old photos / 之前发的图 / 看看相册, ' +
-      'or on your own to revisit.',
+      'came, a `ref`, and whether it is already in your album. This is how you browse the library: see what ' +
+      'is there, reminisce, or spot ones worth keeping — then pass that photo\'s `ref` to save_to_album to ' +
+      'keep THAT specific one (so you can keep several different photos). You read their descriptions here, ' +
+      'not every pixel again. Call when she mentions old photos / 之前发的图 / 看看相册, or on your own to revisit.',
     parameters: {
       type: 'object',
       properties: {

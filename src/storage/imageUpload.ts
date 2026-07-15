@@ -123,6 +123,12 @@ const listBucketFiles = async (): Promise<BucketFile[]> => {
   return all
 }
 
+// 按 bucket path 还原 chat-images 公网 URL（save_to_album 按 ref 存指定图用）。
+export const chatImagePublicUrl = (path: string): string | null => {
+  if (!supabase || !path) return null
+  return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl
+}
+
 // 📷 列出 storage 里所有照片（给小机的 list_photos 用）：公网 URL + path +
 // 时间，newest first。描述(caption)和在不在相册由调用方补。
 export type StoredPhoto = { url: string; path: string; createdAt: string | null }

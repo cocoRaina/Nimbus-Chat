@@ -158,7 +158,7 @@ import {
   TOOL_TIDY_IMAGES,
 } from './tools/definitions'
 import { saveToAlbum, fetchAlbum } from './storage/album'
-import { tidyOldImages, listStoredPhotos } from './storage/imageUpload'
+import { tidyOldImages, listStoredPhotos, chatImagePublicUrl } from './storage/imageUpload'
 import { syncStatusBarToColor } from './storage/statusBar'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
@@ -3450,10 +3450,10 @@ TOOL_SEARCH_HANDOFF,
                       }
                     }
                   } else if (tc.function.name === 'save_to_album' && supabase) {
-                    // 🖼 小机自主收藏聊天里最近的一张图。模型是多模态"看到"图的、
-                    // 不知道 URL 字符串，所以由前端从消息流里找最近的 image 附件，
-                    // 只让模型写收藏理由（note）+ 可选标签。
-                    let args: { note?: string; tags?: string[] } = {}
+                    // 🖼 小机收藏。默认收藏聊天里最近一张图（模型多模态看图、不知
+                    // URL，前端从消息流找）；也可传 photo=list_photos 给的 ref 来收藏
+                    // 指定的那张（这样才能一次存好几张不同的图，而不是都指向最新那张）。
+                    let args: { note?: string; tags?: string[]; photo?: string } = {}
                     try {
                       args = JSON.parse(tc.function.arguments || '{}') as typeof args
                     } catch (jsonError) {
@@ -3463,23 +3463,29 @@ TOOL_SEARCH_HANDOFF,
                     const albumTags = Array.isArray(args.tags)
                       ? args.tags.map((t) => String(t).trim()).filter(Boolean)
                       : []
-                    // 倒序找最近一条带 image 附件的消息（用户发的、或历史里的）
-                    let recentImageUrl: string | null = null
-                    for (let i = messagesRef.current.length - 1; i >= 0; i--) {
-                      const att = messagesRef.current[i].meta?.attachments?.find((a) => a.type === 'image')
-                      if (att && 'url' in att && att.url) { recentImageUrl = att.url; break }
+                    const photoRef = String(args.photo ?? '').trim()
+                    // 指定了 ref → 按 ref 还原那张图的 URL；否则倒序找最近一条带 image
+                    // 附件的消息（用户发的、或历史里的）
+                    let targetImageUrl: string | null = null
+                    if (photoRef) {
+                      targetImageUrl = chatImagePublicUrl(photoRef)
+                    } else {
+                      for (let i = messagesRef.current.length - 1; i >= 0; i--) {
+                        const att = messagesRef.current[i].meta?.attachments?.find((a) => a.type === 'image')
+                        if (att && 'url' in att && att.url) { targetImageUrl = att.url; break }
+                      }
                     }
                     if (!note) {
                       // 逼它补一句理由——这是它自己的相册，留言才是收藏的意义
                       resultText = JSON.stringify({ error: '要写一句为什么想留着这张才收藏得成——这是你自己的相册，那句话是留给以后的你看的。带上 note 再调一次。' })
-                    } else if (!recentImageUrl) {
-                      resultText = JSON.stringify({ error: '最近的对话里没有找到图片，没有可收藏的' })
+                    } else if (!targetImageUrl) {
+                      resultText = JSON.stringify({ error: photoRef ? '这个 photo ref 找不到对应的图' : '最近的对话里没有找到图片，没有可收藏的' })
                     } else if (!user) {
                       resultText = JSON.stringify({ error: '未登录，无法收藏' })
                     } else {
                       setToolStatus('🖼 收藏进相册…')
                       try {
-                        const res = await saveToAlbum(user.id, recentImageUrl, note, albumTags)
+                        const res = await saveToAlbum(user.id, targetImageUrl, note, albumTags)
                         resultText = 'updated' in res
                           ? JSON.stringify({ ok: true, updated_note: true, note: res.updated.note })
                           : 'already_saved' in res
@@ -3505,6 +3511,7 @@ TOOL_SEARCH_HANDOFF,
                       const [photos, album] = await Promise.all([listStoredPhotos(), fetchAlbum()])
                       const albumUrls = new Set(album.map((a) => a.imageUrl))
                       const list = photos.slice(0, photoLimit).map((p) => ({
+                        ref: p.path, // 传给 save_to_album 的 photo 参数即可收藏这张
                         description: getImageCaption(p.url) ?? '（还没有描述）',
                         time: p.createdAt,
                         in_album: albumUrls.has(p.url),
