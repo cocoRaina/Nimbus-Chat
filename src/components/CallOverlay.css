@@ -91,6 +91,66 @@
   color: #d4524b;
 }
 
+/* 实时字幕流（callhome ui-concept 式）：占据头像区和按钮区之间的空当，
+   顶部渐隐、贴底滚动。字幕只是通话的影子，聊天页才是完整记录。 */
+.call-transcript {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 420px;
+  margin: 16px auto 12px;
+  padding: 24px 6px 4px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 26px);
+  mask-image: linear-gradient(180deg, transparent 0, #000 26px);
+}
+
+.call-line {
+  max-width: 86%;
+  padding: 8px 13px;
+  border-radius: 15px;
+  font-size: 14px;
+  line-height: 1.55;
+  text-align: left;
+  word-break: break-word;
+}
+
+.call-line.is-ta {
+  align-self: flex-start;
+  border-top-left-radius: 5px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--ab-deep, #2A3D52);
+  box-shadow: 0 2px 8px rgba(42, 61, 82, 0.07);
+}
+
+.call-line.is-me {
+  align-self: flex-end;
+  border-top-right-radius: 5px;
+  background: rgba(152, 181, 216, 0.3);
+  color: var(--ab-deep, #2A3D52);
+}
+
+.call-line-emo {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(120, 158, 200, 0.22);
+  color: var(--ab-strong, #789EC8);
+  font-size: 11px;
+  vertical-align: 1px;
+}
+
+.call-line-sys {
+  align-self: center;
+  margin: 2px 0;
+  font-size: 12px;
+  color: var(--ab-strong, #789EC8);
+}
+
 .call-actions {
   display: flex;
   align-items: center;

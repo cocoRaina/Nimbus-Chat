@@ -5,6 +5,7 @@ import {
   chunkForSpeech,
   getHandsFree,
   hasHangupMarker,
+  isCallEventMessage,
   sanitizeForSpeech,
   setHandsFree,
   startRingtone,
@@ -47,6 +48,38 @@ const fmtClock = (ms: number) => {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
+// 通话页的实时字幕行（callhome ui-concept 的样子）：
+//   me  — 你说的话的转写（带语气小标签）
+//   ta  — TA 的回复文字（流式时也实时长出来）
+//   sys — 系统小字（接通提示等）
+type CallLine = { key: string; who: 'me' | 'ta' | 'sys'; text: string; emotion?: string }
+
+const buildCallLines = (messages: ChatMessage[], startedAt: number): CallLine[] => {
+  const lines: CallLine[] = []
+  for (const m of messages) {
+    const created = new Date(m.clientCreatedAt ?? m.createdAt).getTime()
+    if (created < startedAt) continue
+    const key = m.clientId ?? m.id
+    if (m.role === 'user') {
+      if (isCallEventMessage(m.content)) {
+        // 事件行原文是写给模型看的，字幕里换成人话
+        if (m.content.startsWith('📞 已接通')) lines.push({ key, who: 'sys', text: '接通了 · 直接说话就行' })
+        continue
+      }
+      if (!m.content.startsWith('[通话中]')) continue
+      let text = m.content.replace(/^\[通话中\]\s*/, '')
+      let emotion: string | undefined
+      const em = /（语气：([^）]{1,8})）\s*$/.exec(text)
+      if (em) { emotion = em[1]; text = text.slice(0, em.index) }
+      if (text.trim()) lines.push({ key, who: 'me', text: text.trim(), emotion })
+    } else {
+      const text = sanitizeForSpeech(m.content)
+      if (text) lines.push({ key, who: 'ta', text })
+    }
+  }
+  return lines
+}
+
 const CallOverlay = ({
   phase,
   reason,
@@ -63,6 +96,7 @@ const CallOverlay = ({
   onSendVoiceTurn,
 }: Props) => {
   const [now, setNow] = useState(() => Date.now())
+  const transcriptRef = useRef<HTMLDivElement | null>(null)
   const [speaking, setSpeaking] = useState(false)
   const [speakError, setSpeakError] = useState<string | null>(null)
   const [lingerLeft, setLingerLeft] = useState<number | null>(null)
@@ -382,6 +416,15 @@ const CallOverlay = ({
     onEnd(Date.now() - startedAt, 'user')
   }, [clearLinger, stopPlayback, onEnd, startedAt])
 
+  // 实时字幕：通话内消息（含流式中的 TA 回复）渲染在通话页上
+  const callLines = phase === 'active' ? buildCallLines(messages, startedAt) : []
+
+  // 新字幕/流式增量时贴底滚动
+  useEffect(() => {
+    const el = transcriptRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [messages])
+
   const statusLine = phase === 'ringing'
     ? '来电响铃中…'
     : recState === 'recording'
@@ -410,6 +453,21 @@ const CallOverlay = ({
         ) : null}
         {speakError ? <p className="call-error">{speakError}</p> : null}
       </div>
+
+      {phase === 'active' ? (
+        <div className="call-transcript" ref={transcriptRef}>
+          {callLines.map((line) =>
+            line.who === 'sys' ? (
+              <p key={line.key} className="call-line-sys">{line.text}</p>
+            ) : (
+              <div key={line.key} className={`call-line ${line.who === 'me' ? 'is-me' : 'is-ta'}`}>
+                {line.text}
+                {line.emotion ? <span className="call-line-emo">{line.emotion}</span> : null}
+              </div>
+            ),
+          )}
+        </div>
+      ) : null}
 
       {phase === 'ringing' ? (
         showDecline ? (

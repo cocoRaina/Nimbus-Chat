@@ -38,6 +38,7 @@
 2. 发送为 `[通话中] 转写文字（语气：情绪）` + voice 附件（聊天里正常显示语音条）
 3. AI 回复走正常 `sendMessage` 流（含批量定时器），CallOverlay 观察消息流：新的非流式 assistant 消息 → `sanitizeForSpeech`（剥标记/markdown，保留 EL 英文语气标签）→ `chunkForSpeech` 按句分块（≤200字）→ 逐块 `synthesizeSpeech` 边播边预取下一块
 4. 用户按住说话会**打断**当前播报（barge-in，剩余分块不播）
+5. **实时字幕流**（callhome ui-concept 式）：通话页中段渲染本次通话的消息——你的转写（右侧气泡 + 语气小标签）、TA 的回复（左侧气泡，**流式时文字实时长出来**）、系统小字（"接通了 · 直接说话就行"）。顶部渐隐 mask、新内容贴底滚动。字幕只是通话的影子，完整记录仍在聊天页
 
 ## 🎙 免提（VAD 自动收音）
 
