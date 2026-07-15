@@ -198,15 +198,19 @@ const AlbumTab = () => {
             <div className="mv-album-detail-meta">
               <span className="mv-album-detail-when">🖼 收藏于 {fmtAlbumTime(open.createdAt)}</span>
             </div>
-            {open.note ? <p className="mv-album-detail-note">{open.note}</p> : null}
+            {open.note ? (
+              <p className="mv-album-detail-note">{open.note}</p>
+            ) : (
+              <p className="mv-album-detail-note mv-album-detail-note--empty">小机这次没写收藏理由～</p>
+            )}
             {open.tags.length > 0 ? (
               <div className="mv-album-detail-tags">
                 {open.tags.map((t, i) => <span key={i} className="mv-album-tag">#{t}</span>)}
               </div>
             ) : null}
             <div className="mv-album-detail-actions">
-              <button type="button" className="ghost" onClick={() => setOpenId(null)}>关闭</button>
-              <button type="button" className="danger" onClick={() => setConfirmDeleteId(open.id)}>移出相册</button>
+              <button type="button" className="mv-detail-btn" onClick={() => setOpenId(null)}>关闭</button>
+              <button type="button" className="mv-detail-btn mv-detail-btn--danger" onClick={() => setConfirmDeleteId(open.id)}>移出相册</button>
             </div>
           </div>
         </div>

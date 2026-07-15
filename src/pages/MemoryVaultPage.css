@@ -917,6 +917,13 @@
   color: var(--ab-deep);
   box-shadow: 0 2px 10px rgba(42, 61, 82, 0.07);
 }
+.mv-album-detail-note--empty {
+  color: var(--ab-accent);
+  font-size: 0.85rem;
+  text-align: center;
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.5);
+}
 .mv-album-detail-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .mv-album-tag {
   font-size: 0.72rem;
@@ -930,4 +937,20 @@
   gap: 10px;
   justify-content: flex-end;
   margin-top: 14px;
+}
+/* 两个按钮同款胶囊；「移出相册」只是换成红底白字 */
+.mv-detail-btn {
+  padding: 9px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--ab-muted, #C5D6EC);
+  background: #fff;
+  color: var(--ab-ink, #42506a);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mv-detail-btn--danger {
+  border: none;
+  background: #e46962;
+  color: #fff;
 }
