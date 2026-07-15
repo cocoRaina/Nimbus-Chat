@@ -46,8 +46,10 @@ import CallOverlay from '../components/CallOverlay'
 import {
   CALL_EVENT,
   cancelIncomingCallNotification,
+  claimCallInvite,
   extractDialRequest,
   extractDndMarker,
+  fetchLiveCallInvites,
   getCallConfig,
   isCallEventMessage,
   isCallReady,
@@ -56,6 +58,8 @@ import {
   notifyIncomingCall,
   saveCallConfig,
   stripCallMarkers,
+  syncCallStateToServer,
+  updateCallInviteStatus,
 } from '../storage/callConfig'
 import './ChatPage.css'
 
@@ -795,7 +799,7 @@ const ChatPage = ({
   // ---- 📞 语音通话（callhome）----
   // AI 在回复里嵌 [call:理由] → 这里检测到就全屏响铃；接听后进入轮次制
   // 通话（CallOverlay 负责按住说话 + 自动 TTS 播报 + [hangup] 停留窗口）。
-  type CallState = { phase: 'ringing' | 'active'; reason?: string; startedAt: number } | null
+  type CallState = { phase: 'ringing' | 'active'; reason?: string; startedAt: number; inviteId?: string } | null
   const [call, setCall] = useState<CallState>(null)
   const callRef = useRef<CallState>(null)
   callRef.current = call
@@ -830,20 +834,58 @@ const ChatPage = ({
     }
   }, [messages])
 
+  // 服务端来电邀请（升级拨号写 call_invites）：8s 轮询认领。
+  //   pending 未过期 → 抢占成 ringing → 全屏响铃
+  //   pending/ringing 已过期（App 关着没接到）→ 认领成 missed → 触发语音留言
+  useEffect(() => {
+    if (!callReady || !user) return
+    // 让服务端知道功能开了 + 勿扰/时区（call_state 行是升级拨号的开关）
+    void syncCallStateToServer()
+    const tick = async () => {
+      try {
+        const rows = await fetchLiveCallInvites()
+        for (const row of rows) {
+          if (callRef.current?.inviteId === row.id) continue // 正在响的这通
+          const expired = Date.now() > new Date(row.expires_at).getTime()
+          if (expired) {
+            if (await claimCallInvite(row.id, row.status, 'missed')) {
+              void sendMessageRef.current(CALL_EVENT.missed)
+            }
+            continue
+          }
+          if (row.status !== 'pending' || callRef.current || getCallConfig().dnd) continue
+          if (!(await claimCallInvite(row.id, 'pending', 'ringing'))) continue
+          setCall({ phase: 'ringing', reason: row.reason, startedAt: Date.now(), inviteId: row.id })
+          if (document.visibilityState === 'hidden') void notifyIncomingCall(row.reason)
+        }
+      } catch { /* 未建表/离线：下一拍再试 */ }
+    }
+    void tick()
+    const t = setInterval(tick, 8000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callReady, user?.id])
+
   const handleAcceptCall = useCallback(() => {
     void cancelIncomingCallNotification()
+    const inviteId = callRef.current?.inviteId
+    if (inviteId) updateCallInviteStatus(inviteId, 'accepted')
     setCall({ phase: 'active', startedAt: Date.now() })
     void sendMessageRef.current(CALL_EVENT.connectedIn)
   }, [])
 
   const handleDeclineCall = useCallback((declineReason: string | null) => {
     void cancelIncomingCallNotification()
+    const inviteId = callRef.current?.inviteId
+    if (inviteId) updateCallInviteStatus(inviteId, 'declined')
     setCall(null)
     void sendMessageRef.current(CALL_EVENT.declined(declineReason))
   }, [])
 
   const handleMissedCall = useCallback(() => {
     void cancelIncomingCallNotification()
+    const inviteId = callRef.current?.inviteId
+    if (inviteId) updateCallInviteStatus(inviteId, 'missed')
     setCall(null)
     // 未接 → AI 按系统提示的约定用 [voice] 留一条语音留言
     void sendMessageRef.current(CALL_EVENT.missed)

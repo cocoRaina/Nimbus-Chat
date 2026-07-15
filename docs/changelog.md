@@ -4,6 +4,10 @@
 
 ---
 
+## 📞 callhome 二期：免提 VAD + 升级拨号（2026-07-15）
+
+一期（下条）之上补两块：**🎙 免提**——通话页切免提后常驻 mic 流 + RMS 采样（echoCancellation 抑回声），说话自动开录、停顿 1.2s 自动发送，TA 播报中用更高 barge-in 阈值防误打断；**☎️ 升级拨号**——新表 `call_state`（enabled/dnd/时区，客户端 fire-and-forget 同步）+ `call_invites`（`pending→ringing→accepted/declined/missed` 状态机），`proactive_dispatch` cron（每分钟）里查：沉默 5h~7天 + 本地 12-23 点 + 当日未打 + 无存活邀请 → 写 90s 过期的 pending 邀请；客户端 8s 轮询原子抢占响铃，App 关着错过的下次打开认领成 missed → 语音留言。迁移已 apply、函数已部署（服务端即刻生效）；FCM 推送是废弃实验（`fcm_tokens` 表已删），关 App 收不到实时来电是已知边界。前端部分（VAD/轮询）需等新 APK。
+
 ## 📞 语音通话 callhome（2026-07-15）
 
 参考 [Cheiineeey/callhome](https://github.com/Cheiineeey/callhome) 的标记协议，做成 Nimbus 版轮次制语音通话：AI 用 `[call:理由]` 主动拨号（全屏响铃 90s + WebAudio 铃声 + 后台本地通知），未接自动转 `[voice]` 语音留言；接通后按住说话（SenseVoice 转写带情绪）、回复整条自动 TTS 分块播报（可 barge-in 打断）；`[hangup]` 挂断带 18s 停留窗口（开口留住）；`[dnd:on/off]` 对话切换勿扰；拒接可带理由；挂断落 `📞 通话结束 · 时长` 记录（silent 不触发回复）。新文件 `callConfig.ts` / `ttsClient.ts`（VoiceBubble 共用合成缓存）/ `CallOverlay.tsx/css`；`queueUserMessage` 加 `callMode`/`silent` 选项；系统提示注入静态 `buildCallSystemSection`（缓存友好）。设置在 🔊 语音区块底部。详见 [features/voice-call.md](features/voice-call.md)。未做：升级拨号（沉默5h自动打）、通话一行总结、librosa 语调特征。纯前端改动，**需等 CI 出新 APK**。

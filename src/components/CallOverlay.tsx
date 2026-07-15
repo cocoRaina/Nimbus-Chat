@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom'
 import type { ChatMessage, MessageAttachment } from '../types'
 import {
   chunkForSpeech,
+  getHandsFree,
   hasHangupMarker,
   sanitizeForSpeech,
+  setHandsFree,
   startRingtone,
   stopRingtone,
 } from '../storage/callConfig'
@@ -68,6 +70,8 @@ const CallOverlay = ({
   const [recMs, setRecMs] = useState(0)
   const [showDecline, setShowDecline] = useState(false)
   const [declineDraft, setDeclineDraft] = useState('')
+  // 免提（VAD）：开着就常听，检测到说话自动录、停顿 1.2s 自动发
+  const [handsFree, setHandsFreeState] = useState(() => getHandsFree())
 
   const endedRef = useRef(false)
   const spokenRef = useRef<Set<string>>(new Set())
@@ -83,6 +87,12 @@ const CallOverlay = ({
   const onMissedRef = useRef(onMissed)
   onMissedRef.current = onMissed
   const interruptRef = useRef(false)
+  // VAD 采样闭包里要读最新状态，用 ref 镜像（interval 每 100ms 一拍，
+  // 不能吃陈旧闭包）
+  const recStateRef = useRef(recState)
+  recStateRef.current = recState
+  const speakingRef = useRef(speaking)
+  speakingRef.current = speaking
 
   // 秒针：响铃页显示「响铃中」，通话页显示时长
   useEffect(() => {
@@ -201,11 +211,45 @@ const CallOverlay = ({
     } catch { /* 无权限/无麦克风 */ }
   }, [recState, phase, clearLinger, stopPlayback])
 
+  // 录音 blob → 上传 → 转写（带情绪）→ 发送为通话轮次。PTT 和 VAD 共用。
+  const sendRecordingBlob = useCallback(async (blob: Blob, durationMs: number, mimeType: string) => {
+    setRecState('sending')
+    try {
+      const { uploadVoiceRecording, transcribeVoice } = await import('../storage/voiceRecorder')
+      if (!userId) throw new Error('未登录')
+      const { url } = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)
+      let text = ''
+      let emotion: string | null = null
+      try {
+        const t = await transcribeVoice(url)
+        text = t.text
+        emotion = t.emotion
+      } catch (err) {
+        console.warn('通话转写失败，按语音消息发送', err)
+      }
+      await onSendVoiceTurn(text || '[语音消息]', {
+        attachments: [{
+          type: 'voice' as const,
+          url,
+          duration: durationMs,
+          transcription: text || undefined,
+          emotion: emotion ?? undefined,
+        }],
+        ...(emotion ? { voiceEmotion: emotion } : {}),
+      })
+    } catch (err) {
+      console.error('通话语音发送失败', err)
+      setSpeakError('这句没发出去，再试一次')
+    } finally {
+      setRecState('idle')
+    }
+  }, [userId, onSendVoiceTurn])
+
   const finishRec = useCallback((send: boolean) => {
     const mr = mediaRecorderRef.current
     if (!mr || recState !== 'recording') return
     if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null }
-    mr.onstop = async () => {
+    mr.onstop = () => {
       const durationMs = Date.now() - recStartRef.current
       mr.stream.getTracks().forEach((t) => t.stop())
       const mimeType = mr.mimeType || 'audio/webm'
@@ -216,39 +260,119 @@ const CallOverlay = ({
         setRecState('idle')
         return
       }
-      setRecState('sending')
-      try {
-        const { uploadVoiceRecording, transcribeVoice } = await import('../storage/voiceRecorder')
-        if (!userId) throw new Error('未登录')
-        const { url } = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)
-        let text = ''
-        let emotion: string | null = null
-        try {
-          const t = await transcribeVoice(url)
-          text = t.text
-          emotion = t.emotion
-        } catch (err) {
-          console.warn('通话转写失败，按语音消息发送', err)
-        }
-        await onSendVoiceTurn(text || '[语音消息]', {
-          attachments: [{
-            type: 'voice' as const,
-            url,
-            duration: durationMs,
-            transcription: text || undefined,
-            emotion: emotion ?? undefined,
-          }],
-          ...(emotion ? { voiceEmotion: emotion } : {}),
-        })
-      } catch (err) {
-        console.error('通话语音发送失败', err)
-        setSpeakError('这句没发出去，再试一次')
-      } finally {
-        setRecState('idle')
-      }
+      void sendRecordingBlob(blob, durationMs, mimeType)
     }
     mr.stop()
-  }, [recState, userId, onSendVoiceTurn])
+  }, [recState, sendRecordingBlob])
+
+  // ---- 免提（VAD 自动收音）----
+  // 常驻一条 mic 流（echoCancellation 抑制外放回声），每 100ms 采一次 RMS：
+  //   空闲 → 音量连续 2 拍（200ms）过说话阈值 → 开录。TA 播报时用更高的
+  //          barge-in 阈值，免得残余回声/环境音把 TA 的话打断。
+  //   录音中 → 低于保持阈值持续 1.2s（或录满 60s）→ 停录发送；<500ms 丢弃。
+  // 阈值与聊天页波形同一标定（rms*2.2 → 0-100）。
+  useEffect(() => {
+    if (phase !== 'active' || !handsFree) return
+    let cancelled = false
+    let stream: MediaStream | null = null
+    let ctx: AudioContext | null = null
+    let analyser: AnalyserNode | null = null
+    let timer: ReturnType<typeof setInterval> | null = null
+    let mr: MediaRecorder | null = null
+    let chunks: Blob[] = []
+    let voiceRun = 0
+    let lastVoiceAt = 0
+    let startAt = 0
+
+    const stopRecorder = (send: boolean) => {
+      const rec = mr
+      mr = null
+      if (!rec) return
+      if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null }
+      rec.onstop = () => {
+        const durationMs = Date.now() - startAt
+        const mimeType = rec.mimeType || 'audio/webm'
+        const blob = new Blob(chunks, { type: mimeType })
+        chunks = []
+        if (!send || cancelled || !blob.size || durationMs < 500) {
+          setRecState('idle')
+          return
+        }
+        void sendRecordingBlob(blob, durationMs, mimeType)
+      }
+      rec.stop()
+    }
+
+    const setup = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+          video: false,
+        })
+      } catch {
+        setSpeakError('免提需要麦克风权限')
+        setHandsFreeState(false)
+        setHandsFree(false)
+        return
+      }
+      if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return }
+      const { getBestMimeType } = await import('../storage/voiceRecorder')
+      const mimeType = getBestMimeType()
+      try {
+        ctx = new AudioContext()
+        const src = ctx.createMediaStreamSource(stream)
+        analyser = ctx.createAnalyser()
+        analyser.fftSize = 256
+        src.connect(analyser)
+      } catch {
+        setSpeakError('这台设备不支持免提检测，已切回按住说话')
+        setHandsFreeState(false)
+        setHandsFree(false)
+        stream.getTracks().forEach((t) => t.stop())
+        stream = null
+        return
+      }
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      timer = setInterval(() => {
+        if (cancelled || !analyser || !stream) return
+        analyser.getByteTimeDomainData(data)
+        const rms = Math.sqrt(data.reduce((s, v) => s + (v - 128) ** 2, 0) / data.length)
+        const norm = Math.min(100, rms * 2.2)
+        if (!mr) {
+          if (recStateRef.current === 'sending') { voiceRun = 0; return }
+          const startThreshold = speakingRef.current ? 30 : 16
+          voiceRun = norm >= startThreshold ? voiceRun + 1 : 0
+          if (voiceRun < 2) return
+          voiceRun = 0
+          clearLinger() // 开口 = 留住 TA
+          interruptRef.current = true
+          stopPlayback()
+          try {
+            mr = new MediaRecorder(stream, { mimeType })
+          } catch { return }
+          chunks = []
+          mr.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
+          startAt = Date.now()
+          lastVoiceAt = startAt
+          mr.start(200)
+          setRecState('recording')
+          setRecMs(0)
+          recTimerRef.current = setInterval(() => setRecMs(Date.now() - startAt), 200)
+        } else {
+          if (norm >= 10) lastVoiceAt = Date.now()
+          if (Date.now() - lastVoiceAt > 1200 || Date.now() - startAt > 60_000) stopRecorder(true)
+        }
+      }, 100)
+    }
+    void setup()
+    return () => {
+      cancelled = true
+      if (timer) clearInterval(timer)
+      stopRecorder(false)
+      if (ctx) void ctx.close().catch(() => {})
+      stream?.getTracks().forEach((t) => t.stop())
+    }
+  }, [phase, handsFree, sendRecordingBlob, clearLinger, stopPlayback])
 
   const handleEndByUser = useCallback(() => {
     if (endedRef.current) return
@@ -261,7 +385,7 @@ const CallOverlay = ({
   const statusLine = phase === 'ringing'
     ? '来电响铃中…'
     : recState === 'recording'
-      ? `松开发送 · ${fmtClock(recMs)}`
+      ? `${handsFree ? '在听你说' : '松开发送'} · ${fmtClock(recMs)}`
       : recState === 'sending'
         ? '正在送过去…'
         : speaking
@@ -331,16 +455,39 @@ const CallOverlay = ({
           <button type="button" className="call-btn call-btn--decline" aria-label="挂断" onClick={handleEndByUser}>
             ✕
           </button>
+          {handsFree ? (
+            <div className={`call-vad-pill ${recState === 'recording' ? 'is-recording' : ''}`} aria-live="polite">
+              {recState === 'recording'
+                ? `在听你说… ${fmtClock(recMs)}`
+                : recState === 'sending'
+                  ? '正在送过去…'
+                  : '🎙 免提听着呢，直接说'}
+            </div>
+          ) : (
+            <button
+              type="button"
+              className={`call-talk-btn ${recState === 'recording' ? 'is-recording' : ''}`}
+              disabled={recState === 'sending'}
+              onPointerDown={(e) => { e.preventDefault(); void startRec() }}
+              onPointerUp={() => finishRec(true)}
+              onPointerCancel={() => finishRec(false)}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              {recState === 'recording' ? '松开 发送' : recState === 'sending' ? '…' : '按住 说话'}
+            </button>
+          )}
           <button
             type="button"
-            className={`call-talk-btn ${recState === 'recording' ? 'is-recording' : ''}`}
-            disabled={recState === 'sending'}
-            onPointerDown={(e) => { e.preventDefault(); void startRec() }}
-            onPointerUp={() => finishRec(true)}
-            onPointerCancel={() => finishRec(false)}
-            onContextMenu={(e) => e.preventDefault()}
+            className="call-btn call-btn--mode"
+            aria-label={handsFree ? '切回按住说话' : '切到免提'}
+            title={handsFree ? '切回按住说话' : '免提：说完自动发送'}
+            onClick={() => {
+              const v = !handsFree
+              setHandsFreeState(v)
+              setHandsFree(v)
+            }}
           >
-            {recState === 'recording' ? '松开 发送' : recState === 'sending' ? '…' : '按住 说话'}
+            {handsFree ? '✋' : '🎙'}
           </button>
         </div>
       )}

@@ -144,6 +144,31 @@
   opacity: 0.6;
 }
 
+.call-btn--mode {
+  background: rgba(255, 255, 255, 0.14);
+  font-size: 22px;
+}
+
+/* 免提状态胶囊（代替按住说话按钮） */
+.call-vad-pill {
+  flex: 1;
+  max-width: 240px;
+  height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 33px;
+  font-size: 15px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(242, 245, 250, 0.85);
+  font-variant-numeric: tabular-nums;
+}
+
+.call-vad-pill.is-recording {
+  background: rgba(52, 192, 94, 0.28);
+  color: #c9f5d7;
+}
+
 /* 拒接理由面板 */
 .call-decline-panel {
   display: flex;

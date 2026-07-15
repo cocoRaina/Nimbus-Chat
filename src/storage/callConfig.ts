@@ -4,6 +4,7 @@ import { getAssistantName } from './assistantPersona'
 import { stripReactionTokens } from './reactions'
 import { stripMoodMarker } from './moodSystem'
 import { isTtsReady, getTtsConfig, type TtsConfig } from './ttsConfig'
+import { supabase } from '../supabase/client'
 
 // 📞 callhome 语音通话（灵感来自 Cheiineeey/callhome 的标记协议）。
 // 与 [voice]/[NEXT] 同一套路：模型在回复里嵌标记，前端识别后执行动作并
@@ -16,6 +17,7 @@ import { isTtsReady, getTtsConfig, type TtsConfig } from './ttsConfig'
 const K_ENABLED = 'nimbus_call_enabled'
 const K_DND = 'nimbus_call_dnd'
 const K_HANDLED = 'nimbus_call_handled_v1'
+const K_HANDSFREE = 'nimbus_call_handsfree'
 
 const NOTIF_ID_INCOMING = 2003
 
@@ -40,6 +42,85 @@ export const saveCallConfig = (patch: Partial<CallConfig>): void => {
     if (patch.enabled !== undefined) localStorage.setItem(K_ENABLED, patch.enabled ? '1' : '0')
     if (patch.dnd !== undefined) localStorage.setItem(K_DND, patch.dnd ? '1' : '0')
   } catch { /* 满/私密模式：本次会话内不持久化 */ }
+  // 服务端也要知道（升级拨号在 proactive_dispatch cron 里查 call_state）
+  void syncCallStateToServer()
+}
+
+// 免提（VAD 自动收音）偏好，只在通话页内切换
+export const getHandsFree = (): boolean => {
+  try { return localStorage.getItem(K_HANDSFREE) === '1' } catch { return false }
+}
+export const setHandsFree = (v: boolean): void => {
+  try { localStorage.setItem(K_HANDSFREE, v ? '1' : '0') } catch { /* noop */ }
+}
+
+// ---- 服务端通话状态（call_state 表）----
+// 升级拨号（沉默 ≥5h 自动打）跑在 proactive_dispatch cron 里，服务端需要
+// 知道：功能开没开、勿扰状态、用户时区（12-23 点窗口按本地时间算）。
+// 客户端在开关变化和进聊天页时 fire-and-forget 同步一行。
+
+export const syncCallStateToServer = async (): Promise<void> => {
+  if (!supabase) return
+  try {
+    const { data } = await supabase.auth.getSession()
+    const uid = data.session?.user?.id
+    if (!uid) return
+    const cfg = getCallConfig()
+    await supabase.from('call_state').upsert({
+      user_id: uid,
+      enabled: cfg.enabled && isTtsReady(),
+      dnd: cfg.dnd,
+      tz_offset_minutes: -new Date().getTimezoneOffset(),
+      updated_at: new Date().toISOString(),
+    })
+  } catch { /* 离线/未建表：下次再同步 */ }
+}
+
+// ---- 服务端来电邀请（call_invites 表）----
+// 升级拨号写 pending 行；客户端 8s 轮询认领（pending→ringing 原子抢占），
+// 过期未接的行认领成 missed 并触发语音留言。状态机：
+//   pending → ringing → accepted / declined / missed
+//   pending →（过期）→ missed
+
+export type CallInviteRow = {
+  id: string
+  reason: string
+  status: string
+  expires_at: string
+}
+
+export const fetchLiveCallInvites = async (): Promise<CallInviteRow[]> => {
+  if (!supabase) return []
+  const { data, error } = await supabase
+    .from('call_invites')
+    .select('id, reason, status, expires_at')
+    .in('status', ['pending', 'ringing'])
+    .order('created_at', { ascending: false })
+    .limit(5)
+  if (error) throw error
+  return (data ?? []) as CallInviteRow[]
+}
+
+// 原子认领：只有 from 状态还成立时才改成 to，返回是否抢到（防多开互踩）。
+export const claimCallInvite = async (
+  id: string,
+  from: string,
+  to: 'ringing' | 'accepted' | 'declined' | 'missed',
+): Promise<boolean> => {
+  if (!supabase) return false
+  const { data } = await supabase
+    .from('call_invites')
+    .update({ status: to })
+    .eq('id', id)
+    .eq('status', from)
+    .select('id')
+    .maybeSingle()
+  return Boolean(data)
+}
+
+export const updateCallInviteStatus = (id: string, to: 'accepted' | 'declined' | 'missed'): void => {
+  if (!supabase) return
+  void supabase.from('call_invites').update({ status: to }).eq('id', id).then(() => {}, () => {})
 }
 
 // 通话可用 = 功能开 + TTS 就绪（没有嗓子打不了电话）。

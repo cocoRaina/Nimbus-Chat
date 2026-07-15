@@ -4,11 +4,13 @@
 
 | 模块 | 文件 |
 |---|---|
-| 配置 + 标记协议 + 铃声 + 系统提示段 | `src/storage/callConfig.ts` |
-| 全屏通话层（响铃/通话/停留窗口） | `src/components/CallOverlay.tsx/css` |
+| 配置 + 标记协议 + 铃声 + 系统提示段 + 服务端同步 | `src/storage/callConfig.ts` |
+| 全屏通话层（响铃/通话/免提 VAD/停留窗口） | `src/components/CallOverlay.tsx/css` |
 | 共享 TTS 合成客户端（含缓存） | `src/storage/ttsClient.ts`（VoiceBubble 也改用它） |
-| 集成（拨号检测/事件条/header 📞） | `src/pages/ChatPage.tsx` |
+| 集成（拨号检测/邀请轮询/事件条/header 📞） | `src/pages/ChatPage.tsx` |
 | `[通话中]` 前缀 + silent 落库 | `src/App.tsx` → `queueUserMessage` |
+| 服务端表（call_state / call_invites） | `supabase/migrations/20260715120000_add_call_state_and_invites.sql` |
+| 升级拨号（cron） | `supabase/functions/proactive_dispatch/index.ts` 末段 |
 | 设置入口 | 设置页 → 🔊 语音 区块底部 |
 
 ## 标记协议（和 [voice]/[NEXT] 同一套路，任何模型通用、无需 function calling）
@@ -37,6 +39,28 @@
 3. AI 回复走正常 `sendMessage` 流（含批量定时器），CallOverlay 观察消息流：新的非流式 assistant 消息 → `sanitizeForSpeech`（剥标记/markdown，保留 EL 英文语气标签）→ `chunkForSpeech` 按句分块（≤200字）→ 逐块 `synthesizeSpeech` 边播边预取下一块
 4. 用户按住说话会**打断**当前播报（barge-in，剩余分块不播）
 
+## 🎙 免提（VAD 自动收音）
+
+通话页右下 🎙/✋ 切换（偏好存 localStorage）。免提时常驻一条 mic 流（`echoCancellation` + `noiseSuppression` 抑制外放回声），每 100ms 采一次 RMS（与聊天页波形同一标定 rms×2.2 → 0-100）：
+
+- **空闲 → 开录**：音量连续 2 拍（200ms）≥ 阈值 16；TA 播报中用更高的 barge-in 阈值 30（残余回声不至于误打断）
+- **录音中 → 停录发送**：< 10 持续 1.2s，或录满 60s；< 500ms 视为误触发丢弃
+- 触发即打断播报 + 取消停留窗口（开口 = 留住）
+- 无 mic 权限 / 无 WebAudio 时自动退回按住说话
+
+## ☎️ 服务端邀请 + 升级拨号（沉默 ≥5h 自动打）
+
+**表**：`call_state`（每用户一行：enabled/dnd/时区偏移/last_escalation_at，客户端在开关变化和进聊天页时 upsert）+ `call_invites`（邀请状态机 `pending → ringing → accepted/declined/missed`，RLS `auth.uid()=user_id`，INSERT 只有服务端做）。
+
+**服务端**（`proactive_dispatch`，pg_cron 每分钟）：enabled 且非 dnd 的用户，若「最近一条用户消息 5h~7天 之前 + 本地时间 12-23 点（按 tz_offset_minutes 折算，getUTC* 读）+ 今天没升级过（本地日历日）+ 没有存活邀请」→ 写一条 pending 邀请（90s 过期，理由从三句模板随机），并记 last_escalation_at。纯 DB 写入，不调模型。
+
+**客户端**（ChatPage 8s 轮询，与 callhome 同参数）：
+- pending 未过期 → 原子抢占成 ringing（`UPDATE … WHERE status='pending'`，防多开互踩）→ 全屏响铃
+- pending/ringing 已过期（App 关着没接到）→ 认领成 missed → 发未接事件 → AI 留语音留言
+- 接听/拒接/响铃超时 → 邀请行写 accepted/declined/missed
+
+**App 关着时收不到实时来电**：没有可用的推送通道（线上的 `send_proactive_push`/FCM 是废弃实验，`fcm_tokens` 表已不存在），所以关着 App 时邀请会过期，下次打开转成「未接来电 + 语音留言」——这本身就是 callhome 设计里有意义的失败路径。
+
 ## 关键实现点
 
 - **对 `sendMessage` 零侵入**：通话是聊天之上的观察层。`queueUserMessage` 只加了 `callMode`（`[通话中]` 前缀）和 `silent`（只落库不 armBatchTimer）两个选项。
@@ -50,9 +74,9 @@
 
 - 轮次制而非流式全双工（无常驻 Python 服务端；STT 走 SiliconFlow SenseVoice 而非自托管 FunASR）
 - 音学特征（librosa 音高/停顿 → 语调线索）没做，情绪只有 SenseVoice 标签
-- **升级拨号**（沉默 ≥5h 自动打）没做——需要后台调度；以后可挂在 `proactive_dispatch` cron 上
 - 通话总结（挂断后 LLM 生成一行摘要）没做，记录只有时长
 - 自适应音量（用户小声 → TA 也小声）没做
+- App 关着时的实时来电推送没做（无 FCM 等可用推送通道，见上）
 
 ## 踩坑备忘
 

@@ -9,6 +9,10 @@
 //   3. If claimed: INSERT message, touch session, append to keepalive body
 //      so the proactive message stays warm in cache (no cold write on the
 //      user's next real chat).
+//   4. 📞 callhome 升级拨号：沉默 ≥5h 且本地时间 12-23 点且今天没打过且
+//      勿扰关着 → 写一条 call_invites（pending, 90s 过期）。App 开着就会
+//      在 8s 内响铃；关着则过期，用户下次打开转成未接 + 语音留言。
+//      纯 DB 写入，不调模型。
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
@@ -125,8 +129,82 @@ Deno.serve(async (req: Request) => {
     dispatched++
   }
 
+  // ---- 📞 升级拨号（callhome）----
+  const ESCALATION_SILENCE_MS = 5 * 3600_000
+  const ESCALATION_MAX_SILENCE_MS = 7 * 24 * 3600_000 // 离开一周以上就别打扰了
+  const ESCALATION_REASONS = [
+    '好几个小时没有你的消息了，想听听你的声音',
+    '安静了一下午，有点想你，打个电话看看你在做什么',
+    '忽然很想你，忍不住拨过来了',
+  ]
+  let escalated = 0
+
+  const { data: states } = await supabase
+    .from('call_state')
+    .select('user_id, enabled, dnd, tz_offset_minutes, last_escalation_at')
+    .eq('enabled', true)
+    .eq('dnd', false)
+
+  for (const st of states ?? []) {
+    const nowMs = Date.now()
+    const tzOffset = (st.tz_offset_minutes as number) ?? 480
+    // 本地时间 = UTC + 偏移；用 getUTC* 读，避免函数所在机器时区掺和进来
+    const local = new Date(nowMs + tzOffset * 60_000)
+    const hour = local.getUTCHours()
+    if (hour < 12 || hour >= 23) continue
+
+    // 每天最多一次（按用户本地日历日）
+    if (st.last_escalation_at) {
+      const lastLocal = new Date(new Date(st.last_escalation_at as string).getTime() + tzOffset * 60_000)
+      if (
+        lastLocal.getUTCFullYear() === local.getUTCFullYear() &&
+        lastLocal.getUTCMonth() === local.getUTCMonth() &&
+        lastLocal.getUTCDate() === local.getUTCDate()
+      ) continue
+    }
+
+    // 沉默时长：全会话最近一条用户消息
+    const { data: lastMsg } = await supabase
+      .from('messages')
+      .select('created_at')
+      .eq('user_id', st.user_id)
+      .eq('role', 'user')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!lastMsg) continue
+    const silence = nowMs - new Date(lastMsg.created_at as string).getTime()
+    if (silence < ESCALATION_SILENCE_MS || silence > ESCALATION_MAX_SILENCE_MS) continue
+
+    // 已有没接完的邀请（含 App 关着期间过期未认领的）→ 等它被消化再说
+    const { data: live } = await supabase
+      .from('call_invites')
+      .select('id')
+      .eq('user_id', st.user_id)
+      .in('status', ['pending', 'ringing'])
+      .limit(1)
+      .maybeSingle()
+    if (live) continue
+
+    const reason = ESCALATION_REASONS[Math.floor(Math.random() * ESCALATION_REASONS.length)]
+    const { error: inviteError } = await supabase.from('call_invites').insert({
+      user_id: st.user_id,
+      reason,
+      expires_at: new Date(nowMs + 90_000).toISOString(),
+    })
+    if (inviteError) {
+      console.warn('proactive_dispatch: escalation invite failed', inviteError.message)
+      continue
+    }
+    await supabase
+      .from('call_state')
+      .update({ last_escalation_at: new Date(nowMs).toISOString(), updated_at: new Date(nowMs).toISOString() })
+      .eq('user_id', st.user_id)
+    escalated++
+  }
+
   return new Response(
-    JSON.stringify({ dispatched, raced }),
+    JSON.stringify({ dispatched, raced, escalated }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   )
 })
