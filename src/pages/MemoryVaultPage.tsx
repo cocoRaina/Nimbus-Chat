@@ -21,10 +21,20 @@ import {
 } from '../storage/supabaseSync'
 import { supabase } from '../supabase/client'
 import { getProviderConfig, type ProviderId } from '../storage/apiProvider'
+import { fetchAlbum, removeFromAlbum, type AlbumEntry } from '../storage/album'
 import ConfirmDialog from '../components/ConfirmDialog'
 import './MemoryVaultPage.css'
 
-type Tab = 'memories' | 'diaries' | 'letters' | 'timeline'
+type Tab = 'memories' | 'diaries' | 'letters' | 'timeline' | 'album'
+
+// 抽屉侧边栏的导航项（图标 + 中文名 + 顶栏标题）
+const NAV: { key: Tab; icon: string; label: string; title: string }[] = [
+  { key: 'memories', icon: '💭', label: '记忆', title: 'Memories' },
+  { key: 'diaries', icon: '📔', label: '日记', title: 'Diaries' },
+  { key: 'letters', icon: '✉️', label: '交接信', title: 'Handoffs' },
+  { key: 'timeline', icon: '🕐', label: '时间轴', title: 'Timeline' },
+  { key: 'album', icon: '🖼', label: '相册', title: '相册' },
+]
 
 const PAGE_SIZE = 20
 const DEFAULT_CATEGORY = '日常'
@@ -51,27 +61,167 @@ type MemoryVaultProps = {
 const MemoryVaultPage = ({ recentMessages, memoryExtractProvider }: MemoryVaultProps) => {
   const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('memories')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const activeNav = NAV.find((n) => n.key === tab) ?? NAV[0]
+
+  const pick = (key: Tab) => {
+    setTab(key)
+    setDrawerOpen(false)
+  }
+
+  // Android 返回键：先关抽屉，再退页
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (drawerOpen) { setDrawerOpen(false); e.preventDefault() }
+    }
+    window.addEventListener('nimbus:backbutton', handler)
+    return () => window.removeEventListener('nimbus:backbutton', handler)
+  }, [drawerOpen])
 
   return (
     <main className="memory-vault-page app-shell">
       <header className="page-header-bar">
         <button type="button" className="page-back-btn" onClick={() => navigate('/')}>‹</button>
-        <h1 className="ui-title">Memory Vault</h1>
+        <button
+          type="button"
+          className="mv-menu-btn"
+          aria-label="切换栏目"
+          onClick={() => setDrawerOpen((v) => !v)}
+        >
+          ☰
+        </button>
+        <h1 className="ui-title">{activeNav.title}</h1>
         <span className="page-header-spacer" aria-hidden="true" />
       </header>
 
-      <div className="memory-vault-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={tab === 'memories'} className={tab === 'memories' ? 'active' : ''} onClick={() => setTab('memories')}>Memories</button>
-        <button type="button" role="tab" aria-selected={tab === 'diaries'} className={tab === 'diaries' ? 'active' : ''} onClick={() => setTab('diaries')}>Diaries</button>
-        <button type="button" role="tab" aria-selected={tab === 'letters'} className={tab === 'letters' ? 'active' : ''} onClick={() => setTab('letters')}>Handoffs</button>
-        <button type="button" role="tab" aria-selected={tab === 'timeline'} className={tab === 'timeline' ? 'active' : ''} onClick={() => setTab('timeline')}>Timeline</button>
-      </div>
+      {/* 抽屉侧边栏：点 ☰ 滑出，选一项/点暗处收起 */}
+      <div
+        className={`mv-scrim ${drawerOpen ? 'open' : ''}`}
+        onClick={() => setDrawerOpen(false)}
+        aria-hidden="true"
+      />
+      <nav className={`mv-drawer ${drawerOpen ? 'open' : ''}`} aria-label="记忆库栏目">
+        <div className="mv-drawer-head">MEMORY VAULT</div>
+        {NAV.map((n) => (
+          <button
+            key={n.key}
+            type="button"
+            className={`mv-drawer-item ${tab === n.key ? 'active' : ''}`}
+            onClick={() => pick(n.key)}
+          >
+            <span className="mv-drawer-ic" aria-hidden="true">{n.icon}</span>
+            {n.label}
+          </button>
+        ))}
+      </nav>
 
       {tab === 'memories' ? <MemoriesTab recentMessages={recentMessages} memoryExtractProvider={memoryExtractProvider} /> : null}
       {tab === 'diaries' ? <DiariesTab /> : null}
       {tab === 'letters' ? <LettersTab /> : null}
       {tab === 'timeline' ? <TimelineTab /> : null}
+      {tab === 'album' ? <AlbumTab /> : null}
     </main>
+  )
+}
+
+// =============== Album Tab（小机的相册）===============
+// 小机自己收藏的图（save_to_album 写入 assistant_album）。网格铺满，点开
+// 看大图 + 它的收藏理由；用户可删除某条收藏（图本身留在 chat-images）。
+
+const fmtAlbumTime = (iso: string) => {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
+}
+
+const AlbumTab = () => {
+  const [entries, setEntries] = useState<AlbumEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    if (!supabase) { setLoading(false); return }
+    setLoading(true)
+    setError(null)
+    try {
+      setEntries(await fetchAlbum())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '加载相册失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  const open = entries.find((e) => e.id === openId) ?? null
+
+  const handleDelete = async (id: string) => {
+    setConfirmDeleteId(null)
+    setOpenId(null)
+    try {
+      await removeFromAlbum(id)
+      setEntries((prev) => prev.filter((e) => e.id !== id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '删除失败')
+    }
+  }
+
+  if (loading) return <div className="mv-album-empty">加载中…</div>
+  if (error) return <div className="mv-album-empty">{error}</div>
+  if (entries.length === 0) {
+    return (
+      <div className="mv-album-empty">
+        <p>相册还是空的 🖼</p>
+        <p className="mv-album-empty-hint">聊天里发图给小机，它遇到喜欢的会自己收藏进来。</p>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <p className="mv-album-count">小机收藏的 · 共 {entries.length} 张</p>
+      <div className="mv-album-grid">
+        {entries.map((e) => (
+          <button key={e.id} type="button" className="mv-album-cell" onClick={() => setOpenId(e.id)}>
+            <img src={e.imageUrl} alt={e.note ?? '收藏的图'} loading="lazy" />
+            {e.note ? <span className="mv-album-cap">{e.note}</span> : null}
+          </button>
+        ))}
+      </div>
+
+      {open ? (
+        <div className="mv-album-detail-scrim" onClick={() => setOpenId(null)}>
+          <div className="mv-album-detail" onClick={(ev) => ev.stopPropagation()}>
+            <img className="mv-album-detail-img" src={open.imageUrl} alt={open.note ?? '收藏的图'} />
+            <div className="mv-album-detail-meta">
+              <span className="mv-album-detail-when">🖼 收藏于 {fmtAlbumTime(open.createdAt)}</span>
+            </div>
+            {open.note ? <p className="mv-album-detail-note">{open.note}</p> : null}
+            {open.tags.length > 0 ? (
+              <div className="mv-album-detail-tags">
+                {open.tags.map((t, i) => <span key={i} className="mv-album-tag">#{t}</span>)}
+              </div>
+            ) : null}
+            <div className="mv-album-detail-actions">
+              <button type="button" className="ghost" onClick={() => setOpenId(null)}>关闭</button>
+              <button type="button" className="danger" onClick={() => setConfirmDeleteId(open.id)}>移出相册</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="移出相册"
+        description="把这张移出小机的相册？图本身还在聊天记录里，只是小机不再收藏它。"
+        confirmLabel="移出"
+        onConfirm={() => confirmDeleteId && void handleDelete(confirmDeleteId)}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
+    </>
   )
 }
 
