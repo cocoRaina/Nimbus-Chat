@@ -1,4 +1,5 @@
-/* 📞 全屏通话层（callhome） */
+/* 📞 全屏通话层（callhome）。浅色系，取色跟随主题（styles/ui.css 的
+   冰蓝白/雾蓝/天使蓝/墨黑蓝），var() 都带回退值。 */
 
 .call-overlay {
   position: fixed;
@@ -10,9 +11,9 @@
   justify-content: space-between;
   padding: max(48px, env(safe-area-inset-top)) 24px max(44px, env(safe-area-inset-bottom));
   background:
-    radial-gradient(120% 80% at 50% 0%, rgba(90, 120, 170, 0.55), transparent 60%),
-    linear-gradient(180deg, #1c2536 0%, #10141e 100%);
-  color: #f2f5fa;
+    radial-gradient(120% 70% at 50% 0%, rgba(197, 214, 236, 0.65), transparent 62%),
+    linear-gradient(180deg, var(--ab-bg, #F4F8FC) 0%, #DCE8F5 100%);
+  color: var(--ab-deep, #2A3D52);
   text-align: center;
 }
 
@@ -29,7 +30,7 @@
   height: 108px;
   border-radius: 50%;
   object-fit: cover;
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.85), 0 8px 26px rgba(120, 158, 200, 0.35);
 }
 
 .call-avatar--placeholder {
@@ -37,7 +38,8 @@
   align-items: center;
   justify-content: center;
   font-size: 44px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--ab-grad, linear-gradient(135deg, #98B5D8, #789EC8));
+  color: #fff;
 }
 
 .call-avatar.is-ringing {
@@ -45,12 +47,12 @@
 }
 
 .call-avatar.is-speaking {
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12), 0 0 34px rgba(140, 190, 255, 0.55);
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.85), 0 0 36px rgba(120, 158, 200, 0.75);
 }
 
 @keyframes call-ring-pulse {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12); }
-  50% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.06); }
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.85), 0 8px 26px rgba(120, 158, 200, 0.35); }
+  50% { transform: scale(1.05); box-shadow: 0 0 0 12px rgba(152, 181, 216, 0.28), 0 8px 26px rgba(120, 158, 200, 0.35); }
 }
 
 .call-name {
@@ -62,7 +64,7 @@
 .call-status {
   margin: 0;
   font-size: 15px;
-  opacity: 0.8;
+  color: var(--ab-strong, #789EC8);
   font-variant-numeric: tabular-nums;
 }
 
@@ -70,22 +72,23 @@
   margin: 6px 14px 0;
   font-size: 15px;
   line-height: 1.5;
-  opacity: 0.92;
+  color: var(--ab-deep, #2A3D52);
+  opacity: 0.85;
 }
 
 .call-linger {
   margin: 10px 14px 0;
   padding: 8px 14px;
   border-radius: 12px;
-  background: rgba(255, 197, 110, 0.16);
-  color: #ffd9a0;
+  background: rgba(255, 183, 77, 0.2);
+  color: #9a6b1f;
   font-size: 14px;
 }
 
 .call-error {
   margin: 8px 14px 0;
   font-size: 13px;
-  color: #ff9c9c;
+  color: #d4524b;
 }
 
 .call-actions {
@@ -111,13 +114,22 @@
   flex-shrink: 0;
 }
 
+.call-btn {
+  box-shadow: 0 6px 18px rgba(42, 61, 82, 0.18);
+}
+
 .call-btn--accept {
-  background: #34c05e;
-  animation: call-ring-pulse 1.3s ease-in-out infinite;
+  background: #45b26b;
+  animation: call-accept-pulse 1.3s ease-in-out infinite;
+}
+
+@keyframes call-accept-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 6px 18px rgba(69, 178, 107, 0.35); }
+  50% { transform: scale(1.06); box-shadow: 0 6px 24px rgba(69, 178, 107, 0.5); }
 }
 
 .call-btn--decline {
-  background: #e5484d;
+  background: #e46962;
 }
 
 .call-talk-btn {
@@ -129,7 +141,8 @@
   font-size: 17px;
   font-weight: 600;
   color: #fff;
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--ab-grad, linear-gradient(135deg, #98B5D8, #789EC8));
+  box-shadow: 0 6px 18px rgba(120, 158, 200, 0.4);
   cursor: pointer;
   touch-action: none;
   user-select: none;
@@ -137,7 +150,8 @@
 }
 
 .call-talk-btn.is-recording {
-  background: #34c05e;
+  background: #45b26b;
+  box-shadow: 0 6px 18px rgba(69, 178, 107, 0.4);
 }
 
 .call-talk-btn:disabled {
@@ -145,8 +159,10 @@
 }
 
 .call-btn--mode {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ab-deep, #2A3D52);
   font-size: 22px;
+  box-shadow: 0 4px 14px rgba(42, 61, 82, 0.12);
 }
 
 /* 免提状态胶囊（代替按住说话按钮） */
@@ -159,14 +175,15 @@
   justify-content: center;
   border-radius: 33px;
   font-size: 15px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(242, 245, 250, 0.85);
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--ab-deep, #2A3D52);
+  box-shadow: 0 4px 14px rgba(42, 61, 82, 0.1);
   font-variant-numeric: tabular-nums;
 }
 
 .call-vad-pill.is-recording {
-  background: rgba(52, 192, 94, 0.28);
-  color: #c9f5d7;
+  background: rgba(69, 178, 107, 0.22);
+  color: #1f7a45;
 }
 
 /* 拒接理由面板 */
@@ -181,17 +198,18 @@
 .call-decline-title {
   margin: 0 0 2px;
   font-size: 14px;
-  opacity: 0.75;
+  color: var(--ab-strong, #789EC8);
 }
 
 .call-decline-chip {
   padding: 12px 16px;
   border: none;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.12);
-  color: #f2f5fa;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ab-deep, #2A3D52);
   font-size: 15px;
   cursor: pointer;
+  box-shadow: 0 2px 10px rgba(42, 61, 82, 0.08);
 }
 
 .call-decline-custom {
@@ -202,22 +220,22 @@
 .call-decline-custom input {
   flex: 1;
   padding: 11px 14px;
-  border: none;
+  border: 1px solid var(--ab-muted, #C5D6EC);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #f2f5fa;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ab-deep, #2A3D52);
   font-size: 15px;
 }
 
 .call-decline-custom input::placeholder {
-  color: rgba(242, 245, 250, 0.45);
+  color: var(--ab-accent, #98B5D8);
 }
 
 .call-decline-custom button {
   padding: 0 18px;
   border: none;
   border-radius: 14px;
-  background: #34c05e;
+  background: var(--ab-grad, linear-gradient(135deg, #98B5D8, #789EC8));
   color: #fff;
   font-size: 15px;
   cursor: pointer;
@@ -231,7 +249,7 @@
   padding: 10px;
   border: none;
   background: none;
-  color: #ff9c9c;
+  color: #d4524b;
   font-size: 14px;
   cursor: pointer;
 }
