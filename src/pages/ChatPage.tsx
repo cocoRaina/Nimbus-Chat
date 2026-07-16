@@ -31,6 +31,8 @@ import {
   fileToStickerDataUrl,
 } from '../storage/stickers'
 import { saveToAlbum } from '../storage/album'
+import { saveToy } from '../storage/toybox'
+import { extractArtifactCode } from '../utils/artifact'
 import { extractReaction, stripReactionTokens, isUserReactionMessage } from '../storage/reactions'
 import {
   WALLPAPERS,
@@ -518,6 +520,22 @@ const ChatPage = ({
   const [albumSave, setAlbumSave] = useState<{ url: string } | null>(null)
   const [albumNote, setAlbumNote] = useState('')
   const [albumSaveStatus, setAlbumSaveStatus] = useState<string | null>(null)
+  // 🧸 收藏小玩具：长按带 artifact 的消息 → 起个名字 → 存进 toy_box
+  // （直接存代码本体，聊天记录以后被压缩/清理也不影响玩）。
+  const [toySave, setToySave] = useState<{ code: string } | null>(null)
+  const [toyTitle, setToyTitle] = useState('')
+  const [toySaveStatus, setToySaveStatus] = useState<string | null>(null)
+  const handleSaveToy = useCallback(async () => {
+    const target = toySave
+    setToySave(null)
+    if (!target || !user) return
+    try {
+      await saveToy(user.id, toyTitle, target.code, null)
+      setToySaveStatus('已收进玩具库 ✓ 在记忆库抽屉的 🧸 玩具库里随时能玩')
+    } catch (e) {
+      setToySaveStatus(`收藏失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }, [toySave, toyTitle, user])
   const handleSaveToAlbum = useCallback(async () => {
     const target = albumSave
     setAlbumSave(null)
@@ -2244,6 +2262,24 @@ const ChatPage = ({
                         🖼 收藏进相册
                       </button>
                     ) : null}
+                    {message.role === 'assistant' &&
+                    message.meta?.streaming !== true &&
+                    extractArtifactCode(message.content) ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          const code = extractArtifactCode(message.content)
+                          if (code) {
+                            setToySave({ code })
+                            setToyTitle('')
+                            setOpenActionsId(null)
+                          }
+                        }}
+                      >
+                        🧸 收进玩具库
+                      </button>
+                    ) : null}
                     {message.role === 'assistant' ? (
                       <button
                         type="button"
@@ -2313,6 +2349,32 @@ const ChatPage = ({
         cancelLabel=""
         onConfirm={() => setAlbumSaveStatus(null)}
         onCancel={() => setAlbumSaveStatus(null)}
+      />
+      <ConfirmDialog
+        open={toySave !== null}
+        title="🧸 收进玩具库"
+        description="给这个小玩具起个名字，存进玩具库以后随时能玩。"
+        confirmLabel="收藏"
+        onConfirm={() => void handleSaveToy()}
+        onCancel={() => setToySave(null)}
+      >
+        <input
+          className="rename-input"
+          type="text"
+          value={toyTitle}
+          onChange={(e) => setToyTitle((e.target as HTMLInputElement).value)}
+          placeholder="比如：戳猫猫、生日贺卡、抽签转盘"
+          autoFocus
+        />
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={toySaveStatus !== null}
+        title="玩具库"
+        description={toySaveStatus ?? ''}
+        confirmLabel="好"
+        cancelLabel=""
+        onConfirm={() => setToySaveStatus(null)}
+        onCancel={() => setToySaveStatus(null)}
       />
       <ConfirmDialog
         open={compressionDialog !== null}

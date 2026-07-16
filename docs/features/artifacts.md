@@ -8,6 +8,8 @@
 | fence 检测 + 流式占位 | `src/components/MarkdownRenderer.tsx`（`pre` 组件覆写） |
 | 系统提示段（教小机怎么做玩具） | `src/constants/artifactSection.ts` → `buildArtifactSystemSection` |
 | 接线 | `App.tsx` 系统提示拼接处；`ChatPage.tsx` 传 `artifactsLive` |
+| 🧸 玩具库（收藏） | 表 `toy_box`（`supabase/migrations/20260716120000_add_toy_box.sql`）+ `src/storage/toybox.ts` + ChatPage 长按「收进玩具库」+ MemoryVaultPage `ToyboxTab` |
+| fence 抽取（收藏路径用） | `src/utils/artifact.ts` → `extractArtifactCode` |
 
 ## 工作方式
 
@@ -33,6 +35,16 @@
 - 流式中 html 块显示脉冲占位「🧸 小玩具制作中…写完就能玩」（也避免代码墙刷屏）
 - 消息落定（`meta.streaming` 置 false、消息对象整体替换触发 memo 重渲）→ 真 iframe 上线
 
+## 🧸 玩具库（收藏喜欢的玩具）
+
+长按带玩具的消息 →「🧸 收进玩具库」→ 起个名字 → 存进 `toy_box` 表；记忆库抽屉多一栏「玩具库」，列表点开**全屏直接玩**（同一套沙箱），可删除。设计要点：
+
+- **直接存代码本体**（和相册存"书签"不同）：一个玩具 5-15KB 文本，几百个才几 MB——好处是聊天记录哪天被压缩/清理了，收藏过的玩具永远完整可玩；换手机跟着 Supabase 走
+- RLS `auth.uid()=user_id`（FOR ALL，读写删都盖住——记住 PostgREST 缺策略会静默返回 0 行的坑）
+- 收藏入口条件：assistant 消息 + 非流式中 + 正文有 ```html fence（`extractArtifactCode`，取第一个）
+- 系统提示里告诉了小机玩具库的存在——做出得意之作会提醒她收藏
+- 服务端（表 + RLS）已生效；前端 UI 等 APK
+
 ## 上下文成本
 
 玩具代码就在消息正文里（100-200 行 ≈ 2-4k token），历史重放随消息走——和 Claude App 一个待遇，会话压缩到点自然摘要掉。系统提示段约 +300 token 常驻（一次冷写）。
@@ -43,6 +55,7 @@ SSR 冒烟测试（react-dom/server + esbuild，见 session 记录）：html 块
 
 ## 未做 / 边界
 
-- 玩具不能持久存档（沙箱无 localStorage）——「重新打开还在」的玩具需要以后把代码存进相册式书签再加
+- 玩具内部状态不能存档（沙箱无 localStorage）——每次打开都是新的一局；玩具**本体**的保存走玩具库
+- 一条消息多个 ```html 块时，收藏只取第一个（渲染是每个都渲染）
 - [NEXT] 别进代码块（提示里叮嘱了）；朋友圈/主页也用同一渲染器，小机发帖带玩具同样能玩（默认 live）
 - App 被杀在流式中途的极端情况：那条消息的 `meta.streaming` 可能永远是 true → 占位不转正（罕见、纯外观）

@@ -954,3 +954,72 @@
   background: #e46962;
   color: #fff;
 }
+
+/* =============== 玩具库 =============== */
+.mv-toy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px 24px;
+}
+
+.mv-toy-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.mv-toy-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 14px;
+  background: var(--ab-bg, #fff);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.mv-toy-ic { font-size: 1.3rem; }
+
+.mv-toy-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mv-toy-title {
+  font-weight: 600;
+  color: var(--ab-deep, #333);
+  font-size: 0.92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mv-toy-when {
+  font-size: 0.74rem;
+  color: var(--ab-strong, #888);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mv-toy-play {
+  font-size: 0.9rem;
+  color: var(--ab-accent, #d98d63);
+}
+
+.mv-toy-delete {
+  width: 34px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--ab-strong, #999);
+  font-size: 1.1rem;
+  cursor: pointer;
+}

@@ -22,10 +22,13 @@ import {
 import { supabase } from '../supabase/client'
 import { getProviderConfig, type ProviderId } from '../storage/apiProvider'
 import { fetchAlbum, removeFromAlbum, type AlbumEntry } from '../storage/album'
+import { fetchToys, removeToy, type ToyEntry } from '../storage/toybox'
 import ConfirmDialog from '../components/ConfirmDialog'
 import './MemoryVaultPage.css'
+// 玩具全屏播放层复用 ArtifactFrame 的样式（artifact-fullscreen 系列类）
+import '../components/ArtifactFrame.css'
 
-type Tab = 'memories' | 'diaries' | 'letters' | 'timeline' | 'album'
+type Tab = 'memories' | 'diaries' | 'letters' | 'timeline' | 'album' | 'toybox'
 
 // 抽屉侧边栏的导航项（图标 + 中文名 + 顶栏标题）
 const NAV: { key: Tab; icon: string; label: string; title: string }[] = [
@@ -34,6 +37,7 @@ const NAV: { key: Tab; icon: string; label: string; title: string }[] = [
   { key: 'letters', icon: '✉️', label: '交接信', title: 'Handoffs' },
   { key: 'timeline', icon: '🕐', label: '时间轴', title: 'Timeline' },
   { key: 'album', icon: '🖼', label: '相册', title: '相册' },
+  { key: 'toybox', icon: '🧸', label: '玩具库', title: '玩具库' },
 ]
 
 const PAGE_SIZE = 20
@@ -119,7 +123,117 @@ const MemoryVaultPage = ({ recentMessages, memoryExtractProvider }: MemoryVaultP
       {tab === 'letters' ? <LettersTab /> : null}
       {tab === 'timeline' ? <TimelineTab /> : null}
       {tab === 'album' ? <AlbumTab /> : null}
+      {tab === 'toybox' ? <ToyboxTab /> : null}
     </main>
+  )
+}
+
+// =============== Toybox Tab（玩具库）===============
+// 用户收藏的 artifact 小玩具（聊天里长按带玩具的消息 →「收进玩具库」）。
+// 代码本体就在表里，点「玩」直接全屏跑（复用 ArtifactFrame 的沙箱模型：
+// allow-scripts、无 same-origin，玩具代码碰不到 App 数据）。
+
+const ToyboxTab = () => {
+  const [toys, setToys] = useState<ToyEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [playing, setPlaying] = useState<ToyEntry | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const load = async () => {
+      if (!supabase) { setLoading(false); return }
+      try {
+        setToys(await fetchToys())
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '加载玩具库失败')
+      } finally {
+        setLoading(false)
+      }
+    }
+    void load()
+  }, [])
+
+  // Android 返回键：正在玩时先退出全屏，不退页面
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (playing) { setPlaying(null); e.preventDefault() }
+    }
+    window.addEventListener('nimbus:backbutton', handler)
+    return () => window.removeEventListener('nimbus:backbutton', handler)
+  }, [playing])
+
+  const handleDelete = async (id: string) => {
+    setConfirmDeleteId(null)
+    try {
+      await removeToy(id)
+      setToys((prev) => prev.filter((t) => t.id !== id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '删除失败')
+    }
+  }
+
+  if (loading) return <div className="mv-album-empty">加载中…</div>
+  if (error) return <div className="mv-album-empty">{error}</div>
+  if (toys.length === 0) {
+    return (
+      <div className="mv-album-empty">
+        <p>玩具库还是空的 🧸</p>
+        <p className="mv-album-empty-hint">聊天里长按带小玩具的消息 →「收进玩具库」，喜欢的就留下来。</p>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <p className="mv-album-count">收藏的小玩具 · 共 {toys.length} 个</p>
+      <div className="mv-toy-list">
+        {toys.map((t) => (
+          <div key={t.id} className="mv-toy-row">
+            <button type="button" className="mv-toy-main" onClick={() => setPlaying(t)}>
+              <span className="mv-toy-ic" aria-hidden="true">🧸</span>
+              <span className="mv-toy-info">
+                <span className="mv-toy-title">{t.title}</span>
+                <span className="mv-toy-when">{fmtAlbumTime(t.createdAt)}{t.note ? ` · ${t.note}` : ''}</span>
+              </span>
+              <span className="mv-toy-play" aria-hidden="true">▶</span>
+            </button>
+            <button
+              type="button"
+              className="mv-toy-delete"
+              aria-label={`删除 ${t.title}`}
+              onClick={() => setConfirmDeleteId(t.id)}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {playing ? (
+        <div className="artifact-fullscreen">
+          <div className="artifact-fullscreen-bar">
+            <span className="artifact-title">🧸 {playing.title}</span>
+            <button type="button" onClick={() => setPlaying(null)}>✕ 关闭</button>
+          </div>
+          <iframe
+            className="artifact-fullscreen-iframe"
+            sandbox="allow-scripts"
+            srcDoc={playing.code}
+            title={playing.title}
+          />
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="删除小玩具"
+        description="从玩具库里删掉这个小玩具？删了就找不回来了（除非让小机再做一个）。"
+        confirmLabel="删除"
+        onConfirm={() => confirmDeleteId && void handleDelete(confirmDeleteId)}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
+    </>
   )
 }
 
