@@ -12,6 +12,28 @@ type FetchOptions = {
   provider?: ProviderId
 }
 
+// Tool messages may carry array content (text + image_url parts — the
+// generate_image tool feeds the drawn image back this way). The native
+// Anthropic path converts those into real tool_result image blocks, but the
+// OpenAI-compat wire only allows string/text content on the tool role —
+// image parts there 400 on most relays. Flatten to text before sending.
+const flattenToolImageParts = (body: Record<string, unknown>): Record<string, unknown> => {
+  const messages = body.messages
+  if (!Array.isArray(messages)) return body
+  let changed = false
+  const out = messages.map((m) => {
+    const msg = m as { role?: string; content?: unknown }
+    if (msg?.role !== 'tool' || !Array.isArray(msg.content)) return m
+    changed = true
+    const text = (msg.content as Array<{ type?: string; text?: string }>)
+      .filter((p) => p?.type === 'text' && typeof p.text === 'string')
+      .map((p) => p.text as string)
+      .join('\n')
+    return { ...msg, content: text || '(工具返回了图片，当前协议下无法回看图片内容)' }
+  })
+  return changed ? { ...body, messages: out } : body
+}
+
 // Kept the name fetchOpenRouter for blast-radius reasons — it now routes
 // to whichever provider the user has selected (OpenRouter or custom).
 // Both expose OpenAI-compatible /v1/chat/completions + /v1/models.
@@ -71,6 +93,9 @@ export const fetchOpenRouter = async (
     )
   }
 
+  // OpenAI-compat wire from here on — image parts on tool messages must go.
+  const wireBody = body && path === '/chat/completions' ? flattenToolImageParts(body) : body
+
   // OpenAI-compat streaming on native: try the StreamHttp plugin for the same
   // reason as the Anthropic path — CapacitorHttp (kept on for CORS) buffers
   // window.fetch, killing the stream. Falls back to plain fetch if the native
@@ -85,7 +110,7 @@ export const fetchOpenRouter = async (
       return await nativeStreamFetchOrThrow(`${baseUrl}${path}`, {
         method: 'POST',
         headers: reqHeaders,
-        body: JSON.stringify(body),
+        body: JSON.stringify(wireBody),
         signal,
       })
     } catch {
@@ -99,7 +124,7 @@ export const fetchOpenRouter = async (
   return fetch(`${baseUrl}${path}`, {
     method: body ? 'POST' : 'GET',
     headers: reqHeaders,
-    body: body ? JSON.stringify(body) : undefined,
+    body: wireBody ? JSON.stringify(wireBody) : undefined,
     signal,
   })
 }

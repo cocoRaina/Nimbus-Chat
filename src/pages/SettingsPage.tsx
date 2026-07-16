@@ -42,6 +42,22 @@ import {
   type RelayPreset,
 } from '../storage/apiProvider'
 import { getTtsConfig, saveTtsConfig, commitTtsConfig, hydrateTtsConfig, readbackTtsActive, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
+import {
+  IMAGE_GEN_SIZES,
+  getImageGenApiKey,
+  getImageGenBaseUrl,
+  getImageGenDefaultSize,
+  getImageGenModel,
+  getImageGenShape,
+  maskImageGenKey,
+  saveImageGenApiKey,
+  saveImageGenBaseUrl,
+  saveImageGenDefaultSize,
+  saveImageGenModel,
+  saveImageGenShape,
+  type ImageGenShape,
+  type ImageGenSize,
+} from '../storage/imageGenConfig'
 import { getCallConfig, saveCallConfig, type CallConfig } from '../storage/callConfig'
 const TTS_MODELS = ['speech-2.8-turbo', 'speech-2.8-hd']
 const EL_MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_turbo_v2_5']
@@ -110,6 +126,27 @@ const SettingsPage = ({
   const [activeProvider, setActiveProviderState] = useState<ProviderId>(() => getActiveProvider())
   const [relayPresets, setRelayPresets] = useState<RelayPreset[]>(() => getRelayPresets())
   const [msuicodeSectionExpanded, setMsuicodeSectionExpanded] = useState(false)
+  // 🎨 画画（AI 生图）配置。key 抽屉逻辑：输入框平时是空的、placeholder 显示
+  // 已存 key 的掩码；填了新的才覆盖，空着保存 = key 不动。
+  const [imageGenSectionExpanded, setImageGenSectionExpanded] = useState(false)
+  const [imageGenBaseInput, setImageGenBaseInput] = useState(() => getImageGenBaseUrl())
+  const [imageGenKeyInput, setImageGenKeyInput] = useState('')
+  const [imageGenModelInput, setImageGenModelInput] = useState(() => getImageGenModel())
+  const [imageGenShape, setImageGenShapeState] = useState<ImageGenShape>(() => getImageGenShape())
+  const [imageGenSize, setImageGenSizeState] = useState<ImageGenSize>(() => getImageGenDefaultSize())
+  const [imageGenStatus, setImageGenStatus] = useState<'idle' | 'saved'>('idle')
+  const imageGenKeyMask = maskImageGenKey(getImageGenApiKey())
+  const handleSaveImageGen = () => {
+    saveImageGenBaseUrl(imageGenBaseInput)
+    saveImageGenModel(imageGenModelInput)
+    saveImageGenShape(imageGenShape)
+    saveImageGenDefaultSize(imageGenSize)
+    if (imageGenKeyInput.trim()) {
+      saveImageGenApiKey(imageGenKeyInput)
+      setImageGenKeyInput('')
+    }
+    setImageGenStatus('saved')
+  }
   const [msuicodeApiKeyInput, setMsuicodeApiKeyInput] = useState(() => getMsuicodeApiKey())
   const [msuicodeApiKeyVisible, setMsuicodeApiKeyVisible] = useState(false)
   const [msuicodeApiKeyStatus, setMsuicodeApiKeyStatus] = useState<'idle' | 'saved'>('idle')
@@ -1261,6 +1298,125 @@ const SettingsPage = ({
         ) : null}
       </section>
 
+      <section className="settings-section" role="listitem">
+        <button
+          type="button"
+          className="collapse-header"
+          onClick={() => setImageGenSectionExpanded((current) => !current)}
+          aria-expanded={imageGenSectionExpanded}
+        >
+          <span className="section-title">
+            <span className="section-icon" aria-hidden="true">🎨</span>
+            <h2 className="ui-title">画画（AI 生图）</h2>
+            <p>配好后 AI 就有了画笔：聊天里想画就画，画完的图直接落进气泡。和聊天中转是两把独立的 key。</p>
+          </span>
+          <span className="collapse-indicator" aria-hidden="true">›</span>
+        </button>
+        {imageGenSectionExpanded ? (
+          <div className="accordion-content">
+            <label htmlFor="imagegen-base-url">中转站地址</label>
+            <input
+              id="imagegen-base-url"
+              type="text"
+              value={imageGenBaseInput}
+              onChange={(event) => {
+                setImageGenBaseInput(event.target.value)
+                setImageGenStatus('idle')
+              }}
+              placeholder="https://api.某站.com（带不带 /v1 都行）"
+            />
+            <label htmlFor="imagegen-api-key">API Key</label>
+            <input
+              id="imagegen-api-key"
+              type="password"
+              value={imageGenKeyInput}
+              onChange={(event) => {
+                setImageGenKeyInput(event.target.value)
+                setImageGenStatus('idle')
+              }}
+              placeholder={imageGenKeyMask ? `已保存 ${imageGenKeyMask}（填新的才会覆盖）` : 'sk-...'}
+            />
+            <label htmlFor="imagegen-model">模型名</label>
+            <input
+              id="imagegen-model"
+              type="text"
+              value={imageGenModelInput}
+              onChange={(event) => {
+                setImageGenModelInput(event.target.value)
+                setImageGenStatus('idle')
+              }}
+              placeholder="gpt-image-1.5"
+            />
+            <span className="settings-hint">
+              去中转站建一把生图分组的 key（注意倍率，2x 组同样的图扣双倍钱）。同站不同模型有的按次、
+              有的按 token 折算——日志里一张图上百万 token 别慌，先去后台看实际扣费再定用哪支。
+            </span>
+            <label>接口形状</label>
+            <div className="system-prompt-actions" role="radiogroup" aria-label="生图接口形状">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={imageGenShape === 'images'}
+                className={imageGenShape === 'images' ? 'primary' : 'ghost'}
+                onClick={() => {
+                  setImageGenShapeState('images')
+                  setImageGenStatus('idle')
+                }}
+              >
+                原生生图接口
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={imageGenShape === 'chat'}
+                className={imageGenShape === 'chat' ? 'primary' : 'ghost'}
+                onClick={() => {
+                  setImageGenShapeState('chat')
+                  setImageGenStatus('idle')
+                }}
+              >
+                Chat 格式
+              </button>
+            </div>
+            <span className="settings-hint">
+              {imageGenShape === 'images'
+                ? '走 /v1/images/generations，返回 JSON 带图。gpt-image 系大多用这个。'
+                : '走 /v1/chat/completions，回复 markdown 里带图。有的站只支持这种，画不出来就切过来试。'}
+            </span>
+            <label>默认尺寸</label>
+            <div className="system-prompt-actions" role="radiogroup" aria-label="默认尺寸">
+              {IMAGE_GEN_SIZES.map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  role="radio"
+                  aria-checked={imageGenSize === size}
+                  className={imageGenSize === size ? 'primary' : 'ghost'}
+                  onClick={() => {
+                    setImageGenSizeState(size)
+                    setImageGenStatus('idle')
+                  }}
+                >
+                  {size === '1024x1024' ? '方形' : size === '1536x1024' ? '横版' : '竖版'}
+                </button>
+              ))}
+            </div>
+            <div className="system-prompt-actions">
+              <button type="button" className="primary" onClick={handleSaveImageGen}>
+                保存
+              </button>
+              {imageGenStatus === 'saved' ? (
+                <span className="system-prompt-status">已保存到本地，画笔已就绪 🖌️</span>
+              ) : null}
+            </div>
+            <span className="settings-hint">
+              地址、Key、模型名三样齐了，AI 才会拿到 generate_image 工具。生一张要 1~2 分钟，
+              让 TA 先回句话再动笔（工具描述里已经叮嘱过）。图默认不长存：收藏进相册的才保得住，
+              其余跟着老照片一起被 tidy_images 清理。
+            </span>
+          </div>
+        ) : null}
+      </section>
       <section className="settings-section" role="listitem">
         <button
           type="button"

@@ -4,6 +4,10 @@
 
 ---
 
+## 🎨 画画：小机拿起画笔（generate_image）（2026-07-16）
+
+参考「克克的窗台」画画教程，按 Nimbus 架构（无自建网关，前端直连中转 + Supabase）落地。新工具 `generate_image`（工具数 → 30）：调 OpenAI 兼容生图中转（两种接口形状可切）→ 压缩 webp 上传 chat-images（和手发图同管线，caption/相册/tidy 全兼容）→ 图落进聊天气泡；**tool_result 塞真图片块**（tool 消息 content 允许数组，Anthropic 转换层转成 tool_result image block；OpenAI 路径 `flattenToolImageParts` 压平降级）——小机画完自己看得见，说「猫耳朵歪了」是真的看着图改。attachment 带 `gen`(prompt/size/model) 出生证明 → 长按「🎨 重新画一张」同 prompt 重跑、**覆写同条消息的图**（`updateRemoteMessageMeta`），聊天文字不动。设置页新增 🎨 画画折叠区（独立 key、掩码回显、填新才覆盖）；工具仅配置齐全时注入（tools 块变化 → 首条消息缓存冷写一次，预期）。**踩坑预防**：45s 流停滞看门狗会掐死 1-3 分钟的生图 → 执行期 10s 心跳喂 `lastChunkAtRef`；快失败瞬时错误（5xx/429/断连 <120s）自动补一笔、慢失败不重试防双倍扣费；回看图用压缩 webp 不用原始 PNG（有的中转按 base64 长度折 token，原 PNG 一张几十万 token）。详见 [features/image-gen.md](features/image-gen.md)。
+
 ## 📔 会话摘要改小机第一人称（2026-07-15）
 
 每天 4:30 的 `session_digest` 原来是"对话归档员…第三人称摘要…不要评价"，生硬。改成**小机第一人称**——像它在心里悄悄记下这一天（我们聊了什么、她什么心情、我想替她记住的小事）。转写说话人标成「她」/「我」强化视角，temperature 0.3→0.6 添点温度。已部署 v9，服务端即时生效，只影响**往后**的摘要（存量旧摘要行不变；要重写可删近几天的行再手动 POST 触发）。

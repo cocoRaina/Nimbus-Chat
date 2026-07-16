@@ -94,6 +94,9 @@ export type ChatPageProps = {
   onDeleteMessage: (messageId: string) => void | Promise<void>
   onRegenerate: (assistantMessageId: string) => void | Promise<void>
   onEditUserMessage: (userMessageId: string, newContent: string) => void | Promise<void>
+  // 🎨 重新画一张：长按 AI 画的图（attachment 带 gen 元数据）→ 同 prompt 重跑
+  // 生图 → 覆写这条消息里的图，聊天文字不动。
+  onRedrawImage?: (messageId: string, imageUrl: string) => Promise<void>
   // Telegram 式双向表情回应：用户长按 AI 消息 → 快捷 emoji 行 → 贴/换/撤回应。
   onReactToMessage: (messageId: string, emoji: string) => void | Promise<void>
   isStreaming: boolean
@@ -487,6 +490,7 @@ const ChatPage = ({
   onDeleteMessage,
   onRegenerate,
   onEditUserMessage,
+  onRedrawImage,
   onReactToMessage,
   isStreaming,
   onStopStreaming,
@@ -528,6 +532,26 @@ const ChatPage = ({
       setAlbumSaveStatus(`收藏失败：${e instanceof Error ? e.message : String(e)}`)
     }
   }, [albumSave, albumNote, user])
+  // 🎨 重新画一张：redrawing = 正在重画的图 url（防连点）；redrawStatus 弹窗
+  // 告知开画/画好/失败。画好后图在原气泡里自动换上（覆写同一条消息的 attachment）。
+  const [redrawing, setRedrawing] = useState<string | null>(null)
+  const [redrawStatus, setRedrawStatus] = useState<string | null>(null)
+  const handleRedraw = useCallback(
+    async (message: ChatMessage, url: string) => {
+      if (!onRedrawImage || redrawing) return
+      setRedrawing(url)
+      setRedrawStatus('🎨 开始重画，同样的画面描述再画一遍。要一两分钟，画好会自动换进气泡。')
+      try {
+        await onRedrawImage(message.id, url)
+        setRedrawStatus('画好了，新图已经换上 ✓（原来的话一个字没动）')
+      } catch (e) {
+        setRedrawStatus(`重画失败：${e instanceof Error ? e.message : String(e)}`)
+      } finally {
+        setRedrawing(null)
+      }
+    },
+    [onRedrawImage, redrawing],
+  )
   const [actionsMenuPosition, setActionsMenuPosition] = useState<{ top: number; left: number } | null>(null)
   // Native Network plugin → small "已离线" banner above the composer.
   // Defaulted to true; the effect below flips it false if we boot offline.
@@ -2241,6 +2265,26 @@ const ChatPage = ({
                         🖼 收藏进相册
                       </button>
                     ) : null}
+                    {onRedrawImage &&
+                    message.role === 'assistant' &&
+                    message.meta?.attachments?.some((a) => a.type === 'image' && a.gen) ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={redrawing !== null}
+                        onClick={() => {
+                          const img = message.meta?.attachments?.find(
+                            (a) => a.type === 'image' && a.gen,
+                          )
+                          if (img && 'url' in img && img.url) {
+                            setOpenActionsId(null)
+                            void handleRedraw(message, img.url)
+                          }
+                        }}
+                      >
+                        🎨 重新画一张
+                      </button>
+                    ) : null}
                     {message.role === 'assistant' ? (
                       <button
                         type="button"
@@ -2310,6 +2354,15 @@ const ChatPage = ({
         cancelLabel=""
         onConfirm={() => setAlbumSaveStatus(null)}
         onCancel={() => setAlbumSaveStatus(null)}
+      />
+      <ConfirmDialog
+        open={redrawStatus !== null}
+        title="🎨 重新画一张"
+        description={redrawStatus ?? ''}
+        confirmLabel="好"
+        cancelLabel=""
+        onConfirm={() => setRedrawStatus(null)}
+        onCancel={() => setRedrawStatus(null)}
       />
       <ConfirmDialog
         open={compressionDialog !== null}

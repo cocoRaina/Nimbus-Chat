@@ -74,6 +74,7 @@ import {
   updateRemoteSessionArchiveState,
   updateRemoteSessionOverride,
   updateRemoteSessionReasoningOverride,
+  updateRemoteMessageMeta,
 } from './storage/supabaseSync'
 import { hasSupabaseConfig, subscribeSupabaseConfigChange, supabase } from './supabase/client'
 import {
@@ -110,7 +111,7 @@ import { chinaClockToDelayMinutes } from './utils/time'
 import { fetchOpenRouter } from './api/openrouter'
 import { convertOpenAiRequestToAnthropic, isThinkingReplayDisabledForHost } from './api/anthropic'
 import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './storage/apiProvider'
-import { ensureImageCaption, getImageCaption, syncImageCaptionsFromCloud } from './storage/imageCaptions'
+import { ensureImageCaption, getImageCaption, setImageCaption, syncImageCaptionsFromCloud } from './storage/imageCaptions'
 import { fetchAutoRecall } from './storage/memoryRecall'
 import {
   buildStickerSystemSection,
@@ -156,9 +157,18 @@ import {
   TOOL_LIST_PHOTOS,
   TOOL_SCHEDULE_CALL,
   TOOL_TIDY_IMAGES,
+  TOOL_GENERATE_IMAGE,
 } from './tools/definitions'
+import { generateImage } from './api/imageGen'
+import {
+  isImageGenConfigured,
+  getImageGenDefaultSize,
+  getImageGenModel,
+  IMAGE_GEN_SIZES,
+  type ImageGenSize,
+} from './storage/imageGenConfig'
 import { saveToAlbum, fetchAlbum } from './storage/album'
-import { tidyOldImages, listStoredPhotos, chatImagePublicUrl } from './storage/imageUpload'
+import { tidyOldImages, listStoredPhotos, chatImagePublicUrl, uploadChatImage } from './storage/imageUpload'
 import { syncStatusBarToColor } from './storage/statusBar'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
@@ -328,7 +338,11 @@ type ChatRequestMessage =
       // convertOpenAiRequestToAnthropic, ignored on the OpenAI-compat path.
       thinking_blocks?: ReplayThinkingBlock[]
     }
-  | { role: 'tool'; tool_call_id: string; content: string }
+  // Tool content may be an array (text + image_url parts): generate_image
+  // feeds the drawn image back to the model this way. The Anthropic converter
+  // turns it into tool_result image blocks; the OpenAI-compat path flattens
+  // it to text (see openrouter.ts flattenToolImageParts).
+  | { role: 'tool'; tool_call_id: string; content: string | RequestContentBlock[] }
 
 // Compact, frozen one-liner describing a turn's tool calls. Persistent
 // history never replays real tool_use/tool_result blocks (they'd bloat the
@@ -1774,6 +1788,9 @@ const App = () => {
         const toolCallRecords: Array<{
           name: string; args: unknown; result: unknown; duration_ms: number; timestamp: string
         }> = []
+        // 🎨 generate_image 本回合画出来的图：挂到 assistant 消息的
+        // meta.attachments 上，气泡里直接显示（流式中途就出现，不用等回合结束）。
+        const generatedImageAttachments: MessageAttachment[] = []
         // The FINAL iteration's native thinking blocks (content + signature),
         // persisted into the saved assistant message meta so later turns can
         // replay them (meta.thinkingBlocks). Only the final iteration's blocks:
@@ -2062,6 +2079,10 @@ const App = () => {
           if (!streaming && toolCallRecords.length > 0) {
             meta.tool_calls = toolCallRecords
             meta.toolDigest = buildToolDigest(toolCallRecords)
+          }
+          // 画出来的图挂到气泡上（流式中途也挂，画好立刻能看到）。
+          if (generatedImageAttachments.length > 0) {
+            meta.attachments = [...generatedImageAttachments]
           }
           // Freeze the final iteration's thinking blocks at save time (like
           // toolDigest) — replayed on later turns so the model sees its own
@@ -2509,6 +2530,9 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
                 ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES] : []),
+                // 画画工具只在配置齐全时亮出来——没配置时模型不知道自己会画画，
+                // 不会出现「答应画却画不了」。注意：亮/灭会改 tools 块 → 缓存冷写一次。
+                ...(supabase && isImageGenConfigured() ? [TOOL_GENERATE_IMAGE] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
@@ -2835,6 +2859,9 @@ TOOL_SEARCH_HANDOFF,
               })
               for (const tc of toolCallsArr) {
                 let resultText: string
+                // generate_image sets this to a data URL; the tool message then
+                // carries a real image part so the model sees what it drew.
+                let toolResultExtraImage: string | null = null
                 const toolStart = Date.now()
                 try {
                   if (tc.function.name === 'search_memory' && supabase) {
@@ -3960,6 +3987,82 @@ TOOL_SEARCH_HANDOFF,
                             ? `未发现休眠记忆（标准：${daysInactive} 天未被搜索到）。记忆库状态良好。`
                             : `发现 ${(data ?? []).length} 条休眠记忆，建议逐条判断：过时的归档，仍有效的保留。`,
                         })
+                  } else if (tc.function.name === 'generate_image' && supabase) {
+                    // 🎨 画画。调生图中转 → 压缩上传 chat-images（和手发的图同一条
+                    // 管线：caption/相册/tidy 全兼容）→ 挂进气泡 + tool_result 里
+                    // 塞真图片块让模型看见自己画的成品。
+                    let args: { prompt?: string; size?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 generate_image 参数失败', jsonError)
+                    }
+                    const genPrompt = String(args.prompt ?? '').trim()
+                    const genSize: ImageGenSize = (IMAGE_GEN_SIZES as string[]).includes(
+                      String(args.size),
+                    )
+                      ? (args.size as ImageGenSize)
+                      : getImageGenDefaultSize()
+                    if (!genPrompt) {
+                      resultText = JSON.stringify({ error: 'prompt 不能为空，写完整的画面描述' })
+                    } else if (!isImageGenConfigured()) {
+                      resultText = JSON.stringify({
+                        error: '画画中转还没配置。让用户到 设置 → 🎨 画画 里填好中转地址、Key 和模型名。',
+                      })
+                    } else {
+                      setToolStatus(`🎨 画画中：${genPrompt.slice(0, 40)}…（要一两分钟）`)
+                      // 生图 1-3 分钟没有任何流式 chunk，定时喂狗，否则 45s 停滞
+                      // 看门狗会把整个回合掐死（钱扣了、图没了）。
+                      const heartbeat = window.setInterval(() => {
+                        lastChunkAtRef.current = Date.now()
+                      }, 10_000)
+                      try {
+                        console.info('[生图] 开画', {
+                          model: getImageGenModel(),
+                          size: genSize,
+                          prompt: genPrompt.slice(0, 40),
+                        })
+                        const gen = await generateImage(genPrompt, genSize, controller?.signal)
+                        const uploaded = await uploadChatImage(gen.blob)
+                        console.info('[生图] 画好了', {
+                          seconds: Math.round(gen.durationMs / 1000),
+                          bytes: uploaded.sizeBytes,
+                        })
+                        // caption 直接用 prompt 冻结——不花识图钱；历史重放、
+                        // list_photos、相册整理都靠这句认得这张图。
+                        setImageCaption(
+                          uploaded.url,
+                          `TA 自己画的：${genPrompt.slice(0, 120)}`,
+                          user?.id,
+                        )
+                        generatedImageAttachments.push({
+                          type: 'image',
+                          url: uploaded.url,
+                          width: uploaded.width,
+                          height: uploaded.height,
+                          gen: { prompt: genPrompt, size: genSize, model: gen.model },
+                        })
+                        pushStreamingUpdate()
+                        // 给模型回看的图用压缩后的 webp（有的中转按 base64 长度
+                        // 计费，原始 PNG 会按几十万 token 收）。
+                        toolResultExtraImage = await new Promise<string>((resolve, reject) => {
+                          const reader = new FileReader()
+                          reader.onload = () => resolve(String(reader.result))
+                          reader.onerror = () => reject(new Error('读取生成图片失败'))
+                          reader.readAsDataURL(uploaded.blob)
+                        })
+                        resultText = JSON.stringify({
+                          ok: true,
+                          seconds: Math.round(gen.durationMs / 1000),
+                          size: genSize,
+                          note:
+                            '画好了，成品就是下面这张图（你自己看得见）。图已落进聊天气泡。' +
+                            '图默认不长存：她点「收藏进相册」或你调 save_to_album 才会留住。',
+                        })
+                      } finally {
+                        window.clearInterval(heartbeat)
+                      }
+                    }
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })
                   }
@@ -4005,7 +4108,12 @@ TOOL_SEARCH_HANDOFF,
                 baseMessages.push({
                   role: 'tool',
                   tool_call_id: tc.id,
-                  content: resultText,
+                  content: toolResultExtraImage
+                    ? [
+                        { type: 'text', text: resultText },
+                        { type: 'image_url', image_url: { url: toolResultExtraImage } },
+                      ]
+                    : resultText,
                 })
               }
               setToolStatus('')
@@ -4785,6 +4893,59 @@ TOOL_SEARCH_HANDOFF,
     [user, sendMessage, applySnapshot, cancelBatchTimer],
   )
 
+  // 🎨 重新画一张：拿 attachment.gen 里冻结的 prompt+size 原样重跑生图接口，
+  // 覆写这条消息里的那张图 —— 聊天文字、上下文、TA 说过的话全都不动，只换图。
+  // 旧图文件不删：可能已被收藏进相册（书签指向原 URL），孤儿图交给 tidy_images。
+  const redrawGeneratedImage = useCallback(
+    async (messageId: string, imageUrl: string): Promise<void> => {
+      const target = messagesRef.current.find(
+        (m) => m.id === messageId || m.clientId === messageId,
+      )
+      const attachments = target?.meta?.attachments
+      const att = attachments?.find(
+        (a): a is Extract<MessageAttachment, { type: 'image' }> =>
+          a.type === 'image' && a.url === imageUrl,
+      )
+      if (!target || !att?.gen) {
+        throw new Error('这张图没有画画记录，无法重画')
+      }
+      if (!isImageGenConfigured()) {
+        throw new Error('画画中转未配置，请到 设置 → 🎨 画画 配置')
+      }
+      const { prompt, size } = att.gen
+      const genSize: ImageGenSize = (IMAGE_GEN_SIZES as string[]).includes(size)
+        ? (size as ImageGenSize)
+        : getImageGenDefaultSize()
+      const gen = await generateImage(prompt, genSize)
+      const uploaded = await uploadChatImage(gen.blob)
+      setImageCaption(uploaded.url, `TA 自己画的：${prompt.slice(0, 120)}`, user?.id)
+      const nextAttachments = (target.meta?.attachments ?? []).map((a) =>
+        a.type === 'image' && a.url === imageUrl
+          ? {
+              ...a,
+              url: uploaded.url,
+              width: uploaded.width,
+              height: uploaded.height,
+              gen: { prompt, size: genSize, model: gen.model },
+            }
+          : a,
+      )
+      const nextMeta = { ...(target.meta ?? {}), attachments: nextAttachments }
+      applySnapshot(
+        sessionsRef.current,
+        updateMessage(messagesRef.current, { ...target, meta: nextMeta }),
+      )
+      if (user && supabase && !target.pending) {
+        try {
+          await updateRemoteMessageMeta(target.id, nextMeta)
+        } catch (err) {
+          console.warn('重画后同步消息 meta 失败（本地已更新）', err)
+        }
+      }
+    },
+    [applySnapshot, user],
+  )
+
   const editUserMessage = useCallback(
     async (userMessageId: string, newContent: string) => {
       const trimmed = newContent.trim()
@@ -5071,6 +5232,7 @@ TOOL_SEARCH_HANDOFF,
                 onDeleteMessage={removeMessage}
                 onRegenerate={regenerateAssistantReply}
                 onEditUserMessage={editUserMessage}
+                onRedrawImage={redrawGeneratedImage}
                 onReactToMessage={reactToAssistantMessage}
                 onDeleteSession={removeSession}
                 enabledModels={enabledModels}
@@ -5298,6 +5460,7 @@ const ChatRoute = ({
   onDeleteMessage,
   onRegenerate,
   onEditUserMessage,
+  onRedrawImage,
   onReactToMessage,
   onDeleteSession,
   enabledModels,
@@ -5341,6 +5504,7 @@ const ChatRoute = ({
   onDeleteMessage: (messageId: string) => Promise<void>
   onRegenerate: (assistantMessageId: string) => Promise<void>
   onEditUserMessage: (userMessageId: string, newContent: string) => Promise<void>
+  onRedrawImage: (messageId: string, imageUrl: string) => Promise<void>
   onReactToMessage: (sessionId: string, messageId: string, emoji: string) => Promise<void>
   onDeleteSession: (sessionId: string) => Promise<void>
   enabledModels: string[]
@@ -5494,6 +5658,7 @@ const ChatRoute = ({
         onDeleteMessage={onDeleteMessage}
         onRegenerate={onRegenerate}
         onEditUserMessage={onEditUserMessage}
+        onRedrawImage={onRedrawImage}
         onReactToMessage={(messageId, emoji) =>
           onReactToMessage(activeSession.id, messageId, emoji)
         }
