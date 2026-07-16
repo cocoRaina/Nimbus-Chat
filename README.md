@@ -90,7 +90,7 @@ cd android && ./gradlew assembleDebug
 **访问追踪**：每次 `search_memory` 命中的 memory 条目会 fire-and-forget 更新 `access_count` + `last_accessed_at`；自动提取时发现重复同样强化原条目（而非新建副本）。`check_memory_health` 工具可扫描长期未被召回的休眠记忆，让 Claude 决定归档还是保留。
 → 详见 [docs/features/memory.md](docs/features/memory.md)
 
-### 🛠️ Claude 工具（共 29 个）
+### 🛠️ Claude 工具（共 30 个）
 读取（搜记忆 / 交接信 / 网页 / 通览记忆 list_memories / **get_health_status** 随时查健康+经期 / **search_stickers** 按关键词搜 Supabase 表情包库）、写入（记忆 / 日记 / 交接信 / 时间轴 / 经期 / 健康）、记忆管理（manage_memory：锁定/解锁/修正/归档 + garden_memories：向量扫描近重复对 + check_memory_health：休眠记忆健康检查）、计算调度（代码沙盒 / 主动消息 / 设备状态）、**音乐媒体**（play_music 网易云搜歌放歌 / control_media 暂停换歌 / get_now_playing 读当前在放什么，APK 限定）。聊天里显示为可折叠工具卡片。
 → 详见 [docs/features/tools.md](docs/features/tools.md)
 

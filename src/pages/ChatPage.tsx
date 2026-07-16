@@ -530,8 +530,12 @@ const ChatPage = ({
     setToySave(null)
     if (!target || !user) return
     try {
-      await saveToy(user.id, toyTitle, target.code, null)
-      setToySaveStatus('已收进玩具库 ✓ 在记忆库抽屉的 🧸 玩具库里随时能玩')
+      const res = await saveToy(user.id, toyTitle, target.code, null)
+      setToySaveStatus(
+        'already_saved' in res
+          ? `这个玩具已经在玩具库里啦（${res.already_saved.title}）`
+          : '已收进玩具库 ✓ 在记忆库抽屉的 🧸 玩具库里随时能玩',
+      )
     } catch (e) {
       setToySaveStatus(`收藏失败：${e instanceof Error ? e.message : String(e)}`)
     }

@@ -878,3 +878,31 @@ export const TOOL_GET_NOW_PLAYING = {
     },
   },
 }
+
+export const TOOL_SAVE_TOY = {
+  type: 'function' as const,
+  function: {
+    name: 'save_toy',
+    description:
+      'Your toy box 🧸 — save an HTML toy you made (```html artifact) so it lives forever in ' +
+      '记忆库 → 玩具库, replayable even after chat history is compressed or cleaned. ' +
+      'The app grabs the code of the MOST RECENT toy in the conversation automatically — you only name it. ' +
+      "Save the ones you're proud of or she clearly loved; don't save every doodle — she can also " +
+      'long-press a toy to save it herself, and duplicates return already_saved instead of a second copy. ' +
+      'note is optional: one line on why this one is worth keeping.',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'A short name for the toy, in Chinese (e.g. 「戳猫猫」「生日贺卡」)',
+        },
+        note: {
+          type: 'string',
+          description: 'Optional: why this one is a keeper, in your voice',
+        },
+      },
+      required: ['title'],
+    },
+  },
+}

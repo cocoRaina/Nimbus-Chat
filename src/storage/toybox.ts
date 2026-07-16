@@ -40,13 +40,25 @@ export const fetchToys = async (limit = 200): Promise<ToyEntry[]> => {
   return (data as ToyRow[] | null)?.map(toEntry) ?? []
 }
 
+// 收藏一个玩具。同一份代码（user+code 完全一致）已收藏时返回 already_saved
+// ——小机可能忘了自己收过（和 save_to_album 一个套路）；用户手动重复收也
+// 一并防住。code 比对在服务端做（eq 过滤），不用把库里的大文本拉下来。
 export const saveToy = async (
   userId: string,
   title: string,
   code: string,
   note: string | null,
-): Promise<ToyEntry> => {
+): Promise<{ saved: ToyEntry } | { already_saved: ToyEntry }> => {
   if (!supabase) throw new Error('Supabase 未配置')
+  const { data: existing } = await supabase
+    .from('toy_box')
+    .select('id, title, code, note, created_at')
+    .eq('user_id', userId)
+    .eq('code', code)
+    .maybeSingle()
+  if (existing) {
+    return { already_saved: toEntry(existing as ToyRow) }
+  }
   const { data, error } = await supabase
     .from('toy_box')
     .insert({
@@ -58,7 +70,7 @@ export const saveToy = async (
     .select('id, title, code, note, created_at')
     .single()
   if (error) throw error
-  return toEntry(data as ToyRow)
+  return { saved: toEntry(data as ToyRow) }
 }
 
 export const removeToy = async (id: string): Promise<void> => {

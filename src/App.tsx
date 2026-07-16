@@ -157,7 +157,10 @@ import {
   TOOL_LIST_PHOTOS,
   TOOL_SCHEDULE_CALL,
   TOOL_TIDY_IMAGES,
+  TOOL_SAVE_TOY,
 } from './tools/definitions'
+import { saveToy } from './storage/toybox'
+import { extractArtifactCode } from './utils/artifact'
 import { saveToAlbum, fetchAlbum } from './storage/album'
 import { tidyOldImages, listStoredPhotos, chatImagePublicUrl } from './storage/imageUpload'
 import { syncStatusBarToColor } from './storage/statusBar'
@@ -2514,7 +2517,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_LOG_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
-                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES] : []),
+                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES, TOOL_SAVE_TOY] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
@@ -3966,6 +3969,56 @@ TOOL_SEARCH_HANDOFF,
                             ? `未发现休眠记忆（标准：${daysInactive} 天未被搜索到）。记忆库状态良好。`
                             : `发现 ${(data ?? []).length} 条休眠记忆，建议逐条判断：过时的归档，仍有效的保留。`,
                         })
+                  } else if (tc.function.name === 'save_toy' && supabase && user) {
+                    // 🧸 小机自主收藏小玩具。模型只起名字/写理由，代码由前端抠：
+                    // 优先当前回合正文（它一般是刚写完就收），退而扫历史里最近
+                    // 一条带 ```html 的 assistant 消息。同 code 已收藏 →
+                    // already_saved（防它忘了自己收过）。
+                    let args: { title?: string; note?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 save_toy 参数失败', jsonError)
+                    }
+                    const toyTitle = String(args.title ?? '').trim()
+                    if (!toyTitle) {
+                      resultText = JSON.stringify({ error: 'title 不能为空，给玩具起个名字' })
+                    } else {
+                      let toyCode = extractArtifactCode(assistantContent)
+                      if (!toyCode) {
+                        for (let i = messagesRef.current.length - 1; i >= 0; i -= 1) {
+                          const m = messagesRef.current[i]
+                          if (m.role !== 'assistant') continue
+                          toyCode = extractArtifactCode(m.content)
+                          if (toyCode) break
+                        }
+                      }
+                      if (!toyCode) {
+                        resultText = JSON.stringify({
+                          error: '对话里没找到小玩具（```html 代码块）。先把玩具做出来再收藏。',
+                        })
+                      } else {
+                        setToolStatus('🧸 收进玩具库…')
+                        const res = await saveToy(
+                          user.id,
+                          toyTitle,
+                          toyCode,
+                          String(args.note ?? '').trim() || null,
+                        )
+                        resultText =
+                          'already_saved' in res
+                            ? JSON.stringify({
+                                already_saved: true,
+                                title: res.already_saved.title,
+                                note: '这个玩具之前已经收藏过了，玩具库里就是它。',
+                              })
+                            : JSON.stringify({
+                                saved: true,
+                                title: res.saved.title,
+                                note: '已收进玩具库（记忆库 → 🧸），她随时能翻出来玩。',
+                              })
+                      }
+                    }
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })
                   }

@@ -8,6 +8,8 @@
 
 用户提议：像相册一样给 artifact 小玩具一个家。新表 `toy_box`（RLS FOR ALL `auth.uid()=user_id`，**已 apply 到 memory 项目**）——和相册存"书签"不同，这里**直接存代码本体**（5-15KB/个）：聊天记录被压缩/清理也不影响，换手机跟 Supabase 走。链路：长按带玩具的 assistant 消息（非流式中 + 正文有 ```html，`extractArtifactCode` 取第一个 fence）→「🧸 收进玩具库」→ 起名 → 入库；记忆库抽屉第 6 栏「玩具库」（`ToyboxTab`）列表 → 点开全屏玩（复用 artifact-fullscreen 沙箱样式，安卓返回键先退全屏）→ 可删。系统提示补一句玩具库的存在（小机做出得意之作会提醒收藏）。
 
+**小机自主收藏**（同日追加，工具数 → 30）：新工具 `save_toy`，照 `save_to_album` 的模子——模型只起名 + 可选理由，**代码由前端抠**（优先当前回合 `assistantContent`，退而倒扫最近一条带 \`\`\`html 的 assistant 消息；不让模型在参数里重抄几 KB 代码，省 token 防截断）。`saveToy` 存储层统一去重：同 user+code 已存在返回 already_saved（code 比对走服务端 eq，不下载大文本），小机忘了收过、用户手动重复收都防住。描述叮嘱克制：得意之作才收，别每个涂鸦都存。
+
 ## 🧸 Artifact 小玩具：小机的画布是代码（2026-07-16）
 
 Claude App artifact 的聊天气泡版，**零配置零成本**（无 API/key/工具调用，纯输出约定+渲染器）：系统提示常驻一段「小玩具」规则（`buildArtifactSystemSection`，静态 → BP1 缓存稳，+~300 token 一次冷写），小机用 ```html 代码块写完整自包含 HTML → `MarkdownRenderer` 覆写 `pre` 检测 `language-html` → `ArtifactFrame` 渲染成沙箱 iframe（标题栏 + 看代码切换 + 全屏 portal）。**安全**：`sandbox="allow-scripts"` 不带 `allow-same-origin` → 不透明源，拿不到 localStorage/cookies/supabase session。**流式防闪烁**：未闭合 fence 每 chunk 重灌 iframe 会疯狂重载 → `artifactsLive={meta.streaming !== true}`，流式中显示脉冲占位「制作中」，落定再上真 iframe。SSR 冒烟测试 6 项通过。朋友圈/主页同渲染器，发帖带玩具也能玩。见 [features/artifacts.md](features/artifacts.md)。
