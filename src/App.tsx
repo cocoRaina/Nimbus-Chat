@@ -8,6 +8,7 @@ import ConfirmDialog from './components/ConfirmDialog'
 import type { ChatMessage, ChatSession, MessageAttachment, UserSettings } from './types'
 import { usePendingShare } from './hooks/useShareReceiver'
 import { hydrateTtsConfig, buildVoiceSystemSection } from './storage/ttsConfig'
+import { buildArtifactSystemSection } from './constants/artifactSection'
 import { buildCallSystemSection, createScheduledCallInvite, getCallConfig, handleCallNotificationAction } from './storage/callConfig'
 import { getKeepaliveEnabled, setKeepaliveEnabledPref, hydrateKeepalivePref } from './storage/keepalivePref'
 import {
@@ -1575,7 +1576,7 @@ const App = () => {
       // under a strong roleplay persona — recency boosts compliance.
       const moodRulesSection = getMoodEnabled() ? buildMoodRulesSection() : ''
       const systemPrompt =
-        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + buildReactionRulesSection() + buildVoiceSystemSection() + buildCallSystemSection() + toolActionReminder + moodRulesSection
+        (activeSettings.systemPrompt ?? '') + memorySection + buildStickerSystemSection() + buildReactionRulesSection() + buildVoiceSystemSection() + buildCallSystemSection() + buildArtifactSystemSection() + toolActionReminder + moodRulesSection
       const isFirstMessageInSession = !messagesRef.current.some(
         (message) =>
           message.sessionId === sessionId &&

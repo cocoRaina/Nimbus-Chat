@@ -4,6 +4,10 @@
 
 ---
 
+## 🧸 Artifact 小玩具：小机的画布是代码（2026-07-16）
+
+Claude App artifact 的聊天气泡版，**零配置零成本**（无 API/key/工具调用，纯输出约定+渲染器）：系统提示常驻一段「小玩具」规则（`buildArtifactSystemSection`，静态 → BP1 缓存稳，+~300 token 一次冷写），小机用 ```html 代码块写完整自包含 HTML → `MarkdownRenderer` 覆写 `pre` 检测 `language-html` → `ArtifactFrame` 渲染成沙箱 iframe（标题栏 + 看代码切换 + 全屏 portal）。**安全**：`sandbox="allow-scripts"` 不带 `allow-same-origin` → 不透明源，拿不到 localStorage/cookies/supabase session。**流式防闪烁**：未闭合 fence 每 chunk 重灌 iframe 会疯狂重载 → `artifactsLive={meta.streaming !== true}`，流式中显示脉冲占位「制作中」，落定再上真 iframe。SSR 冒烟测试 6 项通过。朋友圈/主页同渲染器，发帖带玩具也能玩。见 [features/artifacts.md](features/artifacts.md)。
+
 ## 🗑 撤下画画功能（同日装上同日撤）（2026-07-16）
 
 上午刚做的 `generate_image` 生图功能整体撤掉（工具/执行分支/设置区/重画菜单/转换层图片块支持/文档），用户试想后更想要 **Claude App 式的 artifact 小玩具**（模型写可交互的 HTML 哄人）而不是调外部生图 API 画图——生图要额外买 key、按张扣钱，artifact 零成本且更「玩得起来」。完整实现留在 git 历史（commit `2c4471c`，含两种接口形状、tool_result 真图片块、45s 看门狗喂狗、覆写式重画），以后想捡回来直接 revert the revert。

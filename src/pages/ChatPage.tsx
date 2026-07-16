@@ -416,7 +416,10 @@ const MessageRow = memo(function MessageRow({
               <VoiceBubble text={chunk} />
             ) : message.role === 'assistant' ? (
               <div className="assistant-markdown">
-                <MarkdownRenderer content={chunk} />
+                <MarkdownRenderer
+                  content={chunk}
+                  artifactsLive={message.meta?.streaming !== true}
+                />
               </div>
             ) : message.meta?.attachments?.some(a => a.type === 'voice') ? null : (
               (() => {
