@@ -68,7 +68,7 @@ type AnthropicTextBlock = { type: 'text'; text: string; cache_control?: CacheCon
 type AnthropicContentBlock =
   | AnthropicTextBlock
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown>; cache_control?: CacheControl }
-  | { type: 'tool_result'; tool_use_id: string; content: string | AnthropicContentBlock[]; is_error?: boolean; cache_control?: CacheControl }
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; cache_control?: CacheControl }
   | { type: 'image'; source: { type: 'base64' | 'url'; media_type?: string; data?: string; url?: string }; cache_control?: CacheControl }
   | { type: 'thinking'; thinking: string; signature: string }
   | { type: 'redacted_thinking'; data: string }
@@ -246,18 +246,10 @@ export const convertOpenAiRequestToAnthropic = async (
         continue
       }
       const last = messages[messages.length - 1]
-      // Array-form tool content (text + image_url parts) → tool_result with
-      // real content blocks. This is how generate_image shows the model the
-      // image it just drew — Anthropic accepts text/image blocks inside
-      // tool_result. String content stays a plain string as before.
       const block: AnthropicContentBlock = {
         type: 'tool_result',
         tool_use_id: msg.tool_call_id,
-        content: Array.isArray(msg.content)
-          ? await flattenContent(msg.content)
-          : typeof msg.content === 'string'
-            ? msg.content
-            : JSON.stringify(msg.content),
+        content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
       }
       // Anthropic requires tool_result to be in a user message. Coalesce
       // consecutive tool results into one user message — but only when

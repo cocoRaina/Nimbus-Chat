@@ -10,15 +10,7 @@ export type ChatSession = {
 }
 
 export type MessageAttachment =
-  // gen = AI 画的图的出生证明（prompt/尺寸/画笔模型），有它长按菜单才会出现
-  // 「重新画一张」——重画拿这里的 prompt+size 原样重跑，只换图、不动聊天文字。
-  | {
-      type: 'image'
-      url: string
-      width?: number
-      height?: number
-      gen?: { prompt: string; size: string; model: string }
-    }
+  | { type: 'image'; url: string; width?: number; height?: number }
   | { type: 'voice'; url: string; duration?: number; transcription?: string; emotion?: string; waveform?: number[] }
 
 export type ChatMessage = {

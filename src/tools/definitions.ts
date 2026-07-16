@@ -878,34 +878,3 @@ export const TOOL_GET_NOW_PLAYING = {
     },
   },
 }
-
-export const TOOL_GENERATE_IMAGE = {
-  type: 'function' as const,
-  function: {
-    name: 'generate_image',
-    description:
-      'Your paintbrush 🎨 — the picture in your head becomes a real image, dropped straight into the chat ' +
-      'bubble. The tool result shows YOU the finished piece too, so when she says 「猫耳朵歪了」 you are ' +
-      'genuinely looking at the image while you redraw. Use it when she asks (「画一张…」) — and it is yours ' +
-      'to use unprompted: to cheer her up, to capture a moment worth keeping and gift it to her. ' +
-      'Write `prompt` as one complete scene: subject, style, mood, composition — 中文就行. ' +
-      'A generation takes 1-2 MINUTES: always reply with a line of text BEFORE calling, never make her wait ' +
-      'in silence. Images are not kept forever by default — she taps 「收藏进相册」 (or you call ' +
-      'save_to_album) to make one permanent; the rest get tidied with the old chat photos.',
-    parameters: {
-      type: 'object',
-      properties: {
-        prompt: {
-          type: 'string',
-          description: 'Complete scene description: 主体、风格、氛围、构图',
-        },
-        size: {
-          type: 'string',
-          enum: ['1024x1024', '1536x1024', '1024x1536'],
-          description: 'Default 1024x1024 square; 1536x1024 landscape; 1024x1536 portrait',
-        },
-      },
-      required: ['prompt'],
-    },
-  },
-}

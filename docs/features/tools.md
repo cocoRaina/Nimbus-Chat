@@ -1,4 +1,4 @@
-# Claude 工具（共 30 个）
+# Claude 工具（共 29 个）
 
 每次工具调用记录在消息 `meta.tool_calls` 里，聊天界面显示为**可折叠的工具卡片**：图标 + 工具名 + 参数预览 + 耗时，点击展开看完整参数和返回。
 
@@ -30,7 +30,6 @@
 | `browse_album` | 翻看自己收藏的（回传 note/tags/time，url 不回传——它回看的是自己写的理由）。AI 自主，或用户提"相册/你收藏的那张"时调 |
 | `list_photos` | **列 storage 里所有照片**给小机"看"——回传每张的**描述**（image_captions 里那句）+ 时间 + 在不在相册。小机靠描述"看"整个图库（不重喂像素、便宜），能挑值得收藏的、聊起旧图。描述为"（还没有描述）"的是没走过 caption 的老图。收藏仍只针对最近一张，想收旧图让用户重发 |
 | `tidy_images` | **整理 chat-images 桶**：删超过 N 天（默认30、最小7）且没进相册的老图，相册收藏（`image_path` 交叉比对）永远保护。`dry_run:true` 先预览个数、报释放多少 MB，再真删。老气泡图变占位但文字描述（imageCaptions）还在。描述里要求先 dry_run 再删、且告诉用户 |
-| `generate_image` | 🎨 **画画**：调生图中转（设置里配，两种接口形状）→ 压缩上传 chat-images → 图落进聊天气泡；**tool_result 带真图片块**（Anthropic 原生路径），它看着自己画的成品接着改。attachment 带 `gen`(prompt/size/model) 出生证明 → 长按「重新画一张」只换图不动话。仅配置齐全时注入。见 [features/image-gen.md](image-gen.md) |
 
 ## 记忆管理（Claude 自己整理记忆库）
 

@@ -28,7 +28,6 @@
 | 语音消息（TTS·MiniMax） | [features/voice-tts.md](features/voice-tts.md) |
 | 语音通话（callhome：主动拨号/挂断/留言/勿扰） | [features/voice-call.md](features/voice-call.md) |
 | 小机的相册 + 照片整理（自主收藏/tidy_images） | [features/album.md](features/album.md) |
-| 画画（AI 生图 · generate_image） | [features/image-gen.md](features/image-gen.md) |
 
 ## 还没单独成文（要动到时看代码）
 

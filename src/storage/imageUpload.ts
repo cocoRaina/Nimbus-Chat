@@ -19,13 +19,9 @@ export type UploadedImage = {
   width: number
   height: number
   sizeBytes: number
-  // The compressed bytes that were actually uploaded. generate_image reads
-  // this to build the data-URL image block it feeds back to the model —
-  // re-downloading our own public URL would be a wasted round trip.
-  blob: Blob
 }
 
-const compressImage = async (file: Blob): Promise<Blob> => {
+const compressImage = async (file: File): Promise<Blob> => {
   const bitmap = await createImageBitmap(file)
   let { width, height } = bitmap
   const longest = Math.max(width, height)
@@ -65,7 +61,7 @@ const randomFilename = (ext: string) => {
   return `${id}.${ext}`
 }
 
-export const uploadChatImage = async (file: File | Blob): Promise<UploadedImage> => {
+export const uploadChatImage = async (file: File): Promise<UploadedImage> => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
   }
@@ -97,7 +93,6 @@ export const uploadChatImage = async (file: File | Blob): Promise<UploadedImage>
     width: dimensions.width,
     height: dimensions.height,
     sizeBytes: blob.size,
-    blob,
   }
 }
 
