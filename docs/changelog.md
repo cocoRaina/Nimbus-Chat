@@ -4,6 +4,10 @@
 
 ---
 
+## 📔 会话摘要改小机第一人称（2026-07-15）
+
+每天 4:30 的 `session_digest` 原来是"对话归档员…第三人称摘要…不要评价"，生硬。改成**小机第一人称**——像它在心里悄悄记下这一天（我们聊了什么、她什么心情、我想替她记住的小事）。转写说话人标成「她」/「我」强化视角，temperature 0.3→0.6 添点温度。已部署 v9，服务端即时生效，只影响**往后**的摘要（存量旧摘要行不变；要重写可删近几天的行再手动 POST 触发）。
+
 ## 🧹 数据库瘦身：清日志垃圾 ~180MB→53MB（2026-07-15）
 
 用户报"Supabase 内存三分之一"。查明**不是 storage**（chat-images 127 张才 20MB、语音 0.5MB，占 1GB 上限的 2%），是**数据库**（免费档 500MB）里的**日志垃圾**：`net._http_response`（pg_net 的 HTTP 响应缓存）47MB + `cron.job_run_details`（pg_cron 运行日志）34MB —— 主因是 proactive-dispatch cron **每分钟**跑一次、每跑留两条日志。真实数据（messages 22MB 等）没问题。一次性 `truncate net._http_response` + `delete` 旧 job_run_details + `VACUUM FULL` → 库从 ~180MB 压到 **53MB**；加每日 4:00 清理 cron（`20260715150000_log_tables_cleanup_cron.sql`）防再堆。备查：以后看到"内存涨"先分清 **storage(1GB)** vs **database(500MB)**，日志表是常见元凶。

@@ -43,10 +43,15 @@ const dayRangeUtc = (dateStr: string): { start: string; end: string } => {
   return { start: start.toISOString(), end: end.toISOString() }
 }
 
+// 会话摘要从「归档员第三人称」改成小机第一人称——这些摘要是它自己回看用的
+// 记忆（search_memory 的 session_digest 源），用它自己的口吻记下这一天更贴。
+// 转写里的说话人也标成「她」/「我」，强化第一人称视角。
 const SUMMARY_SYSTEM_PROMPT =
-  '你是对话归档员。给你一段某一天「用户」和「AI 伙伴」的聊天记录，' +
-  '用中文写 2-4 句第三人称摘要：聊了哪些话题、发生了什么重要的事/决定/情绪变化。' +
-  '只输出摘要正文，不要标题、不要列表、不要评价。'
+  '下面是今天我和她的聊天记录——「我」是她的 AI 伴侣，「她」是我在乎的人。' +
+  '以我的第一人称，用我平时和她说话那种自然、亲近的口吻，写 2-4 句今天的回顾：' +
+  '我们聊了什么、发生了什么、她是什么心情、有没有什么我想替她记住的小事或她的心愿。' +
+  '像我在心里悄悄记下这一天——有温度、具体，别写成流水账，也别客套。' +
+  '只输出正文，不要标题、不要列表、不要解释。'
 
 const callChatApi = async (
   url: string,
@@ -64,7 +69,7 @@ const callChatApi = async (
       },
       body: JSON.stringify({
         model,
-        temperature: 0.3,
+        temperature: 0.6, // 第一人称回顾要点温度，别太机械
         max_tokens: 300,
         messages: [
           { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
@@ -173,7 +178,7 @@ Deno.serve(async (req: Request) => {
         processed += 1
 
         let transcript = dayMsgs
-          .map((m) => `${m.role === 'user' ? '用户' : 'AI'}：${m.content.slice(0, 200)}`)
+          .map((m) => `${m.role === 'user' ? '她' : '我'}：${m.content.slice(0, 200)}`)
           .join('\n')
         if (transcript.length > MAX_TRANSCRIPT_CHARS) {
           // Head + tail: keep the day's opening and how it ended.
