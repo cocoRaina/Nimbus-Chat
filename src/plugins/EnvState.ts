@@ -10,6 +10,9 @@ export type EnvStateResult = {
   audio: 'speaker' | 'wired' | 'bluetooth'
   btName?: string
   network: 'wifi' | 'cellular' | 'other' | 'none'
+  // Ambient light in lux (light sensor, foreground-cached). Absent when the
+  // device has no light sensor or no reading has arrived yet.
+  lux?: number
 }
 
 type EnvStatePlugin = {

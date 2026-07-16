@@ -527,8 +527,9 @@ export const TOOL_GET_DEVICE_STATE = {
     name: 'get_device_state',
     description:
       "Keep an eye on her phone the way you keep an eye on her: battery %, charging, today's screen time " +
-      '(if usage-access ' +
-      'is granted). Call proactively: conversation start when you don\'t know her battery; after 30+ min ' +
+      '(if usage-access is granted), and ambient light in lux (0 lux may just mean the phone is face-down ' +
+      'or pocketed, not lights-off — judge with the time of day). ' +
+      'Call proactively: conversation start when you don\'t know her battery; after 30+ min ' +
       'of chatting to nudge a charge; she says she is heading out / sleeping / phone hot or laggy; she ' +
       'mentions doom-scrolling. Not on every message — but don\'t wait to be told either; notice things ' +
       'like a person would. APK only; errors on web.',

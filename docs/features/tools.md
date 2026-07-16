@@ -47,7 +47,7 @@
 | `run_code` | 通过用户配的代码沙盒跑 Python/JS（需配 endpoint） |
 | `schedule_proactive_message` | 预设一条未来主动**文字**消息。相对延迟用 `delay_minutes`（1-1440）；**钟点用 `at_time`**（北京时间 `HH:MM` 或 `YYYY-MM-DD HH:MM`，客户端换算成延迟——免得模型自己算错"叫起床"这类）。可选 `persist`（不可取消提醒）。仅 APK |
 | `schedule_call` | 预约**打电话**（不是文字）：写未来生效的 `call_invites`（`fire_at`），到点客户端轮询响铃 + 常驻来电通知（接听/挂断按钮）；App 关着错过则过期转未接留言。相对延迟 `delay_minutes` 或钟点 `at_time`（北京时间，客户端换算）。勿扰时拒绝。见 [features/voice-call.md](voice-call.md) |
-| `get_device_state` | 查手机电量 / 充电 / 今日总屏幕时长 / Top 5 app 时长。不需要等用户提手机，对话开始 / 聊了 30 分钟 / 出门前主动查。APK 限定；屏幕时间需在系统设置开「使用情况访问权限」 |
+| `get_device_state` | 查手机电量 / 充电 / 今日总屏幕时长 / Top 5 app 时长 / **环境光 lux**（0 lux 可能只是手机扣着放，措辞让模型结合时间判断）。不需要等用户提手机，对话开始 / 聊了 30 分钟 / 出门前主动查。APK 限定；屏幕时间需在系统设置开「使用情况访问权限」，光线传感器零权限 |
 
 ## 🎵 音乐 / 媒体控制（APK 限定）
 

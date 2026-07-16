@@ -13,6 +13,10 @@ export type DeviceState = {
   daily_screen_minutes: number | null
   // Top apps by foreground time today (max 5).
   top_apps?: Array<{ name: string; minutes: number }>
+  // Ambient light in lux (light sensor). null = sensor absent / no reading.
+  // Note: 0 lux can also mean the phone is face-down or in a pocket, not
+  // necessarily lights-off — the envSnapshot wording accounts for this too.
+  ambient_light_lux: number | null
   // Why each field might be null — lets the model phrase its reply
   // ("blocked by permission" vs "this build can't read that").
   notes: string[]
@@ -26,6 +30,7 @@ export const getDeviceState = async (): Promise<DeviceState> => {
       battery_percent: null,
       is_charging: null,
       daily_screen_minutes: null,
+      ambient_light_lux: null,
       notes,
     }
   }
@@ -61,11 +66,27 @@ export const getDeviceState = async (): Promise<DeviceState> => {
     notes.push(`usage-stats: ${err instanceof Error ? err.message : String(err)}`)
   }
 
+  // Ambient light rides on the EnvState plugin (same foreground-cached lux
+  // that feeds the per-message envSnapshot line).
+  let ambientLightLux: number | null = null
+  try {
+    const { getEnvStateNative } = await import('../plugins/EnvState')
+    const env = await getEnvStateNative()
+    if (env && typeof env.lux === 'number' && env.lux >= 0) {
+      ambientLightLux = Math.round(env.lux)
+    } else {
+      notes.push('ambient-light: 无光线传感器或暂无读数')
+    }
+  } catch (err) {
+    notes.push(`ambient-light: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
   return {
     battery_percent: batteryPercent,
     is_charging: isCharging,
     daily_screen_minutes: dailyScreenMinutes,
     top_apps: topApps,
+    ambient_light_lux: ambientLightLux,
     notes,
   }
 }

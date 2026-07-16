@@ -1605,9 +1605,14 @@ const App = () => {
       // the current cached reading; when the cache refreshes (hourly) the
       // next message automatically reflects the updated conditions.
       const weatherSnap = peekCachedWeather()
-      // Ambient phone state (battery/charging/ringer/audio/network) — injected
-      // on every message like weather, from the cache warmed on mount/foreground.
+      // Ambient phone state (battery/charging/ringer/audio/network/light) —
+      // injected on every message like weather, from the cache warmed on
+      // mount/foreground. Fire-and-forget re-warm right after reading: staying
+      // in the app for a long chat never re-triggers the foreground refresh,
+      // so without this a lamp turned off mid-conversation (or a battery that
+      // drained 30%) would stay invisible. One-message lag, zero send latency.
       const envSnap = peekEnvSnapshot()
+      void refreshEnvSnapshot()
 
       // Auto memory recall — same hybrid pipeline as the search_memory tool,
       // fired here in parallel with the health refresh below. Frozen into this
@@ -4606,7 +4611,10 @@ TOOL_SEARCH_HANDOFF,
       const clientId = createClientId()
       const clientCreatedAt = new Date().toISOString()
       const weatherSnap = peekCachedWeather()
+      // Read + fire-and-forget re-warm (same rationale as the streaming send
+      // path): long in-app sessions otherwise pin the mount-time snapshot.
       const envSnap = peekEnvSnapshot()
+      void refreshEnvSnapshot()
       const userMeta: ChatMessage['meta'] = {
         ...(extraMeta ?? {}),
         ...(attachments.length > 0 ? { attachments } : {}),

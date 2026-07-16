@@ -3,6 +3,10 @@ package com.cocoraina.nimbuschat;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.net.ConnectivityManager;
@@ -26,10 +30,19 @@ import com.getcapacitor.annotation.PermissionCallback;
  *     device's advertised name so the model can tell earbuds from a car stereo
  *   - whether the active network is Wi-Fi vs cellular (just the transport, never
  *     the SSID — by the user's choice we only report "connected to Wi-Fi or not")
+ *   - ambient light level (lux) so the companion can tell lights-off darkness
+ *     from daylight ("灯都关了还刷手机？该睡了")
  *
  * All synchronous system-service reads: no background work, no polling, no
  * network. Injected into the chat prompt like the weather snapshot so the
  * companion feels present ("戴耳机听歌呢？" / "在车上？慢点开").
+ *
+ * Light sensor lifecycle: the light sensor is event-driven (no synchronous
+ * "read now" API), so a listener registered on foreground caches the latest
+ * lux into a volatile field that get() reads instantly. Registered in
+ * handleOnResume / unregistered in handleOnPause — zero battery cost while
+ * backgrounded, and the light sensor itself is one of the cheapest sensors
+ * on the SoC. Devices without the sensor simply never populate the field.
  *
  * The bluetooth device NAME needs BLUETOOTH_CONNECT (Android 12+). Without the
  * grant we still report that bluetooth audio is connected, just unnamed, and
@@ -42,6 +55,62 @@ import com.getcapacitor.annotation.PermissionCallback;
     }
 )
 public class EnvStatePlugin extends Plugin {
+
+    // Latest ambient light reading in lux; -1 = no reading yet (sensor absent,
+    // or first event hasn't arrived). Written on the sensor thread, read on the
+    // Capacitor thread — volatile is all the sync a single float needs.
+    private volatile float lastLux = -1f;
+    private SensorManager sensorManager;
+    private Sensor lightSensor;
+    private final SensorEventListener lightListener = new SensorEventListener() {
+        @Override
+        public void onSensorChanged(SensorEvent event) {
+            if (event.values != null && event.values.length > 0) {
+                lastLux = event.values[0];
+            }
+        }
+
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+    };
+
+    @Override
+    public void load() {
+        try {
+            sensorManager = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
+            if (sensorManager != null) {
+                lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
+            }
+        } catch (Exception ignored) {}
+        registerLightListener();
+    }
+
+    @Override
+    protected void handleOnResume() {
+        super.handleOnResume();
+        registerLightListener();
+    }
+
+    @Override
+    protected void handleOnPause() {
+        super.handleOnPause();
+        try {
+            if (sensorManager != null) sensorManager.unregisterListener(lightListener);
+        } catch (Exception ignored) {}
+        // Stale darkness from inside a pocket shouldn't survive into the next
+        // foreground — drop the cached value; resume re-registers and the
+        // sensor re-delivers the current level within a frame or two.
+        lastLux = -1f;
+    }
+
+    private void registerLightListener() {
+        try {
+            if (sensorManager != null && lightSensor != null) {
+                sensorManager.registerListener(
+                    lightListener, lightSensor, SensorManager.SENSOR_DELAY_NORMAL);
+            }
+        } catch (Exception ignored) {}
+    }
 
     /** Request BLUETOOTH_CONNECT (needed to read the BT device name). No-op
      *  below Android 12 where it isn't a runtime permission. */
@@ -143,6 +212,12 @@ public class EnvStatePlugin extends Plugin {
             }
         } catch (Exception ignored) {}
         ret.put("network", network);
+
+        // --- Ambient light (lux) ------------------------------------------
+        float lux = lastLux;
+        if (lux >= 0f) {
+            ret.put("lux", (double) lux);
+        }
 
         call.resolve(ret);
     }
