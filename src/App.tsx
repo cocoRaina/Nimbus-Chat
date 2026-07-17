@@ -75,6 +75,7 @@ import {
   updateRemoteSessionArchiveState,
   updateRemoteSessionOverride,
   updateRemoteSessionReasoningOverride,
+  updateRemoteMessageMeta,
 } from './storage/supabaseSync'
 import { hasSupabaseConfig, subscribeSupabaseConfigChange, supabase } from './supabase/client'
 import {
@@ -1605,12 +1606,38 @@ const App = () => {
       void refreshEnvSnapshot()
 
       // Auto memory recall — same hybrid pipeline as the search_memory tool,
-      // fired here in parallel with the health refresh below. Frozen into this
-      // message's meta so replay stays byte-stable. Never blocks the send on
-      // failure (3.5s internal timeout, silent null).
-      const recallPromise: Promise<string | null> = skipUser
-        ? Promise.resolve(null)
-        : fetchAutoRecall(content)
+      // fired here in parallel with the health refresh below. Frozen into the
+      // user message's meta so replay stays byte-stable. Never blocks the send
+      // on failure (3.5s internal timeout, silent null).
+      //
+      // ⚠️ 2026-07-17 定案的静默罢工：连发架构下所有正常聊天都是
+      // persistUserMessage 落库 → 定时器空参触发 sendMessage(sessionId, '',
+      // {skipUser:true})。老代码 skipUser 直接跳过召回（content 也是空串），
+      // 于是自动召回自连发上线起一次请求都没发出过（服务端日志零记录实锤）。
+      // 修法：批量路径从本会话找出这批新用户消息（上一条 assistant 之后、
+      // 还没冻过召回的）拼成查询照常召回；结果冻进最后一条用户消息的 meta
+      // （本地 + 远端），随后的 payload 构建立刻读到，本轮即生效，重放稳定。
+      let recallQuery = skipUser ? '' : content
+      let recallTarget: ChatMessage | null = null
+      if (skipUser) {
+        const sessionMsgs = messagesRef.current.filter((m) => m.sessionId === sessionId)
+        let lastAssistantIdx = -1
+        for (let i = sessionMsgs.length - 1; i >= 0; i -= 1) {
+          if (sessionMsgs[i].role === 'assistant') {
+            lastAssistantIdx = i
+            break
+          }
+        }
+        const freshUsers = sessionMsgs
+          .slice(lastAssistantIdx + 1)
+          .filter((m) => m.role === 'user' && !m.meta?.memoryRecall)
+        if (freshUsers.length > 0) {
+          recallQuery = freshUsers.map((m) => m.content).join(' ')
+          recallTarget = freshUsers[freshUsers.length - 1]
+        }
+      }
+      const recallPromise: Promise<string | null> =
+        recallQuery.trim().length > 0 ? fetchAutoRecall(recallQuery) : Promise.resolve(null)
 
       // Health snapshot — injected on EVERY user message (when the DB has
       // nothing we say so explicitly instead of going silent). The Supabase
@@ -1634,6 +1661,24 @@ const App = () => {
         : null
 
       const recallSnap = await recallPromise
+
+      // 批量路径：把召回结果冻进已落库的那条用户消息。本地快照先更新（payload
+      // 构建从 messagesRef 读 meta.memoryRecall，本轮就能注入）；远端 fire-and-
+      // forget 同步（updateRemoteMessageMeta 按 id/client_id 匹配，行还没插完
+      // 就静默错过——本地才是本轮的数据源，丢远端只影响换设备重放）。
+      if (recallSnap && recallTarget) {
+        const stamped: ChatMessage = {
+          ...recallTarget,
+          pending: recallTarget.pending,
+          meta: { ...(recallTarget.meta ?? {}), memoryRecall: recallSnap },
+        }
+        applySnapshot(sessionsRef.current, updateMessage(messagesRef.current, stamped))
+        if (user && supabase) {
+          void updateRemoteMessageMeta(recallTarget.id, stamped.meta).catch((err: unknown) =>
+            console.warn('召回 meta 远端同步失败（本地已冻结）', err),
+          )
+        }
+      }
 
       const userMeta: ChatMessage['meta'] = {
         ...(userAttachments.length > 0 ? { attachments: userAttachments } : {}),

@@ -443,6 +443,29 @@ export const addRemoteMessage = async (
   return { message: mapMessageRow(data as MessageRow), updatedAt: now }
 }
 
+// Overwrite a message's meta in place（自动召回结果冻进已落库的用户消息用）。
+// Same id-or-client_id matching as deleteRemoteMessage, for the same race
+// reason: server insert may still be in flight, then the local clientId is
+// the only handle we have.
+export const updateRemoteMessageMeta = async (
+  messageId: string,
+  meta: ChatMessage['meta'],
+): Promise<void> => {
+  if (!supabase) {
+    throw new Error('Supabase 客户端未配置')
+  }
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const filters = [`client_id.eq.${messageId}`]
+  if (UUID_RE.test(messageId)) filters.unshift(`id.eq.${messageId}`)
+  const { error } = await supabase
+    .from('messages')
+    .update({ meta: meta ?? {} })
+    .or(filters.join(','))
+  if (error) {
+    throw error
+  }
+}
+
 export const deleteRemoteMessage = async (messageId: string) => {
   if (!supabase) {
     throw new Error('Supabase 客户端未配置')
