@@ -51,14 +51,13 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
   { key: 'all', label: '全部' },
 ]
 
-// label 里的 \n 是刻意的：四个 tab 统一排成上下两行（「压缩/状态」），
-// 字号保持全尺寸——比 nowrap+缩字清晰，也比放任浏览器折成「压缩状/态」好看。
-// CSS 侧用 white-space: pre-line 让 \n 生效。
-const DIAG_TABS: Array<{ key: DiagTab; label: string }> = [
-  { key: 'usage', label: '用量\n统计' },
-  { key: 'api', label: 'API\n检测' },
-  { key: 'compress', label: '压缩\n状态' },
-  { key: 'memory', label: '记忆\n状态' },
+// 每个 tab 一个短名 + 一句「这页是干嘛的」——intro 显示在 tab 栏正下方，
+// 切到哪页就解释哪页，分类一眼懂（此前四个 tab 都叫「XX状态」，分不清）。
+const DIAG_TABS: Array<{ key: DiagTab; label: string; intro: string }> = [
+  { key: 'usage', label: '用量', intro: 'token 花在哪、缓存帮你省了多少；底部可展开逐条明细和站子对账。' },
+  { key: 'api', label: '渠道体检', intro: '给中转站做体检：通不通、缓存真不真、模型有没有被偷换。' },
+  { key: 'compress', label: '压缩', intro: '对话太长时旧消息会被压成一段摘要接着聊——摘要都在这，点开可查看。' },
+  { key: 'memory', label: '记忆', intro: '每日会话摘要有没有正常生成 + 每轮聊天自动召回了哪些记忆。' },
 ]
 
 // usage_logs.source → 明细表里的中文标签 + 配色。让后台工作（保活 ping /
@@ -507,19 +506,31 @@ const UsagePage = ({ user }: UsagePageProps) => {
   const [histLoading, setHistLoading] = useState(false)
   const histLoadedRef = useRef(false)
 
-  useEffect(() => {
-    if (activeTab !== 'api' || !user || histLoadedRef.current) return
-    histLoadedRef.current = true
+  // 渠道体检页的历史数据加载（30 天）。抽成 callback：tab 首次进入自动加载，
+  // 顶栏「刷新」手动重拉——原来体检页顶栏右侧是个空 spacer（用户吐槽的
+  // 「标题右边空空」），现在四个 tab 顶栏动作统一都是刷新。
+  const loadHistory = useCallback(async () => {
+    if (!user) return
     setHistLoading(true)
-    fetchUsageLogs(user.id, computeRangeStart('month'))
-      .then((data) => {
-        setHistRows(data)
-        // Pre-fill test model from most recent row
-        if (!testModel && data.length > 0 && data[0].model) setTestModel(data[0].model)
-      })
-      .catch(() => {})
-      .finally(() => setHistLoading(false))
-  }, [activeTab, user, testModel])
+    try {
+      const data = await fetchUsageLogs(user.id, computeRangeStart('month'))
+      setHistRows(data)
+      // Pre-fill test model from most recent row
+      if (data.length > 0 && data[0].model) {
+        setTestModel((current) => current || data[0].model)
+      }
+    } catch {
+      // keep old rows
+    } finally {
+      setHistLoading(false)
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (activeTab !== 'api' || histLoadedRef.current) return
+    histLoadedRef.current = true
+    void loadHistory()
+  }, [activeTab, loadHistory])
 
   // Pre-fill test model from Tab 1 rows if histRows aren't loaded yet
   useEffect(() => {
@@ -807,13 +818,15 @@ const UsagePage = ({ user }: UsagePageProps) => {
 
   // ── Render header ──────────────────────────────────────────────────────
 
+  // 四个 tab 顶栏右侧统一是「刷新」——之前体检页放的是空 spacer，标题
+  // 右边空一块看着像坏了。
   const headerRight = activeTab === 'usage'
     ? <button type="button" className="ghost" onClick={() => void loadUsageData()} disabled={loading}>{loading ? '刷新中…' : '刷新'}</button>
     : activeTab === 'compress'
     ? <button type="button" className="ghost" onClick={() => void loadCompression()} disabled={compressionLoading}>{compressionLoading ? '刷新中…' : '刷新'}</button>
     : activeTab === 'memory'
     ? <button type="button" className="ghost" onClick={() => void loadMemoryStatus()} disabled={memoryLoading}>{memoryLoading ? '刷新中…' : '刷新'}</button>
-    : <div className="page-header-spacer" />
+    : <button type="button" className="ghost" onClick={() => void loadHistory()} disabled={histLoading}>{histLoading ? '刷新中…' : '刷新'}</button>
 
   return (
     <main className="usage-page app-shell">
@@ -838,6 +851,9 @@ const UsagePage = ({ user }: UsagePageProps) => {
           </button>
         ))}
       </div>
+      <p className="diag-tab-intro">
+        {DIAG_TABS.find((t) => t.key === activeTab)?.intro}
+      </p>
 
       {/* ── Tab 1: Usage stats ─────────────────────────────────────────── */}
       {activeTab === 'usage' && (
@@ -858,6 +874,13 @@ const UsagePage = ({ user }: UsagePageProps) => {
           </div>
 
           {error ? <p className="usage-error">{error}</p> : null}
+
+          <section className="usage-section">
+            <h3>当前状态</h3>
+            <p className="usage-hint">
+              第一张卡：中转渠道近况（响应快不快、缓存命中好不好）。第二张卡：后台保活
+              ——那个每 55 分钟帮你把缓存保温、省冷写钱的 ping 有没有在正常干活。
+            </p>
 
           {healthOverview && (
             <div className={`health-overview health-overview--${healthOverview.status}`}>
@@ -900,6 +923,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
               </p>
             )}
           </div>
+          </section>
 
           {byProvider.length === 0 ? (
             <p className="usage-empty">这段时间还没有调用记录。</p>
@@ -1309,8 +1333,8 @@ const UsagePage = ({ user }: UsagePageProps) => {
             )}
           </section>
 
-          <section className="usage-section diag-explainer">
-            <h3>检测说明</h3>
+          <details className="usage-section diag-detail-fold diag-explainer">
+            <summary>检测说明（每一项测的是什么，点开看）</summary>
             <ul className="diag-explain-list">
               <li><strong>🔍 渠道猜测</strong> — 把下面所有信号综合成一个「类别 + 证据」判断（官方真 passthrough / OpenAI兼容·模拟缓存 / 反代订阅编程工具 / 偷换降智）。<strong>只给类别不给牌子名</strong>——中转故意抹掉上游来源，没有可靠信号能定位是「反重力」还是「Kiro」。</li>
               <li><strong>连通性 + 延迟</strong> — 发一条最小请求，测首响应延迟、确认通不通。</li>
@@ -1320,7 +1344,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
               <li><strong>身份注入探测</strong>（仅 Claude）— 不发任何系统提示，问模型「你是不是被设成编程助手/Claude Code/CLI」。它自带编程人设 = 中转反代了别人的 Claude Code 订阅、内置了提示词（这也可能干扰角色扮演）。</li>
               <li><strong>历史缓存分析 / 中转打散 / 每日趋势</strong>（读历史·免费）— 扫近 30 天记录，看命中率、找「同会话刚建缓存几分钟后又冷写」的打散特征、按天看趋势。不发探针、不花钱。</li>
             </ul>
-          </section>
+          </details>
         </div>
       )}
 
@@ -1331,6 +1355,10 @@ const UsagePage = ({ user }: UsagePageProps) => {
 
           <section className="usage-section">
             <h3>活跃压缩摘要（最近 30 条）</h3>
+            <p className="usage-hint">
+              一个会话聊太长时，早期消息会被自动压成一段「备忘」随对话携带（省 token、防爆上下文）。
+              每行是一个会话的当前备忘：点开能看小机把前情记成了什么样。
+            </p>
             {compressionLoading ? (
               <p className="usage-empty">加载中…</p>
             ) : compressionEntries.length === 0 ? (
