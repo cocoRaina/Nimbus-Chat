@@ -57,7 +57,7 @@ const DIAG_TABS: Array<{ key: DiagTab; label: string; intro: string }> = [
   { key: 'usage', label: '用量', intro: 'token 花在哪、缓存帮你省了多少；底部可展开逐条明细和站子对账。' },
   { key: 'api', label: '渠道体检', intro: '给中转站做体检：通不通、缓存真不真、模型有没有被偷换。' },
   { key: 'compress', label: '压缩', intro: '对话太长时旧消息会被压成一段摘要接着聊——摘要都在这，点开可查看。' },
-  { key: 'memory', label: '记忆', intro: '每日会话摘要有没有正常生成 + 每轮聊天自动召回了哪些记忆。' },
+  { key: 'memory', label: '记忆', intro: '记忆管线的运行状态：每日摘要、每周睡眠巩固、每轮自动召回。记忆内容本身（看/确认/整理）在「记忆库」页面。' },
 ]
 
 // usage_logs.source → 明细表里的中文标签 + 配色。让后台工作（保活 ping /
@@ -721,6 +721,11 @@ const UsagePage = ({ user }: UsagePageProps) => {
   // ── Tab 4: Memory status (digests + coverage + recall log) ─────────────
   const [digestRows, setDigestRows] = useState<DigestRow[]>([])
   const [coverageRows, setCoverageRows] = useState<CoverageRow[]>([])
+  // 🌙 睡眠巩固的可见性：最近一次巩固提炼出的条目（memory_entries
+  // source='consolidation'）。没有这张卡时巩固跑没跑、提了什么全是黑盒。
+  const [consolidationRows, setConsolidationRows] = useState<
+    Array<{ id: number; content: string; createdAt: string; status: string }>
+  >([])
   const [memoryLoading, setMemoryLoading] = useState(false)
   const [memoryError, setMemoryError] = useState<string | null>(null)
   const [expandedDigestId, setExpandedDigestId] = useState<string | null>(null)
@@ -730,16 +735,30 @@ const UsagePage = ({ user }: UsagePageProps) => {
     setMemoryLoading(true)
     setMemoryError(null)
     try {
-      const [digestRes, coverageRes] = await Promise.all([
+      const [digestRes, coverageRes, consolidationRes] = await Promise.all([
         supabase
           .from('session_digests')
           .select('id, digest_date, content, created_at')
           .order('digest_date', { ascending: false })
           .limit(14),
         supabase.rpc('digest_coverage', { check_days: 7 }),
+        supabase
+          .from('memory_entries')
+          .select('id, content, created_at, status')
+          .eq('source', 'consolidation')
+          .eq('is_deleted', false)
+          .order('created_at', { ascending: false })
+          .limit(6),
       ])
       if (digestRes.error) throw digestRes.error
       if (coverageRes.error) throw coverageRes.error
+      setConsolidationRows(
+        consolidationRes.error
+          ? []
+          : ((consolidationRes.data ?? []) as Array<{ id: number; content: string; created_at: string; status: string }>).map(
+              (r) => ({ id: r.id, content: r.content, createdAt: r.created_at, status: r.status }),
+            ),
+      )
       setDigestRows(
         ((digestRes.data ?? []) as Array<{ id: string; digest_date: string; content: string; created_at: string }>).map((r) => ({
           id: r.id,
@@ -1427,6 +1446,33 @@ const UsagePage = ({ user }: UsagePageProps) => {
                     </div>
                   )
                 })}
+              </div>
+            )}
+          </section>
+
+          <section className="usage-section">
+            <h3>🌙 睡眠巩固（每周一凌晨 5:00）</h3>
+            <p className="usage-hint">
+              每周自动把近两周的每日回顾蒸馏成「跨天才能看出的模式记忆」（如"赶 deadline 前会失眠"），
+              提出的条目进待确认队列——去 <strong>记忆库 → 记忆</strong> 点头才真正入库。这里只看它跑没跑、提了什么。
+            </p>
+            {memoryLoading ? (
+              <p className="usage-empty">加载中…</p>
+            ) : consolidationRows.length === 0 ? (
+              <p className="usage-empty">还没有巩固记录——每周一凌晨自动运行，攒够 5 天日摘要才开工。</p>
+            ) : (
+              <div className="compress-list">
+                {consolidationRows.map((r) => (
+                  <div key={r.id} className="compress-card">
+                    <div className="compress-card-header">
+                      <span>{r.status === 'pending' ? '🕐' : '✅'}</span>
+                      <span className="compress-title">{r.content}</span>
+                      <span className="compress-meta">
+                        {formatRelTime(r.createdAt)} · {r.status === 'pending' ? '待确认' : '已确认'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </section>

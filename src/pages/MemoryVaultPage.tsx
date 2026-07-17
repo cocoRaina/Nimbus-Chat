@@ -648,6 +648,11 @@ const MemoriesTab = ({
                     ✏️ 修订：将替换「{entry.revises_old_content ?? '一条已有记忆'}」
                   </p>
                 ) : null}
+                {entry.source === 'consolidation' ? (
+                  <p className="pending-entry-revision">
+                    🌙 睡眠巩固：从近两周的相处里提炼的模式
+                  </p>
+                ) : null}
                 <p className="pending-entry-content">{entry.content}</p>
                 <div className="pending-entry-actions">
                   <button type="button" className="btn-confirm" onClick={() => void handleConfirmEntry(entry)}>Confirm</button>
