@@ -708,3 +708,60 @@
   margin: -2px 0 10px;
   line-height: 1.5;
 }
+
+/* ── 最近调用 · 缓存效果（用量统计页） ── */
+/* 三张统计卡时用等分三列，别在 2 列网格里留一个空洞 */
+.usage-summary--three,
+.usage-summary.usage-summary--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cache-row-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cache-row {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.cache-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cache-row-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ab-deep);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.cache-row-hit {
+  flex-shrink: 0;
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.cache-hit--good { background: rgba(209, 250, 229, 0.9); color: #217a52; }
+.cache-hit--mid  { background: rgba(254, 243, 199, 0.95); color: #92600a; }
+.cache-hit--bad  { background: rgba(254, 226, 226, 0.95); color: #b0413e; }
+
+.cache-row-sub {
+  margin-top: 4px;
+  font-size: 0.76rem;
+  color: #718096;
+  font-variant-numeric: tabular-nums;
+}

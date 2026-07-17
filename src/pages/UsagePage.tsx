@@ -971,6 +971,61 @@ const UsagePage = ({ user }: UsagePageProps) => {
             })
           )}
 
+          {/* 最近 10 次调用的缓存效果 — 原来是塞在「压缩状态」页里的一张
+              横向滚动表（列被截断、看不懂），搬回它本来的家（用量统计）并
+              改成手机友好的一条一卡 + 人话说明。 */}
+          {tokenAccuracyStats && (
+            <section className="usage-section">
+              <h3>最近 10 次聊天调用 · 缓存效果</h3>
+              <p className="usage-hint">
+                每发一条消息，看它的<strong>输入</strong>里有多少被缓存挡住（<strong>命中</strong>的部分按
+                0.1 倍计价，命中率越高越省钱）。带工具调用的轮次命中率天然偏低、偶尔一次 0% 是正常冷写；
+                <strong>连续 0%</strong> 才说明缓存没生效，去「API 检测」查渠道。
+              </p>
+              <div className="usage-summary usage-summary--three" style={{ marginBottom: '10px' }}>
+                <div className="usage-summary-card">
+                  <span className="label">统计样本</span>
+                  <span className="value">{tokenAccuracyStats.count} 次</span>
+                </div>
+                <div className="usage-summary-card">
+                  <span className="label">平均命中率</span>
+                  <span className="value">{Math.round(tokenAccuracyStats.avgCacheRatio * 100)}%</span>
+                </div>
+                <div className="usage-summary-card">
+                  <span className="label">平均命中量</span>
+                  <span className="value">{formatTokenCount(tokenAccuracyStats.avgCache)}</span>
+                </div>
+              </div>
+              <div className="cache-row-list">
+                {tokenAccuracyStats.rows.map((row) => {
+                  const pct = row.promptTokens > 0
+                    ? Math.round((row.cachedTokens / row.promptTokens) * 100)
+                    : null
+                  const tone = pct == null ? 'bad' : pct >= 70 ? 'good' : pct >= 30 ? 'mid' : 'bad'
+                  const when = new Date(row.createdAt).toLocaleString('zh-CN', {
+                    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+                  })
+                  return (
+                    <div key={row.id} className="cache-row">
+                      <div className="cache-row-top">
+                        <span className="cache-row-title">
+                          {when} · {row.sessionTitle?.trim() || row.sessionId?.slice(0, 8) || '未知会话'}
+                        </span>
+                        <span className={`cache-row-hit cache-hit--${tone}`}>
+                          {pct == null ? '—' : pct === 0 ? '0% 冷写' : `命中 ${pct}%`}
+                        </span>
+                      </div>
+                      <div className="cache-row-sub">
+                        输入 {formatTokenCount(row.promptTokens)}（命中 {formatTokenCount(row.cachedTokens)}）
+                        · 输出 {formatTokenCount(row.completionTokens)} · {row.relayHost ?? '未知中转'}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
           {/* 逐条明细 — 折叠，要和中转站后台日志核对时再点开 */}
           {rows.length > 0 && (
             <details className="usage-section diag-detail-fold">
@@ -1313,55 +1368,6 @@ const UsagePage = ({ user }: UsagePageProps) => {
             )}
           </section>
 
-          <section className="usage-section">
-            <h3>近期 token 用量（chat 来源，最近 10 次）</h3>
-            {!tokenAccuracyStats ? (
-              <p className="usage-empty">切换到「用量统计」选择时间范围并刷新，这里会显示对应数据。</p>
-            ) : (
-              <>
-                <div className="usage-summary" style={{ marginBottom: '10px' }}>
-                  <div className="usage-summary-card">
-                    <span className="label">样本数</span>
-                    <span className="value">{tokenAccuracyStats.count}</span>
-                  </div>
-                  <div className="usage-summary-card">
-                    <span className="label">平均缓存命中</span>
-                    <span className="value">{Math.round(tokenAccuracyStats.avgCacheRatio * 100)}%</span>
-                  </div>
-                  <div className="usage-summary-card">
-                    <span className="label">平均缓存 tokens</span>
-                    <span className="value">{formatTokenCount(tokenAccuracyStats.avgCache)}</span>
-                  </div>
-                </div>
-                <div className="usage-table-wrap">
-                  <table className="usage-table">
-                    <thead>
-                      <tr>
-                        <th>会话</th>
-                        <th>中转</th>
-                        <th>实际输入</th>
-                        <th>输出</th>
-                        <th>缓存命中</th>
-                        <th>缓存率</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tokenAccuracyStats.rows.map((row) => (
-                        <tr key={row.id}>
-                          <td className="model">{row.sessionTitle?.trim() || row.sessionId?.slice(0, 8) || '未知'}</td>
-                          <td className="model">{row.relayHost ?? '—'}</td>
-                          <td>{formatTokenCount(row.promptTokens)}</td>
-                          <td>{formatTokenCount(row.completionTokens)}</td>
-                          <td>{formatTokenCount(row.cachedTokens)}</td>
-                          <td>{row.promptTokens > 0 ? `${Math.round((row.cachedTokens / row.promptTokens) * 100)}%` : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </section>
         </div>
       )}
 
