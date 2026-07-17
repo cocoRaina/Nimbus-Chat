@@ -185,11 +185,23 @@ Deno.serve(async (req: Request) => {
 
     // Fire-and-forget: bump access_count + last_accessed_at for returned memories.
     // Auto-recall hits count too — being surfaced IS being used.
+    //
+    // ⚠️ 踩坑（2026-07-17 修）：supabase-js 的查询构建器是懒执行的 thenable
+    // ——`void supabase.rpc(...)` 从不触发 then()，请求根本不会发出。上线一个
+    // 月全库 access_count 清一色为 0 就是这个原因。Promise.resolve() 强制
+    // 启动请求；EdgeRuntime.waitUntil 让它在响应返回后跑完，不拖慢搜索。
     const memoryIds = (searchResult.data ?? [])
       .filter((r: { source?: string; id?: unknown }) => r.source === 'memory' && r.id != null)
       .map((r: { id: unknown }) => r.id)
     if (memoryIds.length > 0) {
-      void supabase.rpc('bump_memory_access', { ids: memoryIds })
+      const bump = Promise.resolve(supabase.rpc('bump_memory_access', { ids: memoryIds })).then(
+        ({ error }: { error: { message: string } | null }) => {
+          if (error) console.warn('bump_memory_access failed:', error.message)
+        },
+      )
+      const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime
+      if (runtime?.waitUntil) runtime.waitUntil(bump)
+      else await bump
     }
 
     if (lean) {

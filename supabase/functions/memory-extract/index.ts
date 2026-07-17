@@ -529,8 +529,17 @@ ${JSON.stringify(mergeInput)}`,
     }
 
     // Reinforce matched confirmed memories (fire-and-forget, ignore errors).
+    // ⚠️ 同 search_memory 的坑：supabase-js 构建器懒执行，`void rpc(...)` 请求
+    // 根本不会发出（2026-07-17 修）。waitUntil 后台跑完，不拖慢提取响应。
     if (reinforcedMemoryIds.length > 0) {
-      void supabase.rpc('bump_memory_access', { ids: reinforcedMemoryIds })
+      const bump = Promise.resolve(supabase.rpc('bump_memory_access', { ids: reinforcedMemoryIds })).then(
+        ({ error }: { error: { message: string } | null }) => {
+          if (error) console.warn('bump_memory_access failed:', error.message)
+        },
+      )
+      const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime
+      if (runtime?.waitUntil) runtime.waitUntil(bump)
+      else await bump
     }
 
     if (acceptedItems.length > 0) {
