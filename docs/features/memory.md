@@ -12,7 +12,9 @@
 | **会话摘要** | `session_digests`（每日每会话 2-4 句） | 混合检索第 7 源 `session_digest`，召回/搜索都命中 | 每会话每天唯一行，今天的不生成 |
 | **身体状态** | health_data / period_tracking | 每条消息 `[TA 今日状态]`（30min 缓存） | 自动召回 `lean` 不再重复带 |
 | **入库** | 提取管线 → pending → 确认 | 每 12 轮自动提取 + 手动 | 0.85 Jaccard 跨表去重 |
-| **保洁** | access_count / garden / 归档 | AI 调管理工具 | — |
+| **矛盾修订** | 提取候选 vs 已有记忆相似度中间带 [0.18,0.85) → LLM 裁决 | 矛盾（偏好变了/事实过期）→ pending 标记「修订」，确认后 UPDATE 原记忆 | `memory_entries.revises_memory_id` + 旧文案冻结快照；裁决失败按无关处理 |
+| **睡眠巩固** | 近 14 天 `session_digests` → 蒸馏模式级记忆 | `weekly_consolidate` 每周一 5:00 北京 cron，0-3 条进 pending | 已有记忆+待确认全塞提示词防重复；宁缺毋滥 |
+| **保洁** | access_count / garden / 归档 | AI 调管理工具 | ⚠️ access_count 2026-07-17 前恒为 0（`void rpc` 懒执行坑，见 changelog），休眠判断以修复日之后的数据为准 |
 
 ## 记忆系统（长期记忆的几张表）
 

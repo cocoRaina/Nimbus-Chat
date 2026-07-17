@@ -1023,3 +1023,14 @@
   font-size: 1.1rem;
   cursor: pointer;
 }
+
+/* 待确认条目的「修订」标注：这条确认后会替换一条已有记忆 */
+.pending-entry-revision {
+  margin: 0 0 4px;
+  font-size: 0.76rem;
+  color: #b0703e;
+  background: rgba(254, 243, 199, 0.6);
+  border-radius: 8px;
+  padding: 4px 8px;
+  line-height: 1.5;
+}

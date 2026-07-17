@@ -23,6 +23,10 @@ type UserSettingsRow = {
 const SERVER_RECENT_LIMIT = 30
 const MIN_MEMORY_LENGTH = 8
 const MAX_INSERT_COUNT = 10
+// 🔁 矛盾检测的相似度中间带：和已有记忆重合 ≥0.85 算重复（强化原条目），
+// 落在 [0.18, 0.85) 说明「同一话题但说法不同」——可能是偏好变了/事实过期，
+// 交给一次廉价 LLM 批量裁决是矛盾（→修订原条目）还是无关（→正常新增）。
+const CONTRADICTION_CHECK_MIN = 0.18
 const MAX_MERGED_ITEMS = 20
 const PENDING_CAP = 50
 const CLUSTER_SIMILARITY_THRESHOLD = 0.78
@@ -469,6 +473,7 @@ ${JSON.stringify(mergeInput)}`,
     const confirmedMemoryMeta = confirmedMemoryRows
       .map((row) => ({
         id: row.id,
+        content: typeof row.content === 'string' ? row.content : '',
         tokens: tokenizeForSimilarity(typeof row.content === 'string' ? row.content : ''),
       }))
       .filter((m) => m.tokens.size > 0)
@@ -476,6 +481,12 @@ ${JSON.stringify(mergeInput)}`,
     const acceptedTokenSets: Set<string>[] = []
     const seenNormalized = new Set<string>()
     const reinforcedMemoryIds: number[] = []
+    // 中间带候选：新事实 vs 已有记忆同话题不同说法，待 LLM 裁决矛盾与否。
+    const contradictionCandidates: Array<{
+      content: string
+      memoryId: number
+      oldContent: string
+    }> = []
     let skipped = 0
 
     for (const item of clusteredItems) {
@@ -509,11 +520,21 @@ ${JSON.stringify(mergeInput)}`,
 
       // Similar to a confirmed memory in the memories table → reinforce it
       // (bump access_count) instead of creating a new duplicate entry.
-      const matchedMemory = confirmedMemoryMeta.find((m) =>
-        calculateJaccardSimilarity(candidateTokens, m.tokens) >= EXISTING_DEDUPE_THRESHOLD,
-      )
-      if (matchedMemory) {
-        reinforcedMemoryIds.push(matchedMemory.id)
+      // 同时找相似度最高的中间带匹配（同话题不同说法）留给矛盾检测。
+      let bestMid: { id: number; content: string; sim: number } | null = null
+      let isDuplicate = false
+      for (const m of confirmedMemoryMeta) {
+        const sim = calculateJaccardSimilarity(candidateTokens, m.tokens)
+        if (sim >= EXISTING_DEDUPE_THRESHOLD) {
+          reinforcedMemoryIds.push(m.id)
+          isDuplicate = true
+          break
+        }
+        if (sim >= CONTRADICTION_CHECK_MIN && (!bestMid || sim > bestMid.sim)) {
+          bestMid = { id: m.id, content: m.content, sim }
+        }
+      }
+      if (isDuplicate) {
         skipped += 1
         continue
       }
@@ -525,7 +546,55 @@ ${JSON.stringify(mergeInput)}`,
 
       seenNormalized.add(normalizedKey)
       acceptedTokenSets.push(candidateTokens)
-      acceptedItems.push(normalized)
+      if (bestMid) {
+        contradictionCandidates.push({
+          content: normalized,
+          memoryId: bestMid.id,
+          oldContent: bestMid.content,
+        })
+      } else {
+        acceptedItems.push(normalized)
+      }
+    }
+
+    // 🔁 矛盾裁决：把所有中间带候选打包成一次廉价 LLM 调用。矛盾 → 修订
+    // 条目（确认后 UPDATE 原记忆）；无关/兼容 → 正常新增。裁决失败一律按
+    // 无关处理（回到今天的行为，绝不因此丢提取结果）。
+    const revisionItems: Array<{ content: string; memoryId: number; oldContent: string }> = []
+    if (contradictionCandidates.length > 0) {
+      const pairs = contradictionCandidates.map((c, i) => ({
+        i,
+        old: c.oldContent,
+        new: c.content,
+      }))
+      const verdictResult = await callExtractionModel({
+        modelId,
+        apiKey: resolvedApiKey,
+        apiBase: resolvedApiBase,
+        systemPrompt:
+          'For each pair, decide whether NEW factually CONTRADICTS or SUPERSEDES OLD ' +
+          '(a changed preference, an outdated fact, a reversed opinion — the old memory would now mislead), ' +
+          'or whether they are merely related but compatible (both can be true). ' +
+          'Output ONLY a JSON array of strings, one per pair, each "INDEX:contradict" or "INDEX:unrelated". ' +
+          'Example: ["0:unrelated","1:contradict"]. When unsure, say unrelated.',
+        userPrompt: JSON.stringify(pairs),
+        maxTokens: 200,
+      })
+      const verdicts = new Map<number, string>()
+      if (!verdictResult.error) {
+        for (const raw of verdictResult.items) {
+          const m = /^(\d+)\s*[:：]\s*(contradict|unrelated)/i.exec(String(raw).trim())
+          if (m) verdicts.set(Number(m[1]), m[2].toLowerCase())
+        }
+      }
+      for (let i = 0; i < contradictionCandidates.length; i += 1) {
+        const c = contradictionCandidates[i]
+        if (verdicts.get(i) === 'contradict') {
+          revisionItems.push(c)
+        } else {
+          acceptedItems.push(c.content)
+        }
+      }
     }
 
     // Reinforce matched confirmed memories (fire-and-forget, ignore errors).
@@ -542,15 +611,25 @@ ${JSON.stringify(mergeInput)}`,
       else await bump
     }
 
-    if (acceptedItems.length > 0) {
-      const { error: insertError } = await supabase.from('memory_entries').insert(
-        acceptedItems.map((content) => ({
+    if (acceptedItems.length > 0 || revisionItems.length > 0) {
+      const { error: insertError } = await supabase.from('memory_entries').insert([
+        ...acceptedItems.map((content) => ({
           user_id: user.id,
           content,
           source: 'ai_suggested',
           status: 'pending',
         })),
-      )
+        // 修订条目：确认时客户端 UPDATE 原记忆而不是 INSERT（旧 APK 不认识
+        // 这两个字段时退化成普通新增，不阻塞）。
+        ...revisionItems.map((r) => ({
+          user_id: user.id,
+          content: r.content,
+          source: 'ai_suggested',
+          status: 'pending',
+          revises_memory_id: r.memoryId,
+          revises_old_content: r.oldContent,
+        })),
+      ])
 
       if (insertError) {
         return jsonResponse({ error: '写入记忆失败' }, 500, cors)
@@ -563,9 +642,10 @@ ${JSON.stringify(mergeInput)}`,
     }
 
     return jsonResponse({
-      inserted: acceptedItems.length,
+      inserted: acceptedItems.length + revisionItems.length,
+      revisions: revisionItems.length,
       skipped,
-      items: acceptedItems,
+      items: [...acceptedItems, ...revisionItems.map((r) => r.content)],
     }, 200, cors)
   } catch {
     return jsonResponse({ error: '服务内部错误' }, 500, cors)

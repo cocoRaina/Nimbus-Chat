@@ -347,7 +347,16 @@ const AlbumTab = () => {
 type MemoryDraft = { content: string; category: string; tagsInput: string }
 const emptyMemoryDraft = (): MemoryDraft => ({ content: '', category: DEFAULT_CATEGORY, tagsInput: '' })
 type SourceFilter = 'all' | 'manual' | 'auto'
-type PendingEntry = { id: number; content: string; source: string; created_at: string }
+// revises_memory_id/revises_old_content：这条不是新增而是「修订」——提取时
+// 发现它和一条已有记忆矛盾（偏好变了/事实过期），确认后 UPDATE 原记忆。
+type PendingEntry = {
+  id: number
+  content: string
+  source: string
+  created_at: string
+  revises_memory_id?: number | null
+  revises_old_content?: string | null
+}
 
 const MemoriesTab = ({
   recentMessages,
@@ -382,7 +391,7 @@ const MemoriesTab = ({
     if (!supabase) return
     const { data } = await supabase
       .from('memory_entries')
-      .select('id,content,source,created_at')
+      .select('id,content,source,created_at,revises_memory_id,revises_old_content')
       .eq('status', 'pending')
       .eq('is_deleted', false)
       .order('created_at', { ascending: false })
@@ -390,10 +399,25 @@ const MemoriesTab = ({
     setPendingEntries(data ?? [])
   }, [])
 
+  // 确认一条待定记忆。普通条目 → 新增；修订条目（revises_memory_id）→
+  // UPDATE 原记忆（updateMemory 会顺带清 embedding，由回填 cron 重算向量）。
+  // 原记忆已被归档/删除时退化成新增，修订不丢。
+  const promotePendingEntry = async (entry: PendingEntry) => {
+    if (entry.revises_memory_id != null) {
+      try {
+        await updateMemory(entry.revises_memory_id, { content: entry.content })
+        return
+      } catch (e) {
+        console.warn('修订原记忆失败，退化为新增', e)
+      }
+    }
+    await createMemory({ content: entry.content, category: '自动提取', tags: ['auto'], source: 'auto' })
+  }
+
   const handleConfirmEntry = async (entry: PendingEntry) => {
     if (!supabase) return
     try {
-      await createMemory({ content: entry.content, category: '自动提取', tags: ['auto'], source: 'auto' })
+      await promotePendingEntry(entry)
       await supabase.from('memory_entries').update({ status: 'confirmed', updated_at: new Date().toISOString() }).eq('id', entry.id)
       await refreshPending()
       await refresh()
@@ -419,13 +443,27 @@ const MemoriesTab = ({
   const handleConfirmAll = async () => {
     if (!supabase || pendingEntries.length === 0) return
     try {
-      const newMemories = await Promise.all(
-        pendingEntries.map((entry) => createMemory({ content: entry.content, category: '自动提取', tags: ['auto'], source: 'auto' })),
-      )
+      // 逐条走 promote：修订条目 UPDATE 原记忆（embedding 由回填 cron 重算），
+      // 普通条目新增并批量喂 auto_embed。
+      const newMemories: Array<{ id: number; content: string }> = []
+      for (const entry of pendingEntries) {
+        if (entry.revises_memory_id != null) {
+          try {
+            await updateMemory(entry.revises_memory_id, { content: entry.content })
+            continue
+          } catch (e) {
+            console.warn('修订原记忆失败，退化为新增', e)
+          }
+        }
+        const created = await createMemory({ content: entry.content, category: '自动提取', tags: ['auto'], source: 'auto' })
+        newMemories.push({ id: created.id, content: created.content })
+      }
       await supabase.from('memory_entries').update({ status: 'confirmed', updated_at: new Date().toISOString() }).in('id', pendingEntries.map((e) => e.id))
-      void supabase.functions.invoke('auto_embed', {
-        body: { records: newMemories.map((m) => ({ id: m.id, content: m.content })), table: 'memories' },
-      })
+      if (newMemories.length > 0) {
+        void supabase.functions.invoke('auto_embed', {
+          body: { records: newMemories.map((m) => ({ id: m.id, content: m.content })), table: 'memories' },
+        })
+      }
       await refreshPending()
       await refresh()
     } catch (e) {
@@ -605,6 +643,11 @@ const MemoriesTab = ({
           <ul className="pending-entries-list">
             {pendingEntries.map((entry) => (
               <li key={entry.id} className="pending-entry-item">
+                {entry.revises_memory_id != null ? (
+                  <p className="pending-entry-revision">
+                    ✏️ 修订：将替换「{entry.revises_old_content ?? '一条已有记忆'}」
+                  </p>
+                ) : null}
                 <p className="pending-entry-content">{entry.content}</p>
                 <div className="pending-entry-actions">
                   <button type="button" className="btn-confirm" onClick={() => void handleConfirmEntry(entry)}>Confirm</button>
