@@ -487,6 +487,20 @@
   background: var(--accent, var(--ab-strong));
   color: #fff;
 }
+.sticker-panel__migrate {
+  flex-shrink: 0;
+  margin: 0 2px 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--ab-accent);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ab-accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+.sticker-panel__migrate:disabled {
+  opacity: 0.6;
+}
 .sticker-panel__grid {
   flex: 1;
   min-height: 0;

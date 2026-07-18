@@ -38,6 +38,7 @@ import {
   sanitizeStickerName,
   uploadStickerPack,
   deleteRemoteSticker,
+  dataUrlToBlob,
 } from '../storage/stickerImport'
 import { saveToAlbum } from '../storage/album'
 import { saveToy } from '../storage/toybox'
@@ -1161,6 +1162,48 @@ const ChatPage = ({
     setStickers(getStickers())
   }
 
+  // 一键把本地(localStorage)贴纸搬进云端包:名字原样保留(和云端撞名才
+  // 加后缀),上传成功的才从本地删,失败的留在原地下次再搬——绝不丢图。
+  const [migratingLocal, setMigratingLocal] = useState(false)
+  const handleMigrateLocalStickers = async () => {
+    const localStickers = getStickers()
+    if (!user || localStickers.length === 0 || migratingLocal) return
+    setMigratingLocal(true)
+    try {
+      const remoteTaken = new Set<string>()
+      for (const entries of remoteStickerPacks?.values() ?? []) {
+        for (const e of entries) remoteTaken.add(e.name)
+      }
+      const items = await Promise.all(
+        localStickers.map(async (s) => ({
+          blob: await dataUrlToBlob(s.dataUrl),
+          dataUrl: s.dataUrl,
+          name: s.name,
+        })),
+      )
+      const names = dedupeStickerNames(items.map((it) => it.name), remoteTaken)
+      items.forEach((it, i) => { it.name = names[i] })
+      const outcome = await uploadStickerPack(items, '我的表情')
+      const failedNames = new Set(outcome.failures.map((f) => f.name))
+      items.forEach((it, i) => {
+        if (!failedNames.has(it.name)) deleteSticker(localStickers[i].name)
+      })
+      setStickers(getStickers())
+      await onRefreshStickers?.()
+      if (outcome.failures.length > 0) {
+        setStickerError(
+          `搬了 ${outcome.uploaded} 张到云端,${outcome.failures.length} 张失败(${outcome.failures[0].reason})——失败的还留在本地,稍后可以再试`,
+        )
+      } else {
+        setActiveStickerPack('我的表情')
+      }
+    } catch (error) {
+      setStickerError(`搬运失败:${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setMigratingLocal(false)
+    }
+  }
+
   const handleDeleteRemoteSticker = async (entry: RemoteStickerEntry) => {
     try {
       await deleteRemoteSticker(entry.name, entry.url)
@@ -2242,6 +2285,16 @@ const ChatPage = ({
                 </button>
               ))}
             </div>
+            {activeStickerPack === '我的' && user && stickers.length > 0 ? (
+              <button
+                type="button"
+                className="sticker-panel__migrate"
+                disabled={migratingLocal}
+                onClick={() => void handleMigrateLocalStickers()}
+              >
+                {migratingLocal ? '搬运中…' : `⬆ 把这 ${stickers.length} 张全部搬到云端(合并进"我的表情")`}
+              </button>
+            ) : null}
             <div className="sticker-panel__grid">
               {activeStickerPack === '我的' ? (
                 <>

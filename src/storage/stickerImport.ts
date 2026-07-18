@@ -38,6 +38,13 @@ const blobToDataUrl = (blob: Blob): Promise<string> =>
     reader.readAsDataURL(blob)
   })
 
+// 本地(localStorage)贴纸迁移上云用:老贴纸只有 data URL,转回 Blob 才能
+// 走和批量导入同一条上传管线。
+export const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
+  const res = await fetch(dataUrl)
+  return res.blob()
+}
+
 const compressSticker = async (file: File): Promise<Blob> => {
   const bitmap = await createImageBitmap(file)
   let { width, height } = bitmap
