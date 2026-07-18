@@ -4,6 +4,10 @@
 
 ---
 
+## 🎨 顶栏贴边统一（2026-07-18，续上一条）
+
+用户追述"左右也有空白，有的页面有有的没有"。审计定因：共享 `.page-header-bar` 依赖**每个页面自己写负 margin** 抵消容器 padding（usage/memory-vault 写了、健康同步页漏了 → 顶栏缩在 1rem 内边距里、顶上还悬着 0.75rem），页面之间七零八落。修法：共享规则自带满血贴边——`width: 100vw` + `margin-left/right: calc(50% - 50vw)`（对任意 padding/限宽/居中的父容器都顶到视口边；已有抵消规则的页面 specificity 覆盖 margin 后结果一致，Playwright 静态还原验证三家全 PASS）；健康同步页补 `margin-top: -0.75rem` + `overflow-x: clip`；设置页顶栏顺手补上次漏掉的纯色化（也是 0.88+blur 同款）。**备查**：共享组件不要把"贴边"外包给使用者，默认就该是对的。需新 APK。
+
 ## 🎨 顶栏"没贴顶"：渐变透毛玻璃发花（2026-07-18）
 
 用户截图（Diagnostics/Moments）："标题行有空白、不是一整个贴在最上面。"像素级排查定因：顶栏是 `rgba(244,248,252,0.88)` + `backdrop-filter: blur`，而页面底色是 **160° 斜向渐变**——渐变透过毛玻璃渗进顶栏，左右颜色不匀（左亮右蓝），和状态栏（纯色 #F4F8FC，statusBar.ts 同步的就是它）接不上，视觉上就是一块悬浮的没贴顶。修法：`.page-header-bar`（共享）+ Moments/Checkin/Export 三个同款头部改**不透明 `var(--ab-bg)` 纯色**、去掉 backdrop-filter（不透明后无用，还省 GPU）——状态栏→标题栏一色到顶。聊天页头部（0.92、底色非渐变）无此症状，未动。需新 APK。

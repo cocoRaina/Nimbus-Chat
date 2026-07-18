@@ -13,7 +13,15 @@
   align-self: center;
 }
 
-/* Header uses the shared .page-header-bar (index.css). */
+/* Header uses the shared .page-header-bar (index.css). 左右贴边由共享
+   规则的 50%-50vw 处理；这里只抵消本页 0.75rem 的顶部 padding，让顶栏
+   真正贴住屏幕顶（原来上面悬着一条底色）。 */
+.health-sync {
+  overflow-x: clip;
+}
+.health-sync .page-header-bar {
+  margin-top: -0.75rem;
+}
 
 .health-sync__intro p {
   margin: 0 0 0.35rem;

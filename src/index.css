@@ -150,7 +150,15 @@ html.no-fx .app-shell {
   position: sticky;
   top: 0;
   z-index: 10;
-  width: 100%;
+  /* 满血贴边（2026-07-18）：不再依赖每个页面自己写负 margin 抵消容器
+     padding——漏写的页面（健康同步页踩过）顶栏就缩在内边距里，左右露出
+     底色，和贴边的页面放一起显得七零八落。50%-50vw 技巧：无论父容器
+     怎么 padding/限宽/居中，左右都顶到视口边。已有自己抵消规则的页面
+     （usage/memory-vault）specificity 更高覆盖 margin，配合 100vw 宽度
+     结果一致，不受影响。 */
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
