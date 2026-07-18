@@ -1066,6 +1066,21 @@ const ChatPage = ({
     void onSendMessage(marker)
   }
 
+  // 「我的」(本地 localStorage) 页签只在还有存货、或者一个云端包都没有时
+  // 显示——批量导入上云后,空的本地页签和云端包并排像是两个重复的"我的"。
+  const showLocalStickerTab =
+    stickers.length > 0 || !remoteStickerPacks || remoteStickerPacks.size === 0
+  useEffect(() => {
+    if (!showStickerTray) return
+    const available = [
+      ...(showLocalStickerTab ? ['我的'] : []),
+      ...Array.from(remoteStickerPacks?.keys() ?? []),
+    ]
+    if (available.length > 0 && !available.includes(activeStickerPack)) {
+      setActiveStickerPack(available[0])
+    }
+  }, [showStickerTray, showLocalStickerTab, remoteStickerPacks, activeStickerPack])
+
   // All sticker names already in use — remote packs + local — so batch
   // imports never collide with UNIQUE(user_id, name) or shadow a local one.
   const takenStickerNames = () => {
@@ -1143,6 +1158,7 @@ const ChatPage = ({
 
   const handleDeleteSticker = (name: string) => {
     deleteSticker(name)
+    setStickers(getStickers())
   }
 
   const handleDeleteRemoteSticker = async (entry: RemoteStickerEntry) => {
@@ -2063,86 +2079,6 @@ const ChatPage = ({
             onClick={() => { setShowStickerTray(false); setOpenAttachMenu(false) }}
           />
         ) : null}
-        {showStickerTray ? (
-          <div className="sticker-panel">
-            <div className="panel-handle" />
-            {/* Pack tabs */}
-            <div className="sticker-panel__tabs">
-              <button
-                type="button"
-                className={`sticker-panel__tab${activeStickerPack === '我的' ? ' sticker-panel__tab--active' : ''}`}
-                onClick={() => setActiveStickerPack('我的')}
-              >我的</button>
-              {remoteStickerPacks && Array.from(remoteStickerPacks.keys()).map((pack) => (
-                <button
-                  key={pack}
-                  type="button"
-                  className={`sticker-panel__tab${activeStickerPack === pack ? ' sticker-panel__tab--active' : ''}`}
-                  onClick={() => setActiveStickerPack(pack)}
-                >
-                  {pack}
-                </button>
-              ))}
-            </div>
-            {/* Sticker grid */}
-            <div className="sticker-panel__grid">
-              {activeStickerPack === '我的' ? (
-                <>
-                  {stickers.map((s) => (
-                    <div key={s.name} className="sticker-panel__item">
-                      <button type="button" className="sticker-panel__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
-                        <img src={s.dataUrl} alt={s.name} loading="lazy" />
-                      </button>
-                      <button type="button" className="sticker-panel__del" aria-label="删除" onClick={() => handleDeleteSticker(s.name)}>×</button>
-                    </div>
-                  ))}
-                  <button type="button" className="sticker-panel__add" onClick={() => stickerInputRef.current?.click()}>
-                    <span className="sticker-panel__add-icon">＋</span>
-                    <span className="sticker-panel__add-label">导入</span>
-                  </button>
-                </>
-              ) : (
-                <>
-                  {(remoteStickerPacks?.get(activeStickerPack) ?? []).map((s: RemoteStickerEntry) => (
-                    <div key={s.name} className="sticker-panel__item">
-                      <button type="button" className="sticker-panel__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
-                        <img src={s.url} alt={s.name} loading="lazy" />
-                      </button>
-                      <button type="button" className="sticker-panel__del" aria-label="删除" onClick={() => void handleDeleteRemoteSticker(s)}>×</button>
-                    </div>
-                  ))}
-                  <button type="button" className="sticker-panel__add" onClick={() => stickerInputRef.current?.click()}>
-                    <span className="sticker-panel__add-icon">＋</span>
-                    <span className="sticker-panel__add-label">导入</span>
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        ) : null}
-        {openAttachMenu ? (
-          <div className="attach-panel">
-            <div className="panel-handle" />
-            <div className="attach-panel__grid">
-              <button
-                type="button"
-                className="attach-panel__tile"
-                onClick={() => void openNativeCamera()}
-              >
-                <span className="attach-panel__tile-icon">📷</span>
-                <span className="attach-panel__tile-label">拍照</span>
-              </button>
-              <button
-                type="button"
-                className="attach-panel__tile"
-                onClick={() => void openNativeGallery()}
-              >
-                <span className="attach-panel__tile-icon">🖼</span>
-                <span className="attach-panel__tile-label">从相册</span>
-              </button>
-            </div>
-          </div>
-        ) : null}
         {!online ? (
           <div className="offline-banner" role="status">📡 已离线 — 发送会等到网络恢复后再尝试</div>
         ) : null}
@@ -2284,6 +2220,85 @@ const ChatPage = ({
             </button>
           ) : null}
         </div>
+        {/* 微信式：面板在输入框正下方展开（占键盘的位置），聊天区自动上移 */}
+        {showStickerTray ? (
+          <div className="sticker-panel">
+            <div className="sticker-panel__tabs">
+              {showLocalStickerTab ? (
+                <button
+                  type="button"
+                  className={`sticker-panel__tab${activeStickerPack === '我的' ? ' sticker-panel__tab--active' : ''}`}
+                  onClick={() => setActiveStickerPack('我的')}
+                >本地</button>
+              ) : null}
+              {remoteStickerPacks && Array.from(remoteStickerPacks.keys()).map((pack) => (
+                <button
+                  key={pack}
+                  type="button"
+                  className={`sticker-panel__tab${activeStickerPack === pack ? ' sticker-panel__tab--active' : ''}`}
+                  onClick={() => setActiveStickerPack(pack)}
+                >
+                  {pack}
+                </button>
+              ))}
+            </div>
+            <div className="sticker-panel__grid">
+              {activeStickerPack === '我的' ? (
+                <>
+                  {stickers.map((s) => (
+                    <div key={s.name} className="sticker-panel__item">
+                      <button type="button" className="sticker-panel__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
+                        <img src={s.dataUrl} alt={s.name} loading="lazy" />
+                      </button>
+                      <button type="button" className="sticker-panel__del" aria-label="删除" onClick={() => handleDeleteSticker(s.name)}>×</button>
+                    </div>
+                  ))}
+                  <button type="button" className="sticker-panel__add" onClick={() => stickerInputRef.current?.click()}>
+                    <span className="sticker-panel__add-icon">＋</span>
+                    <span className="sticker-panel__add-label">导入</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  {(remoteStickerPacks?.get(activeStickerPack) ?? []).map((s: RemoteStickerEntry) => (
+                    <div key={s.name} className="sticker-panel__item">
+                      <button type="button" className="sticker-panel__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
+                        <img src={s.url} alt={s.name} loading="lazy" />
+                      </button>
+                      <button type="button" className="sticker-panel__del" aria-label="删除" onClick={() => void handleDeleteRemoteSticker(s)}>×</button>
+                    </div>
+                  ))}
+                  <button type="button" className="sticker-panel__add" onClick={() => stickerInputRef.current?.click()}>
+                    <span className="sticker-panel__add-icon">＋</span>
+                    <span className="sticker-panel__add-label">导入</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ) : null}
+        {openAttachMenu ? (
+          <div className="attach-panel">
+            <div className="attach-panel__grid">
+              <button
+                type="button"
+                className="attach-panel__tile"
+                onClick={() => void openNativeCamera()}
+              >
+                <span className="attach-panel__tile-icon">📷</span>
+                <span className="attach-panel__tile-label">拍照</span>
+              </button>
+              <button
+                type="button"
+                className="attach-panel__tile"
+                onClick={() => void openNativeGallery()}
+              >
+                <span className="attach-panel__tile-icon">🖼</span>
+                <span className="attach-panel__tile-label">从相册</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
       </form>
       {openActionsId && actionsMenuPosition
         ? createPortal(

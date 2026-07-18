@@ -401,27 +401,20 @@
   z-index: 10;
 }
 
-/* Shared bottom-panel styles (attach panel + sticker panel) */
-.panel-handle {
-  width: 36px;
-  height: 4px;
-  background: var(--ab-muted);
-  border-radius: 2px;
-  margin: 8px auto 4px;
-  flex-shrink: 0;
-}
-
-/* WeChat-style attach panel */
+/* WeChat-style attach panel — sits in flow BELOW the composer row (where
+   the keyboard would be), so opening it pushes the input up instead of
+   floating a card over the chat. */
 .attach-panel {
   position: relative;
   z-index: 11;
-  background: #fff;
-  border-top: 1px solid rgba(42, 61, 82, 0.06);
-  border-radius: 14px 14px 0 0;
-  padding: 0 16px 16px;
+  background: transparent;
+  border-top: 1px solid rgba(42, 61, 82, 0.08);
+  margin: 6px -12px 0;
+  padding: 14px 16px 4px;
   display: flex;
   flex-direction: column;
-  animation: panel-slide-up 0.2s ease-out both;
+  animation: panel-unfold-sm 0.16s ease-out both;
+  overflow: hidden;
 }
 .attach-panel__grid {
   display: flex;
@@ -453,36 +446,38 @@
   color: var(--ab-deep-soft);
 }
 
-/* LINE-style sticker grid panel */
+/* WeChat-style sticker panel — flat keyboard-height area in flow below the
+   composer row. Opening it grows the footer, the message list shrinks, and
+   the input stays visible right above — no floating sheet over the chat. */
 .sticker-panel {
   position: relative;
   z-index: 11;
-  background: #fff;
-  border-top: 1px solid rgba(42, 61, 82, 0.06);
-  border-radius: 14px 14px 0 0;
-  padding: 0 12px 12px;
+  background: transparent;
+  border-top: 1px solid rgba(42, 61, 82, 0.08);
+  margin: 6px -12px 0;
+  padding: 0 12px;
   display: flex;
   flex-direction: column;
-  max-height: 340px;
-  animation: panel-slide-up 0.2s ease-out both;
+  height: min(300px, 38vh);
+  animation: panel-unfold 0.18s ease-out both;
+  overflow: hidden;
 }
 .sticker-panel__tabs {
   display: flex;
   flex-shrink: 0;
-  gap: 10px;
-  padding: 12px 14px 10px;
+  gap: 8px;
+  padding: 10px 4px 8px;
   overflow-x: auto;
   scrollbar-width: none;
-  border-bottom: 1px solid rgba(42, 61, 82, 0.08);
 }
 .sticker-panel__tabs::-webkit-scrollbar { display: none; }
 .sticker-panel__tab {
   flex-shrink: 0;
-  padding: 10px 24px;
-  border-radius: 24px;
-  border: 1.5px solid rgba(42, 61, 82, 0.15);
-  background: transparent;
-  font-size: 15px;
+  padding: 6px 16px;
+  border-radius: 16px;
+  border: none;
+  background: #EFF4FA;
+  font-size: 13px;
   color: var(--ab-deep-soft);
   cursor: pointer;
   white-space: nowrap;
@@ -490,15 +485,17 @@
 }
 .sticker-panel__tab--active {
   background: var(--accent, var(--ab-strong));
-  border-color: var(--accent, var(--ab-strong));
   color: #fff;
 }
 .sticker-panel__grid {
+  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: min-content;
+  gap: 8px;
   overflow-y: auto;
-  padding-top: 8px;
+  padding: 2px 2px 12px;
 }
 .sticker-panel__item {
   position: relative;
@@ -620,9 +617,14 @@
   color: var(--accent, var(--ab-strong));
 }
 
-@keyframes panel-slide-up {
-  from { transform: translateY(20px); opacity: 0; }
-  to   { transform: translateY(0);    opacity: 1; }
+/* 面板在文档流里从 0 展开到目标高度——视觉上像键盘升起来 */
+@keyframes panel-unfold {
+  from { height: 0; opacity: 0.4; }
+  to   { height: min(300px, 38vh); opacity: 1; }
+}
+@keyframes panel-unfold-sm {
+  from { max-height: 0; opacity: 0.4; }
+  to   { max-height: 140px; opacity: 1; }
 }
 
 
