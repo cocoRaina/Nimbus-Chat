@@ -1641,6 +1641,16 @@ const ChatPage = ({
     }
   }, [])
 
+  // 贴纸/附件面板在输入行下方展开时,消息容器变矮、原 scrollTop 不变会把
+  // 最新几条顶出视野——跟键盘弹出的处理一样,把聊天滚回最新。展开动画
+  // (0.18s) 结束后容器高度才定型,所以立即滚一次、动画完再补一次。
+  useEffect(() => {
+    if (!showStickerTray && !openAttachMenu) return
+    scrollToLatest(false)
+    const timer = window.setTimeout(() => scrollToLatest(false), 220)
+    return () => window.clearTimeout(timer)
+  }, [showStickerTray, openAttachMenu, scrollToLatest])
+
   // Network status banner. getStatus is one-shot (boot value); listener
   // covers transitions. We treat any connected:true as online, even
   // captive-portal'd wifi, because the only thing we use this for is
@@ -2116,12 +2126,6 @@ const ChatPage = ({
             event.target.value = ''
           }}
         />
-        {(showStickerTray || openAttachMenu) ? (
-          <div
-            className="panel-backdrop"
-            onClick={() => { setShowStickerTray(false); setOpenAttachMenu(false) }}
-          />
-        ) : null}
         {!online ? (
           <div className="offline-banner" role="status">📡 已离线 — 发送会等到网络恢复后再尝试</div>
         ) : null}
@@ -2194,6 +2198,12 @@ const ChatPage = ({
               onChange={(event) => {
                 setDraft(event.target.value)
                 onComposerActivity?.()
+              }}
+              onFocus={() => {
+                // 微信式换位:点输入框准备打字 = 键盘要上来了,贴纸/附件
+                // 面板让位收起(它们本来就占的是键盘的位置)。
+                setShowStickerTray(false)
+                setOpenAttachMenu(false)
               }}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing) {

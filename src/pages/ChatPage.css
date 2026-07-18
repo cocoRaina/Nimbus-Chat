@@ -394,13 +394,6 @@
   background: #fff;
 }
 
-/* Transparent backdrop — closes any open bottom panel on tap outside */
-.panel-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-}
-
 /* WeChat-style attach panel — sits in flow BELOW the composer row (where
    the keyboard would be), so opening it pushes the input up instead of
    floating a card over the chat. */
