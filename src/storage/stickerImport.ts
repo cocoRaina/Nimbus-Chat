@@ -5,8 +5,6 @@
 // used to fail SILENTLY on quota — the "传不上去了" bug).
 
 import { supabase } from '../supabase/client'
-import { fetchOpenRouter } from '../api/openrouter'
-import type { ProviderId } from '../storage/apiProvider'
 
 const BUCKET = 'stickers'
 // Stickers render at chat-bubble size; 256px webp is ~10-30KB each, so even
@@ -14,9 +12,6 @@ const BUCKET = 'stickers'
 const MAX_DIMENSION = 256
 const WEBP_QUALITY = 0.85
 const JPEG_QUALITY = 0.85
-// Images per AI-naming request. Data URLs are small (256px webp) but keep
-// the batch bounded so one bad request doesn't take down the whole import.
-const NAMING_BATCH = 10
 
 export type PreparedSticker = {
   blob: Blob
@@ -98,54 +93,6 @@ export const prepareStickerFiles = async (files: File[]): Promise<PrepareResult>
     }
   }
   return { items, failures }
-}
-
-// Ask a cheap vision model to name each sticker with a short emotional
-// phrase (that's how the AI searches: "想你""无语""坏笑", not "猫").
-// Throws on failure — caller falls back to filename/placeholder names,
-// which stay editable in the review dialog either way.
-export const suggestStickerNames = async (
-  items: PreparedSticker[],
-  model: string,
-  provider: ProviderId,
-): Promise<string[]> => {
-  const names: string[] = []
-  for (let i = 0; i < items.length; i += NAMING_BATCH) {
-    const batch = items.slice(i, i + NAMING_BATCH)
-    const content: Array<Record<string, unknown>> = [
-      {
-        type: 'text',
-        text:
-          `给下面 ${batch.length} 张表情包各起一个名字，用来在聊天里按名字发送和按情绪搜索。` +
-          '要求：2-8 个字的中文情绪/动作短语（如“想你了”“无语”“坏笑”“求抱抱”），' +
-          '彼此不重复，不含方括号和换行。只输出一个 JSON 字符串数组，按图片顺序，不要任何其他文字。',
-      },
-      ...batch.map((it) => ({ type: 'image_url', image_url: { url: it.dataUrl } })),
-    ]
-    const response = await fetchOpenRouter('/chat/completions', {
-      provider,
-      body: {
-        model,
-        stream: false,
-        max_tokens: 400,
-        temperature: 0.4,
-        messages: [{ role: 'user', content }],
-      },
-    })
-    if (!response.ok) throw new Error(`起名请求失败 ${response.status}`)
-    const payload = (await response.json()) as Record<string, unknown>
-    const choice = (payload.choices as Array<Record<string, unknown>> | undefined)?.[0]
-    const message = (choice?.message as Record<string, unknown> | undefined) ?? {}
-    const text = typeof message.content === 'string' ? message.content : ''
-    const match = text.match(/\[[\s\S]*\]/)
-    if (!match) throw new Error('起名输出不是 JSON 数组')
-    const arr = JSON.parse(match[0]) as unknown[]
-    if (!Array.isArray(arr) || arr.length !== batch.length) {
-      throw new Error('起名数量和图片数量对不上')
-    }
-    names.push(...arr.map((n) => sanitizeStickerName(String(n))))
-  }
-  return names
 }
 
 // Make every name non-empty and unique — within the batch AND against names

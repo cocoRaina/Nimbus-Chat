@@ -33,7 +33,6 @@ import {
 import {
   type PreparedSticker,
   prepareStickerFiles,
-  suggestStickerNames,
   dedupeStickerNames,
   sanitizeStickerName,
   uploadStickerPack,
@@ -129,11 +128,8 @@ export type ChatPageProps = {
   user: User | null
   toolStatus?: string
   remoteStickerPacks?: RemotePackMap
-  // Batch sticker import: refresh App's remote pack cache after upload/delete,
-  // and the cheap vision model (memory-extract slot) used for auto-naming.
+  // Batch sticker import: refresh App's remote pack cache after upload/delete.
   onRefreshStickers?: () => Promise<void>
-  stickerNamingModel?: string
-  stickerNamingProvider?: 'openrouter' | 'msuicode'
   shareDraft?: string
   onConsumeShare?: () => void
 }
@@ -524,8 +520,6 @@ const ChatPage = ({
   toolStatus,
   remoteStickerPacks,
   onRefreshStickers,
-  stickerNamingModel,
-  stickerNamingProvider,
   shareDraft,
   onConsumeShare,
   user,
@@ -605,12 +599,12 @@ const ChatPage = ({
   const [renameDraft, setRenameDraft] = useState('')
   const [stickerImport, setStickerImport] = useState<{ dataUrl: string; base: string } | null>(null)
   const [stickerNameDraft, setStickerNameDraft] = useState('')
-  // 批量导入（登录后走云端）：naming = AI 看图起名中；review = 网格里改名/
-  // 改包名；uploading = 逐张上传中。notice 汇报跳过的坏图/起名降级。
+  // 批量导入（登录后走云端）：review = 列表里手动起名/改包名；uploading =
+  // 逐张上传中。notice 汇报跳过的坏图。
   const [stickerBatch, setStickerBatch] = useState<{
     items: PreparedSticker[]
     pack: string
-    phase: 'naming' | 'review' | 'uploading'
+    phase: 'review' | 'uploading'
     progress: { done: number; total: number } | null
     notice: string | null
   } | null>(null)
@@ -1108,28 +1102,18 @@ const ChatPage = ({
       return
     }
     // 登录后：批量导入到自己的 Supabase（贴纸桶 + stickers 表），跨设备同步，
-    // AI 的 search_stickers 也搜得到，还不占 localStorage 配额。
+    // AI 的 search_stickers 也搜得到，还不占 localStorage 配额。名字手动起
+    // （默认取文件名）——AI 看图起名试过一版，用户不要：多一次模型调用，
+    // 还得走国外渠道。
     const { items, failures } = await prepareStickerFiles(list)
     if (items.length === 0) {
       setStickerError('一张都没读出来——可能全是 HEIC 等不支持的格式，换成 PNG/JPG/WebP 再试试')
       return
     }
-    let notice = failures.length > 0 ? `${failures.length} 张读取失败已跳过。` : ''
-    setStickerBatch({ items, pack: '我的表情', phase: 'naming', progress: null, notice: notice || null })
-    if (stickerNamingModel?.trim()) {
-      try {
-        const names = await suggestStickerNames(items, stickerNamingModel, stickerNamingProvider ?? 'openrouter')
-        items.forEach((it, i) => { it.name = names[i] })
-      } catch (error) {
-        console.warn('贴纸 AI 起名失败，退回文件名', error)
-        notice += 'AI 起名没成功，先用了默认名，点名字可以改。'
-      }
-    }
+    const notice = failures.length > 0 ? `${failures.length} 张读取失败已跳过。` : ''
     const deduped = dedupeStickerNames(items.map((it) => it.name), takenStickerNames())
     items.forEach((it, i) => { it.name = deduped[i] })
-    // 起名期间用户可能已把对话框关了（cancel 置 null）——别把它顶回来。
-    setStickerBatch((prev) =>
-      prev ? { ...prev, items: [...items], phase: 'review', notice: notice || null } : null)
+    setStickerBatch({ items, pack: '我的表情', phase: 'review', progress: null, notice: notice || null })
   }
 
   const handleConfirmStickerBatch = async () => {
@@ -2631,17 +2615,11 @@ const ChatPage = ({
       <ConfirmDialog
         open={stickerBatch !== null}
         title={
-          stickerBatch?.phase === 'naming'
-            ? `导入 ${stickerBatch.items.length} 张表情`
-            : stickerBatch?.phase === 'uploading'
-              ? '正在上传…'
-              : `导入 ${stickerBatch?.items.length ?? 0} 张表情`
+          stickerBatch?.phase === 'uploading'
+            ? '正在上传…'
+            : `导入 ${stickerBatch?.items.length ?? 0} 张表情`
         }
-        description={
-          stickerBatch?.phase === 'naming'
-            ? 'AI 正在看图起名，稍等几秒…（名字之后可以改）'
-            : 'AI 按名字搜索和发送，改成"想你了/无语"这类情绪短语最好用'
-        }
+        description={'给每张起个名字。AI 按名字搜索和发送，"想你了/无语"这类情绪短语最好用'}
         confirmLabel={
           stickerBatch?.phase === 'uploading'
             ? `上传中 ${stickerBatch.progress?.done ?? 0}/${stickerBatch.progress?.total ?? 0}`
@@ -2676,7 +2654,7 @@ const ChatPage = ({
                   <input
                     type="text"
                     value={item.name}
-                    placeholder={stickerBatch.phase === 'naming' ? '起名中…' : '名字'}
+                    placeholder="名字"
                     disabled={stickerBatch.phase !== 'review'}
                     onChange={(e) => {
                       const name = (e.target as HTMLInputElement).value

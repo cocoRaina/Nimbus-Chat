@@ -35,5 +35,5 @@
   - **你 → AI**：长按 AI 消息，菜单顶部有快捷表情行（`QUICK_REACTIONS`：❤️🥺😂😮😢👍）。点了落一条 `[react:emoji] 「他那句话摘录…」` 的 user 消息（UI 隐藏成角标，`meta.reactTo` 记目标 clientId 供归属，创建时冻结从不更新），**并走连发定时器**——沈暮看到后自己决定接不接话（system 规则教了他：轻轻接住就好，短句/回贴/顺着说，别每次都追问）。再点同一个 emoji = 撤销（删掉那条隐藏消息）；换 emoji = 替换。归属兜底：reactTo 定位不到（如目标被重新生成）时挂到前面最近一条有文字的 assistant 消息。
   - 同一条消息被多次回应后者覆盖。⚠️ 用户回应会真的触发一次 API 调用（不调模型就没人「决定回不回」），有缓存不贵；连发窗口内回应+打字会批到同一次。
 - **表情包（`[sticker:名字]`）**：你和 AI 共用一套贴纸（`storage/stickers.ts`）。输入栏 🧷 按钮打开 LINE 风格表情面板导入/发送/删除；发送即发 `[sticker:名字]` 文本，前端解析成图片（用户和 AI 都解析）。可用贴纸列表注入进聊天 system prompt（`buildStickerSystemSection`），AI 据此自己发。
-  - **批量导入（登录后默认路径，`storage/stickerImport.ts`）**：文件选择框支持多选（手机相册里建个"表情包相册"多选一把梭）。流程：压成 256px webp → 廉价视觉模型（记忆提取槽的模型）看图起情绪短名（"想你了/无语"，失败退回文件名）→ 审阅对话框改名/改包名 → 逐张传进 Supabase `stickers` 桶 + `stickers` 表（跨设备同步、`search_stickers` 可搜、不占 localStorage 配额）。单张失败不连坐，逐条报。远程包贴纸可删（行+桶文件一起删）。
+  - **批量导入（登录后默认路径，`storage/stickerImport.ts`）**：文件选择框支持多选（手机相册里建个"表情包相册"多选一把梭）。流程：压成 256px webp → 审阅对话框**手动起名**（默认取文件名；AI 看图起名做过一版又删了——用户不要：多一次模型调用还得走国外渠道）/改包名 → 逐张传进 Supabase `stickers` 桶 + `stickers` 表（跨设备同步、`search_stickers` 可搜、不占 localStorage 配额）。单张失败不连坐，逐条报。远程包贴纸可删（行+桶文件一起删）。本地(localStorage)旧贴纸有一键搬云端按钮。
   - **未登录**：退回单张 localStorage 流程；写入后读回核对，配额满了会明确报错（以前是静默丢弃）。HEIC 等 WebView 解不了的格式也会明确提示。

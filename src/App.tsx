@@ -5222,8 +5222,6 @@ TOOL_SEARCH_HANDOFF,
                 toolStatus={toolStatus}
                 remoteStickerPacks={remoteStickerPacks}
                 onRefreshStickers={refreshRemoteStickers}
-                stickerNamingModel={activeSettings.memoryExtractModel}
-                stickerNamingProvider={activeSettings.memoryExtractProvider}
               />
             </RequireAuth>
           }
@@ -5442,8 +5440,6 @@ const ChatRoute = ({
   toolStatus,
   remoteStickerPacks,
   onRefreshStickers,
-  stickerNamingModel,
-  stickerNamingProvider,
 }: {
   sessions: ChatSession[]
   messages: ChatMessage[]
@@ -5488,8 +5484,6 @@ const ChatRoute = ({
   toolStatus: string
   remoteStickerPacks: RemotePackMap
   onRefreshStickers: () => Promise<void>
-  stickerNamingModel: string
-  stickerNamingProvider: 'openrouter' | 'msuicode'
 }) => {
   const { sessionId } = useParams()
   const navigate = useNavigate()
@@ -5647,8 +5641,6 @@ const ChatRoute = ({
         toolStatus={toolStatus}
         remoteStickerPacks={remoteStickerPacks}
         onRefreshStickers={onRefreshStickers}
-        stickerNamingModel={stickerNamingModel}
-        stickerNamingProvider={stickerNamingProvider}
         shareDraft={shareDraftRef.current ?? undefined}
         onConsumeShare={() => {
           shareDraftRef.current = null
