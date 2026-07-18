@@ -30,6 +30,15 @@ import {
   deleteSticker,
   fileToStickerDataUrl,
 } from '../storage/stickers'
+import {
+  type PreparedSticker,
+  prepareStickerFiles,
+  suggestStickerNames,
+  dedupeStickerNames,
+  sanitizeStickerName,
+  uploadStickerPack,
+  deleteRemoteSticker,
+} from '../storage/stickerImport'
 import { saveToAlbum } from '../storage/album'
 import { saveToy } from '../storage/toybox'
 import { extractArtifactCode } from '../utils/artifact'
@@ -119,6 +128,11 @@ export type ChatPageProps = {
   user: User | null
   toolStatus?: string
   remoteStickerPacks?: RemotePackMap
+  // Batch sticker import: refresh App's remote pack cache after upload/delete,
+  // and the cheap vision model (memory-extract slot) used for auto-naming.
+  onRefreshStickers?: () => Promise<void>
+  stickerNamingModel?: string
+  stickerNamingProvider?: 'openrouter' | 'msuicode'
   shareDraft?: string
   onConsumeShare?: () => void
 }
@@ -508,6 +522,9 @@ const ChatPage = ({
   onToggleKeepalive,
   toolStatus,
   remoteStickerPacks,
+  onRefreshStickers,
+  stickerNamingModel,
+  stickerNamingProvider,
   shareDraft,
   onConsumeShare,
   user,
@@ -587,6 +604,18 @@ const ChatPage = ({
   const [renameDraft, setRenameDraft] = useState('')
   const [stickerImport, setStickerImport] = useState<{ dataUrl: string; base: string } | null>(null)
   const [stickerNameDraft, setStickerNameDraft] = useState('')
+  // 批量导入（登录后走云端）：naming = AI 看图起名中；review = 网格里改名/
+  // 改包名；uploading = 逐张上传中。notice 汇报跳过的坏图/起名降级。
+  const [stickerBatch, setStickerBatch] = useState<{
+    items: PreparedSticker[]
+    pack: string
+    phase: 'naming' | 'review' | 'uploading'
+    progress: { done: number; total: number } | null
+    notice: string | null
+  } | null>(null)
+  // 贴纸导入/删除的失败原因——以前静默吞掉（localStorage 满、HEIC 解不了都
+  // 毫无提示，"传不上去了"就是这么来的），现在一律弹出来。
+  const [stickerError, setStickerError] = useState<string | null>(null)
   const [quoted, setQuoted] = useState<{ role: ChatMessage['role']; content: string } | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [pendingAttachments, setPendingAttachments] = useState<
@@ -1037,23 +1066,92 @@ const ChatPage = ({
     void onSendMessage(marker)
   }
 
+  // All sticker names already in use — remote packs + local — so batch
+  // imports never collide with UNIQUE(user_id, name) or shadow a local one.
+  const takenStickerNames = () => {
+    const taken = new Set<string>(getStickers().map((s) => s.name))
+    for (const entries of remoteStickerPacks?.values() ?? []) {
+      for (const e of entries) taken.add(e.name)
+    }
+    return taken
+  }
+
   const handleImportSticker = async (files: FileList | null) => {
-    const file = files?.[0]
-    if (!file) return
+    const list = files ? Array.from(files) : []
+    if (list.length === 0) return
+    // 未登录/无 Supabase：退回单张本地导入（localStorage），但失败要说话。
+    if (!user) {
+      try {
+        const dataUrl = await fileToStickerDataUrl(list[0])
+        const base = sanitizeStickerName(list[0].name.replace(/\.[^.]+$/, '')) || '贴纸'
+        setStickerNameDraft(base)
+        setStickerImport({ dataUrl, base })
+      } catch {
+        setStickerError('无法读取这张图片（可能是 HEIC 等 WebView 不支持的格式），换成 PNG/JPG/WebP 再试试')
+      }
+      return
+    }
+    // 登录后：批量导入到自己的 Supabase（贴纸桶 + stickers 表），跨设备同步，
+    // AI 的 search_stickers 也搜得到，还不占 localStorage 配额。
+    const { items, failures } = await prepareStickerFiles(list)
+    if (items.length === 0) {
+      setStickerError('一张都没读出来——可能全是 HEIC 等不支持的格式，换成 PNG/JPG/WebP 再试试')
+      return
+    }
+    let notice = failures.length > 0 ? `${failures.length} 张读取失败已跳过。` : ''
+    setStickerBatch({ items, pack: '我的表情', phase: 'naming', progress: null, notice: notice || null })
+    if (stickerNamingModel?.trim()) {
+      try {
+        const names = await suggestStickerNames(items, stickerNamingModel, stickerNamingProvider ?? 'openrouter')
+        items.forEach((it, i) => { it.name = names[i] })
+      } catch (error) {
+        console.warn('贴纸 AI 起名失败，退回文件名', error)
+        notice += 'AI 起名没成功，先用了默认名，点名字可以改。'
+      }
+    }
+    const deduped = dedupeStickerNames(items.map((it) => it.name), takenStickerNames())
+    items.forEach((it, i) => { it.name = deduped[i] })
+    // 起名期间用户可能已把对话框关了（cancel 置 null）——别把它顶回来。
+    setStickerBatch((prev) =>
+      prev ? { ...prev, items: [...items], phase: 'review', notice: notice || null } : null)
+  }
+
+  const handleConfirmStickerBatch = async () => {
+    if (!stickerBatch || stickerBatch.phase !== 'review') return
+    const pack = sanitizeStickerName(stickerBatch.pack) || '我的表情'
+    // 手动改名后再去一次重：改成已存在的名字会撞 UNIQUE 约束整行失败。
+    const names = dedupeStickerNames(stickerBatch.items.map((it) => it.name), takenStickerNames())
+    const items = stickerBatch.items.map((it, i) => ({ ...it, name: names[i] }))
+    setStickerBatch((prev) =>
+      prev ? { ...prev, items, pack, phase: 'uploading', progress: { done: 0, total: items.length } } : null)
     try {
-      const dataUrl = await fileToStickerDataUrl(file)
-      // [ ] 换行会弄坏 [sticker:名字] 标记（解析正则是 [^\]\n]{1,40}），名字里不能出现
-      const sanitize = (s: string) => s.replace(/[[\]\n\r]/g, '').trim().slice(0, 20)
-      const base = sanitize(file.name.replace(/\.[^.]+$/, '')) || '贴纸'
-      setStickerNameDraft(base)
-      setStickerImport({ dataUrl, base })
-    } catch {
-      // ignore bad image
+      const outcome = await uploadStickerPack(items, pack, (done, total) =>
+        setStickerBatch((prev) => (prev ? { ...prev, progress: { done, total } } : null)))
+      await onRefreshStickers?.()
+      setStickerBatch(null)
+      setActiveStickerPack(pack)
+      if (outcome.failures.length > 0) {
+        setStickerError(
+          `导入完成：成功 ${outcome.uploaded} 张，失败 ${outcome.failures.length} 张（${outcome.failures[0].reason}）`,
+        )
+      }
+    } catch (error) {
+      setStickerBatch((prev) => (prev ? { ...prev, phase: 'review', progress: null } : null))
+      setStickerError(`上传失败：${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
   const handleDeleteSticker = (name: string) => {
     deleteSticker(name)
+  }
+
+  const handleDeleteRemoteSticker = async (entry: RemoteStickerEntry) => {
+    try {
+      await deleteRemoteSticker(entry.name, entry.url)
+      await onRefreshStickers?.()
+    } catch (error) {
+      setStickerError(`删除失败：${error instanceof Error ? error.message : String(error)}`)
+    }
   }
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const messagesRef = useRef<HTMLElement | null>(null)
@@ -1952,6 +2050,7 @@ const ChatPage = ({
           ref={stickerInputRef}
           type="file"
           accept="image/*"
+          multiple
           style={{ display: 'none' }}
           onChange={(event) => {
             void handleImportSticker(event.target.files)
@@ -2003,13 +2102,20 @@ const ChatPage = ({
                   </button>
                 </>
               ) : (
-                (remoteStickerPacks?.get(activeStickerPack) ?? []).map((s: RemoteStickerEntry) => (
-                  <div key={s.name} className="sticker-panel__item">
-                    <button type="button" className="sticker-panel__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
-                      <img src={s.url} alt={s.name} loading="lazy" />
-                    </button>
-                  </div>
-                ))
+                <>
+                  {(remoteStickerPacks?.get(activeStickerPack) ?? []).map((s: RemoteStickerEntry) => (
+                    <div key={s.name} className="sticker-panel__item">
+                      <button type="button" className="sticker-panel__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
+                        <img src={s.url} alt={s.name} loading="lazy" />
+                      </button>
+                      <button type="button" className="sticker-panel__del" aria-label="删除" onClick={() => void handleDeleteRemoteSticker(s)}>×</button>
+                    </div>
+                  ))}
+                  <button type="button" className="sticker-panel__add" onClick={() => stickerInputRef.current?.click()}>
+                    <span className="sticker-panel__add-icon">＋</span>
+                    <span className="sticker-panel__add-label">导入</span>
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -2421,11 +2527,16 @@ const ChatPage = ({
         onConfirm={() => {
           if (!stickerImport) return
           const t = stickerNameDraft.trim() || stickerImport.base
-          const sanitize = (s: string) => s.replace(/[[\]\n\r]/g, '').trim().slice(0, 20)
-          const name = sanitize(t)
+          const name = sanitizeStickerName(t)
           if (name) {
             upsertSticker({ name, desc: '', dataUrl: stickerImport.dataUrl })
-            setStickers(getStickers())
+            const saved = getStickers()
+            setStickers(saved)
+            // localStorage 写入在配额满时静默失败（write() 吞掉异常）——
+            // 写完读回来核对，丢了就明说，别再让"传不上去"毫无声息。
+            if (!saved.some((s) => s.name === name)) {
+              setStickerError('本地存储空间满了，这张没存进去。登录后导入会存到云端，不受此限制。')
+            }
           }
           setStickerImport(null)
         }}
@@ -2439,6 +2550,81 @@ const ChatPage = ({
           autoFocus
         />
       </ConfirmDialog>
+      <ConfirmDialog
+        open={stickerBatch !== null}
+        title={
+          stickerBatch?.phase === 'naming'
+            ? `导入 ${stickerBatch.items.length} 张表情`
+            : stickerBatch?.phase === 'uploading'
+              ? '正在上传…'
+              : `导入 ${stickerBatch?.items.length ?? 0} 张表情`
+        }
+        description={
+          stickerBatch?.phase === 'naming'
+            ? 'AI 正在看图起名，稍等几秒…（名字之后可以改）'
+            : 'AI 按名字搜索和发送，改成"想你了/无语"这类情绪短语最好用'
+        }
+        confirmLabel={
+          stickerBatch?.phase === 'uploading'
+            ? `上传中 ${stickerBatch.progress?.done ?? 0}/${stickerBatch.progress?.total ?? 0}`
+            : '导入'
+        }
+        confirmDisabled={stickerBatch?.phase !== 'review'}
+        cancelDisabled={stickerBatch?.phase === 'uploading'}
+        onConfirm={() => void handleConfirmStickerBatch()}
+        onCancel={() => {
+          if (stickerBatch?.phase !== 'uploading') setStickerBatch(null)
+        }}
+      >
+        {stickerBatch ? (
+          <div className="sticker-batch">
+            {stickerBatch.notice ? <p className="sticker-batch__notice">{stickerBatch.notice}</p> : null}
+            <label className="sticker-batch__pack">
+              <span>表情包名</span>
+              <input
+                type="text"
+                value={stickerBatch.pack}
+                disabled={stickerBatch.phase === 'uploading'}
+                onChange={(e) => {
+                  const pack = (e.target as HTMLInputElement).value
+                  setStickerBatch((prev) => (prev ? { ...prev, pack } : null))
+                }}
+              />
+            </label>
+            <div className="sticker-batch__list">
+              {stickerBatch.items.map((item, idx) => (
+                <div key={idx} className="sticker-batch__row">
+                  <img src={item.dataUrl} alt="" />
+                  <input
+                    type="text"
+                    value={item.name}
+                    placeholder={stickerBatch.phase === 'naming' ? '起名中…' : '名字'}
+                    disabled={stickerBatch.phase !== 'review'}
+                    onChange={(e) => {
+                      const name = (e.target as HTMLInputElement).value
+                      setStickerBatch((prev) => {
+                        if (!prev) return null
+                        const items = [...prev.items]
+                        items[idx] = { ...items[idx], name }
+                        return { ...prev, items }
+                      })
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={stickerError !== null}
+        title="表情包"
+        description={stickerError ?? ''}
+        confirmLabel="确定"
+        cancelLabel=""
+        onConfirm={() => setStickerError(null)}
+        onCancel={() => setStickerError(null)}
+      />
 
       <MoodOverlay
         open={moodOpen}

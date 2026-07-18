@@ -562,6 +562,59 @@
   color: var(--ab-accent);
 }
 
+/* 批量导入审阅对话框：缩略图 + 可编辑名字的列表 */
+.sticker-batch {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+.sticker-batch__notice {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ab-muted);
+}
+.sticker-batch__pack {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.sticker-batch__pack span {
+  flex-shrink: 0;
+  color: var(--ab-muted);
+}
+.sticker-batch__pack input,
+.sticker-batch__row input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+}
+.sticker-batch__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.sticker-batch__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sticker-batch__row img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #EFF4FA;
+  flex-shrink: 0;
+}
+
 /* Active state for composer icon buttons */
 .composer-icon-btn--active {
   color: var(--accent, var(--ab-strong));

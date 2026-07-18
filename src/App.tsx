@@ -948,19 +948,23 @@ const App = () => {
     }
   }, [applySnapshot, user])
 
-  useEffect(() => {
+  const refreshRemoteStickers = useCallback(async () => {
     if (!supabase || !user) return
-    void supabase
+    const { data } = await supabase
       .from('stickers')
       .select('name, url, pack')
       .eq('user_id', user.id)
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setRemoteStickerCache(data as Array<{ name: string; url: string; pack: string }>)
-          setRemoteStickerPacks(getRemotePacks())
-        }
-      })
-  }, [supabase, user])
+    // Write through even when empty — after deleting the last sticker the
+    // cache must not keep showing the stale pack.
+    if (data) {
+      setRemoteStickerCache(data as Array<{ name: string; url: string; pack: string }>)
+      setRemoteStickerPacks(getRemotePacks())
+    }
+  }, [user])
+
+  useEffect(() => {
+    void refreshRemoteStickers()
+  }, [refreshRemoteStickers])
 
   useEffect(() => {
     return subscribeSupabaseConfigChange(() => {
@@ -5217,6 +5221,9 @@ TOOL_SEARCH_HANDOFF,
                 user={user}
                 toolStatus={toolStatus}
                 remoteStickerPacks={remoteStickerPacks}
+                onRefreshStickers={refreshRemoteStickers}
+                stickerNamingModel={activeSettings.memoryExtractModel}
+                stickerNamingProvider={activeSettings.memoryExtractProvider}
               />
             </RequireAuth>
           }
@@ -5434,6 +5441,9 @@ const ChatRoute = ({
   user,
   toolStatus,
   remoteStickerPacks,
+  onRefreshStickers,
+  stickerNamingModel,
+  stickerNamingProvider,
 }: {
   sessions: ChatSession[]
   messages: ChatMessage[]
@@ -5477,6 +5487,9 @@ const ChatRoute = ({
   user: User | null
   toolStatus: string
   remoteStickerPacks: RemotePackMap
+  onRefreshStickers: () => Promise<void>
+  stickerNamingModel: string
+  stickerNamingProvider: 'openrouter' | 'msuicode'
 }) => {
   const { sessionId } = useParams()
   const navigate = useNavigate()
@@ -5633,6 +5646,9 @@ const ChatRoute = ({
         user={user}
         toolStatus={toolStatus}
         remoteStickerPacks={remoteStickerPacks}
+        onRefreshStickers={onRefreshStickers}
+        stickerNamingModel={stickerNamingModel}
+        stickerNamingProvider={stickerNamingProvider}
         shareDraft={shareDraftRef.current ?? undefined}
         onConsumeShare={() => {
           shareDraftRef.current = null
