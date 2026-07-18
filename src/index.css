@@ -156,9 +156,11 @@ html.no-fx .app-shell {
   align-items: center;
   gap: 8px;
   padding: calc(env(safe-area-inset-top) + 0.6rem) 1.1rem 0.6rem;
-  background: rgba(244, 248, 252, 0.88);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  /* 不透明纯色（=状态栏同色）。原来是 rgba 0.88 + 毛玻璃：页面底色是
+     160° 斜向渐变，透过毛玻璃渗上来导致顶栏左右色不匀、和状态栏接不上，
+     看起来像一块悬浮的没贴顶（2026-07-18 用户截图）。纯色后从屏幕顶
+     （状态栏）到标题栏融为一体。 */
+  background: var(--ab-bg);
   border-bottom: 1px solid rgba(88, 104, 120, 0.1);
 }
 

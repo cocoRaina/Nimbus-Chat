@@ -19,8 +19,8 @@
   align-items: center;
   justify-content: space-between;
   padding: calc(env(safe-area-inset-top) + 0.6rem) 1.1rem 0.6rem;
-  background: rgba(244, 248, 252, 0.88);
-  backdrop-filter: blur(16px);
+  /* 不透明纯色，理由见 index.css .page-header-bar。 */
+  background: var(--ab-bg);
   border-bottom: 1px solid rgba(88, 104, 120, 0.1);
 }
 
