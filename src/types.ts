@@ -121,8 +121,6 @@ export type UserSettings = {
    *  mirroring summarizerProvider, so users can let chat go through one
    *  provider and extraction through another. */
   memoryExtractProvider: 'openrouter' | 'msuicode'
-  memoryExtractIntervalHours: number
-  lastMemoryExtractAt: string | null
   updatedAt: string
 }
 

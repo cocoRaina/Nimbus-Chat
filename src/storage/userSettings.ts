@@ -28,8 +28,6 @@ type UserSettingsRow = {
   chat_reasoning_enabled: boolean | null
   auto_memory_extract_enabled: boolean | null
   memory_extract_model: string | null
-  memory_extract_interval_hours: number | null
-  last_memory_extract_at: string | null
   updated_at: string
 }
 
@@ -108,8 +106,6 @@ export const createDefaultSettings = (userId: string): UserSettings => ({
   autoMemoryExtractEnabled: true,
   memoryExtractModel: 'anthropic/claude-haiku-4-5',
   memoryExtractProvider: 'openrouter',
-  memoryExtractIntervalHours: 6,
-  lastMemoryExtractAt: null,
   updatedAt: new Date().toISOString(),
 })
 
@@ -136,8 +132,6 @@ const mapSettingsRow = (row: UserSettingsRow): UserSettings => {
     autoMemoryExtractEnabled: row.auto_memory_extract_enabled ?? true,
     memoryExtractModel: row.memory_extract_model?.trim() || 'anthropic/claude-haiku-4-5',
     memoryExtractProvider: highReasoningPrefs.memoryExtractProvider,
-    memoryExtractIntervalHours: row.memory_extract_interval_hours ?? 6,
-    lastMemoryExtractAt: row.last_memory_extract_at ?? null,
     updatedAt: row.updated_at,
   }
 }
@@ -149,7 +143,7 @@ export const ensureUserSettings = async (userId: string): Promise<UserSettings> 
   const { data, error } = await supabase
     .from('user_settings')
     .select(
-      'user_id,enabled_models,default_model,compression_enabled,compression_trigger_ratio,compression_keep_recent_messages,summarizer_model,temperature,top_p,max_tokens,system_prompt,user_home_system_prompt,assistant_post_system_prompt,assistant_reply_system_prompt,enable_reasoning,chat_reasoning_enabled,auto_memory_extract_enabled,memory_extract_model,memory_extract_interval_hours,last_memory_extract_at,updated_at',
+      'user_id,enabled_models,default_model,compression_enabled,compression_trigger_ratio,compression_keep_recent_messages,summarizer_model,temperature,top_p,max_tokens,system_prompt,user_home_system_prompt,assistant_post_system_prompt,assistant_reply_system_prompt,enable_reasoning,chat_reasoning_enabled,auto_memory_extract_enabled,memory_extract_model,updated_at',
     )
     .eq('user_id', userId)
     .maybeSingle()
@@ -184,7 +178,6 @@ export const ensureUserSettings = async (userId: string): Promise<UserSettings> 
         chat_reasoning_enabled: defaults.chatReasoningEnabled,
         auto_memory_extract_enabled: defaults.autoMemoryExtractEnabled,
         memory_extract_model: defaults.memoryExtractModel,
-        memory_extract_interval_hours: defaults.memoryExtractIntervalHours,
         updated_at: now,
       }, { onConflict: 'user_id' })
       .select(
@@ -224,8 +217,6 @@ export const updateUserSettings = async (settings: UserSettings): Promise<void> 
       chat_reasoning_enabled: settings.chatReasoningEnabled,
       auto_memory_extract_enabled: settings.autoMemoryExtractEnabled,
       memory_extract_model: settings.memoryExtractModel,
-      memory_extract_interval_hours: settings.memoryExtractIntervalHours,
-      last_memory_extract_at: settings.lastMemoryExtractAt,
       updated_at: now,
     })
     .eq('user_id', settings.userId)

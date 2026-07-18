@@ -470,7 +470,7 @@ const SettingsPage = ({
   const topPValid = !Number.isNaN(parsedTopP) && parsedTopP >= 0 && parsedTopP <= 1
   const maxTokensValid = !Number.isNaN(parsedMaxTokens) && parsedMaxTokens >= 32 && parsedMaxTokens <= 4000
   const compressionRatioValid = !Number.isNaN(parsedCompressionRatio) && parsedCompressionRatio >= 0.1 && parsedCompressionRatio <= 0.95
-  const compressionKeepRecentValid = !Number.isNaN(parsedCompressionKeepRecent) && parsedCompressionKeepRecent >= 1 && parsedCompressionKeepRecent <= 200
+  const compressionKeepRecentValid = !Number.isNaN(parsedCompressionKeepRecent) && parsedCompressionKeepRecent >= 4 && parsedCompressionKeepRecent <= 200
   const generationDraftValid = temperatureValid && topPValid && maxTokensValid && compressionRatioValid && compressionKeepRecentValid
 
   const hasUnsavedModelSettings = settings
@@ -663,8 +663,8 @@ const SettingsPage = ({
       setErrors((prev) => ({ ...prev, compressionKeepRecent: '请输入整数' }))
       return
     }
-    if (parsed < 1 || parsed > 200) {
-      setErrors((prev) => ({ ...prev, compressionKeepRecent: '保留消息数需在 1 到 200 之间' }))
+    if (parsed < 4 || parsed > 200) {
+      setErrors((prev) => ({ ...prev, compressionKeepRecent: '保留消息数需在 4 到 200 之间' }))
       return
     }
     setErrors((prev) => ({ ...prev, compressionKeepRecent: undefined }))
@@ -1874,12 +1874,16 @@ const SettingsPage = ({
               onChange={(event) => handleCompressionRatioChange(event.target.value)}
             />
             {errors.compressionRatio ? <span className="field-error">{errors.compressionRatio}</span> : null}
+            <span className="settings-hint">
+              上下文用量超过该比例后开始压缩。注意:Claude/GPT 这类带工具的模型有 0.35 的有效上限
+              (工具消息会打断缓存,提前压缩省钱得多)——设更高也按 0.35 触发,设更低则按你的值。
+            </span>
 
-            <label htmlFor="compressionKeepRecent">保留最近消息数 (1 - 200)</label>
+            <label htmlFor="compressionKeepRecent">保留最近消息数 (4 - 200)</label>
             <input
               id="compressionKeepRecent"
               type="number"
-              min="1"
+              min="4"
               max="200"
               step="1"
               value={compressionKeepRecentInput}
