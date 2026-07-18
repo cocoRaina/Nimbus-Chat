@@ -122,6 +122,7 @@ import {
 } from './storage/stickers'
 import { recordUsage } from './storage/usageStats'
 import { maybeAutoSyncHealth, syncHealthDataToSupabase } from './storage/healthSync'
+import { syncPeriodWidgetFromDb } from './storage/periodWidget'
 import { fetchCurrentWeather, peekCachedWeather } from './storage/weather'
 import { peekEnvSnapshot, refreshEnvSnapshot } from './storage/envState'
 import { requestBluetoothName } from './plugins/EnvState'
@@ -1158,12 +1159,16 @@ const App = () => {
     // The internal 30min throttle keeps this from firing more than once
     // per half-hour if the user is in and out of the app a lot.
     void maybeAutoSyncHealth()
+    void syncPeriodWidgetFromDb()
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()
         void refreshEnvSnapshot()
         void cancelProactiveNotification()
         void maybeAutoSyncHealth()
+        // 桌面经期小组件兜底同步（内部 6h 节流）：日期滚动/多设备写入后，
+        // 不用打开健康同步页也能自愈。
+        void syncPeriodWidgetFromDb()
         if (streamingControllerRef.current && lastChunkAtRef.current > 0) {
           const ageMs = Date.now() - lastChunkAtRef.current
           if (ageMs > 8000) {
@@ -3403,6 +3408,12 @@ TOOL_SEARCH_HANDOFF,
                       const res = await supabase.from(table).insert(cleaned).select().single()
                       inserted = res.data
                       insertErr = res.error
+                    }
+                    // 🩸 经期数据变了 → 立刻推给桌面小组件。原来只有打开健康
+                    // 同步页才推（useHomeWidgetData），聊天里记完经期桌面卡
+                    // 能吃一周灰（2026-07-18 实锤：卡上还是上个月的周期）。
+                    if (table === 'period_tracking' && !insertErr && !duplicateResult) {
+                      void syncPeriodWidgetFromDb({ force: true })
                     }
                     resultText = duplicateResult
                       ?? (insertErr
