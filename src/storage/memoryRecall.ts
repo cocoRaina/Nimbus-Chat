@@ -33,6 +33,19 @@ type RecallRow = {
   source?: string
   title?: string | null
   content?: string | null
+  created_at?: string | null
+}
+
+// 每条召回带上日期——不带的话小机的时间线是糊的:「她提过想去海边」分不清
+// 是上周还是三个月前。diary/letter 的 created_at 已是真实日期(2026-06-12
+// 迁移),memory 条目的 created_at 是记下来的时间,同样有定位价值。
+const fmtRecallDate = (iso?: string | null): string => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${mm}-${dd}`
 }
 
 export const fetchAutoRecall = async (query: string): Promise<string | null> => {
@@ -64,8 +77,15 @@ export const fetchAutoRecall = async (query: string): Promise<string | null> => 
       if (injectedKeys.has(key)) continue
       injectedKeys.add(key)
       const snippet = content.length > SNIPPET_LEN ? `${content.slice(0, SNIPPET_LEN)}…` : content
-      // 非 memory 来源（diary/letter/timeline/snack_post…）标注出处。
-      picked.push(row.source && row.source !== 'memory' ? `[${row.source}] ${snippet}` : snippet)
+      const date = fmtRecallDate(row.created_at)
+      // 非 memory 来源（diary/letter/timeline/snack_post…）标注出处；全部带日期。
+      const tag =
+        row.source && row.source !== 'memory'
+          ? `[${row.source}${date ? ` ${date}` : ''}] `
+          : date
+            ? `(${date}) `
+            : ''
+      picked.push(`${tag}${snippet}`)
     }
     const line = picked.length > 0 ? picked.join('；') : null
     logRecall({
