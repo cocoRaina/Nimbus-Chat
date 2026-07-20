@@ -175,6 +175,25 @@ const AUTO_EXTRACT_USER_TURN_INTERVAL = 12
 const AUTO_EXTRACT_COOLDOWN_MS = 10 * 60 * 1000
 const AUTO_EXTRACT_PENDING_LIMIT = 50
 
+// 内部回放标记（[本轮思考] / [本轮已调用工具]）只该出现在发给模型的请求体里，
+// 用来给它跨轮的思考/工具连续性。但模型偶尔会照抄上下文里这个格式，把自己
+// 这轮的思考当正文吐出来（截图实锤：`[本轮思考] She's asking how to…` 直接
+// 进气泡）。展示/落库前一律切掉开头的这些标记段——注入格式是
+// `标记 payload\n\n正文`，按此切；容错到单换行/整段皆为标记。正文中间偶然
+// 出现的方括号不受影响（只锚定开头）。
+const stripReplayMarkers = (text: string): string => {
+  if (!text) return text
+  let out = text
+  // 循环：思考标记注入在工具标记之前，两个可能叠在开头，逐个切。
+  const re = /^\s*\[(?:本轮思考|本轮已调用工具)\][\s\S]*?(?:\n\n|\n|$)/
+  while (re.test(out)) {
+    const next = out.replace(re, '')
+    if (next === out) break
+    out = next
+  }
+  return out.replace(/^\s+/, '')
+}
+
 type ExtractMessageInput = { role: string; content: string }
 
 const buildRecentExtractionMessages = (
@@ -2147,7 +2166,7 @@ const App = () => {
         // Strip the private <<MOOD>> self-assessment marker from anything shown
         // to the user — live during streaming (handles a partial trailing token)
         // and in the final saved content.
-        const buildDisplayContent = () => stripMoodMarker(assistantContent)
+        const buildDisplayContent = () => stripReplayMarkers(stripMoodMarker(assistantContent))
 
         const pushStreamingUpdate = () => {
           const streamingUpdate = updateMessage(messagesRef.current, {
@@ -4244,6 +4263,9 @@ TOOL_SEARCH_HANDOFF,
               assistantContent = stripMoodMarker(assistantContent)
             }
           }
+          // 切掉模型照抄的内部回放标记（[本轮思考]/[本轮已调用工具]），别落库、
+          // 别展示。放在 mood 之后：两个都是「落库前净化」的最后一道。
+          assistantContent = stripReplayMarkers(assistantContent)
 
           // Last-resort fallback: if streaming + tool loop + force-final all
           // produced nothing, don't save a ghost empty bubble — surface the
