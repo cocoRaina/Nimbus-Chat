@@ -185,26 +185,26 @@ const buildSummarizerUserPrompt = (
     .join('\n\n')
 }
 
-const summarizeMessagesOnce = async (
+// 摘要以完整句尾收笔的判据——用于「没给 finish_reason 的中转」的兜底截断检测。
+const endsCleanly = (t: string): boolean => /[。！？…”）】.!?)\]]\s*$/.test(t)
+
+type SummarizerMsg = { role: string; content: string }
+
+// 单次原始调用：返回文本 + 是否被上游截断。截断信号优先看 finish_reason，
+// 缺这个字段的中转退回「结尾是不是断在半句话」的兜底。
+const callSummarizerRaw = async (
   summarizerModel: string,
-  existingSummary: string,
-  newMessages: ChatMessage[],
   summarizerProvider: 'openrouter' | 'msuicode',
-): Promise<string> => {
+  messages: SummarizerMsg[],
+): Promise<{ text: string; truncated: boolean }> => {
   const response = await fetchOpenRouter('/chat/completions', {
     provider: summarizerProvider,
     body: {
       model: summarizerModel,
       stream: false,
-      // 上限 2000 字的中文 ≈ 2.5-3k token（按摘要模型的分词），给到 4k 留
-      // 余量——之前 800 token 连提示词里的「800 字」都装不下，中文写到
-      // 一千字左右就被硬掐断，旧备忘还会在重写时被挤丢。
       max_tokens: 4000,
       temperature: 0.2,
-      messages: [
-        { role: 'system', content: SUMMARIZER_SYSTEM_PROMPT },
-        { role: 'user', content: buildSummarizerUserPrompt(existingSummary, newMessages) },
-      ],
+      messages,
     },
   })
   if (!response.ok) {
@@ -214,8 +214,45 @@ const summarizeMessagesOnce = async (
   const choice = (payload.choices as Array<Record<string, unknown>> | undefined)?.[0]
   const message = (choice?.message as Record<string, unknown> | undefined) ?? {}
   const text = typeof message.content === 'string' ? message.content.trim() : ''
+  const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason : ''
+  const truncated = finishReason === 'length' || (!finishReason && text.length > 0 && !endsCleanly(text))
+  return { text, truncated }
+}
+
+const summarizeMessagesOnce = async (
+  summarizerModel: string,
+  existingSummary: string,
+  newMessages: ChatMessage[],
+  summarizerProvider: 'openrouter' | 'msuicode',
+): Promise<string> => {
+  // 关键认知（2026-07-22）：我们发 max_tokens:4000，但有的摘要模型/中转会
+  // 把**单次** completion 砍在 ~800 token（上游侧的硬上限，跟我们发多少无关）
+  // ——症状就是摘要停在半句话（如「…龟头蹭」）。所以光调 max_tokens 治不了，
+  // 必须**检测截断 → 续写拼接**。最多续 2 轮（含首轮共 3 次 ≈ 够 2000 字）。
+  const baseMessages: SummarizerMsg[] = [
+    { role: 'system', content: SUMMARIZER_SYSTEM_PROMPT },
+    { role: 'user', content: buildSummarizerUserPrompt(existingSummary, newMessages) },
+  ]
+  let { text, truncated } = await callSummarizerRaw(summarizerModel, summarizerProvider, baseMessages)
   if (!text) {
     throw new Error('summarizer returned empty content')
+  }
+  let rounds = 0
+  while (truncated && rounds < 2) {
+    rounds += 1
+    try {
+      const cont = await callSummarizerRaw(summarizerModel, summarizerProvider, [
+        ...baseMessages,
+        { role: 'assistant', content: text },
+        { role: 'user', content: '你上面这段备忘被截断了，请从断掉的地方接着写完，不要重复已经写过的内容，也不要重新开头，直接续上。' },
+      ])
+      if (!cont.text) break
+      text = `${text}${cont.text}`.trim()
+      truncated = cont.truncated
+    } catch {
+      // 续写失败就用已拿到的部分——半篇也比整篇丢了强。
+      break
+    }
   }
   if (looksLikeRefusalOrGarbage(text)) {
     throw new Error(`summarizer refused / returned garbage: ${text.slice(0, 60)}`)
