@@ -2487,7 +2487,14 @@ const App = () => {
           // 轮足够维持推理连续性。代价：掉出这 6 轮的那条消息字节变了、缓存
           // 尾部会多冷写十来条——但换来每轮 prompt 直接小 ~14k，读/冷写都更
           // 便宜，净赚。稳定前缀（工具/system/摘要/老窗口）不受影响。
-          const THINKING_REPLAY_RECENT_TURNS = 6
+          //
+          // 深度思考档随预算联动（2026-07-22，用户查账实锤）：深度思考把每段
+          // 思考从 ~2k 顶到 ~5k+，6 轮回放 ≈30k、且坐在缓存断点之后的尾部按
+          // 全价 uncached 每轮重付——实测 prompt 从 28k 涨到 69k、uncached 稳
+          // 涨到 30k。回放本是「锦上添花」的跨轮连续性，不值这个价。所以深度
+          // 思考开启时回放收敛到最近 2 轮：既保当前推理的连续性，又把这层
+          // uncached 从 ~30k 压到 ~10k。常规档（小预算）仍留 6 轮。
+          const THINKING_REPLAY_RECENT_TURNS = activeSettings.chatHighReasoningEnabled ? 2 : 6
           const thinkingReplayAllowed = new Set<number>()
           {
             let seen = 0
