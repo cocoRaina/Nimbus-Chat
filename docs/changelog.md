@@ -4,6 +4,13 @@
 
 ---
 
+## 🤖 记忆闭环三连：自动转正 + 召回解封 + 开场简报（2026-07-22，用户「怎么好用怎么来」）
+
+1. **提取记忆自动转正**（memory-extract 边缘函数 v24，已部署即刻生效）：提取产物不再进 pending 等人肉确认——去重/强化/矛盾裁决三道闸门已在函数里，直接落地：普通条目 INSERT `memories`（`category:自动提取, source:auto`，embedding 由触发器补），修订条目 UPDATE 原记忆（**embedding 置空重嵌**；原记忆没了退化新增）。`memory_entries` 仍写一份 `status='confirmed'` 当审计+去重上下文。存量 10 条 pending 已一次性 SQL 转正。**此前的断层**：检索只搜 `memories`，pending 里的挖矿产出永远搜不到、满 50 还静默停摆——挖矿管线出口是堵的。记忆库页照常可改可删，只是不用点确认了。
+2. **召回注入去重解除终身封印**（memoryRecall.ts）：原来 injectedKeys 是 App 运行期永久 Set——注入过一次的记忆，哪怕当时那条消息早被压缩折叠，也永不再注入，长会话+压缩下召回越用越哑。改：TTL 90 分钟 + 压缩游标前进时全清（`releaseInjectedRecalls`，挂在 onCursorAdvance）。
+3. **开场简报 [昨日回顾]**（App.tsx + types）：小机上一条发言还在上一个逻辑日（凌晨 3 点为界，与日记同口径）时，当天第一轮往用户消息前缀注入一行：昨日 session_digest 摘录（200 字）+ 最新交接信标题（提示可 search_handoff 深挖）。治「工具都在、没人提醒该用」——隔夜重开自动接上话头。冻进 meta.dayBrief 字节稳定；3s 超时静默放弃；同逻辑日只注入一次。
+2、3 需新 APK；1 已生效。**备查**：给模型加"能力"（工具/来源）时，同时要设计"何时想起来用"的触发——注入比描述可靠。
+
 ## 🙀 search_memory 的 table 枚举漏了 session_digest（2026-07-22，用户直觉）
 
 用户："小机是不是不知道每日摘要的存在？"查证：生成端正常（session_digests 29 篇、每天自动出）、服务端 `VALID_TABLES` 也有它、自动召回的全量搜索能命中——**坏在工具 schema**：`search_memory` 的 `table` 枚举只列了 6 个来源、漏了 `session_digest`，描述说"有每日摘要"但参数选不了。模型想定向查「昨天/那天聊了什么」只能全量搜，日记/朋友圈命中把摘要挤出去，体感=不存在。修：枚举补上，描述明确「每天自动生成一篇、查那天聊了什么用 table:"session_digest"+days/after」。**备查**：工具描述提到的每个来源/能力，参数 enum 必须能表达，否则就是给模型画饼。需新 APK。

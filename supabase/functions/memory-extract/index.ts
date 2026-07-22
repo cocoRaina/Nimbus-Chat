@@ -612,27 +612,59 @@ ${JSON.stringify(mergeInput)}`,
     }
 
     if (acceptedItems.length > 0 || revisionItems.length > 0) {
+      // 🤖 自动转正（2026-07-22，用户点名"不想管"）：提取产物不再进 pending
+      // 等人肉确认——去重/强化/矛盾裁决都已在上面做完，质量闸门足够，直接
+      // 落地。修订条目 UPDATE 原记忆（embedding 置空让 auto_embed 触发器对
+      // 新内容重嵌；原记忆已没了就退化成新增，修订不丢）；普通条目直接
+      // INSERT 进 memories（与客户端确认流 createMemory 同款字段）。
+      // memory_entries 仍插一份 status='confirmed' 当审计痕迹 + 后续提取的
+      // 去重上下文；用户在记忆库页随时可改可删，只是不用再点确认了。
+      const fallbackAdds: string[] = []
+      for (const r of revisionItems) {
+        const { data: updated, error: updErr } = await supabase
+          .from('memories')
+          .update({ content: r.content, embedding: null, updated_at: new Date().toISOString() })
+          .eq('id', r.memoryId)
+          .select('id')
+        if (updErr || !updated || updated.length === 0) {
+          fallbackAdds.push(r.content)
+        }
+      }
+      const toInsert = [...acceptedItems, ...fallbackAdds]
+      if (toInsert.length > 0) {
+        const { error: memInsertError } = await supabase.from('memories').insert(
+          toInsert.map((content) => ({
+            content,
+            category: '自动提取',
+            tags: ['auto'],
+            source: 'auto',
+          })),
+        )
+        if (memInsertError) {
+          return jsonResponse({ error: '写入记忆失败' }, 500, cors)
+        }
+      }
       const { error: insertError } = await supabase.from('memory_entries').insert([
         ...acceptedItems.map((content) => ({
           user_id: user.id,
           content,
           source: 'ai_suggested',
-          status: 'pending',
+          status: 'confirmed',
         })),
-        // 修订条目：确认时客户端 UPDATE 原记忆而不是 INSERT（旧 APK 不认识
-        // 这两个字段时退化成普通新增，不阻塞）。
         ...revisionItems.map((r) => ({
           user_id: user.id,
           content: r.content,
           source: 'ai_suggested',
-          status: 'pending',
+          status: 'confirmed',
           revises_memory_id: r.memoryId,
           revises_old_content: r.oldContent,
         })),
       ])
 
       if (insertError) {
-        return jsonResponse({ error: '写入记忆失败' }, 500, cors)
+        // 审计写入失败不致命——记忆本体已进 memories，下次提取的去重
+        // 退化为只对 memories 比对。
+        console.warn('memory_entries 审计写入失败:', insertError.message)
       }
     }
 

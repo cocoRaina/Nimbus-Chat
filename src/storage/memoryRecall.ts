@@ -13,9 +13,19 @@ const MAX_ITEMS = 3
 const SNIPPET_LEN = 80
 const TIMEOUT_MS = 3500
 
-// 本次 App 会话里已经注入过的条目 id —— 同一条记忆不要每轮重复注入
-// （省 token，也避免模型被同一条记忆反复带节奏）。
-const injectedKeys = new Set<string>()
+// 已注入条目的去重（2026-07-22 从「终身封印」改为 TTL + 压缩联动）：原来是
+// App 运行期永久 Set——一条记忆在第 100 条消息注入过，后来那段被压缩折叠、
+// 模型早"忘了"，它也永远不会再注入，长会话下召回越用越哑。现在：
+//   1) TTL 90 分钟——超时后允许再次注入（同一条记忆隔一阵重现是 feature）；
+//   2) 压缩游标前进时全清（releaseInjectedRecalls）——被折叠的上下文里注入
+//      过什么已经无从谈起，重新放行。
+const INJECT_TTL_MS = 90 * 60 * 1000
+const injectedKeys = new Map<string, number>()
+
+// 压缩游标前进（= 一段上下文被揉进摘要）时调用：解除全部注入封印。
+export const releaseInjectedRecalls = () => {
+  injectedKeys.clear()
+}
 
 // 环形日志（仅本次启动，内存态）：Diagnostics「记忆状态」tab 读它来判断
 // 每轮召回是否健康运行。hits=-1 表示该轮召回超时/失败（消息照常发出）。
@@ -74,8 +84,9 @@ export const fetchAutoRecall = async (query: string): Promise<string | null> => 
       const content = String(row.content ?? row.title ?? '').trim()
       if (!content) continue
       const key = `${row.source ?? ''}:${String(row.id ?? content.slice(0, 40))}`
-      if (injectedKeys.has(key)) continue
-      injectedKeys.add(key)
+      const injectedAt = injectedKeys.get(key)
+      if (injectedAt !== undefined && Date.now() - injectedAt < INJECT_TTL_MS) continue
+      injectedKeys.set(key, Date.now())
       const snippet = content.length > SNIPPET_LEN ? `${content.slice(0, SNIPPET_LEN)}…` : content
       const date = fmtRecallDate(row.created_at)
       // 非 memory 来源（diary/letter/timeline/snack_post…）标注出处；全部带日期。

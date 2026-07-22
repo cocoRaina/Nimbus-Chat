@@ -113,7 +113,7 @@ import { fetchOpenRouter } from './api/openrouter'
 import { convertOpenAiRequestToAnthropic, isThinkingReplayDisabledForHost } from './api/anthropic'
 import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './storage/apiProvider'
 import { ensureImageCaption, getImageCaption, syncImageCaptionsFromCloud } from './storage/imageCaptions'
-import { fetchAutoRecall } from './storage/memoryRecall'
+import { fetchAutoRecall, releaseInjectedRecalls } from './storage/memoryRecall'
 import {
   buildStickerSystemSection,
   setRemoteStickerCache,
@@ -666,6 +666,53 @@ const HEALTH_SNAP_TTL_MS = 30 * 60 * 1000
 const healthSnapCache: { value: string | null; fetchedAt: number } = {
   value: null,
   fetchedAt: 0,
+}
+
+// 开场简报（2026-07-22）：小机上次发言还在「上一个逻辑日」（凌晨 3 点为界，
+// 与日记活稿同一口径）时，今天第一轮往用户消息前缀注入一行 [昨日回顾]：
+// 昨日 session_digest 摘录 + 最新交接信标题。解决「工具都在、但没人提醒它
+// 该用」——隔夜重开时模型自己不知道该去翻昨天聊了什么。冻进消息 meta，
+// 重放字节稳定。取数 3s 超时静默放弃，绝不挡发送。
+const DAY_BRIEF_TIMEOUT_MS = 3000
+// 逻辑日 key：Shanghai(+8) 再往前挪 3 小时 → +5h。凌晨 2 点算前一天。
+const logicalDayKey = (t: number) => Math.floor((t + 5 * 3600000) / 86400000)
+// 同一逻辑日只简报一次（内存态；重启后最多多注入一次，无害）。
+const briefedDayBySession = new Map<string, number>()
+const fetchDayBrief = async (): Promise<string | null> => {
+  if (!supabase) return null
+  try {
+    const work = (async () => {
+      const [digestRes, letterRes] = await Promise.all([
+        supabase!
+          .from('session_digests')
+          .select('digest_date,content')
+          .order('digest_date', { ascending: false })
+          .limit(1),
+        supabase!
+          .from('handoff_letters')
+          .select('title,date')
+          .order('created_at', { ascending: false })
+          .limit(1),
+      ])
+      const digest = (digestRes.data ?? [])[0] as { digest_date?: string; content?: string } | undefined
+      const letter = (letterRes.data ?? [])[0] as { title?: string; date?: string } | undefined
+      const parts: string[] = []
+      if (digest?.content) {
+        const full = String(digest.content)
+        parts.push(`${digest.digest_date ?? ''} 聊过：${full.slice(0, 200)}${full.length > 200 ? '…' : ''}`)
+      }
+      if (letter?.title) {
+        parts.push(`最新交接信《${letter.title}》(${letter.date ?? '?'})，要细节用 search_handoff`)
+      }
+      return parts.length > 0 ? parts.join('；') : null
+    })()
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('day brief timeout')), DAY_BRIEF_TIMEOUT_MS)
+    })
+    return await Promise.race([work, timeout])
+  } catch {
+    return null
+  }
 }
 
 // 每会话真实 prompt_tokens 的持久化（2026-07-22）：原先只在内存 ref 里，
@@ -1770,6 +1817,17 @@ const App = () => {
       const recallPromise: Promise<string | null> =
         recallQuery.trim().length > 0 ? fetchAutoRecall(recallQuery) : Promise.resolve(null)
 
+      // 开场简报：小机上一条发言还在上一个逻辑日（或全新会话）→ 今天第一轮
+      // 取一次 [昨日回顾]。与召回并行，互不阻塞。
+      const todayKey = logicalDayKey(Date.now())
+      const lastAssistantMsg = [...messagesRef.current]
+        .reverse()
+        .find((m) => m.sessionId === sessionId && m.role === 'assistant' && !m.meta?.streaming)
+      const needDayBrief =
+        briefedDayBySession.get(sessionId) !== todayKey &&
+        (!lastAssistantMsg || logicalDayKey(new Date(lastAssistantMsg.createdAt).getTime()) < todayKey)
+      const briefPromise: Promise<string | null> = needDayBrief ? fetchDayBrief() : Promise.resolve(null)
+
       // Health snapshot — injected on EVERY user message (when the DB has
       // nothing we say so explicitly instead of going silent). The Supabase
       // read + Health Connect force-sync only run when the 30-min cache has
@@ -1792,16 +1850,22 @@ const App = () => {
         : null
 
       const recallSnap = await recallPromise
+      const briefSnap = await briefPromise
+      if (briefSnap) briefedDayBySession.set(sessionId, todayKey)
 
       // 批量路径：把召回结果冻进已落库的那条用户消息。本地快照先更新（payload
       // 构建从 messagesRef 读 meta.memoryRecall，本轮就能注入）；远端 fire-and-
       // forget 同步（updateRemoteMessageMeta 按 id/client_id 匹配，行还没插完
       // 就静默错过——本地才是本轮的数据源，丢远端只影响换设备重放）。
-      if (recallSnap && recallTarget) {
+      if ((recallSnap || briefSnap) && recallTarget) {
         const stamped: ChatMessage = {
           ...recallTarget,
           pending: recallTarget.pending,
-          meta: { ...(recallTarget.meta ?? {}), memoryRecall: recallSnap },
+          meta: {
+            ...(recallTarget.meta ?? {}),
+            ...(recallSnap ? { memoryRecall: recallSnap } : {}),
+            ...(briefSnap ? { dayBrief: briefSnap } : {}),
+          },
         }
         applySnapshot(sessionsRef.current, updateMessage(messagesRef.current, stamped))
         if (user && supabase) {
@@ -1827,6 +1891,7 @@ const App = () => {
         ...(healthSnap ? { healthSnapshot: healthSnap } : {}),
         ...(envSnap ? { envSnapshot: envSnap } : {}),
         ...(recallSnap ? { memoryRecall: recallSnap } : {}),
+        ...(briefSnap && !recallTarget ? { dayBrief: briefSnap } : {}),
         ...(() => {
           // Freeze the AI's current mood narration into this turn's meta — it's
           // rendered into the payload prefix at send time and replayed verbatim
@@ -2355,8 +2420,12 @@ const App = () => {
               // provider (e.g. deepseek via OpenRouter) is down.
               chatModel: effectiveModel,
               chatProvider: getActiveProvider(),
-              // 压缩前挖矿：被折叠进摘要的消息段先抽一遍结构化记忆。
-              onCursorAdvance: (folded) => mineFoldedMessagesForMemoryRef.current(folded),
+              // 压缩前挖矿：被折叠进摘要的消息段先抽一遍结构化记忆；同时解除
+              // 召回注入的去重封印（被折叠的注入已随上下文消失，该重新放行）。
+              onCursorAdvance: (folded) => {
+                releaseInjectedRecalls()
+                mineFoldedMessagesForMemoryRef.current(folded)
+              },
             },
           )
           // Surface a summarizer failure the way keepalive failures are surfaced
@@ -2470,12 +2539,15 @@ const App = () => {
               : ''
             const recallMeta = message.role === 'user' ? message.meta?.memoryRecall : undefined
             const recallStr = recallMeta ? `\n[相关记忆] ${recallMeta}` : ''
+            // 开场简报（当天第一轮冻结）：昨日聊了什么 + 最新交接信一行。
+            const briefMeta = message.role === 'user' ? message.meta?.dayBrief : undefined
+            const briefStr = briefMeta ? `\n[昨日回顾] ${briefMeta}` : ''
             // Frozen mood narration for this user turn (private emotional
             // context). Stored per-message so replay is byte-stable.
             const moodMeta = message.role === 'user' ? message.meta?.moodNarration : undefined
             const moodStr = moodMeta ? `${moodMeta}\n\n` : ''
             const prefix = stamp
-              ? `[当前时间] ${stamp}${weatherStr}${envStr}${statusStr}${recallStr}\n\n${moodStr}`
+              ? `[当前时间] ${stamp}${weatherStr}${envStr}${statusStr}${briefStr}${recallStr}\n\n${moodStr}`
               : moodStr
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []
@@ -4974,8 +5046,11 @@ TOOL_SEARCH_HANDOFF,
             chatModel: effectiveModel,
             chatProvider: getActiveProvider(),
             force: true,
-            // 手动压缩同样先挖矿再折叠。
-            onCursorAdvance: (folded) => mineFoldedMessagesForMemoryRef.current(folded),
+            // 手动压缩同样先挖矿再折叠 + 解除召回注入封印。
+            onCursorAdvance: (folded) => {
+              releaseInjectedRecalls()
+              mineFoldedMessagesForMemoryRef.current(folded)
+            },
           },
         )
         if (outcome.didCompress) {

@@ -59,6 +59,9 @@ export type ChatMessage = {
     // this message, injected into the payload prefix like weather. Kept
     // per-message so replay is byte-stable for the rolling prompt cache.
     memoryRecall?: string
+    // 开场简报（当天第一轮冻结）：昨日 session_digest 摘录 + 最新交接信一行，
+    // 注入 payload 前缀（[昨日回顾]）。逐消息冻结 → 重放字节稳定。
+    dayBrief?: string
     tool_calls?: Array<{
       name: string
       args: unknown
