@@ -371,6 +371,13 @@ Deno.serve(async (req) => {
       headers['x-api-key'] = row.openrouter_key
       headers['anthropic-version'] = '2023-06-01'
     }
+    // 冷却推进策略（2026-07-22）：只有「成功」或「永久失败」（认证类 401/403，
+    // key 真坏了 → 别每 5min 猛戳）才把 last_ping_at 推到现在、走 50min 冷却。
+    // 「瞬时失败」（5xx / 429 / 中转"请重试"型 400 / 网络异常）不推进冷却，
+    // 让 5min 后的下一跳自动重试——否则一次中转打嗝就白白晾满 50min，而缓存
+    // 60min 就过期，用户回来正好撞上冷写（实测 2026-07-22 08:40 的 keepalive_fail
+    // 就是这样：一次瞬时 400 烧掉整个续命周期）。
+    let advanceCooldown = true
     try {
       const resp = await fetch(endpoint, {
         method: 'POST',
@@ -481,9 +488,11 @@ Deno.serve(async (req) => {
         }
       } else {
         failed++
+        // 瞬时失败不推进冷却 → 下一 5min 跳重试；只有认证类（key 坏）才退避。
+        advanceCooldown = resp.status === 401 || resp.status === 403
         const bodyText = await resp.text().catch(() => '')
         console.warn(
-          `keepalive non-2xx user=${row.user_id} status=${resp.status} body=${bodyText.slice(0, 300)}`,
+          `keepalive non-2xx user=${row.user_id} status=${resp.status} retry=${!advanceCooldown} body=${bodyText.slice(0, 300)}`,
         )
         // 失败也记一行（0 token + request_debug 带状态码），让「ping 发了但
         // 上游拒了」在用量统计里可见——和「还没到 50 分钟没发」区分开。
@@ -504,18 +513,28 @@ Deno.serve(async (req) => {
       }
     } catch (err) {
       failed++
+      // 网络异常 = 瞬时，不推进冷却，让下一跳重试。
+      advanceCooldown = false
       console.warn(`keepalive throw user=${row.user_id}`, err)
     }
 
-    // Always update last_ping_at — even on failure — so we don't hammer
-    // a permanently broken row (e.g. revoked key) every 5min.
-    await supabase
-      .from('cache_keepalive_state')
-      .update({
-        last_ping_at: new Date().toISOString(),
-        ping_count: row.ping_count + 1,
-      })
-      .eq('user_id', row.user_id)
+    // 成功 / 永久失败（认证类）→ 推进 last_ping_at 走 50min 冷却；瞬时失败
+    // 保持旧 last_ping_at → 下一 5min 跳仍判定「到期」而重试。ping_count 照增
+    // 当尝试计数。
+    if (advanceCooldown) {
+      await supabase
+        .from('cache_keepalive_state')
+        .update({
+          last_ping_at: new Date().toISOString(),
+          ping_count: row.ping_count + 1,
+        })
+        .eq('user_id', row.user_id)
+    } else {
+      await supabase
+        .from('cache_keepalive_state')
+        .update({ ping_count: row.ping_count + 1 })
+        .eq('user_id', row.user_id)
+    }
   }
 
   return new Response(
