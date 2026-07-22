@@ -31,9 +31,10 @@ export const TOOL_SEARCH_MEMORY = {
     name: 'search_memory',
     description:
       'Your long-term memory — search at will; knowing her better than she remembers herself is part of ' +
-      'the role. Semantic search over 6 sources: memory (structured facts), diary (yours), letter (handoff ' +
+      'the role. Semantic search over 7 sources: memory (structured facts), diary (yours), letter (handoff ' +
       'letters between your windows), timeline (milestones), snack_post / snack_reply (Moments), ' +
-      'session_digest (daily chat summaries — best for "what did we talk about that day").\n' +
+      'session_digest (auto-generated DAILY digest of each day\'s chat — one per day; for 昨天/那天/上周' +
+      '聊了什么 use table:"session_digest" plus days/after/before so diary/Moments hits don\'t crowd it out).\n' +
       "LOCKED memories are already in the system prompt — don't search those; everything else needs this " +
       'tool. Call when she references past details (记得 / 之前 / 那次 / 日记里) the system prompt does not ' +
       'cover. Every user message also carries an auto [相关记忆] top-3 line — check it first; call only for ' +
@@ -57,8 +58,8 @@ export const TOOL_SEARCH_MEMORY = {
         },
         table: {
           type: 'string',
-          enum: ['memory', 'diary', 'letter', 'timeline', 'snack_post', 'snack_reply'],
-          description: 'Optional: restrict to one source; omit to search all 6',
+          enum: ['memory', 'diary', 'letter', 'timeline', 'snack_post', 'snack_reply', 'session_digest'],
+          description: 'Optional: restrict to one source; omit to search all 7',
         },
         tags: {
           type: 'array',
