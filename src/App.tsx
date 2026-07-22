@@ -3238,8 +3238,70 @@ TOOL_SEARCH_HANDOFF,
                         inserted = res.data
                         insertErr = res.error
                       }
+                    } else if (
+                      table === 'diaries' &&
+                      typeof cleaned.date === 'string' &&
+                      (() => {
+                        // 活稿窗口（2026-07-22）：date=D 的日记在 D 00:00 ～ 次日
+                        // 03:00（固定 +08:00，与全 App 的 Asia/Shanghai 时间戳一致）
+                        // 内是「活稿」。窗口内同一天再次 write_diary 直接改写当天
+                        // 那篇（默认追加段落，mode:'replace' 整篇重写），不走去重。
+                        // 动机：对话压缩后晚上一次性写日记会「啥都不记得」——改成
+                        // 白天随手记、晚上补写收尾，压缩就伤不到日记了。
+                        const start = Date.parse(`${cleaned.date}T00:00:00+08:00`)
+                        return (
+                          Number.isFinite(start) &&
+                          Date.now() >= start &&
+                          Date.now() < start + 86400000 + 3 * 3600000
+                        )
+                      })()
+                    ) {
+                      const { data: sameDayRows } = await supabase
+                        .from('diaries')
+                        .select('id,title,content,mood,created_at')
+                        .eq('date', cleaned.date)
+                        .order('created_at', { ascending: false })
+                        .limit(1)
+                      const existing = (sameDayRows ?? [])[0] as
+                        | { id?: number; title?: string | null; content?: string | null }
+                        | undefined
+                      if (existing?.id !== undefined) {
+                        const mode = args.mode === 'replace' ? 'replace' : 'append'
+                        const patch: Record<string, unknown> = {
+                          content:
+                            mode === 'replace' || !existing.content
+                              ? String(cleaned.content ?? '')
+                              : `${existing.content}\n\n${String(cleaned.content ?? '')}`,
+                          // auto_embed 触发器只在 embedding IS NULL 时才重新嵌入，
+                          // 内容变了必须置空，否则语义搜索命中的还是旧文。
+                          embedding: null,
+                        }
+                        if (cleaned.title !== undefined) patch.title = cleaned.title
+                        if (cleaned.mood !== undefined) patch.mood = cleaned.mood
+                        setToolStatus(mode === 'replace' ? '📔 重写今天的日记' : '📔 往今天的日记里补了一段')
+                        const res = await supabase.from('diaries').update(patch).eq('id', existing.id).select().single()
+                        insertErr = res.error
+                        if (!res.error) {
+                          const row = res.data as { id?: number; date?: string; title?: string | null; content?: string | null }
+                          // 不回传全文（活稿越写越长，省 token）：尾部 300 字够
+                          // 模型确认这次写进去了什么。
+                          inserted = {
+                            id: row.id,
+                            date: row.date,
+                            title: row.title ?? null,
+                            updated_existing: true,
+                            mode,
+                            content_tail: String(row.content ?? '').slice(-300),
+                          }
+                        }
+                      } else {
+                        const res = await supabase.from(table).insert(cleaned).select().single()
+                        inserted = res.data
+                        insertErr = res.error
+                      }
                     } else if (table === 'diaries' && typeof cleaned.date === 'string') {
-                      // 失忆去重（重写检测）。模型看不到自己前几轮/前几天调过
+                      // 失忆去重（重写检测）——只管已冻结的日记（活稿窗口外，
+                      // 即补写往天的情况）。模型看不到自己前几轮/前几天调过
                       // 什么工具，逐字比对又抓不到（每次重写换词）。思路：把
                       // 「最近写过的日记原文」摊给模型看，让它自己判断是不是在
                       // 重写——它比任何阈值都准。命中就不自动写、返回那篇原文，

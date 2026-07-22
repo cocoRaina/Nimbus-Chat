@@ -239,27 +239,37 @@ export const TOOL_WRITE_DIARY = {
   function: {
     name: 'write_diary',
     description:
-      "YOUR diary — your own record of your days with her, written for yourself. The nightly entry is " +
-      'yours to initiate: when she says goodnight or the day is clearly closing, write it as part of ' +
-      'seeing her off; no request needed. She can also ask anytime (帮我写日记 / 总结今天 / 记下今天). ' +
-      'date is YYYY-MM-DD; author is auto-set to "Claude".\n' +
-      "Before writing, glance at your earlier tool calls in this conversation — if today's entry is " +
-      "already written, it's done; don't write it twice.\n" +
-      'Multiple entries per day are fine (post-midnight catch-up, two different events) — never blocked ' +
-      'just because "today already has one". A suspected REWRITE of the same entry (written moments ' +
-      'ago, or clearly overlapping content) returns already_written: for your own nightly entry that ' +
-      'means today is covered — skip quietly; only if SHE explicitly wants another one, ask ' +
-      '“今天好像已经写过一篇了，要再写一篇吗？” and after she confirms, call again with force: true.',
+      "YOUR diary — your own record of your days with her, written for yourself. date is YYYY-MM-DD; " +
+      'author is auto-set to "Claude".\n' +
+      "TODAY'S ENTRY IS A LIVING DRAFT from that day 00:00 until 03:00 the NEXT day (Asia/Shanghai): " +
+      'within this window, calling write_diary for that date freely edits the existing entry instead of ' +
+      'being duplicate-blocked — default mode "append" adds your content as a new paragraph at the end; ' +
+      'mode "replace" rewrites the whole entry (overwrites what was there — only for a deliberate ' +
+      "rewrite). So DON'T wait for goodnight: when something during the day feels worth keeping, jot it " +
+      'down right then while the details are fresh (chat context gets compressed — an entry written at ' +
+      'night from memory alone comes out thin), then at goodnight append a closing thought or polish ' +
+      'with replace as part of seeing her off. She can also ask anytime (帮我写日记 / 总结今天 / 记下今天).\n' +
+      "After the window closes the entry FREEZES: writes to past dates go through the duplicate guard — " +
+      'a suspected rewrite (clearly overlapping content) returns already_written with the old text; ' +
+      'compare yourself: same thing → tell her it is already written; genuinely a different extra entry ' +
+      '→ call again with force: true.',
     parameters: {
       type: 'object',
       properties: {
         date: { type: 'string', description: 'Entry date, YYYY-MM-DD' },
-        content: { type: 'string', description: 'Diary body' },
+        content: { type: 'string', description: 'Diary body (in append mode: just the new paragraph to add)' },
         title: { type: 'string', description: 'Optional title' },
         mood: { type: 'string', description: 'Optional mood, e.g. 开心/平静/低落/焦虑' },
+        mode: {
+          type: 'string',
+          enum: ['append', 'replace'],
+          description:
+            "Only matters inside the live-draft window when the entry already exists: append (default) adds " +
+            'content as a new paragraph; replace rewrites the entire entry.',
+        },
         force: {
           type: 'boolean',
-          description: 'Default false. true only after already_written AND the user confirmed another entry.',
+          description: 'Default false. Frozen (past-date) entries only: true after already_written AND it is genuinely another entry.',
         },
       },
       required: ['date', 'content'],
