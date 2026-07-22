@@ -4,6 +4,10 @@
 
 ---
 
+## 🌿 记忆园丁：每晚自动清理，记忆库不再只进不出（2026-07-22，用户「岂不是越来越长」）
+
+自动转正解决了「进」，这条管「出」——纯 SQL 的 pg_cron 夜巡（每晚北京 05:10，`memory_gardener()`，migration 20260722120000），不花模型费、不依赖 APK：① **转正滞留 pending**（>24h，兜 weekly_consolidate 蒸馏产出和残留，修订类 UPDATE 原记忆+embedding 置空重嵌）；② **合并重复**：embedding 余弦相似度 ≥0.93 的未锁定对留 access_count 高者（平局取新），另一条 `archive_memory` 进档案（可恢复），每晚 ≤10 对；③ **休眠归档**：只动 source='auto'、未锁定、120 天没被检索命中（access_count≤1）的，每晚 ≤10 条——**手动添加的记忆永不自动碰**。运行记录进 `memory_gardener_log`。踩坑：函数 `search_path` 必须带 `'extensions'`，否则 pgvector 的 `<=>` 找不到（auto_embed 同款坑）。已试跑通过、cron 已挂。聊天里的 garden_memories/check_memory_health 工具保留——夜巡管例行，小机在对话里管精修。
+
 ## 🤖 记忆闭环三连：自动转正 + 召回解封 + 开场简报（2026-07-22，用户「怎么好用怎么来」）
 
 1. **提取记忆自动转正**（memory-extract 边缘函数 v24，已部署即刻生效）：提取产物不再进 pending 等人肉确认——去重/强化/矛盾裁决三道闸门已在函数里，直接落地：普通条目 INSERT `memories`（`category:自动提取, source:auto`，embedding 由触发器补），修订条目 UPDATE 原记忆（**embedding 置空重嵌**；原记忆没了退化新增）。`memory_entries` 仍写一份 `status='confirmed'` 当审计+去重上下文。存量 10 条 pending 已一次性 SQL 转正。**此前的断层**：检索只搜 `memories`，pending 里的挖矿产出永远搜不到、满 50 还静默停摆——挖矿管线出口是堵的。记忆库页照常可改可删，只是不用点确认了。
