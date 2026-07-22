@@ -2306,6 +2306,28 @@ const App = () => {
           const lastUserMsgIdx = compressionOutcome.recentMessages.reduce(
             (acc, msg, i) => (msg.role === 'user' ? i : acc), -1
           )
+          // 思考链回放上限：只回放最近 N 轮 assistant 的思考。早前几十轮的
+          // 内心独白对当前决策没用，却把每轮 prompt 撑大十几 k（实测 120 条
+          // 窗口里有 53 条各带思考，合计 ~14k token 每轮都在发）。留最近 6
+          // 轮足够维持推理连续性。代价：掉出这 6 轮的那条消息字节变了、缓存
+          // 尾部会多冷写十来条——但换来每轮 prompt 直接小 ~14k，读/冷写都更
+          // 便宜，净赚。稳定前缀（工具/system/摘要/老窗口）不受影响。
+          const THINKING_REPLAY_RECENT_TURNS = 6
+          const thinkingReplayAllowed = new Set<number>()
+          {
+            let seen = 0
+            for (let i = compressionOutcome.recentMessages.length - 1; i >= 0; i--) {
+              const m = compressionOutcome.recentMessages[i]
+              if (
+                m.role === 'assistant' &&
+                Array.isArray(m.meta?.thinkingBlocks) &&
+                m.meta.thinkingBlocks.length > 0
+              ) {
+                thinkingReplayAllowed.add(i)
+                if (++seen >= THINKING_REPLAY_RECENT_TURNS) break
+              }
+            }
+          }
           // Hoisted once per request: which relay signs thinking blocks right
           // now, and whether native thinking replay has been disabled for it
           // (self-healed after a signature/content-type rejection).
@@ -2406,6 +2428,7 @@ const App = () => {
                 message.role === 'assistant' &&
                 reasoningEnabled &&
                 isClaudeModel(effectiveModel) &&
+                thinkingReplayAllowed.has(msgIdx) &&
                 Array.isArray(message.meta?.thinkingBlocks) &&
                 message.meta.thinkingBlocks.length > 0
                   ? message.meta.thinkingBlocks
