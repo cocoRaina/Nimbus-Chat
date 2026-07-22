@@ -288,6 +288,11 @@ export type CompressionSettings = {
   // respects the minimum-messages-for-compression guard because there's
   // no point summarising 3 messages.
   force?: boolean
+  // 压缩前挖矿（2026-07-22）：游标真的要前进时，把即将被揉进散文摘要的
+  // 那段消息（旧游标 → 新游标之间）交给调用方先抽一遍结构化记忆——保证
+  // 内容离开上下文之前被挖过矿。只在重摘要成功、游标确实要动时调用；
+  // fire-and-forget，回调自己兜异常，不阻塞压缩。
+  onCursorAdvance?: (foldedMessages: ChatMessage[]) => void
 }
 
 export type CompressionResult = {
@@ -332,19 +337,21 @@ export const compressIfNeeded = async (
   // is free, so once the user has compressed a conversation we honour it on
   // every send regardless of this estimate — otherwise a manual "压缩对话" got
   // silently ignored at send time and the full history rode along anyway.
+  //
+  // 估算对象是「实际要发送的形状」（2026-07-22 修）：有摘要+游标时是
+  // system+摘要+锚定窗口，没有时才是全史。以前一律对全史估——长会话
+  // （上千条）估算永远爆表，triggerRatio 旋钮完全失真。因此这里只定
+  // 触发线，估算推迟到查完 compression_cache、知道会发什么之后再做。
+  const contextLimit = estimateModelContextLimit(model)
+  const triggerTokens = Math.floor(contextLimit * Math.max(0.1, Math.min(0.95, settings.triggerRatio)))
+  // Prefer the real server prompt size (counts tool schemas + injections the
+  // estimate can't see); fall back to the client estimate when we have no
+  // server reading yet (first turn of a session). Whichever crosses the
+  // trigger wins — the estimate can only ever UNDER-count the true prompt,
+  // so using it as a floor never suppresses a needed compression.
+  const crossesTrigger = (estimatedSentTokens: number): boolean =>
+    Math.max(estimatedSentTokens, settings.lastServerPromptTokens ?? 0) >= triggerTokens
   let overTrigger = settings.force === true
-  if (!overTrigger) {
-    const contextLimit = estimateModelContextLimit(model)
-    const triggerTokens = Math.floor(contextLimit * Math.max(0.1, Math.min(0.95, settings.triggerRatio)))
-    // Prefer the real server prompt size (counts tool schemas + injections the
-    // estimate can't see); fall back to the client estimate when we have no
-    // server reading yet (first turn of a session). Whichever crosses the
-    // trigger wins — the estimate can only ever UNDER-count the true prompt,
-    // so using it as a floor never suppresses a needed compression.
-    const estimated = estimateTokens(systemPromptText) + estimateMessagesTokens(fullHistory)
-    const effectiveSize = Math.max(estimated, settings.lastServerPromptTokens ?? 0)
-    overTrigger = effectiveSize >= triggerTokens
-  }
 
   const oldEndIdx = fullHistory.length - keepRecent - 1
   const oldMessages = fullHistory.slice(0, oldEndIdx + 1)
@@ -375,29 +382,36 @@ export const compressIfNeeded = async (
       )
       if (cacheIdx >= 0) {
         const messagesSinceCache = oldMessages.length - cacheIdx - 1
+        // Anchor the recent window to the compression cursor instead of a
+        // sliding "last N" slice. Two wins:
+        //   1) Cache: the window's first message stays put until the cursor
+        //      advances (next re-summarize), so the BP4/HEAD prefix is byte-
+        //      stable across sends instead of shifting one message per turn.
+        //   2) Continuity: the window starts exactly where the summary ends
+        //      (cursor + 1), so the messages between the old summary boundary
+        //      and a "last N" start can't fall into a gap that's neither
+        //      summarised nor shown. Hard cap is a safety fuse only.
+        const anchored = fullHistory.slice(cacheIdx + 1)
+        const cappedRecent =
+          anchored.length > RECENT_WINDOW_HARD_CAP
+            ? anchored.slice(-RECENT_WINDOW_HARD_CAP)
+            : anchored
+        // 触发估算：按这条请求实际要发的「system+摘要+锚定窗口」算。
+        if (!overTrigger) {
+          overTrigger = crossesTrigger(
+            estimateTokens(systemPromptText) +
+              estimateTokens(cache.summary_text) +
+              estimateMessagesTokens(cappedRecent),
+          )
+        }
         // 窗口条数超限 → 强制过触发线，逼游标前进（见常量处注释）。
-        const anchoredWindowLen = fullHistory.length - cacheIdx - 1
-        if (anchoredWindowLen >= FORCE_RESUMMARIZE_WINDOW_MESSAGES) {
+        if (anchored.length >= FORCE_RESUMMARIZE_WINDOW_MESSAGES) {
           overTrigger = true
         }
         // Use the existing summary as-is when there's little new to fold in,
         // OR whenever we're below the trigger — i.e. don't pay to refine a
         // summary for a small context, but still SEND the one we already have.
         if (messagesSinceCache < MIN_NEW_MESSAGES_BEFORE_RESUMMARIZE || !overTrigger) {
-          // Anchor the recent window to the compression cursor instead of a
-          // sliding "last N" slice. Two wins:
-          //   1) Cache: the window's first message stays put until the cursor
-          //      advances (next re-summarize), so the BP4/HEAD prefix is byte-
-          //      stable across sends instead of shifting one message per turn.
-          //   2) Continuity: the window starts exactly where the summary ends
-          //      (cursor + 1), so the messages between the old summary boundary
-          //      and a "last N" start can't fall into a gap that's neither
-          //      summarised nor shown. Hard cap is a safety fuse only.
-          const anchored = fullHistory.slice(cacheIdx + 1)
-          const cappedRecent =
-            anchored.length > RECENT_WINDOW_HARD_CAP
-              ? anchored.slice(-RECENT_WINDOW_HARD_CAP)
-              : anchored
           return {
             systemPromptText,
             recentMessages: cappedRecent.length > 0 ? cappedRecent : recentMessages,
@@ -409,11 +423,6 @@ export const compressIfNeeded = async (
         newOldMessages = oldMessages.slice(cacheIdx + 1)
         // Precompute the graceful-degradation result (same shape as the
         // reuse-cache path above) in case the re-summarize below fails.
-        const anchored = fullHistory.slice(cacheIdx + 1)
-        const cappedRecent =
-          anchored.length > RECENT_WINDOW_HARD_CAP
-            ? anchored.slice(-RECENT_WINDOW_HARD_CAP)
-            : anchored
         cachedFallback = {
           systemPromptText,
           recentMessages: cappedRecent.length > 0 ? cappedRecent : recentMessages,
@@ -426,6 +435,12 @@ export const compressIfNeeded = async (
     console.warn('compression cache 读取失败，按未压缩处理', error)
   }
 
+  // 没有可用摘要/游标：实际会发送的就是全史，对全史估算。
+  if (!overTrigger) {
+    overTrigger = crossesTrigger(
+      estimateTokens(systemPromptText) + estimateMessagesTokens(fullHistory),
+    )
+  }
   // No usable summary yet, and the context is still small (and not forced) —
   // leave history uncompressed rather than paying to summarise prematurely.
   if (!overTrigger) {
@@ -457,6 +472,15 @@ export const compressIfNeeded = async (
   }
 
   void saveCompressionCache(conversationId, summary, boundaryMessageId)
+  // 游标已确定前进：newOldMessages 正是这次被揉进摘要、即将离开上下文的
+  // 消息段，交给调用方挖矿（抽结构化记忆）。
+  if (settings.onCursorAdvance && newOldMessages.length > 0) {
+    try {
+      settings.onCursorAdvance(newOldMessages)
+    } catch (error) {
+      console.warn('压缩挖矿回调失败（不影响压缩本身）', error)
+    }
+  }
 
   return {
     systemPromptText,

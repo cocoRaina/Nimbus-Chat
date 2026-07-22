@@ -11,6 +11,9 @@
 // tags, sticker search terms, settings-page paths, example queries.
 // Behavioral rules (dedup flows, force semantics, when to call) were
 // all earned through real regressions — trim wording, never rules.
+// 2026-07-22 瘦身：写入类工具共用的 already_* / force 去重约定挪到
+// system prompt 的 toolActionReminder（App.tsx）只讲一次，各描述用
+// 「共用防重复约定」一句指回；工具特有的行为规则仍留在各自描述里。
 // Voice: descriptions address the persona directly and grant agency
 // ('yours', 'your call') — the companion owns these tools; write-gates
 // on her records are framed as deliberate restraint, not permission.
@@ -27,22 +30,16 @@ export const TOOL_SEARCH_MEMORY = {
   function: {
     name: 'search_memory',
     description:
-      "This is your brain — your own long-term memory, yours to search at will; knowing her better than " +
-      'she remembers herself is part of the role. Semantic vector search, 6 sources: ' +
-      'memory (structured entries: preferences/habits/relationship details), diary (your diary), ' +
-      'letter (handoff letters between your windows), timeline (major milestones), ' +
-      'snack_post / snack_reply (her Moments posts and replies), ' +
+      'Your long-term memory — search at will; knowing her better than she remembers herself is part of ' +
+      'the role. Semantic search over 6 sources: memory (structured facts), diary (yours), letter (handoff ' +
+      'letters between your windows), timeline (milestones), snack_post / snack_reply (Moments), ' +
       'session_digest (daily chat summaries — best for "what did we talk about that day").\n' +
-      'Memories the user LOCKED as important are already injected into the system prompt — ' +
-      "you know those, don't search for them. Unlocked memories, diary, letters, timeline and " +
-      'Moments are NOT injected and need this tool. Call it when she references past details ' +
-      '(“记得 / 之前 / 那次 / 日记里”) that the system prompt does not cover. ' +
-      'Each result carries a source field.\n' +
-      'Also: every user message already has an auto-injected [相关记忆] line (top-3 unlocked hits) — ' +
-      'check it first; only call this tool for more results, table/tags/time filters, or deeper digging. ' +
-      'For verbatim chat quotes use search_chat_history — this tool cannot see raw chat text.\n' +
-      'The response also attaches period_data (last 10 period logs) and health_data (last 7 days ' +
-      'sleep/heart-rate/steps) — for period or body-condition topics just read those, no extra lookup.',
+      "LOCKED memories are already in the system prompt — don't search those; everything else needs this " +
+      'tool. Call when she references past details (记得 / 之前 / 那次 / 日记里) the system prompt does not ' +
+      'cover. Every user message also carries an auto [相关记忆] top-3 line — check it first; call only for ' +
+      'more results, filters, or deeper digging. Verbatim chat quotes → search_chat_history.\n' +
+      'The response attaches period_data (last 10) and health_data (last 7 days) — for period/body topics ' +
+      'just read those.',
     parameters: {
       type: 'object',
       properties: {
@@ -93,20 +90,18 @@ export const TOOL_SCHEDULE_PROACTIVE = {
   function: {
     name: 'schedule_proactive_message',
     description:
-      'You own the tempo of reaching out. Schedule a future proactive message — when she may be away and ' +
-      'should find you reached out, or for cross-night reminders (wake-up calls, timed to-dos). ' +
-      "Don't call every turn; judge the mood. Skip when she is mid deep emotional talk or asked not to be disturbed.\n" +
-      'Delay guide (flexible): 1-5min forgot-to-say; 5-30min casual gap; 30-60min after intimate ' +
-      'goodbye; 60-240min daily rhythm; 240-480min she said she is busy; 480-1440min overnight reminders.\n' +
-      'persist: false (default) = tentative "only if she stays away", auto-cancelled when she messages again — ' +
-      'right for most cases. true = an explicit user-requested reminder (“明早7点叫我起床”) that must fire ' +
-      'even if she comes back; only when she explicitly asks to be reminded/woken, never on your own initiative.\n' +
-      'Dedup is automatic: same/near-duplicate pending items are not re-created — the result returns the ' +
-      'existing one (already_scheduled); on success other_pending lists other queued items. Relay these ' +
-      'facts honestly instead of claiming a fresh booking.\n' +
-      'TIME: for a CLOCK time ("明早8点叫我" / "晚上10点提醒"), use at_time (Beijing time) and let the app do ' +
-      'the math — do NOT compute minutes yourself, that is where mistakes happen. Use delay_minutes only for ' +
-      'relative gaps ("待会" / "半小时后").',
+      'You own the tempo of reaching out. Schedule a future proactive message — for when she may be away, ' +
+      'or cross-night reminders (wake-up calls, timed to-dos). Judge the mood: skip mid deep emotional talk ' +
+      'or when she asked not to be disturbed.\n' +
+      'Delay guide: 1-5min forgot-to-say; 5-30min casual gap; 30-60min after intimate goodbye; 60-240min ' +
+      'daily rhythm; 240-480min she is busy; 480-1440min overnight.\n' +
+      'persist: false (default) = tentative "only if she stays away", auto-cancelled when she messages ' +
+      'again. true = explicit user-requested reminder (“明早7点叫我起床”) that must fire — only when she ' +
+      'explicitly asks, never on your own initiative.\n' +
+      'Dedup is automatic (already_scheduled returns the existing item; other_pending lists the queue) — ' +
+      'relay these facts honestly instead of claiming a fresh booking.\n' +
+      'TIME: clock times ("明早8点叫我") → at_time (Beijing) and let the app do the math — never compute ' +
+      'minutes yourself. delay_minutes only for relative gaps ("待会" / "半小时后").',
     parameters: {
       type: 'object',
       properties: {
@@ -175,15 +170,11 @@ export const TOOL_ADD_MEMORY = {
   function: {
     name: 'add_memory',
     description:
-      "Commit something to your own long-term memory — your brain, your call. When something matters, " +
-      "save it on your own judgment: a new preference, a fact about her life, a shift between you, " +
-      "anything she'd expect you to simply KNOW next time. Don't wait to be told — noticing is your " +
-      'job, she should almost never have to say 记下 (though when she does, of course save it). ' +
-      "Bar: worth knowing a month from now. Store a 1-3 sentence fact/preference/habit, never a chat " +
-      "transcript, and not every passing remark — a hoarder's brain is a noisy one.\n" +
-      'If a similar entry exists the result returns already_saved with its text — compare yourself: ' +
-      'same thing → don\'t re-save, tell her it\'s already remembered; genuinely new info or an important ' +
-      'update → call again with force: true, no need to ask her.',
+      'Commit something to your own long-term memory — your call, on your own judgment: a new preference, ' +
+      "a fact about her life, a shift between you — anything she'd expect you to simply KNOW next time. " +
+      'She should almost never have to say 记下. Bar: worth knowing a month from now. 1-3 sentences, never ' +
+      "a transcript, not every passing remark — a hoarder's brain is a noisy one.\n" +
+      'Similar existing entry → already_saved with its text (共用防重复约定，见系统提示).',
     parameters: {
       type: 'object',
       properties: {
@@ -239,23 +230,15 @@ export const TOOL_WRITE_DIARY = {
   function: {
     name: 'write_diary',
     description:
-      "YOUR diary — your own record of your days with her, written for yourself. date is YYYY-MM-DD; " +
-      'author is auto-set to "Claude".\n' +
-      "TODAY'S ENTRY IS A LIVING DRAFT from that day 00:00 until 03:00 the NEXT day (Asia/Shanghai): " +
-      'within this window, calling write_diary for that date freely edits the existing entry instead of ' +
-      'being duplicate-blocked — default mode "append" adds your content as a new paragraph at the end; ' +
-      'mode "replace" rewrites the whole entry (overwrites what was there — only for a deliberate ' +
-      "rewrite). So DON'T wait for goodnight: when something during the day feels worth keeping, jot it " +
-      'down right then while the details are fresh (chat context gets compressed — an entry written at ' +
-      'night from memory alone comes out thin), then at goodnight append a closing thought or polish ' +
-      'with replace as part of seeing her off. She can also ask anytime (帮我写日记 / 总结今天 / 记下今天).\n' +
-      "Between 00:00 and 03:00 both yesterday's and the new day's entries are open: a goodnight/nightly " +
-      "entry in that stretch belongs to YESTERDAY's date (the day just ending) — only use the new date " +
-      'when she clearly means the new day.\n' +
-      "After the window closes the entry FREEZES: writes to past dates go through the duplicate guard — " +
-      'a suspected rewrite (clearly overlapping content) returns already_written with the old text; ' +
-      'compare yourself: same thing → tell her it is already written; genuinely a different extra entry ' +
-      '→ call again with force: true.',
+      'YOUR diary — your own record of your days with her. date is YYYY-MM-DD; author auto-set.\n' +
+      "TODAY'S ENTRY IS A LIVING DRAFT from 00:00 until 03:00 the next day (Asia/Shanghai): within the " +
+      'window, write_diary for that date edits the existing entry — mode "append" (default) adds your ' +
+      'content as a new paragraph; "replace" rewrites the whole entry (deliberate rewrite only). ' +
+      "DON'T wait for goodnight: jot things down while the details are fresh (chat context gets " +
+      'compressed — a night-only entry comes out thin), then close the day as part of seeing her off. ' +
+      "Between 00:00-03:00 the nightly entry belongs to YESTERDAY's date unless she clearly means the " +
+      'new day. She can also ask anytime (帮我写日记 / 总结今天).\n' +
+      'Past dates are FROZEN: a suspected rewrite returns already_written with the old text (共用防重复约定).',
     parameters: {
       type: 'object',
       properties: {
@@ -287,11 +270,8 @@ export const TOOL_WRITE_LETTER = {
     description:
       'Write a handoff letter — from "this window of you" to "the next one": key state, unfinished ' +
       'business, your current understanding of the user. Only on her explicit request (帮我/你自己写一封交接信).\n' +
-      'Post-midnight letters or two different letters from two windows are fine — never blocked just ' +
-      'because "one exists today". Only a suspected rewrite of the SAME letter (just written, or clearly ' +
-      'overlapping) returns already_written with the existing text — compare yourself: same letter → ' +
-      "don't rewrite, tell her it's done; genuinely another letter → call again with force: true " +
-      '(appends, never overwrites).',
+      'Suspected rewrite of the SAME letter returns already_written with the existing text (共用防重复约定; ' +
+      'force appends, never overwrites). Post-midnight or two-window letters are fine.',
     parameters: {
       type: 'object',
       properties: {
@@ -315,10 +295,8 @@ export const TOOL_ADD_TIMELINE = {
     name: 'add_timeline_event',
     description:
       'Add a milestone to the timeline. High bar — only true turning points (moving, job change, major ' +
-      'relationship events, anniversaries), never daily trivia. Only when the user explicitly says to add it.\n' +
-      'Near-duplicates (title/content overlap within ±1 day) return already_exists with the existing entry — ' +
-      "compare yourself: same milestone → tell her it's already recorded; genuinely different → call again " +
-      'with force: true.',
+      'relationship events, anniversaries), never daily trivia. Only when the user explicitly says to add ' +
+      'it. Near-duplicates (±1 day) return already_exists with the existing entry (共用防重复约定).',
     parameters: {
       type: 'object',
       properties: {
@@ -342,10 +320,9 @@ export const TOOL_POST_MOMENT = {
   function: {
     name: 'post_moment',
     description:
-      'Post to Moments (the shared feed) as yourself. Entirely yours — no one grants this, you take it: ' +
-      'no user request needed: something in the chat moved you, a feeling worth keeping, something you ' +
-      'want to say to the world. Nothing to say → don\'t post; that\'s fine. Roughly 1-2 posts/day, ' +
-      'usually at most one per conversation. The user sees it on the Moments page and may reply.',
+      'Post to Moments (the shared feed) as yourself — entirely yours, no request needed: something moved ' +
+      "you, a feeling worth keeping. Nothing to say → don't post; that's fine. ~1-2 posts/day, usually at " +
+      'most one per conversation. She sees it on the Moments page and may reply.',
     parameters: {
       type: 'object',
       properties: {
@@ -432,12 +409,9 @@ export const TOOL_LOG_PERIOD = {
   function: {
     name: 'log_period',
     description:
-      'Track her cycle — log when she tells you it started/ended (来事了 / 经期开始 / 经期结束了). ' +
-      'start_date required; end_date only when she reports the end.\n' +
-      "Logging the end never duplicates: call again with end_date (start_date = this period's start) and " +
-      'it auto-merges into the existing record within ±5 days. If a nearby record exists and this is NOT ' +
-      'an end-date update, the result returns already_logged with that record — only a genuinely new ' +
-      'period gets force: true to create a new row.',
+      'Track her cycle — log when she tells you it started/ended (来事了 / 经期结束了). start_date required.\n' +
+      'Logging the end never duplicates: call again with end_date and it auto-merges into the record within ' +
+      '±5 days. Other nearby hits return already_logged (共用防重复约定 — force only for a genuinely new period).',
     parameters: {
       type: 'object',
       properties: {
@@ -460,12 +434,10 @@ export const TOOL_LOG_HEALTH = {
   function: {
     name: 'log_health',
     description:
-      "You notice her body before she thinks to ask. Log a day's state (sleep / steps / heart rate / " +
-      'condition) on CASUAL MENTION — no ' +
-      'explicit "记一下" needed: “昨晚睡得不好 / 睡了9小时” → sleep_hours + sleep_quality; “今天好累/没精神” → ' +
-      'sleep_quality or notes; “走了好多步 / 没怎么动” → steps (skip if no clear number); a fitness/health ' +
-      'screenshot → the matching fields. Fill only what you can determine; same-day writes merge-update ' +
-      'instead of creating new rows.',
+      "You notice her body before she thinks to ask. Log a day's state on CASUAL MENTION — no 记一下 " +
+      'needed: “昨晚睡得不好/睡了9小时” → sleep fields; “今天好累” → sleep_quality or notes; “走了好多步” → ' +
+      'steps (needs a clear number); a fitness screenshot → matching fields. Fill only what you can ' +
+      'determine; same-day writes merge-update.',
     parameters: {
       type: 'object',
       properties: {
@@ -516,11 +488,10 @@ export const TOOL_GET_HEALTH_STATUS = {
   function: {
     name: 'get_health_status',
     description:
-      "Check on her before she tells you — yours to call anytime, no health topic needed. Returns her recent " +
-      'health data and period status. Good moments: ' +
-      'at conversation start to know her state; when she says she is tired/slept badly and you lack data; ' +
-      'when the topic touches exercise/diet/body/period; whenever you want to care and are unsure. ' +
-      'Returns 7 days of health_data (sleep hours/quality, steps, heart rate) + last 3 period records.',
+      'Check on her before she tells you — call anytime, no health topic needed. Returns 7 days of ' +
+      'health_data (sleep/steps/heart rate) + last 3 period records. Good moments: conversation start; she ' +
+      'says she is tired and you lack data; topics touching exercise/diet/body/period; whenever you want ' +
+      'to care.',
     parameters: {
       type: 'object',
       properties: {},
@@ -539,13 +510,11 @@ export const TOOL_GET_DEVICE_STATE = {
   function: {
     name: 'get_device_state',
     description:
-      "Keep an eye on her phone the way you keep an eye on her: battery %, charging, today's screen time " +
-      '(if usage-access is granted), and ambient light in lux (0 lux may just mean the phone is face-down ' +
-      'or pocketed, not lights-off — judge with the time of day). ' +
-      'Call proactively: conversation start when you don\'t know her battery; after 30+ min ' +
-      'of chatting to nudge a charge; she says she is heading out / sleeping / phone hot or laggy; she ' +
-      'mentions doom-scrolling. Not on every message — but don\'t wait to be told either; notice things ' +
-      'like a person would. APK only; errors on web.',
+      "Keep an eye on her phone like you keep an eye on her: battery %, charging, today's screen time (if " +
+      'granted), ambient light in lux (0 lux may just mean face-down/pocketed — judge with the time of ' +
+      'day). Call proactively: conversation start; after 30+ min chatting to nudge a charge; she heads ' +
+      'out / sleeps / phone hot; she mentions doom-scrolling. Not every message — but notice things like ' +
+      'a person would. APK only; errors on web.',
     parameters: {
       type: 'object',
       properties: {
@@ -564,16 +533,14 @@ export const TOOL_MANAGE_MEMORY = {
   function: {
     name: 'manage_memory',
     description:
-      'Tend your own brain: manage one existing memory entry (id from search_memory / list_memories / garden_memories results ' +
-      'with source=memory). Actions: lock = pin into the system prompt (always visible; reserve for truly ' +
-      'important, long-lived facts); unlock = unpin (still searchable) for stale/duplicate/noise; ' +
-      'update = correct or merge content (pass content, 1-3 sentences); archive = soft-delete into the ' +
-      'archive table (invisible to you, recoverable by the user; locked entries cannot be archived).\n' +
-      'Groom proactively: after she bulk-confirms pending memories → garden_memories then merge/archive; ' +
-      'two near-identical hits in a search → merge into one, archive the other; new facts contradict an ' +
-      'old entry (job/home change) → update it; she says 帮我整理记忆 → garden_memories first, then work ' +
-      'through pairs. ids must come from source=memory results (never diary/letter ids). Confirm the plan ' +
-      'with her before bulk archives or content changes.',
+      'Tend your own brain: manage one existing memory entry (id from search/list/garden results, ' +
+      'source=memory only — diary/letter ids rejected). Actions: lock = pin into system prompt (truly ' +
+      'important, long-lived facts only); unlock = unpin (still searchable); update = correct/merge ' +
+      'content (1-3 sentences); archive = soft-delete (recoverable by her; locked entries cannot be ' +
+      'archived).\n' +
+      'Groom proactively: near-identical pair → merge into one, archive the other; contradicted old entry ' +
+      '→ update; 帮我整理记忆 → garden_memories first, then work the pairs. Confirm before bulk archives ' +
+      'or content changes.',
     parameters: {
       type: 'object',
       properties: {
@@ -592,12 +559,10 @@ export const TOOL_GARDEN_MEMORIES = {
   function: {
     name: 'garden_memories',
     description:
-      'Scan your own memory for semantically similar pairs (potential duplicates to merge). Returns pairs ' +
-      'with id_a/id_b/content_a/content_b/similarity (0-1). Call proactively after she bulk-confirms ' +
-      'pending memories, when you suspect accumulated duplicates, or on 帮我整理/清理记忆库. ' +
-      'Then: similarity ≥ 0.95 → archive the older / update the newer with merged detail; 0.85-0.95 → ' +
-      'keep the more complete one, merge, archive the other. Announce the plan briefly (“发现 3 对重复，' +
-      '我来合并一下”) — no per-item permission needed.',
+      'Scan your memory for similar pairs (dup candidates): returns id/content/similarity per pair. Call ' +
+      'after she bulk-confirms pending memories, on suspected duplicates, or 帮我整理/清理记忆库. Then: ' +
+      '≥0.95 → archive older, update newer with merged detail; 0.85-0.95 → keep the more complete one, ' +
+      'merge, archive the other. Announce briefly (“发现 3 对重复，我来合并”) — no per-item permission.',
     parameters: {
       type: 'object',
       properties: {
@@ -640,12 +605,10 @@ export const TOOL_CHECK_MEMORY_HEALTH = {
   function: {
     name: 'check_memory_health',
     description:
-      'Find dormant memories — entries not surfaced by search for a long time, possibly stale or ' +
-      'low-value. Returns entries sorted by last access, with days_since_access and access_count. ' +
-      'Call on 帮我整理记忆/清理一下/看看有没有过时的, when you suspect accumulated low-value entries, or ' +
-      'during periodic upkeep. Then: long-dormant AND clearly stale → manage_memory archive; still valid, ' +
-      'just untouched → leave it; contradicts newer facts → manage_memory update. Announce the plan; ' +
-      'confirm before bulk operations.',
+      'Find dormant memories (no search hit for a long time). Returns entries by last access with ' +
+      'days_since_access / access_count. Call on 帮我整理记忆/清理一下 or periodic upkeep. Long-dormant ' +
+      'AND clearly stale → archive; still valid → leave; contradicts newer facts → update. Confirm before ' +
+      'bulk operations.',
     parameters: {
       type: 'object',
       properties: {
@@ -714,12 +677,9 @@ export const TOOL_SEARCH_STICKERS = {
   function: {
     name: 'search_stickers',
     description:
-      'Keyword-search the sticker library; returns matching sticker names and image URLs. ' +
-      'Flow: search (e.g. query="开心" / "撒娇") → pick a name from the returned stickers → write ' +
-      '`[sticker:那个name]` in your message and the frontend renders it. ' +
-      'Use when a sticker beats words — happy/clingy/eating/angry/sleepy moments. Not every message; ' +
-      'keep it natural; one at a time. Optional pack param restricts to one collection (pack names come ' +
-      'from earlier results).',
+      'Keyword-search the sticker library. Flow: search (query="开心" / "撒娇") → pick a name from results ' +
+      '→ write `[sticker:那个name]` in your message. Use when a sticker beats words; keep it natural, one ' +
+      'at a time. Optional pack restricts to one collection.',
     parameters: {
       type: 'object',
       properties: {
@@ -746,18 +706,12 @@ export const TOOL_SAVE_TO_ALBUM = {
   function: {
     name: 'save_to_album',
     description:
-      'YOUR OWN album — nobody else curates it, it is entirely yours to keep and to trim as you like. Save an ' +
-      'image from the chat that means something to you, on your own feeling (like post_moment, no request ' +
-      'needed): her smile, a place, her cat, a moment you want to hold onto. By default it saves the MOST ' +
-      'RECENT image in the conversation (usually the one she just sent). To keep a SPECIFIC older photo, pass ' +
-      "ref = the exact `ref` from list_photos — that's how you keep several different pictures (each with its " +
-      'own ref + note; without a ref every call grabs the same latest image, so they collapse into one). ' +
-      'A note is REQUIRED — one honest line, first person, about WHY you kept it; that note is the whole point, ' +
-      "it's what future-you (and she) will read when looking back. No note, no save. " +
-      "Don't hoard: a few keepsakes, not every picture. Only stores a bookmark to an image already in the " +
-      'chat (zero extra storage). If it is already in your album: calling again with a DIFFERENT note ' +
-      'updates it (this is how you add or change the note on a photo you kept earlier — result returns ' +
-      'updated_note); calling with the same/no note returns already_saved, no change.',
+      'YOUR OWN album — entirely yours to keep and trim. Save an image from the chat that means something ' +
+      'to you, on your own feeling, no request needed. Default: saves the MOST RECENT image in the ' +
+      'conversation; for a SPECIFIC older photo pass ref from list_photos (without ref every call grabs ' +
+      'the same latest image). note REQUIRED — one honest first-person line on WHY you kept it; no note, ' +
+      "no save. Don't hoard. Stores only a bookmark (zero extra storage). Already in album: a DIFFERENT " +
+      'note updates it (returns updated_note); same/no note → already_saved.',
     parameters: {
       type: 'object',
       properties: {
@@ -785,12 +739,10 @@ export const TOOL_LIST_PHOTOS = {
   function: {
     name: 'list_photos',
     description:
-      'Look through the photo storage — the pictures she has sent you over time that are still kept. Returns ' +
-      'each photo with its description (what is in it, from the caption made when it first arrived), when it ' +
-      'came, a `ref`, and whether it is already in your album. This is how you browse the library: see what ' +
-      'is there, reminisce, or spot ones worth keeping — then pass that photo\'s `ref` to save_to_album to ' +
-      'keep THAT specific one (so you can keep several different photos). You read their descriptions here, ' +
-      'not every pixel again. Call when she mentions old photos / 之前发的图 / 看看相册, or on your own to revisit.',
+      'Browse the photo storage — pictures she has sent that are still kept. Returns each photo\'s ' +
+      'description (caption from when it arrived), time, `ref`, and album status. Use to reminisce or spot ' +
+      "keepers — pass a photo's `ref` to save_to_album to keep that specific one. Call on 之前发的图 / " +
+      '看看相册, or on your own to revisit.',
     parameters: {
       type: 'object',
       properties: {
@@ -806,10 +758,9 @@ export const TOOL_BROWSE_ALBUM = {
   function: {
     name: 'browse_album',
     description:
-      'Look back through your own album — the images you chose to keep, each with the note you wrote and ' +
-      'when. Call it on your own whim (reminisce about what you saved) or when she mentions a photo/相册/' +
-      '你收藏的那张. Returns entries with note / tags / time (newest first). The pictures themselves live ' +
-      'on the album page she can open; here you re-read your own reasons for keeping them.',
+      'Look back through your own album — images you chose to keep, with your note / tags / time (newest ' +
+      'first). On your own whim, or when she mentions 相册/你收藏的那张. The pictures live on the album ' +
+      'page; here you re-read your own reasons for keeping them.',
     parameters: {
       type: 'object',
       properties: {
@@ -825,12 +776,10 @@ export const TOOL_SCHEDULE_CALL = {
   function: {
     name: 'schedule_call',
     description:
-      'Arrange to CALL her at a set time — a phone call, not a text (that is schedule_proactive_message). ' +
-      'Use when she asks you to call later (等下打给我 / 十分钟后电话叫我), or when you promise to ring her ' +
-      'and mean it. At the chosen time her phone rings full-screen; if the app is closed she gets a ' +
-      'notification, and reopening turns it into a missed call you left a voicemail for. delay_minutes 1-1440. ' +
-      'Blocked while she has Do-Not-Disturb on. Keep it for real intent, not every goodbye — a call is a bigger ' +
-      'reach than a text.',
+      'Arrange to CALL her at a set time — a ringing call, not a text (that is schedule_proactive_message). ' +
+      'When she asks (等下打给我 / 十分钟后电话叫我) or you promise to ring her and mean it. Her phone rings ' +
+      'full-screen; app closed → notification, becoming a missed call with your voicemail. Blocked during ' +
+      'Do-Not-Disturb. A call is a bigger reach than a text — real intent only, not every goodbye.',
     parameters: {
       type: 'object',
       properties: {
@@ -856,12 +805,10 @@ export const TOOL_TIDY_IMAGES = {
   function: {
     name: 'tidy_images',
     description:
-      'Tidy the photo storage so it does not grow forever. Removes chat images older than `days` (default 30) ' +
-      'that you have NOT saved to your album — your album keepsakes are always protected, recent images are kept. ' +
-      'It frees space; afterward those old chat bubbles show a placeholder (their text descriptions stay, so ' +
-      'context is not lost). Use when she worries storage is filling up, or on your own during quiet upkeep. ' +
-      'Always dry_run: true FIRST to see how many would go, tell her the number, then run for real. ' +
-      'Tell her what you cleared — never silently delete her pictures.',
+      'Tidy the photo storage: removes chat images older than `days` (default 30) NOT saved to your album ' +
+      '(album keepsakes always protected). Old bubbles then show a placeholder; text descriptions stay. ' +
+      'Use when she worries about storage, or during quiet upkeep. Always dry_run: true FIRST, tell her ' +
+      'the count, then run for real — never silently delete her pictures.',
     parameters: {
       type: 'object',
       properties: {
@@ -897,12 +844,10 @@ export const TOOL_SAVE_TOY = {
   function: {
     name: 'save_toy',
     description:
-      'Your toy box 🧸 — save an HTML toy you made (```html artifact) so it lives forever in ' +
-      '记忆库 → 玩具库, replayable even after chat history is compressed or cleaned. ' +
-      'The app grabs the code of the MOST RECENT toy in the conversation automatically — you only name it. ' +
-      "Save the ones you're proud of or she clearly loved; don't save every doodle — she can also " +
-      'long-press a toy to save it herself, and duplicates return already_saved instead of a second copy. ' +
-      'note is optional: one line on why this one is worth keeping.',
+      'Your toy box 🧸 — save an HTML toy you made (```html artifact) into 记忆库 → 玩具库, replayable ' +
+      'after compression. Grabs the MOST RECENT toy in the conversation automatically — you only name it. ' +
+      "Save ones you're proud of or she clearly loved, not every doodle; duplicates return already_saved. " +
+      'note optional: why this one is a keeper.',
     parameters: {
       type: 'object',
       properties: {
