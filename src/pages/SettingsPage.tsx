@@ -1817,7 +1817,7 @@ const SettingsPage = ({
               </label>
             </div>
             <div className="field-group">
-              <label htmlFor="chatHighReasoningEnabled">聊天：高触发 Thinking（仅 GPT-5.1/5.2）</label>
+              <label htmlFor="chatHighReasoningEnabled">聊天：深度思考（更长的思考链）</label>
               <label className="toggle-control">
                 <input
                   id="chatHighReasoningEnabled"
@@ -1828,7 +1828,7 @@ const SettingsPage = ({
                 <span>{draftChatHighReasoning ? '已开启' : '已关闭'}</span>
               </label>
             </div>
-            <p className="field-help">对所有支持 reasoning 的模型生效。开启后会附加 reasoning: effort=high 参数（可能更慢/更耗费）。Claude 系列默认就带，此开关主要给其他模型用。</p>
+            <p className="field-help">开启后，面向你的回复会用大得多的思考预算：Claude 会真正展开推理（预算 2000→12000），其他模型附加 reasoning: effort=high。遇到需要细想的话题思考更深；简单消息仍然简短（预算只是上限，不会平白多花钱），但复杂回复会更慢一些。</p>
           </div>
         ) : null}
       </section>

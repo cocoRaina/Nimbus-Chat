@@ -4,6 +4,10 @@
 
 ---
 
+## 🧠 深度思考档接通 Claude：思考预算 2000→12000（2026-07-22，用户「思考链很短，能强制思考吗」）
+
+用户观察准：思考不是缺席，是「想两句就收」。查因：`App.tsx` 里 Claude 的思考预算全程写死 **2000 token**（工具决策轮 + 最终回复都是），而那个能开大的开关 `chatHighReasoningEnabled` 当时**只对 GPT 生效、对 Claude 是死代码**（`thinkingActive` 分支永远先命中，走不到 effort:high 那条）。修：把开关接通到 Claude——开启后**面向用户的回复**（iteration===1 及工具收尾）用 `deepReplyBudget=12000`，纯工具决策的中间轮维持 2000（那种「看一眼结果决定下一步」不需要长思考、也省钱）。设置项从「高触发 Thinking（仅 GPT-5.1/5.2）」改名「深度思考（更长的思考链）」，帮助文案说清 Claude 生效。**诚实边界**：预算是上限不是下限，没法「强制」每条都想很长——简单消息模型自己只用几百 token（这是对的）；抬高上限只是让需要细想的话题能真正展开。成本：budget 是 request 参数、不进缓存前缀，2000↔12000 切换不冷写；只有模型真用满时才多花钱+更慢。开关默认关、从本地 prefs 读（DB 值不驱动加载），用户需在「设置→思考链」自行打开。需新 APK。
+
 ## 🌿 记忆园丁：每晚自动清理，记忆库不再只进不出（2026-07-22，用户「岂不是越来越长」）
 
 自动转正解决了「进」，这条管「出」——纯 SQL 的 pg_cron 夜巡（每晚北京 05:10，`memory_gardener()`，migration 20260722120000），不花模型费、不依赖 APK：① **转正滞留 pending**（>24h，兜 weekly_consolidate 蒸馏产出和残留，修订类 UPDATE 原记忆+embedding 置空重嵌）；② **合并重复**：embedding 余弦相似度 ≥0.93 的未锁定对留 access_count 高者（平局取新），另一条 `archive_memory` 进档案（可恢复），每晚 ≤10 对；③ **休眠归档**：只动 source='auto'、未锁定、120 天没被检索命中（access_count≤1）的，每晚 ≤10 条——**手动添加的记忆永不自动碰**。运行记录进 `memory_gardener_log`。踩坑：函数 `search_path` 必须带 `'extensions'`，否则 pgvector 的 `<=>` 找不到（auto_embed 同款坑）。已试跑通过、cron 已挂。聊天里的 garden_memories/check_memory_health 工具保留——夜巡管例行，小机在对话里管精修。

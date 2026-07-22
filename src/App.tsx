@@ -2800,12 +2800,22 @@ TOOL_SEARCH_HANDOFF,
             // replaces. Quality also improves: intermediate tool-decision turns
             // and the final reply both now get extended reasoning.
             const toolThinkingBudget = 2000
+            // 深度思考档（chatHighReasoningEnabled，2026-07-22 接通到 Claude）：
+            // 面向用户的首轮回复（iteration===1，多数情况就是最终回复）给大预算，
+            // 让它遇到需要深想的话题能真正展开；纯工具决策轮（iteration≥2）维持
+            // 2000——「看一眼工具结果决定下一步」不需要长思考。预算是上限不是下限，
+            // 简单消息模型自己只用几百 token，不会平白涨钱，只是复杂回复更深/更慢。
+            const deepReplyBudget = 12000
             const thinkingActive = reasoningEnabled && isClaudeModel(effectiveModel)
             if (thinkingActive) {
-              requestBody.reasoning = { max_tokens: toolThinkingBudget }
+              const budget =
+                activeSettings.chatHighReasoningEnabled && iteration === 1
+                  ? deepReplyBudget
+                  : toolThinkingBudget
+              requestBody.reasoning = { max_tokens: budget }
               const currentMaxTokens =
                 typeof requestBody.max_tokens === 'number' ? requestBody.max_tokens : 0
-              requestBody.max_tokens = Math.max(currentMaxTokens, toolThinkingBudget + 1024)
+              requestBody.max_tokens = Math.max(currentMaxTokens, budget + 1024)
               delete requestBody.temperature
               delete requestBody.top_p
             } else if (reasoningEnabled && activeSettings.chatHighReasoningEnabled && iteration === 1) {
@@ -4442,7 +4452,8 @@ TOOL_SEARCH_HANDOFF,
               // it was skipped on tool iterations 2-4 to save cost, but
               // the user-facing answer benefits from reasoning.
               if (reasoningEnabled && isClaudeModel(effectiveModel)) {
-                const thinkingBudget = 2000
+                // 收尾回复也吃深度思考档：这是工具跑完后真正面向用户的合成。
+                const thinkingBudget = activeSettings.chatHighReasoningEnabled ? 12000 : 2000
                 finalBody.reasoning = { max_tokens: thinkingBudget }
                 const currentMax =
                   typeof finalBody.max_tokens === 'number' ? finalBody.max_tokens : 0

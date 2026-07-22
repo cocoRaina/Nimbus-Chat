@@ -1545,7 +1545,7 @@ const ChatPage = ({
     if (!isClaude) {
       return highReasoningEnabled
         ? null
-        : '当前模型不是 Claude，思考链需在「设置 → 思考链」打开「高触发 Thinking」才会附加。'
+        : '当前模型不是 Claude，思考链需在「设置 → 思考链」打开「深度思考」才会附加。'
     }
     const provider = getActiveProvider()
     const format = provider === 'openrouter' ? getOpenRouterFormat() : getMsuicodeFormat()
