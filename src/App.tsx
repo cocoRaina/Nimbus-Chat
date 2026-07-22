@@ -2487,14 +2487,7 @@ const App = () => {
           // 轮足够维持推理连续性。代价：掉出这 6 轮的那条消息字节变了、缓存
           // 尾部会多冷写十来条——但换来每轮 prompt 直接小 ~14k，读/冷写都更
           // 便宜，净赚。稳定前缀（工具/system/摘要/老窗口）不受影响。
-          //
-          // 深度思考档随预算联动（2026-07-22，用户查账实锤）：深度思考把每段
-          // 思考从 ~2k 顶到 ~5k+，6 轮回放 ≈30k、且坐在缓存断点之后的尾部按
-          // 全价 uncached 每轮重付——实测 prompt 从 28k 涨到 69k、uncached 稳
-          // 涨到 30k。回放本是「锦上添花」的跨轮连续性，不值这个价。所以深度
-          // 思考开启时回放收敛到最近 2 轮：既保当前推理的连续性，又把这层
-          // uncached 从 ~30k 压到 ~10k。常规档（小预算）仍留 6 轮。
-          const THINKING_REPLAY_RECENT_TURNS = activeSettings.chatHighReasoningEnabled ? 2 : 6
+          const THINKING_REPLAY_RECENT_TURNS = 6
           const thinkingReplayAllowed = new Set<number>()
           {
             let seen = 0
@@ -2806,23 +2799,18 @@ TOOL_SEARCH_HANDOFF,
             // cost (~¥0.10) is far below the cold-write cost (~¥1.43) it
             // replaces. Quality also improves: intermediate tool-decision turns
             // and the final reply both now get extended reasoning.
+            // 固定 2000 思考预算（2026-07-22 删掉 Claude 深度思考档）：实测把
+            // 预算顶到 12000 会让带工具的轮次滚雪球式放大思考、且改预算破坏缓存
+            // key——单条 prompt 从 30k 全命中涨到 67k 半价重付。日常聊天不需要
+            // 深想，2000 足够，缓存也稳。chatHighReasoningEnabled 只保留给非
+            // Claude 模型（effort:high），不再影响 Claude。
             const toolThinkingBudget = 2000
-            // 深度思考档（chatHighReasoningEnabled，2026-07-22 接通到 Claude）：
-            // 面向用户的首轮回复（iteration===1，多数情况就是最终回复）给大预算，
-            // 让它遇到需要深想的话题能真正展开；纯工具决策轮（iteration≥2）维持
-            // 2000——「看一眼工具结果决定下一步」不需要长思考。预算是上限不是下限，
-            // 简单消息模型自己只用几百 token，不会平白涨钱，只是复杂回复更深/更慢。
-            const deepReplyBudget = 12000
             const thinkingActive = reasoningEnabled && isClaudeModel(effectiveModel)
             if (thinkingActive) {
-              const budget =
-                activeSettings.chatHighReasoningEnabled && iteration === 1
-                  ? deepReplyBudget
-                  : toolThinkingBudget
-              requestBody.reasoning = { max_tokens: budget }
+              requestBody.reasoning = { max_tokens: toolThinkingBudget }
               const currentMaxTokens =
                 typeof requestBody.max_tokens === 'number' ? requestBody.max_tokens : 0
-              requestBody.max_tokens = Math.max(currentMaxTokens, budget + 1024)
+              requestBody.max_tokens = Math.max(currentMaxTokens, toolThinkingBudget + 1024)
               delete requestBody.temperature
               delete requestBody.top_p
             } else if (reasoningEnabled && activeSettings.chatHighReasoningEnabled && iteration === 1) {
@@ -4459,8 +4447,7 @@ TOOL_SEARCH_HANDOFF,
               // it was skipped on tool iterations 2-4 to save cost, but
               // the user-facing answer benefits from reasoning.
               if (reasoningEnabled && isClaudeModel(effectiveModel)) {
-                // 收尾回复也吃深度思考档：这是工具跑完后真正面向用户的合成。
-                const thinkingBudget = activeSettings.chatHighReasoningEnabled ? 12000 : 2000
+                const thinkingBudget = 2000
                 finalBody.reasoning = { max_tokens: thinkingBudget }
                 const currentMax =
                   typeof finalBody.max_tokens === 'number' ? finalBody.max_tokens : 0
