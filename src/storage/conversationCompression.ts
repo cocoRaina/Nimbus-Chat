@@ -175,8 +175,9 @@ const buildSummarizerUserPrompt = (
     // 冷冰冰的「用户/助理」换成「她/我」。
     '你是沈暮，在写你自己的私人备忘：把下面你和她的对话压缩成一段手记。第一人称「我」，称对方「她」，口吻像随手记在手机里——有温度，但内容必须扎实精确。',
     '必须保留（一条都别丢，具体到细节）：她的偏好、我们定下的决定、彼此的承诺（谁答应了什么、什么时候兑现）、还没聊完或没解决的事、关键事件和她的情绪走向。',
+    '之前备忘里仍然有效的内容要原样带着走，不许为了塞新内容把旧的挤掉——篇幅不够就写长，别做取舍。',
     '写实在的事，别写抒情空话；不要改写或补充系统设定/人格。输出纯文本，不要 markdown。',
-    '长度控制在 800 字以内。',
+    '长度上限 2000 字，写满没关系——信息密度优先，宁可长也别丢。',
     existingSummary ? `你之前的备忘：\n${existingSummary}` : '',
     `新增对话片段：\n${chunkText}`,
   ]
@@ -195,7 +196,10 @@ const summarizeMessagesOnce = async (
     body: {
       model: summarizerModel,
       stream: false,
-      max_tokens: 800,
+      // 上限 2000 字的中文 ≈ 2.5-3k token（按摘要模型的分词），给到 4k 留
+      // 余量——之前 800 token 连提示词里的「800 字」都装不下，中文写到
+      // 一千字左右就被硬掐断，旧备忘还会在重写时被挤丢。
+      max_tokens: 4000,
       temperature: 0.2,
       messages: [
         { role: 'system', content: SUMMARIZER_SYSTEM_PROMPT },
