@@ -249,6 +249,9 @@ export const TOOL_WRITE_DIARY = {
       'down right then while the details are fresh (chat context gets compressed — an entry written at ' +
       'night from memory alone comes out thin), then at goodnight append a closing thought or polish ' +
       'with replace as part of seeing her off. She can also ask anytime (帮我写日记 / 总结今天 / 记下今天).\n' +
+      "Between 00:00 and 03:00 both yesterday's and the new day's entries are open: a goodnight/nightly " +
+      "entry in that stretch belongs to YESTERDAY's date (the day just ending) — only use the new date " +
+      'when she clearly means the new day.\n' +
       "After the window closes the entry FREEZES: writes to past dates go through the duplicate guard — " +
       'a suspected rewrite (clearly overlapping content) returns already_written with the old text; ' +
       'compare yourself: same thing → tell her it is already written; genuinely a different extra entry ' +
