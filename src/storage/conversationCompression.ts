@@ -11,6 +11,14 @@ const MIN_NEW_MESSAGES_BEFORE_RESUMMARIZE = 8
 // compression cursor can't let the window grow without bound. Normal
 // steady-state never reaches this (compression re-fires well before it).
 const RECENT_WINDOW_HARD_CAP = 120
+// 游标第二推动条件（2026-07-22，用户查账实锤）：锚定窗口条数一超过这个数
+// 就强制重摘要，不再只认 token 阈值。之前唯一的触发条件是「上一条真实
+// prompt ≥ 0.35×200k = 70k」，而 120 条满窗口的肥版 prompt 实测 68,994 /
+// 68,674——**恰好卡在线下一千 token**，游标就永远差一口气不挪，每条消息
+// 白付 ~35k（还全是冷写）。条数是游标自己的账，跟 token 估算/中转虚报
+// 都无关，推得动就推。60 ≈ 稳态(keepRecent 20 + 每 8 条一压)的三倍，
+// 正常聊天摸不到；120 硬上限继续当最后保险丝。
+const FORCE_RESUMMARIZE_WINDOW_MESSAGES = 60
 
 // Token estimate, CJK-aware. Claude's tokenizer is very inefficient for CJK:
 // a Chinese/Japanese/Korean character is ~1.5–2 tokens, whereas Latin text is
@@ -363,6 +371,11 @@ export const compressIfNeeded = async (
       )
       if (cacheIdx >= 0) {
         const messagesSinceCache = oldMessages.length - cacheIdx - 1
+        // 窗口条数超限 → 强制过触发线，逼游标前进（见常量处注释）。
+        const anchoredWindowLen = fullHistory.length - cacheIdx - 1
+        if (anchoredWindowLen >= FORCE_RESUMMARIZE_WINDOW_MESSAGES) {
+          overTrigger = true
+        }
         // Use the existing summary as-is when there's little new to fold in,
         // OR whenever we're below the trigger — i.e. don't pay to refine a
         // summary for a small context, but still SEND the one we already have.
