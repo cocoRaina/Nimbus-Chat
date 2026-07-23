@@ -168,7 +168,7 @@ import { tidyOldImages, listStoredPhotos, chatImagePublicUrl } from './storage/i
 import { syncStatusBarToColor } from './storage/statusBar'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
-import { compressIfNeeded, estimateModelContextLimit } from './storage/conversationCompression'
+import { compressIfNeeded, estimateModelContextLimit, estimateTokens } from './storage/conversationCompression'
 
 const MEMORY_EXTRACT_RECENT_MESSAGES = 24
 const AUTO_EXTRACT_USER_TURN_INTERVAL = 12
@@ -2053,6 +2053,12 @@ const App = () => {
           cache_creation_input_tokens?: number
         } | null = null
         let currentRequestDebug: unknown = null
+        // 实发大小自估（2026-07-23）：我们对「实际发出去的 messages 正文 + 工具
+        // schema」的 token 估算，独立于中转返回的 prompt_tokens。用途：① 容量条
+        // 显示这个稳定值，不再照抄中转忽高忽低的账；② 每条 chat 记进 request_debug，
+        // 和中转的 prompt_tokens 对照——两者差一倍就说明是中转在虚报，不是我们发多了。
+        let lastSentEstTokens = 0
+        let lastSentChars = 0
         // Iteration-1 response latency (request sent → response headers back) —
         // the relay's first-byte responsiveness. Recorded per chat so the 站子
         // 健康概览 can show "今天变慢了".
@@ -2085,10 +2091,16 @@ const App = () => {
           // errs toward compressing in time, which is safe.
           const serverPrompt = Number(lastUsage?.prompt_tokens ?? 0)
           if (serverPrompt > 0) {
+            // 压缩触发仍以中转真实 prompt_tokens 为准（它偏大只会让我们早点压，
+            // 安全）；但容量条改用我们自己的稳定估算 lastSentEstTokens——不再照
+            // 抄中转在写缓存时忽然翻倍的账吓人。
             lastServerPromptTokensRef.current.set(sessionId, serverPrompt)
             persistLastPromptTokensStore(lastServerPromptTokensRef.current)
+          }
+          const ctxForBar = lastSentEstTokens > 0 ? lastSentEstTokens : serverPrompt
+          if (ctxForBar > 0) {
             setCtxTokensBySession((prev) =>
-              prev[sessionId] === serverPrompt ? prev : { ...prev, [sessionId]: serverPrompt },
+              prev[sessionId] === ctxForBar ? prev : { ...prev, [sessionId]: ctxForBar },
             )
           }
           void recordUsage({
@@ -2103,12 +2115,11 @@ const App = () => {
             sessionId,
             latencyMs: reqLatencyMs ?? undefined,
             rawUsage: lastUsage,
-            // request_debug is never read by the UI — it only exists to
-            // troubleshoot failures. Keep it only when the request failed (and
-            // still produced a usage payload, i.e. partial spend); null on
-            // success. We no longer force-insert zero-token failure rows —
-            // those only cluttered 用量统计 without representing any cost.
-            requestDebug: failed ? currentRequestDebug : null,
+            // 成功也记一份轻量对照（我们自估 vs 中转账单），用来判定「30k 变 60k」
+            // 到底是中转虚报还是我们发多了；失败时保留完整断点调试信息。
+            requestDebug: failed
+              ? currentRequestDebug
+              : { sent_est_tokens: lastSentEstTokens, sent_chars: lastSentChars, server_prompt_tokens: serverPrompt },
           })
           lastUsage = null
           currentRequestDebug = null
@@ -2837,6 +2848,22 @@ TOOL_SEARCH_HANDOFF,
               )
             }
 
+            // 估算这一版 requestBody 实际发出去多大：消息正文逐条 + 工具 schema
+            // 整串（工具本身就是 JSON 结构，按串估）。每轮覆盖，循环结束后 hold 的
+            // 就是中转 lastUsage 对应的那次（最后一次），可直接和 prompt_tokens 对照。
+            {
+              let est = 0
+              for (const m of cachedMessages) {
+                const c = (m as { content?: unknown }).content
+                if (typeof c === 'string') est += estimateTokens(c)
+                else if (Array.isArray(c))
+                  for (const b of c as Array<{ text?: string }>) est += estimateTokens(b.text ?? '')
+              }
+              if (Array.isArray(requestBody.tools)) est += estimateTokens(JSON.stringify(requestBody.tools))
+              lastSentEstTokens = est
+              lastSentChars = JSON.stringify({ messages: cachedMessages, tools: requestBody.tools ?? [] }).length
+            }
+
             currentRequestDebug = {
               model: effectiveModel,
               iteration,
@@ -2845,6 +2872,8 @@ TOOL_SEARCH_HANDOFF,
               top_level_cache_control: requestBody.cache_control ?? null,
               provider: requestBody.provider ?? null,
               has_tools: Array.isArray(requestBody.tools) && (requestBody.tools as unknown[]).length > 0,
+              sent_est_tokens: lastSentEstTokens,
+              sent_chars: lastSentChars,
               breakpoints: debugBreakpoints,
             }
 
