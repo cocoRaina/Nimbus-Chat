@@ -2088,22 +2088,22 @@ const App = () => {
             `cached=${cached} cache_read=${lastUsage?.cache_read_input_tokens ?? 0} cache_create=${lastUsage?.cache_creation_input_tokens ?? 0} ` +
             `usage_keys=${Object.keys(lastUsage ?? {}).join(',')}`,
           )
-          // Remember the real server prompt size for the compression trigger.
-          // Plain overwrite (NOT max): once the conversation compresses, the
-          // next turn's prompt shrinks and this must shrink with it — a
-          // running max would pin at the pre-compression size and re-trigger
-          // compression forever. Within a turn the last flush (final tool
-          // iteration) wins; it's marginally larger than normal-mode but only
-          // errs toward compressing in time, which is safe.
           const serverPrompt = Number(lastUsage?.prompt_tokens ?? 0)
-          if (serverPrompt > 0) {
-            // 压缩触发仍以中转真实 prompt_tokens 为准（它偏大只会让我们早点压，
-            // 安全）；但容量条改用我们自己的稳定估算 lastSentEstTokens——不再照
-            // 抄中转在写缓存时忽然翻倍的账吓人。
-            lastServerPromptTokensRef.current.set(sessionId, serverPrompt)
+          // 压缩触发 + 容量条**统一**用我们自己的稳定估算 lastSentEstTokens
+          // (含工具 schema、与真实发送量一致),不再用中转的 prompt_tokens。
+          // 2026-07-23 实锤:camel/kiro 的流式 usage 把可见正文重复计进 input,
+          // prompt_tokens 虚高近一倍——camel 账单真实 input 才 2k,它流式却报 29k;
+          // 我们记 prompt 68k vs 实发 34k。用这个虚高数当压缩触发线,会让压缩
+          // 提前一倍触发、过早把记忆揉成摘要。改统一用自估(容量条本就用它);
+          // 仅首轮还没有自估时退回中转数兜底。ref 名字沿用(存的已是自估)。
+          // Plain overwrite(NOT max):压缩后下轮 prompt 变小,这个值也要跟着
+          // 变小;running max 会卡在压缩前的大小、永远反复触发压缩。
+          const ctxSize = lastSentEstTokens > 0 ? lastSentEstTokens : serverPrompt
+          if (ctxSize > 0) {
+            lastServerPromptTokensRef.current.set(sessionId, ctxSize)
             persistLastPromptTokensStore(lastServerPromptTokensRef.current)
           }
-          const ctxForBar = lastSentEstTokens > 0 ? lastSentEstTokens : serverPrompt
+          const ctxForBar = ctxSize
           if (ctxForBar > 0) {
             setCtxTokensBySession((prev) =>
               prev[sessionId] === ctxForBar ? prev : { ...prev, [sessionId]: ctxForBar },
