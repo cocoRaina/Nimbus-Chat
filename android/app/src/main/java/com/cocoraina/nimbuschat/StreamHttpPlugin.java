@@ -53,6 +53,13 @@ public class StreamHttpPlugin extends Plugin {
             // (esp. during extended thinking). JS-side stall watchdog handles stalls.
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            // 关掉 OkHttp 默认的连接失败自动重试(2026-07-23)。默认 true 时,连接
+            // 一抖 OkHttp 会在 Java 层把整个请求**静默重发**——JS 完全看不见,也不受
+            // JS 层首字节超时管。对慢中转(连接开得久、更易抖),重发的那一份已经到了
+            // 中转、被计费,于是账面凭空翻倍「幽灵」(real 32k → 账面 65k),而服务器
+            // 单请求探针复现不出。按 token 计费的 App 绝不能让 HTTP 层偷偷重发;
+            // 真的连接失败交给 JS 层的缓冲兜底 + 用户可见的重发提示,不做静默重试。
+            .retryOnConnectionFailure(false)
             .build();
 
     // Live OkHttp calls keyed by streamId so cancelStream can reach them.
