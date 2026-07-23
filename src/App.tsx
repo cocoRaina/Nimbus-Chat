@@ -625,12 +625,14 @@ const markUserMessageForCaching = (
   }
   const marked = attachCacheControlToLastTextBlock(msg.content, marker)
   if (marked) return { ...msg, content: marked }
-  // Image-only message: append an empty text-block anchor — Anthropic
-  // accepts this for cache_control purposes.
-  return {
-    ...msg,
-    content: [...msg.content, { type: 'text', text: '', cache_control: marker }],
-  }
+  // 图片-only 消息(没有 text 块):以前往 content 追加一个**空 text 块**当
+  // 锚点挂 cache_control——但 a 社文档明确「Empty text blocks cannot be
+  // cached」,这个 marker 一直被静默丢弃(锚点从没生效),还平白多塞一个空
+  // 块(部分后端会因「text 块不能为空」直接 400)。图片块本身是可缓存的,但
+  // 历史图片下一轮就会被换成文字 caption、缓存必然失效,在图片块上打点是浪费
+  // (这也是 applyClaudeCaching 里 headHasImage 直接跳过 HEAD 的原因)。所以
+  // 正确做法是**这条不打点**,把断点让给能稳定命中的 text 消息。
+  return msg
 }
 
 
