@@ -95,6 +95,24 @@ export const setOpenRouterFormat = (format: ApiFormat) => writeFormat(STORAGE_OR
 export const getMsuicodeFormat = (): ApiFormat => readFormat(STORAGE_MSUI_FORMAT)
 export const setMsuicodeFormat = (format: ApiFormat) => writeFormat(STORAGE_MSUI_FORMAT, format)
 
+// 「中转自研缓存·不打点」开关（设备本地，默认关）。某些逆向中转分组
+// （如 camel 的 kiro 档）有自己的服务端缓存,却对我们主动挂的 cache_control
+// 断点乱计费——把可见正文按全价重数一遍塞进 input(2026-07-23 cache_probe 实测:
+// 四断点 input=29,192,零断点 input=589 且它自研缓存照样命中 read≈39,799)。
+// 开启后 applyClaudeCaching 一个断点都不打(BP0 也会因 requestHasCacheMarkers
+// 为 false 自动跳过),把缓存完全交给中转自己。仅在这类中转上开;OpenRouter /
+// 金瓜瓜等认原生 cache_control 的渠道要关,否则丢失缓存。切换分组时自己拨。
+const STORAGE_RELAY_NO_BREAKPOINTS = 'nimbus_relay_no_breakpoints'
+export const getRelayNoBreakpoints = (): boolean => {
+  if (typeof window === 'undefined') return false
+  return window.localStorage.getItem(STORAGE_RELAY_NO_BREAKPOINTS) === '1'
+}
+export const setRelayNoBreakpoints = (on: boolean) => {
+  if (typeof window === 'undefined') return
+  if (on) window.localStorage.setItem(STORAGE_RELAY_NO_BREAKPOINTS, '1')
+  else window.localStorage.removeItem(STORAGE_RELAY_NO_BREAKPOINTS)
+}
+
 export type ProviderConfig = {
   id: ProviderId
   baseUrl: string

@@ -33,6 +33,8 @@ import {
   setActiveProvider,
   setMsuicodeFormat,
   setOpenRouterFormat,
+  getRelayNoBreakpoints,
+  setRelayNoBreakpoints,
   getRelayPresets,
   saveRelayPreset,
   deleteRelayPreset,
@@ -114,6 +116,7 @@ const SettingsPage = ({
   const [msuicodeApiKeyVisible, setMsuicodeApiKeyVisible] = useState(false)
   const [msuicodeApiKeyStatus, setMsuicodeApiKeyStatus] = useState<'idle' | 'saved'>('idle')
   const [msuicodeFormat, setMsuicodeFormatState] = useState<ApiFormat>(() => getMsuicodeFormat())
+  const [relayNoBreakpoints, setRelayNoBreakpointsState] = useState(() => getRelayNoBreakpoints())
   const [msuicodeBaseUrlInput, setMsuicodeBaseUrlInput] = useState(() => getMsuicodeBaseUrl())
   const [selfHealHosts, setSelfHealHosts] = useState(() => getRelaySelfHealHosts())
   const [selfHealResetStatus, setSelfHealResetStatus] = useState<'idle' | 'done'>('idle')
@@ -1145,6 +1148,29 @@ const SettingsPage = ({
               {msuicodeFormat === 'anthropic'
                 ? '走 /v1/messages 路径，中转需透传 Anthropic 原生格式才能用，可拿到思考链。'
                 : '走 /v1/chat/completions 路径，OpenAI 格式，通用但中转模型一般无思考链。'}
+            </span>
+
+            <div className="field-group">
+              <label htmlFor="relayNoBreakpoints">中转自研缓存（不打缓存断点）</label>
+              <label className="toggle-control">
+                <input
+                  id="relayNoBreakpoints"
+                  type="checkbox"
+                  checked={relayNoBreakpoints}
+                  onChange={(event) => {
+                    setRelayNoBreakpointsState(event.target.checked)
+                    setRelayNoBreakpoints(event.target.checked)
+                  }}
+                />
+                <span>{relayNoBreakpoints ? '已开启（不打点）' : '已关闭（正常打点）'}</span>
+              </label>
+            </div>
+            <span className="settings-hint">
+              逆向中转分组（如 camel 的 kiro 档）有自己的服务端缓存，却对我们主动挂的
+              缓存断点乱计费——把正文按全价重数一遍塞进 input，账面 token 凭空翻倍。开启后
+              一个断点都不打，把缓存全交给中转自己（实测它照样满命中、且不再翻倍）。
+              ⚠️ 仅对这类中转开；OpenRouter、金瓜瓜等认原生 cache_control 的渠道要关，
+              否则会丢失缓存。切分组时记得跟着拨。即时生效，无需保存。
             </span>
 
             <label htmlFor="msuicode-base-url">Base URL</label>

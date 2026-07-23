@@ -111,7 +111,7 @@ import { resolveModelId } from './utils/modelResolver'
 import { chinaClockToDelayMinutes } from './utils/time'
 import { fetchOpenRouter } from './api/openrouter'
 import { convertOpenAiRequestToAnthropic, isThinkingReplayDisabledForHost } from './api/anthropic'
-import { getActiveProvider, getMsuicodeFormat, getProviderConfig } from './storage/apiProvider'
+import { getActiveProvider, getMsuicodeFormat, getProviderConfig, getRelayNoBreakpoints } from './storage/apiProvider'
 import { ensureImageCaption, getImageCaption, syncImageCaptionsFromCloud } from './storage/imageCaptions'
 import { fetchAutoRecall, releaseInjectedRecalls } from './storage/memoryRecall'
 import {
@@ -451,6 +451,12 @@ const applyClaudeCaching = (
     cacheProvider === 'openrouter' ||
     (cacheProvider === 'msuicode' && getMsuicodeFormat() === 'anthropic')
   if (!nativeAnthropic) return messages
+  // 「中转自研缓存·不打点」逃生阀：逆向中转分组（camel 的 kiro 档）有服务端
+  // 自研缓存,却对我们挂的 messages 层 cache_control 断点乱计费(整包正文按全价
+  // 重数塞进 input,~2x 虚高)。开了这个开关就一个断点都不打——BP0 也会因
+  // requestHasCacheMarkers=false 在 anthropic.ts 里自动跳过——把缓存全交给中转
+  // 自己。实测(2026-07-23 cache_probe)零断点时 kiro 自研缓存照样满命中且无幽灵。
+  if (getRelayNoBreakpoints()) return messages
   // TTL differs by upstream: OpenRouter honors the 1h extended cache (kept
   // warm by the ~55min keepalive ping); 金瓜瓜-style relays cap at 5m（1h） and
   // can reject ttl:'1h', so there we use the plain 5m ephemeral marker.
