@@ -2498,28 +2498,19 @@ const App = () => {
           const lastUserMsgIdx = compressionOutcome.recentMessages.reduce(
             (acc, msg, i) => (msg.role === 'user' ? i : acc), -1
           )
-          // 思考链回放上限：只回放最近 N 轮 assistant 的思考。早前几十轮的
-          // 内心独白对当前决策没用，却把每轮 prompt 撑大十几 k（实测 120 条
-          // 窗口里有 53 条各带思考，合计 ~14k token 每轮都在发）。留最近 6
-          // 轮足够维持推理连续性。代价：掉出这 6 轮的那条消息字节变了、缓存
-          // 尾部会多冷写十来条——但换来每轮 prompt 直接小 ~14k，读/冷写都更
-          // 便宜，净赚。稳定前缀（工具/system/摘要/老窗口）不受影响。
-          const THINKING_REPLAY_RECENT_TURNS = 6
+          // 跨轮思考回放：彻底关闭（2026-07-23，查账实锤）。
+          // 曾经「只回放最近 6 轮」想省 prompt，实测是**净亏的缓存杀手**：
+          // 那 6 轮是**滑动窗口**，每来一轮新消息，窗口尾部就有一条 assistant
+          // 掉出去、它的 thinking_blocks 字段被摘掉 → 该消息字节变了 →
+          // Anthropic 前缀 hash 从那条起全不匹配 → 后面整段(≈6~8k)每轮冷写。
+          // usage_logs 实测：07-22 深度思考接通 Claude 那天起，热轮中位 write
+          // 从 1.5k 暴涨到 6~7k、spike 占比 14%→54%，**把 99% 命中打回 62%**。
+          // 省下的 ~14k 输入在命中时本就只按 0.1× 读，远抵不过每轮多出的
+          // 8k×(1.25~2×) 冷写。历史轮的内心独白对当前决策几乎无用，且原生
+          // 路径下 Anthropic 对已完成历史轮会自动剥离——纯赔本，直接不回放。
+          // 注：本轮工具迭代内的思考块另有代码路径(iterationThinkingBlocks)，
+          // 那是同一轮内 Anthropic 强制要求保留的，不受此处影响。
           const thinkingReplayAllowed = new Set<number>()
-          {
-            let seen = 0
-            for (let i = compressionOutcome.recentMessages.length - 1; i >= 0; i--) {
-              const m = compressionOutcome.recentMessages[i]
-              if (
-                m.role === 'assistant' &&
-                Array.isArray(m.meta?.thinkingBlocks) &&
-                m.meta.thinkingBlocks.length > 0
-              ) {
-                thinkingReplayAllowed.add(i)
-                if (++seen >= THINKING_REPLAY_RECENT_TURNS) break
-              }
-            }
-          }
           // Hoisted once per request: which relay signs thinking blocks right
           // now, and whether native thinking replay has been disabled for it
           // (self-healed after a signature/content-type rejection).
