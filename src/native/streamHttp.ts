@@ -179,7 +179,14 @@ export const nativeStreamFetchOrThrow = async (
     body?: string
     signal?: AbortSignal | null
   } = {},
-  firstByteMs = 10000,
+  // 首字节超时(2026-07-23 从 10s 提到 30s)。10s 太激进:任何一次响应慢
+  // (网络抖动 / 中转慢 / 命中缓存取前缀慢)首字节一超 10s,原生流就放弃 →
+  // 调用方(anthropic.ts / openrouter.ts)自动退回缓冲请求把整包再发一遍 →
+  // 中转两个请求都计费=账面翻倍,慢时甚至级联重发好几次("连着写好几次")。
+  // 30s 仍低于 App 层 45s 停滞看门狗,给慢响应留足首字节时间,一次走完不重发;
+  // 真·broken 的原生流(30s 都吐不出首字节)才退回缓冲,代价只是那种罕见情况
+  // 多等一会。kiro 这类自研缓存中转更慢,调用方另传 40s。
+  firstByteMs = 30000,
 ): Promise<Response> => {
   const ctl = new AbortController()
   const ext = init.signal

@@ -1032,13 +1032,15 @@ export const fetchAnthropicAsOpenAi = async (
         // 「幽灵」(2026-07-23 实锤:幽灵只出现在命中缓存的 >45s 慢请求上,冷写<10s
         // 的从不翻倍;服务器单请求重放也从不翻倍——差别就是这个重发)。对这类中转
         // 放宽到 40s(仍低于 App 层 45s 停滞看门狗),等它把首字节吐出来,一个请求
-        // 走完、不重发,幽灵消失。普通渠道(OR/金瓜瓜)本就快,保持 10s 快速兜底。
+        // 走完、不重发,幽灵消失。默认值也已从 10s 提到 30s(streamHttp.ts),因为
+        // 「慢就放弃重发→双发」是所有渠道的通病(用户实测其他渠道也「连着写好几次」);
+        // kiro 更慢故再多给 10s。
         const upstream = await nativeStreamFetchOrThrow(endpoint, {
           method: 'POST',
           headers: hdrs,
           body: bodyJson,
           signal,
-        }, getRelayNoBreakpoints() ? 40000 : 10000)
+        }, getRelayNoBreakpoints() ? 40000 : 30000)
         if (!upstream.ok) return upstream
         return translateAnthropicStream(upstream)
       } catch {
