@@ -1074,7 +1074,8 @@ const UsagePage = ({ user }: UsagePageProps) => {
             <details className="usage-section diag-detail-fold">
               <summary>逐条明细（点开·和站子日志对账）· 最近 {Math.min(rows.length, 80)} 条</summary>
               <p className="usage-footer-note" style={{ textAlign: 'left', margin: '8px 0' }}>
-                精确数字（不缩写），按时间倒序。<strong>缓存读</strong>=便宜 0.1×、<strong>缓存写</strong>=贵 1.25~2×、<strong>输入</strong>=本条总输入。拿这几列去和站子每条日志比，数字对不上就是它在虚报。
+                精确数字（不缩写），按时间倒序。<strong>缓存读</strong>=便宜 0.1×、<strong>缓存写</strong>=贵 1.25~2×。<strong>实发</strong>=我们自己估的实发 token（含工具 schema）。<br />
+                ⚠️ 中转返回的 <code>prompt_tokens</code> 会把正文重复计进 input、虚高近一倍（实测 camel 账单真实 input 才 2k，流式却报 29k），所以「实发」列改用我们的自估，不采信中转那个数——你的<strong>真实账单</strong>请以中转后台每条的「输入 / 缓存读 / 缓存写」为准（那才是实扣，且是对的）。带 ⚠ 的行表示中转报的数比我们自估高一倍以上。
               </p>
               <div className="usage-table-wrap">
                 <table className="usage-table">
@@ -1083,7 +1084,7 @@ const UsagePage = ({ user }: UsagePageProps) => {
                       <th style={{ textAlign: 'left' }}>时间</th>
                       <th style={{ textAlign: 'left' }}>类型</th>
                       <th style={{ textAlign: 'left' }}>模型</th>
-                      <th>输入</th>
+                      <th>实发</th>
                       <th>输出</th>
                       <th>缓存读</th>
                       <th>缓存写</th>
@@ -1099,7 +1100,12 @@ const UsagePage = ({ user }: UsagePageProps) => {
                         </td>
                         <td><span className={`src-badge src-badge--${meta.cls}`}>{meta.label}</span></td>
                         <td className="model">{row.model.replace(/^anthropic\//, '')}</td>
-                        <td>{row.promptTokens.toLocaleString()}</td>
+                        <td>
+                          {(row.sentEstTokens ?? row.promptTokens).toLocaleString()}
+                          {row.sentEstTokens != null && row.promptTokens > row.sentEstTokens * 2 ? (
+                            <span title={`中转报 ${row.promptTokens.toLocaleString()},比自估高一倍以上——中转虚报,你的实扣以中转后台为准`}> ⚠</span>
+                          ) : null}
+                        </td>
                         <td>{row.completionTokens.toLocaleString()}</td>
                         <td>{row.cacheRead.toLocaleString()}</td>
                         <td>{row.cacheWrite.toLocaleString()}</td>

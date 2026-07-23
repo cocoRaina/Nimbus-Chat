@@ -38,6 +38,11 @@ export type UsageLogRow = {
   // raw_usage.cache_creation_input_tokens (no dedicated column).
   cacheRead: number
   cacheWrite: number
+  // 我们自己估算的「实发 token」(system+messages+工具 schema),来自
+  // request_debug.sent_est_tokens。用来替代中转虚高的 prompt_tokens——camel/kiro
+  // 的流式 usage 会把正文重复计进 input,prompt_tokens 虚高近一倍(实测账单真实
+  // input 才 2k、流式却报 29k)。null = 该行没有埋点(旧记录/非 chat)。
+  sentEstTokens: number | null
   latencyMs: number | null
   source: string
   provider: string
@@ -62,6 +67,7 @@ type UsageLogRecord = {
   created_at: string
   latency_ms?: number | null
   raw_usage?: Record<string, unknown> | null
+  request_debug?: Record<string, unknown> | null
   sessions?: { title: string | null } | { title: string | null }[] | null
 }
 
@@ -84,6 +90,7 @@ const mapRow = (row: UsageLogRecord): UsageLogRow => ({
   cachedTokens: row.cached_tokens ?? 0,
   cacheRead: numField(row.raw_usage, 'cache_read_input_tokens') || (row.cached_tokens ?? 0),
   cacheWrite: numField(row.raw_usage, 'cache_creation_input_tokens'),
+  sentEstTokens: numField(row.request_debug, 'sent_est_tokens') || null,
   latencyMs: typeof row.latency_ms === 'number' ? row.latency_ms : null,
   source: row.source,
   provider: row.provider ?? 'openrouter',
@@ -135,7 +142,7 @@ export const fetchUsageLogs = async (
   }
   let query = supabase
     .from('usage_logs')
-    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,cached_tokens,latency_ms,raw_usage,source,provider,relay_host,session_id,created_at,sessions(title)')
+    .select('id,user_id,model,prompt_tokens,completion_tokens,total_tokens,cached_tokens,latency_ms,raw_usage,request_debug,source,provider,relay_host,session_id,created_at,sessions(title)')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(5000)
