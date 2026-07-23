@@ -4,6 +4,7 @@
 // the Anthropic SSE stream → OpenAI-shaped SSE chunks on the fly.
 
 import { nativeStreamFetchOrThrow, nativeStreamFetch, isNativeStreamAvailable } from '../native/streamHttp'
+import { getRelayNoBreakpoints } from '../storage/apiProvider'
 
 type OpenAiMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -992,7 +993,17 @@ export const fetchAnthropicAsOpenAi = async (
     // headers. NOT harmless everywhere: relays whose upstream is AWS Bedrock
     // (camel) 400 with "ValidationException: invalid beta flag" — those hosts
     // get remembered in the opt-out map below and skip the header.
-    if (!readHostOptOuts(CACHE_BETA_OPTOUT_KEY)[hostOfEndpoint(endpoint)]) {
+    //
+    // 「中转自研缓存·不打点」也要连这个头一起停(2026-07-23)：kiro 档实测,
+    // 就算请求体零 cache_control 断点(已验 body_has_cache_control=false),真机
+    // 发出去仍被幽灵双重计费,而服务器重放同一份体不会——差别就在这个头。它是
+    // 明着要「扩展缓存」的信号,是我们还在发的唯一「缓存的点」。开了不打点开关
+    // 就等于「把缓存全交给中转自己」,那就不该再发任何 Anthropic 缓存信号,连头
+    // 一起关。（OpenRouter 走 bearer 路径本就不发这个头,不受影响。）
+    if (
+      !readHostOptOuts(CACHE_BETA_OPTOUT_KEY)[hostOfEndpoint(endpoint)] &&
+      !getRelayNoBreakpoints()
+    ) {
       headers['anthropic-beta'] = 'extended-cache-ttl-2025-04-11'
     }
   }
