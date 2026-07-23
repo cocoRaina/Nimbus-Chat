@@ -1026,12 +1026,19 @@ export const fetchAnthropicAsOpenAi = async (
     // (works, just not live). The chat can never hang on a broken native path.
     if (wantsStream && isNativeStreamAvailable()) {
       try {
+        // 首字节超时:默认 10s。但逆向自研缓存中转(kiro)命中缓存时,从它自己的
+        // 缓存取前缀很慢,首字节常要十几~几十秒。10s 一到原生流就放弃 → 自动退回
+        // 缓冲请求把整包再发一遍(下方 catch)→ camel 两个请求都计费 = 账面翻倍
+        // 「幽灵」(2026-07-23 实锤:幽灵只出现在命中缓存的 >45s 慢请求上,冷写<10s
+        // 的从不翻倍;服务器单请求重放也从不翻倍——差别就是这个重发)。对这类中转
+        // 放宽到 40s(仍低于 App 层 45s 停滞看门狗),等它把首字节吐出来,一个请求
+        // 走完、不重发,幽灵消失。普通渠道(OR/金瓜瓜)本就快,保持 10s 快速兜底。
         const upstream = await nativeStreamFetchOrThrow(endpoint, {
           method: 'POST',
           headers: hdrs,
           body: bodyJson,
           signal,
-        })
+        }, getRelayNoBreakpoints() ? 40000 : 10000)
         if (!upstream.ok) return upstream
         return translateAnthropicStream(upstream)
       } catch {
