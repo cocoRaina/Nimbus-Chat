@@ -2091,16 +2091,27 @@ const App = () => {
             `usage_keys=${Object.keys(lastUsage ?? {}).join(',')}`,
           )
           const serverPrompt = Number(lastUsage?.prompt_tokens ?? 0)
-          // 压缩触发 + 容量条**统一**用我们自己的稳定估算 lastSentEstTokens
-          // (含工具 schema、与真实发送量一致),不再用中转的 prompt_tokens。
-          // 2026-07-23 实锤:camel/kiro 的流式 usage 把可见正文重复计进 input,
-          // prompt_tokens 虚高近一倍——camel 账单真实 input 才 2k,它流式却报 29k;
-          // 我们记 prompt 68k vs 实发 34k。用这个虚高数当压缩触发线,会让压缩
-          // 提前一倍触发、过早把记忆揉成摘要。改统一用自估(容量条本就用它);
-          // 仅首轮还没有自估时退回中转数兜底。ref 名字沿用(存的已是自估)。
-          // Plain overwrite(NOT max):压缩后下轮 prompt 变小,这个值也要跟着
-          // 变小;running max 会卡在压缩前的大小、永远反复触发压缩。
-          const ctxSize = lastSentEstTokens > 0 ? lastSentEstTokens : serverPrompt
+          // 压缩触发 + 容量条的「上下文尺寸」优先用**真实缓存前缀**
+          // = cache_read + cache_write(2026-07-23 通用化,换任何渠道都准)。
+          // 三个候选数的取舍:
+          //   ① prompt_tokens —— ✗ 不用:camel/kiro 流式把可见正文重复计进
+          //      input,虚高近一倍(「幽灵」),camel 账单真实 input 才 2k、流式
+          //      却报 29k。用它当触发线会让压缩提前一倍、过早揉碎记忆。
+          //   ② 我们的自估 lastSentEstTokens —— 稳但**偏低约 28%**:数不全工具
+          //      schema / 回放的思考块 / 中文分词(实测发 30k、真实前缀 41k),
+          //      用它压缩会偏晚触发。
+          //   ③ cache_read + cache_write —— ✓ **真实前缀 token,且不含幽灵**
+          //      (幽灵只在 input 字段;读/写实测与站子后台分毫不差)。这才是
+          //      模型真正吃进去的上下文尺寸,换渠道也准。
+          // 三级兜底:真实缓存数 > 自估 > 中转 prompt(非缓存渠道/首轮没缓存数时)。
+          // Plain overwrite(NOT max):压缩后前缀变小,这个值要跟着变小;
+          // running max 会卡在压缩前的大小、永远反复触发压缩。
+          const cacheReadTok = Number(
+            lastUsage?.cache_read_input_tokens ?? lastUsage?.prompt_tokens_details?.cached_tokens ?? 0,
+          )
+          const cacheWriteTok = Number(lastUsage?.cache_creation_input_tokens ?? 0)
+          const realCtx = cacheReadTok + cacheWriteTok
+          const ctxSize = realCtx > 0 ? realCtx : lastSentEstTokens > 0 ? lastSentEstTokens : serverPrompt
           if (ctxSize > 0) {
             lastServerPromptTokensRef.current.set(sessionId, ctxSize)
             persistLastPromptTokensStore(lastServerPromptTokensRef.current)
