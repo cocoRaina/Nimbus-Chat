@@ -355,6 +355,24 @@ export type CompressionResult = {
   summarizerFailed?: boolean
 }
 
+// 追加式时间线的压实阈值:摘要超过这个字数,下次折叠就整体重压一次收紧
+// (唯一会「重写旧内容」的路径,罕见触发,失真被限制在此)。平时都是「旧的
+// 冻结、只追加新段」→ 零累积失真。
+const COMPACT_THRESHOLD_CHARS = 3000
+
+// 段落日期标签:取这批被折叠消息里最后一条的日期,给时间线分段(「几月几日」)。
+const segmentDateLabel = (messages: ChatMessage[]): string => {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const iso = messages[i]?.createdAt
+    if (!iso) continue
+    const d = new Date(iso)
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric' })
+    }
+  }
+  return ''
+}
+
 export const compressIfNeeded = async (
   conversationId: string,
   fullHistory: ChatMessage[],
@@ -501,13 +519,31 @@ export const compressIfNeeded = async (
       : null
   let summary: string
   try {
-    summary = await summarizeMessages(
-      summarizerModel,
-      cachedSummary,
-      newOldMessages,
-      settings.summarizerProvider,
-      chatFallback,
-    )
+    if (cachedSummary.length > COMPACT_THRESHOLD_CHARS) {
+      // 时间线太长 → 整体重压一次收紧(旧摘要 + 新段一起揉)。这是唯一会
+      // 「重写旧内容」的路径,罕见触发,累积失真被限制在此。
+      summary = await summarizeMessages(
+        summarizerModel,
+        cachedSummary,
+        newOldMessages,
+        settings.summarizerProvider,
+        chatFallback,
+      )
+    } else {
+      // 常态(追加式):只总结「新增这批消息」→ 盖日期戳 → 拼到旧摘要后面。
+      // 旧摘要冻结不动 → 没有「反复重写→传话游戏」的累积失真,且天然长成一条
+      // 带日期的时间线。传空 existingSummary,让 summarizer 只写这一段新的。
+      const seg = await summarizeMessages(
+        summarizerModel,
+        '',
+        newOldMessages,
+        settings.summarizerProvider,
+        chatFallback,
+      )
+      const label = segmentDateLabel(newOldMessages)
+      const dated = label ? `【${label}】${seg}` : seg
+      summary = cachedSummary ? `${cachedSummary}\n\n${dated}` : dated
+    }
   } catch (error) {
     // Every rescue path exhausted (2× summarizer + chat-provider fallback).
     // Degrade to the last good summary + anchored window if we have one;
