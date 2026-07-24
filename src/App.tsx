@@ -2511,24 +2511,17 @@ const App = () => {
           const lastUserMsgIdx = compressionOutcome.recentMessages.reduce(
             (acc, msg, i) => (msg.role === 'user' ? i : acc), -1
           )
-          // 跨轮思考回放：回放窗口内**全部**带思考的 assistant（2026-07-23
-          // 复原 1119f03 之前的行为，查账实锤）。
-          // 为什么不是「只留最近 6 轮」：那是**滑动窗口**——每来一条新消息，
-          // 窗口尾部就有一条 assistant 掉出去、它的 thinking_blocks 被摘掉 →
-          // 该消息字节变了 → Anthropic 前缀 hash 从那条起全不匹配 → 它**之后**
-          // 整段(≈6~8k)每轮冷写。usage_logs 实测：1119f03(07-22)上线后热轮
-          // 中位 write 从 1.5k 涨到 6~7k、spike 14%→54%，**99% 命中被打回 62%**。
-          // 回放「全窗口」则成员稳定（新消息只往尾部追加，不改早前消息的去留）
-          // → 前缀逐字节稳 → 那 ~14k 思考只在首次写入时花 1.25×，之后一路 0.1×
-          // 读；比「滑动 6」每轮 8k×(1.25~2×) 冷写便宜得多。窗口大小由压缩兜底。
-          // Anthropic 原生 /v1/messages 要求带回思考块以维持推理/工具连续性，
-          // 所以这是功能需求，不是可省的。无「最近 N 轮」名单——下面 nativeReplay
-          // 对窗口内每条带思考的 assistant 一律回放。
-          // Hoisted once per request: which relay signs thinking blocks right
-          // now, and whether native thinking replay has been disabled for it
-          // (self-healed after a signature/content-type rejection).
-          const currentThinkingHost = thinkingOriginHost()
-          const nativeThinkingReplayDisabled = isThinkingReplayDisabledForHost(currentThinkingHost)
+          // 跨轮思考回放：关闭（2026-07-24 查账实锤,取代 07-23 的「全窗口回放」）。
+          // 思考块签名只有**原产上游**能验。用户的 camel-hub.cn 一个域名底下同时
+          // 挂 kiro / MAX 等多个上游,主机名一样、签名不同;老窗口攒了一周、332 条
+          // 思考块跨 camel-hub.cn + treegpt.cc 多个上游,回放给当前 kiro 时签名验
+          // 不过 → 逆向渠道整条请求直接不缓存(实测:老窗口 read=0 连冷写,同一时刻
+          // 同一渠道的新窗口却稳稳命中——差别就在旧窗口带这些杂签名思考块)。
+          // thinkingHost 门槛只认主机名、分不清同域下的 kiro/MAX,拦不住。
+          // 跨轮思考连续性本是锦上添花(Anthropic 对已完成历史轮也会自动剥离),
+          // 不值为它赔掉整条缓存 → 历史轮一律不回放思考。
+          // 注:当前轮工具迭代内的思考块另有路径(iterationThinkingBlocks,同轮
+          // Anthropic 强制保留),不受影响;思考本身照常开,只是不回放旧的。
           for (let msgIdx = 0; msgIdx < compressionOutcome.recentMessages.length; msgIdx++) {
             const message = compressionOutcome.recentMessages[msgIdx]
             const isCurrentTurn = msgIdx === lastUserMsgIdx
@@ -2604,38 +2597,13 @@ const App = () => {
               if (message.role === 'assistant' && message.meta?.toolDigest) {
                 content = `[本轮已调用工具] ${message.meta.toolDigest}\n\n${content}`
               }
-              // Replay this turn's frozen thinking blocks (signature included,
-              // verbatim) so the model sees its own prior raw reasoning across
-              // turns — Opus 4.5+/Sonnet 4.6+ keep prior-turn thinking in
-              // context (older models drop it server-side, harmless). Gated on
-              // the outgoing request actually having thinking on: sending
-              // thinking blocks with thinking disabled risks a 400, and the
-              // reasoning toggle already invalidates the message cache anyway.
-              // Blocks are frozen at save time → byte-stable → the rolling
-              // cache prefix grows but never wobbles.
-              // Origin gate: NATIVE replay (verbatim blocks with signature)
-              // only for blocks signed by the CURRENT relay — the signature is
-              // encrypted thinking that only the producing backend can decrypt;
-              // foreign signatures 400 on strict backends (Bedrock).
-              // 文本兜底已砍（2026-07-22）：原来签名对不上时把思考文本拼成
-              // `[本轮思考] …` 塞进正文——原生回放历史轮 API 会自动剥掉、
-              // 基本不计费，文本兜底却实打实每轮吃 ~14k token，还闹过模型
-              // 照抄进正文的泄漏 bug（见 stripReplayMarkers）。跨轮思考连续
-              // 性本就是锦上添花，不值这个价：回放不了就不回放。
-              const nativeReplay =
-                message.role === 'assistant' &&
-                reasoningEnabled &&
-                isClaudeModel(effectiveModel) &&
-                Array.isArray(message.meta?.thinkingBlocks) &&
-                message.meta.thinkingBlocks.length > 0 &&
-                message.meta.thinkingHost === currentThinkingHost &&
-                !nativeThinkingReplayDisabled
-                  ? message.meta.thinkingBlocks
-                  : null
+              // 历史轮不回放思考块(2026-07-24,见上方大段说明)。逆向渠道
+              // (camel-hub.cn 多上游池)验不了外来签名 → 一旦历史里混进别的上游
+              // 签的思考块,整条请求就不缓存。跨轮思考连续性 Anthropic 本就自动
+              // 剥离,不值为它赔掉缓存。当前轮工具循环内的思考另有路径,不受影响。
               baseMessages.push({
                 role: message.role,
                 content,
-                ...(nativeReplay ? { thinking_blocks: nativeReplay } : {}),
               } as ChatRequestMessage)
             }
           }
