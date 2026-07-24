@@ -2511,17 +2511,26 @@ const App = () => {
           const lastUserMsgIdx = compressionOutcome.recentMessages.reduce(
             (acc, msg, i) => (msg.role === 'user' ? i : acc), -1
           )
-          // 跨轮思考回放：关闭（2026-07-24 查账实锤,取代 07-23 的「全窗口回放」）。
-          // 思考块签名只有**原产上游**能验。用户的 camel-hub.cn 一个域名底下同时
-          // 挂 kiro / MAX 等多个上游,主机名一样、签名不同;老窗口攒了一周、332 条
-          // 思考块跨 camel-hub.cn + treegpt.cc 多个上游,回放给当前 kiro 时签名验
-          // 不过 → 逆向渠道整条请求直接不缓存(实测:老窗口 read=0 连冷写,同一时刻
-          // 同一渠道的新窗口却稳稳命中——差别就在旧窗口带这些杂签名思考块)。
-          // thinkingHost 门槛只认主机名、分不清同域下的 kiro/MAX,拦不住。
-          // 跨轮思考连续性本是锦上添花(Anthropic 对已完成历史轮也会自动剥离),
-          // 不值为它赔掉整条缓存 → 历史轮一律不回放思考。
-          // 注:当前轮工具迭代内的思考块另有路径(iterationThinkingBlocks,同轮
-          // Anthropic 强制保留),不受影响;思考本身照常开,只是不回放旧的。
+          // 跨轮思考回放:只回放**最近一条**带思考的 assistant(2026-07-24)。
+          // 背景:思考块签名只有原产上游能验。camel-hub.cn 域名下 kiro/MAX 多个
+          // 上游共用主机名,老窗口积了 332 条跨上游思考块,**全回放**给当前 kiro
+          // 时外来签名验不过 → 逆向渠道整条请求不缓存(实测老窗口 read=0 连冷写,
+          // 同渠道同时刻的新窗口却稳稳命中)。thinkingHost 门槛只认主机名、分不清
+          // 同域的 kiro/MAX,拦不住全回放。
+          // 解:只留**最近一条**——它几乎总是当前会话/当前上游刚签的、签名干净,
+          // 不毁缓存,又保留「模型看得到自己上一轮推理」的连续性。代价:这条会随
+          // 新消息滑出 → 每轮多冷写约 1~2k(仅一轮内容),远小于全回放毁整条缓存。
+          // host 门槛仍拦跨主机(treegpt vs camel)的明显外来块;同主机 kiro/MAX
+          // 切换只有一轮瞬态,自愈。当前轮工具循环内的思考另有路径,不受影响。
+          let lastThinkingIdx = -1
+          for (let i = compressionOutcome.recentMessages.length - 1; i >= 0; i -= 1) {
+            const m = compressionOutcome.recentMessages[i]
+            if (m.role === 'assistant' && Array.isArray(m.meta?.thinkingBlocks) && m.meta.thinkingBlocks.length > 0) {
+              lastThinkingIdx = i
+              break
+            }
+          }
+          const currentThinkingHost = thinkingOriginHost()
           for (let msgIdx = 0; msgIdx < compressionOutcome.recentMessages.length; msgIdx++) {
             const message = compressionOutcome.recentMessages[msgIdx]
             const isCurrentTurn = msgIdx === lastUserMsgIdx
@@ -2597,13 +2606,19 @@ const App = () => {
               if (message.role === 'assistant' && message.meta?.toolDigest) {
                 content = `[本轮已调用工具] ${message.meta.toolDigest}\n\n${content}`
               }
-              // 历史轮不回放思考块(2026-07-24,见上方大段说明)。逆向渠道
-              // (camel-hub.cn 多上游池)验不了外来签名 → 一旦历史里混进别的上游
-              // 签的思考块,整条请求就不缓存。跨轮思考连续性 Anthropic 本就自动
-              // 剥离,不值为它赔掉缓存。当前轮工具循环内的思考另有路径,不受影响。
+              // 只给「最近一条带思考的 assistant」(lastThinkingIdx)回放思考块
+              // ——见上方说明:避免外来签名毁缓存,又保留上一轮推理连续性。
+              const nativeReplay =
+                msgIdx === lastThinkingIdx &&
+                reasoningEnabled &&
+                isClaudeModel(effectiveModel) &&
+                message.meta?.thinkingHost === currentThinkingHost
+                  ? message.meta?.thinkingBlocks ?? null
+                  : null
               baseMessages.push({
                 role: message.role,
                 content,
+                ...(nativeReplay ? { thinking_blocks: nativeReplay } : {}),
               } as ChatRequestMessage)
             }
           }
