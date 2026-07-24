@@ -110,7 +110,7 @@ import {
 import { resolveModelId } from './utils/modelResolver'
 import { chinaClockToDelayMinutes } from './utils/time'
 import { fetchOpenRouter } from './api/openrouter'
-import { convertOpenAiRequestToAnthropic, isThinkingReplayDisabledForHost } from './api/anthropic'
+import { convertOpenAiRequestToAnthropic } from './api/anthropic'
 import { getActiveProvider, getMsuicodeFormat, getProviderConfig, getRelayNoBreakpoints } from './storage/apiProvider'
 import { ensureImageCaption, getImageCaption, syncImageCaptionsFromCloud } from './storage/imageCaptions'
 import { fetchAutoRecall, releaseInjectedRecalls } from './storage/memoryRecall'
