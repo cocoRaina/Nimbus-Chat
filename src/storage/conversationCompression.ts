@@ -257,6 +257,16 @@ const summarizeMessagesOnce = async (
   if (looksLikeRefusalOrGarbage(text)) {
     throw new Error(`summarizer refused / returned garbage: ${text.slice(0, 60)}`)
   }
+  // 塌缩护栏（2026-07-23）：增量折叠时，新摘要 = 旧摘要 + 揉进新对话，理应
+  // ≥ 旧摘要体量。若新摘要比旧的缩水一大半，说明模型偷懒把旧内容丢了（实测
+  // compression_cache 出现过 8+ 条消息压成 71 字的「短桩子」，还被存下来污染
+  // 后续折叠——这正是「一会好一会坏」的根）。判为坏 → 抛错触发重试；两次+
+  // 兜底全失败时，compressIfNeeded 会保留旧摘要（cachedFallback），绝不把短
+  // 桩子写进缓存。阈值 0.5 给正常收紧留足空间，只拦真正的塌缩。
+  const prevLen = existingSummary.trim().length
+  if (prevLen >= 300 && text.length < prevLen * 0.5) {
+    throw new Error(`summary collapsed: ${text.length} chars vs prev ${prevLen}`)
+  }
   return text
 }
 
