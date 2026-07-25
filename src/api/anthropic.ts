@@ -101,7 +101,7 @@ type AnthropicRequest = {
   // Opus 4.7+ removed it and 400 on that shape — those use adaptive
   // thinking + the `effort` knob in output_config instead.
   thinking?: { type: 'enabled'; budget_tokens: number } | { type: 'adaptive' }
-  output_config?: { effort: 'low' | 'medium' | 'high' }
+  output_config?: { effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
   metadata?: { user_id?: string }
   // OpenRouter-specific routing hint, passed through on requests to OR's
   // /messages endpoint. Ignored by direct Anthropic and most relays.
@@ -456,15 +456,22 @@ export const convertOpenAiRequestToAnthropic = async (
     : 0
   const adaptiveOnly = claudeVersion >= 407
 
-  let effortLevel: 'low' | 'medium' | 'high' | undefined
+  let effortLevel: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined
   if (supportsThinking) {
     if (adaptiveOnly) {
       // budget_tokens is rejected; map the requested budget/effort onto
       // adaptive thinking's effort knob. A sizeable explicit budget reads
-      // as "high"; otherwise honor the effort string if one was given.
+      // as "xhigh": on Opus5/Sonnet5/Fable5/Opus4.7-4.8 thinking cannot be
+      // disabled at xhigh/max effort (official docs), so xhigh is the closest
+      // thing to "think on every turn" — the companion wants a live thinking
+      // chain each reply, not skipped on easy inputs (high alone can skip).
+      // Held constant globally so it doesn't break the prompt cache (only the
+      // one-time high→xhigh switch cold-writes). Cost is modest for chat:
+      // conversational thinking is a few k tokens, not the millions xhigh is
+      // sized for in agentic/coding runs. 待观察真机 token（用户已知情拍板）。
       if (explicitBudget >= 1024) {
         thinking = { type: 'adaptive' }
-        effortLevel = 'high'
+        effortLevel = 'xhigh'
       } else if (effort === 'high' || effort === 'medium' || effort === 'low') {
         thinking = { type: 'adaptive' }
         effortLevel = effort
@@ -494,7 +501,9 @@ export const convertOpenAiRequestToAnthropic = async (
     thinking && 'budget_tokens' in thinking
       ? Math.max(userMaxTokens, thinking.budget_tokens + 1024)
       : thinking // adaptive: no explicit budget, just give the reply headroom
-        ? Math.max(userMaxTokens, 9216)
+        // xhigh 思考会更长，抬高上限防「思考吃掉额度→回复被截断」（max_tokens 是
+        // 天花板不是账单，用不到就不计费；也不进前缀、不影响缓存）。
+        ? Math.max(userMaxTokens, 16000)
         : userMaxTokens
   // Sampling params must be dropped when thinking is on (any model) and
   // ALWAYS on Opus 4.7+ (they 400 there regardless of thinking).
