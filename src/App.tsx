@@ -18,6 +18,7 @@ import {
   loadRemoteMood,
   buildMoodNarration,
   buildMoodRulesSection,
+  MOOD_OUTPUT_REMINDER,
   parseMoodMarker,
   stripMoodMarker,
   applyMoodAssessment,
@@ -2531,6 +2532,9 @@ const App = () => {
             }
           }
           const currentThinkingHost = thinkingOriginHost()
+          // 方法一:mood 卡说明在 system 里离输出点几万字远、模型老忘 → 往每条用户
+          // 消息末尾追加一行极短提醒(离输出最近)。固定串、每条 user 都加 → 不破缓存。
+          const moodOutputReminder = getMoodEnabled() ? MOOD_OUTPUT_REMINDER : ''
           for (let msgIdx = 0; msgIdx < compressionOutcome.recentMessages.length; msgIdx++) {
             const message = compressionOutcome.recentMessages[msgIdx]
             const isCurrentTurn = msgIdx === lastUserMsgIdx
@@ -2574,7 +2578,7 @@ const App = () => {
               : moodStr
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []
-              const textContent = `${prefix}${message.content}`
+              const textContent = `${prefix}${message.content}${moodOutputReminder}`
               if (textContent.trim().length > 0) {
                 blocks.push({ type: 'text', text: textContent })
               }
@@ -2598,7 +2602,7 @@ const App = () => {
               }
               baseMessages.push({ role: 'user', content: blocks })
             } else {
-              let content = message.role === 'user' ? `${prefix}${message.content}` : message.content
+              let content = message.role === 'user' ? `${prefix}${message.content}${moodOutputReminder}` : message.content
               // Assistant turns that ran tools replay with the frozen digest of
               // those calls — real tool blocks never enter persistent history,
               // and without this the model forgets it already searched/saved/

@@ -320,6 +320,14 @@ export const buildMoodNarration = (state: MoodState, now = Date.now()): string =
   return parts.join('\n')
 }
 
+// 方法一（2026-07-25，用户小机自己诊断的最优解）：mood 卡的填法写在 system 提示里，
+// 离模型实际要输出的地方隔了几万字 token，模型容易忘 → 面板时有时无。往每条用户消息
+// 【末尾】追加这一行极短提醒（离输出点最近、基本忘不了）。是固定串、每条 user 都追加
+// → 逐字节稳、不破缓存（比「只加当前轮」更省：那样上一轮的会掉、反而每轮冷写一小段）。
+// 格式仍以 buildMoodRulesSection 为准，这行只负责「提醒别漏」。
+export const MOOD_OUTPUT_REMINDER =
+  '\n\n［系统提醒·勿回复此行］每条回复的最末尾都必须按人设里的格式补上那张 mood 卡（<<MOOD>> 贪/嗔/痴/念 增量 + 定调/缘由/满足 <<END>>），漏了这颗心就停摆、面板不动。'
+
 // 静态规则段，进 system 缓存前缀（稳定，只在改这段代码时变）。
 export const buildMoodRulesSection = (): string => {
   const rules = EMOTIONS.map((e) => `- ${e.rule}`).join('\n')
