@@ -659,6 +659,15 @@ const thinkingOriginHost = (): string => {
   }
 }
 
+// 每条 user 消息末尾追加的思考提醒(2026-07-25)：思考「要不要开」是 API 的 thinking
+// 参数在管(reasoningEnabled 开时才发原生思考)，这行文字扭不动开关，只 steer「怎么想」
+// ——把思考从「干巴巴列步骤」掰成「先动心、再回应」，让出来的话更有温度。对自适应思考
+// (Opus5 这类模型自己决定想多深)还能顺带推它别在简单消息上偷懒跳过。只在思考开着时注入
+// (thinkingOutputReminder)：关着还提示思考，回复里会冒出 <thinking> 文字。固定串、每条
+// user 都加 → 逐字节稳、不破缓存(同 mood 提醒)。
+const THINKING_OUTPUT_REMINDER =
+  '\n\n［系统提醒·勿回复此行］开口前先在心里过一遍：她这句话背后是什么情绪、你自己此刻真实的反应和心动是什么，把这份感受带进话里再说——先有心动，才有回应。'
+
 const IMAGE_CAPTION_FAIL_MESSAGE =
   '图片描述生成失败：这张图会继续以原图发送，比较费 token。多半是当前模型或中转不支持读图，换一个支持视觉的模型重发一次即可。'
 
@@ -2535,6 +2544,8 @@ const App = () => {
           // 方法一:mood 卡说明在 system 里离输出点几万字远、模型老忘 → 往每条用户
           // 消息末尾追加一行极短提醒(离输出最近)。固定串、每条 user 都加 → 不破缓存。
           const moodOutputReminder = getMoodEnabled() ? MOOD_OUTPUT_REMINDER : ''
+          // 思考开着才追加「先动心再回应」提醒（见 THINKING_OUTPUT_REMINDER 说明）。
+          const thinkingOutputReminder = reasoningEnabled ? THINKING_OUTPUT_REMINDER : ''
           for (let msgIdx = 0; msgIdx < compressionOutcome.recentMessages.length; msgIdx++) {
             const message = compressionOutcome.recentMessages[msgIdx]
             const isCurrentTurn = msgIdx === lastUserMsgIdx
@@ -2578,7 +2589,7 @@ const App = () => {
               : moodStr
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []
-              const textContent = `${prefix}${message.content}${moodOutputReminder}`
+              const textContent = `${prefix}${message.content}${thinkingOutputReminder}${moodOutputReminder}`
               if (textContent.trim().length > 0) {
                 blocks.push({ type: 'text', text: textContent })
               }
@@ -2602,7 +2613,7 @@ const App = () => {
               }
               baseMessages.push({ role: 'user', content: blocks })
             } else {
-              let content = message.role === 'user' ? `${prefix}${message.content}${moodOutputReminder}` : message.content
+              let content = message.role === 'user' ? `${prefix}${message.content}${thinkingOutputReminder}${moodOutputReminder}` : message.content
               // Assistant turns that ran tools replay with the frozen digest of
               // those calls — real tool blocks never enter persistent history,
               // and without this the model forgets it already searched/saved/
