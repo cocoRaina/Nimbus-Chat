@@ -501,9 +501,10 @@ export const convertOpenAiRequestToAnthropic = async (
     thinking && 'budget_tokens' in thinking
       ? Math.max(userMaxTokens, thinking.budget_tokens + 1024)
       : thinking // adaptive: no explicit budget, just give the reply headroom
-        // xhigh 思考会更长，抬高上限防「思考吃掉额度→回复被截断」（max_tokens 是
-        // 天花板不是账单，用不到就不计费；也不进前缀、不影响缓存）。
-        ? Math.max(userMaxTokens, 16000)
+        // 9216 对聊天足够：小机不跑代码，xhigh 下单轮思考也就几 k，加回复远不到上限。
+        // max_tokens 只是天花板（用不到不计费、不进前缀不影响缓存），聊天场景没必要
+        // 抬更高看着吓人；真机若出现「回复被思考吃截断」再按需上调。
+        ? Math.max(userMaxTokens, 9216)
         : userMaxTokens
   // Sampling params must be dropped when thinking is on (any model) and
   // ALWAYS on Opus 4.7+ (they 400 there regardless of thinking).
