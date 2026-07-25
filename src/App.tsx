@@ -169,7 +169,7 @@ import { tidyOldImages, listStoredPhotos, chatImagePublicUrl } from './storage/i
 import { syncStatusBarToColor } from './storage/statusBar'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
-import { compressIfNeeded, estimateModelContextLimit, estimateTokens } from './storage/conversationCompression'
+import { compressIfNeeded, clearCompressionCache, estimateModelContextLimit, estimateTokens } from './storage/conversationCompression'
 
 const MEMORY_EXTRACT_RECENT_MESSAGES = 24
 const AUTO_EXTRACT_USER_TURN_INTERVAL = 12
@@ -5100,6 +5100,33 @@ TOOL_SEARCH_HANDOFF,
     [user, resolveSessionModel, fallbackSettings],
   )
 
+  // 一键清空压缩摘要：摘要攒烂了想推倒重来。删掉 compression_cache 行 + 重置容量条，
+  // 下一条消息会从原始对话重新压出一份干净的摘要。
+  const handleClearCompression = useCallback(
+    async (sessionId: string): Promise<{ ok: boolean; message: string }> => {
+      if (!user || !supabase) {
+        return { ok: false, message: '云端未配置，无法清空' }
+      }
+      const ok = await clearCompressionCache(sessionId)
+      if (!ok) {
+        return { ok: false, message: '清空失败，请重试' }
+      }
+      lastServerPromptTokensRef.current.delete(sessionId)
+      persistLastPromptTokensStore(lastServerPromptTokensRef.current)
+      setCtxTokensBySession((prev) => {
+        if (!(sessionId in prev)) return prev
+        const next = { ...prev }
+        delete next[sessionId]
+        return next
+      })
+      return {
+        ok: true,
+        message: '压缩摘要已清空。下一条消息会从原始对话重新生成一份干净的摘要。',
+      }
+    },
+    [user],
+  )
+
   useEffect(() => {
     insertPendingProactiveRef.current = async (entry) => {
       if (!user || !supabase) {
@@ -5509,6 +5536,7 @@ TOOL_SEARCH_HANDOFF,
                 onArchiveSession={handleSessionArchiveStateChange}
                 onActiveSessionChange={setActiveChatSessionId}
                 onManualCompress={handleManualCompress}
+                onClearCompression={handleClearCompression}
                 getContextUsage={(sessionId: string) => {
                   const model = resolveSessionModel(sessionId)
                   const toolsOn = isToolCapableModel(model) && Boolean(supabase)
@@ -5737,6 +5765,7 @@ const ChatRoute = ({
   onArchiveSession,
   onActiveSessionChange,
   onManualCompress,
+  onClearCompression,
   getContextUsage,
   onChatPageEnter,
   keepaliveEnabled,
@@ -5781,6 +5810,7 @@ const ChatRoute = ({
   onArchiveSession: (sessionId: string, isArchived: boolean) => Promise<void>
   onActiveSessionChange: (sessionId: string) => void
   onManualCompress: (sessionId: string) => Promise<{ ok: boolean; message: string }>
+  onClearCompression: (sessionId: string) => Promise<{ ok: boolean; message: string }>
   getContextUsage: (sessionId: string) => { current: number; trigger: number }
   onChatPageEnter: () => void
   keepaliveEnabled: boolean
@@ -5939,6 +5969,7 @@ const ChatRoute = ({
           onSelectReasoning(activeSession.id, reasoning)
         }
         onManualCompress={() => onManualCompress(activeSession.id)}
+        onClearCompression={() => onClearCompression(activeSession.id)}
         contextUsage={getContextUsage(activeSession.id)}
         keepaliveEnabled={keepaliveEnabled}
         onToggleKeepalive={onToggleKeepalive}

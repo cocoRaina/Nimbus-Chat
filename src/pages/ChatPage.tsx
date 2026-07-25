@@ -119,6 +119,7 @@ export type ChatPageProps = {
   highReasoningEnabled: boolean
   onSelectReasoning: (reasoning: boolean | null) => void
   onManualCompress: () => Promise<{ ok: boolean; message: string }>
+  onClearCompression: () => Promise<{ ok: boolean; message: string }>
   // Real context fill for the active session: last turn's server prompt_tokens
   // (current) vs the auto-compression trigger (trigger). Drives the capacity
   // bar under the manual-compress button. current=0 until the first reply lands.
@@ -514,6 +515,7 @@ const ChatPage = ({
   highReasoningEnabled,
   onSelectReasoning,
   onManualCompress,
+  onClearCompression,
   contextUsage,
   keepaliveEnabled,
   onToggleKeepalive,
@@ -781,6 +783,18 @@ const ChatPage = ({
       setCompressing(false)
     }
   }, [compressing, onManualCompress])
+  const handleClearCompression = useCallback(async () => {
+    if (compressing) return
+    if (!window.confirm('清空这个会话的压缩摘要？\n\n用于摘要攒烂了想推倒重来——清空后，下一条消息会从原始对话重新生成一份干净的摘要。')) return
+    setCompressing(true)
+    setOpenHeaderMenu(false)
+    try {
+      const result = await onClearCompression()
+      setCompressionDialog(result.message)
+    } finally {
+      setCompressing(false)
+    }
+  }, [compressing, onClearCompression])
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   // Separate input with capture="environment" so tapping the 拍照 button
@@ -1867,6 +1881,13 @@ const ChatPage = ({
                     disabled={compressing}
                   >
                     {compressing ? '⏳ 压缩中…' : '📦 手动压缩对话'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearCompression}
+                    disabled={compressing}
+                  >
+                    {compressing ? '⏳ 处理中…' : '🧹 清空压缩摘要（推倒重来）'}
                   </button>
                   {contextUsage && contextUsage.trigger > 0 && (() => {
                     const { current, trigger } = contextUsage

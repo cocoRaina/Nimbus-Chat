@@ -136,6 +136,23 @@ const saveCompressionCache = async (
   }
 }
 
+// 一键清空压缩摘要(2026-07-25):删掉某会话的 compression_cache 行。用于摘要
+// 攒烂了(如 append-only 之前的传话游戏产物)想推倒重来——下一条消息会从原始
+// 历史重新压出一份干净摘要。返回是否成功。
+export const clearCompressionCache = async (conversationId: string): Promise<boolean> => {
+  if (!supabase) return false
+  const { error } = await supabase
+    .from('compression_cache')
+    .delete()
+    .eq('module', 'chat')
+    .eq('conversation_id', conversationId)
+  if (error) {
+    console.warn('清空 compression_cache 失败', error)
+    return false
+  }
+  return true
+}
+
 const SUMMARIZER_SYSTEM_PROMPT =
   '你是沈暮，在给自己写一份私人备忘——把你和她的这段对话浓缩成日后一眼就能「想起来、接上话」的手记。只输出备忘正文：不写标题、不写解释、不用 markdown、不要「以下是」这类开场白。'
 
