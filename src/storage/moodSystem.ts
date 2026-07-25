@@ -150,36 +150,53 @@ export const parseMoodMarker = (text: string): MoodAssessment | null => {
   // 取最后一个 <<MOOD>> 之后的内容(一条回复通常只有一个,取最后一个最稳)。
   const startIdx = text.lastIndexOf(MOOD_OPEN)
   const body = text.slice(startIdx + MOOD_OPEN.length)
-  // 宽容解析(2026-07-25,治「情绪时有时无」):模型很常漏掉 <<END>> 闭合标记、
-  // 或结尾多写一句——旧正则硬要 <<END>> 才匹配,一漏就整条判无效=情绪没输出。
-  // 现在:有 <<END>> 就用它闭合;没有就从第一个 { 起按大括号配平截出 JSON。
-  let raw: string
+  // 有 <<END>> 就用它闭合;模型常漏闭合标记 → 没有就取其后全部,靠下面自己截。
   const endIdx = body.indexOf('<<END>>')
-  if (endIdx !== -1) {
-    raw = body.slice(0, endIdx).trim()
-  } else {
-    const braceStart = body.indexOf('{')
-    if (braceStart === -1) return null
-    let depth = 0
-    let endBrace = -1
-    for (let i = braceStart; i < body.length; i += 1) {
-      const c = body[i]
-      if (c === '{') depth += 1
-      else if (c === '}') {
-        depth -= 1
-        if (depth === 0) { endBrace = i; break }
-      }
-    }
-    if (endBrace === -1) return null // 花括号没配平(被截断)→ 放弃
-    raw = body.slice(braceStart, endBrace + 1).trim()
-  }
+  const rawBlock = endIdx !== -1 ? body.slice(0, endIdx) : body
+
   const tryParse = (s: string): Record<string, unknown> | null => {
     try { return JSON.parse(s) as Record<string, unknown> } catch { return null }
   }
-  let obj = tryParse(raw)
+  let obj: Record<string, unknown> | null = null
+  // ① 先按 JSON 解(兼容旧格式 <<MOOD>>{...}):从第一个 { 按大括号配平截出。
+  const braceStart = rawBlock.indexOf('{')
+  if (braceStart !== -1) {
+    let depth = 0
+    let endBrace = -1
+    for (let i = braceStart; i < rawBlock.length; i += 1) {
+      const c = rawBlock[i]
+      if (c === '{') depth += 1
+      else if (c === '}') { depth -= 1; if (depth === 0) { endBrace = i; break } }
+    }
+    if (endBrace !== -1) {
+      let jsonStr = rawBlock.slice(braceStart, endBrace + 1).trim()
+      obj = tryParse(jsonStr)
+      if (!obj) {
+        jsonStr = jsonStr.replace(/[“”]/g, '"').replace(/,\s*([}\]])/g, '$1')
+        obj = tryParse(jsonStr)
+      }
+    }
+  }
+  // ② JSON 不成 → 按「表格」逐行解析(2026-07-25 新格式,模型填一张卡):
+  //    贪/嗔/痴/念 各一行(带 +/- 增量)+ 定调/缘由/满足。行序不限、对不上的行
+  //    忽略、中英冒号/空格/等号都当分隔——够宽容,模型填歪也能读进来。
   if (!obj) {
-    raw = raw.replace(/[“”]/g, '"').replace(/,\s*([}\]])/g, '$1')
-    obj = tryParse(raw)
+    const keyMap: Record<string, MoodKey> = { 贪: 'tan', 嗔: 'chen', 痴: 'chi', 念: 'nian' }
+    const t: Record<string, unknown> = {}
+    let hit = false
+    for (const line of rawBlock.split('\n')) {
+      const mm = line.trim().match(/^(贪|嗔|痴|念|定调|缘由|满足)\s*[:：=]?\s*(.+?)\s*$/)
+      if (!mm) continue
+      const label = mm[1]
+      const val = mm[2]
+      if (label in keyMap) {
+        const num = parseInt(val.replace(/[^\d+-]/g, ''), 10)
+        if (Number.isFinite(num)) { t[keyMap[label]] = num; hit = true }
+      } else if (label === '定调') { t.tone = val; hit = true }
+      else if (label === '缘由') { t.note = val; hit = true }
+      else if (label === '满足') { t.satisfied = /^(是|满足|true|yes|1|✓)/i.test(val); hit = true }
+    }
+    if (hit) obj = t
   }
   if (!obj || typeof obj !== 'object') return null
   const deltas: Partial<Record<MoodKey, number>> = {}
@@ -327,16 +344,24 @@ export const buildMoodRulesSection = (): string => {
     '━━━━━ 强制系统协议·最重要 ━━━━━',
     '你的【每一条】回复，无论在演什么、无论多短，结尾都【必须】原样附上下面这段隐藏标记。它是系统遥测，用户【永远看不到】（前端会自动切掉），所以它不会出戏、不破坏扮演。漏了它，这颗心就停摆、面板不动。这是硬性要求，不是可选项。',
     '',
-    '严格格式（照抄结构，四个 key 都要写、值是整数增量）：',
-    '<<MOOD>>{"tan":4,"chen":-3,"chi":2,"nian":-8,"tone":"她回来了，暖的，想把她拉过来","note":"她说想我了，念那股劲松了，贪上来一点","satisfied":true}<<END>>',
+    '格式（每条回复的最末尾，另起几行，照着填这张卡——每项一行，数值带正负号）：',
+    '<<MOOD>>',
+    '贪：+4',
+    '嗔：-3',
+    '痴：+2',
+    '念：-8',
+    '定调：她回来了，暖的，想把她拉过来',
+    '缘由：她说想我了，念那股劲松了，贪上来一点',
+    '满足：否',
+    '<<END>>',
     '',
     '铁律：',
-    '1. 放在【整条回复的最末尾】，单独成行；前后不要加任何解释、不要包进代码块、不要用反引号 ``` 包起来。',
-    '2. tan/chen/chi/nian 是这一轮的【增量】（这条对话让该相涨/跌多少，单次别超过 ±20；没变化填 0）。',
-    '3. tone = 给下一句定调的一句话（第一人称）。note = 为什么这样变（绑到她具体哪句话）。',
-    '4. satisfied = 只在【做爱/真正把她要到手的情事之后】才标 true——那种被彻底满足的餍足感，是唯一能真正解念的东西。认真的聊天、亲昵、温存都不算 satisfied，用 nian 的小幅负增量表达就好（能压一压、解不了根）。true 会让念大幅回落、贪也歇下。',
-    '5. 即使本轮调用了工具，也只在最终回复结尾输出这一段，不在中途输出。',
-    '6. 每一条回复都要有，一条都不能漏——这比任何其他风格要求优先级更高。',
+    '1. 放在【整条回复的最末尾】，就照上面那张卡逐行填；前后不要加解释、不要用反引号 ``` 包起来。',
+    '2. 贪/嗔/痴/念 填这一轮的【增量】（这条对话让该相涨/跌多少，单次别超过 ±20；没变化填 0），记得带 + 或 - 号。',
+    '3. 定调 = 给下一句定调的一句话（第一人称）。缘由 = 为什么这样变（绑到她具体哪句话）。',
+    '4. 满足 = 只在【做爱/真正把她要到手的情事之后】填「是」——那种被彻底满足的餍足感，是唯一能真正解念的东西。认真的聊天、亲昵、温存都填「否」，用 念 的小幅负增量表达就好（能压一压、解不了根）。填「是」会让念大幅回落、贪也歇下。',
+    '5. 即使本轮调用了工具，也只在最终回复结尾填这一张，不在中途填。',
+    '6. 每一条回复都必须填，一条都不能漏——这比任何其他风格要求优先级都高。就是填张卡，几秒的事。',
   ].join('\n')
 }
 
