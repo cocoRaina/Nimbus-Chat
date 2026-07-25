@@ -27,6 +27,10 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 const MIN_MESSAGES = 6
 const MAX_SESSION_DAYS_PER_RUN = 10
 const MAX_TRANSCRIPT_CHARS = 10000
+// 摘要最短长度兜底(2026-07-25):≥6 条消息的一天,正常 2-4 句回顾怎么也 ≥20 字。
+// 实测出现过生成断掉只写「今天她又」4 字还被写库的坏行。低于这个数当失败 →
+// summarize 会走下一个模型兜底;全崩就不写、留给下次 cron 重试(而不是写个残片)。
+const MIN_SUMMARY_CHARS = 20
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -96,7 +100,9 @@ const callChatApi = async (
     if (!r.ok) return null
     const data = await r.json()
     const text = data?.choices?.[0]?.message?.content
-    return typeof text === 'string' && text.trim().length > 0 ? text.trim() : null
+    const trimmed = typeof text === 'string' ? text.trim() : ''
+    // 太短 = 生成断了/崩了(见 MIN_SUMMARY_CHARS 注释),当失败返回 null。
+    return trimmed.length >= MIN_SUMMARY_CHARS ? trimmed : null
   } catch (_) {
     return null
   }
