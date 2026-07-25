@@ -444,11 +444,15 @@ export const convertOpenAiRequestToAnthropic = async (
   // sending either returns a 400. Those models use adaptive thinking with
   // the effort knob instead. Treat any Claude >= 4.7 as adaptive-only;
   // 4.6 and earlier keep the budget_tokens path that works today.
+  // 次版本设为可选(2026-07-25):5 系模型名是「claude-opus-5」这种单主版本、
+  // 没有次版本,旧正则要求 major-minor 必匹配 → 匹配失败 → claudeVersion=0 →
+  // 被当成 4.6 及更早、误发 budget_tokens 扩展思考 → Opus5/Sonnet5 直接 400
+  // 或被剥,思考链没了。次版本缺省算 0(opus-5 → 500),并补上 fable/mythos。
   const versionMatch =
-    body.model.match(/claude-(?:opus|sonnet|haiku)-(\d+)[-.](\d+)/i) ||
-    body.model.match(/claude-(\d+)[-.](\d+)[-.]?(?:opus|sonnet|haiku)/i)
+    body.model.match(/claude-(?:opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?/i) ||
+    body.model.match(/claude-(\d+)(?:[-.](\d+))?[-.]?(?:opus|sonnet|haiku|fable|mythos)/i)
   const claudeVersion = versionMatch
-    ? Number(versionMatch[1]) * 100 + Number(versionMatch[2])
+    ? Number(versionMatch[1]) * 100 + Number(versionMatch[2] ?? 0)
     : 0
   const adaptiveOnly = claudeVersion >= 407
 

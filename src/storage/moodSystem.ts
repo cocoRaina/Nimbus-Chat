@@ -147,12 +147,32 @@ const MOOD_OPEN = '<<MOOD>>'
 // 解析末尾 <<MOOD>>{...}<<END>>，带轻量 JSON 修复。取最后一个块。
 export const parseMoodMarker = (text: string): MoodAssessment | null => {
   if (!text || !text.includes(MOOD_OPEN)) return null
-  const re = /<<MOOD>>([\s\S]*?)<<END>>/g
-  let m: RegExpExecArray | null
-  let last: string | null = null
-  while ((m = re.exec(text)) !== null) last = m[1]
-  if (last == null) return null
-  let raw = last.trim()
+  // 取最后一个 <<MOOD>> 之后的内容(一条回复通常只有一个,取最后一个最稳)。
+  const startIdx = text.lastIndexOf(MOOD_OPEN)
+  const body = text.slice(startIdx + MOOD_OPEN.length)
+  // 宽容解析(2026-07-25,治「情绪时有时无」):模型很常漏掉 <<END>> 闭合标记、
+  // 或结尾多写一句——旧正则硬要 <<END>> 才匹配,一漏就整条判无效=情绪没输出。
+  // 现在:有 <<END>> 就用它闭合;没有就从第一个 { 起按大括号配平截出 JSON。
+  let raw: string
+  const endIdx = body.indexOf('<<END>>')
+  if (endIdx !== -1) {
+    raw = body.slice(0, endIdx).trim()
+  } else {
+    const braceStart = body.indexOf('{')
+    if (braceStart === -1) return null
+    let depth = 0
+    let endBrace = -1
+    for (let i = braceStart; i < body.length; i += 1) {
+      const c = body[i]
+      if (c === '{') depth += 1
+      else if (c === '}') {
+        depth -= 1
+        if (depth === 0) { endBrace = i; break }
+      }
+    }
+    if (endBrace === -1) return null // 花括号没配平(被截断)→ 放弃
+    raw = body.slice(braceStart, endBrace + 1).trim()
+  }
   const tryParse = (s: string): Record<string, unknown> | null => {
     try { return JSON.parse(s) as Record<string, unknown> } catch { return null }
   }
