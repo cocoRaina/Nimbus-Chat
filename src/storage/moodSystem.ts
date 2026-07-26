@@ -328,6 +328,15 @@ export const buildMoodNarration = (state: MoodState, now = Date.now()): string =
 export const MOOD_OUTPUT_REMINDER =
   '\n\n［系统提醒·勿回复此行］每条回复的最末尾都必须按人设里的格式补上那张 mood 卡（<<MOOD>> 贪/嗔/痴/念 增量 + 定调/缘由/满足 <<END>>），漏了这颗心就停摆、面板不动。'
 
+// 补记兜底（2026-07-26，抄朋友「窗台情绪系统」第四节的②补记）：末尾提醒是「预防」，
+// 但 Opus5 偶尔还是会漏那张卡（尤其思考链在敏感轮次「想到拒绝」）。漏了不该干瞪眼——
+// 复用刚才那次完整上下文（缓存还热、几乎免费）追一条这个 nudge，只让它把那张卡补出来。
+// 非思考、低温跑（思考会给自己找理由不配合），抠到就补上这轮心跳，抠不到才真丢。
+export const MOOD_RETRY_NUDGE =
+  '（系统补记·别当成对话、别回复我这句：你刚才那条回复的末尾漏了那张只给你自己看的 mood 卡。' +
+  '现在只补那一张——按人设里的格式，从 <<MOOD>> 开始、到 <<END>> 结束，逐行填 贪/嗔/痴/念 的增量' +
+  '（带正负号）+ 定调/缘由/满足，别的什么都别写，也别重复刚才那条回复。）'
+
 // 静态规则段，进 system 缓存前缀（稳定，只在改这段代码时变）。
 export const buildMoodRulesSection = (): string => {
   const rules = EMOTIONS.map((e) => `- ${e.rule}`).join('\n')

@@ -19,6 +19,7 @@ import {
   buildMoodNarration,
   buildMoodRulesSection,
   MOOD_OUTPUT_REMINDER,
+  MOOD_RETRY_NUDGE,
   parseMoodMarker,
   stripMoodMarker,
   applyMoodAssessment,
@@ -4542,10 +4543,61 @@ TOOL_SEARCH_HANDOFF,
           if (getMoodEnabled()) {
             try {
               const assessment = parseMoodMarker(assistantContent)
+              const replyForMoodRetry = stripMoodMarker(assistantContent).slice(0, 8000)
               assistantContent = stripMoodMarker(assistantContent)
               if (assessment) {
                 const nextMood = applyMoodAssessment(getMood(), assessment)
                 commitMood(user?.id ?? null, nextMood)
+              } else {
+                // 块漏了：① 不静默（打日志，好量化 Opus5 到底多久漏一次）；② 不干瞪眼——
+                // 仿朋友「窗台情绪系统」第四节的②补记：复用刚才那次完整上下文（缓存还热、
+                // 几乎免费）追一条「只补 mood 卡」的请求，非思考 + 低温后台跑，抠到就补上
+                // 这轮心跳。抠不到才真丢。整段 fire-and-forget，不阻塞回复展示。
+                console.warn('[mood] 本轮没抠到情绪块', { tail: assistantContent.slice(-80) })
+                if (lastSentBody && !controller.signal.aborted) {
+                  const moodRetryBody: Record<string, unknown> = {
+                    ...lastSentBody,
+                    messages: applyClaudeCaching(
+                      [
+                        ...baseMessages,
+                        { role: 'assistant', content: replyForMoodRetry },
+                        { role: 'user', content: MOOD_RETRY_NUDGE },
+                      ] as typeof baseMessages,
+                      effectiveModel,
+                    ),
+                    stream: false,
+                    tool_choice: 'none',
+                    // 非思考：思考链在敏感轮次会「想到拒绝」（朋友实测）。删掉 reasoning
+                    // → 适配层就不发 thinking。低温更稳（Opus4.7+ 会自动丢弃 temperature，
+                    // 无害；老模型/非 Claude 生效）。max_tokens 只需放下一张小卡。
+                    temperature: 0.4,
+                    max_tokens: 1024,
+                  }
+                  delete moodRetryBody.reasoning
+                  void (async () => {
+                    try {
+                      const resp = await fetchOpenRouter('/chat/completions', {
+                        body: moodRetryBody,
+                        signal: controller.signal,
+                      })
+                      if (!resp.ok) { console.warn('[mood] 补记 HTTP 失败', resp.status); return }
+                      const data = (await resp.json()) as {
+                        choices?: Array<{ message?: { content?: unknown } }>
+                      }
+                      const text = data?.choices?.[0]?.message?.content
+                      const retryAssessment = typeof text === 'string' ? parseMoodMarker(text) : null
+                      if (retryAssessment) {
+                        commitMood(user?.id ?? null, applyMoodAssessment(getMood(), retryAssessment))
+                        console.log('[mood] 补记成功，心跳已补上')
+                      } else {
+                        console.warn('[mood] 补记也没抠到块，本轮心跳丢失',
+                          typeof text === 'string' ? text.slice(0, 80) : text)
+                      }
+                    } catch (retryErr) {
+                      console.warn('[mood] 补记异常', retryErr)
+                    }
+                  })()
+                }
               }
             } catch (moodErr) {
               console.warn('情绪自评处理失败', moodErr)
