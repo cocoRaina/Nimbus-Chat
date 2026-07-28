@@ -90,16 +90,16 @@ cd android && ./gradlew assembleDebug
 **访问追踪**：每次 `search_memory` 命中的 memory 条目会 fire-and-forget 更新 `access_count` + `last_accessed_at`；自动提取时发现重复同样强化原条目（而非新建副本）。`check_memory_health` 工具可扫描长期未被召回的休眠记忆，让 Claude 决定归档还是保留。
 → 详见 [docs/features/memory.md](docs/features/memory.md)
 
-### 🛠️ Claude 工具（共 30 个）
+### 🛠️ Claude 工具（共 31 个）
 读取（搜记忆 / 交接信 / 网页 / 通览记忆 list_memories / **get_health_status** 随时查健康+经期 / **search_stickers** 按关键词搜 Supabase 表情包库）、写入（记忆 / 日记 / 交接信 / 时间轴 / 经期 / 健康）、记忆管理（manage_memory：锁定/解锁/修正/归档 + garden_memories：向量扫描近重复对 + check_memory_health：休眠记忆健康检查）、计算调度（代码沙盒 / 主动消息 / 设备状态）、**音乐媒体**（play_music 网易云搜歌放歌 / control_media 暂停换歌 / get_now_playing 读当前在放什么，APK 限定）。聊天里显示为可折叠工具卡片。
 → 详见 [docs/features/tools.md](docs/features/tools.md)
 
 ### 💰 成本优化
-Anthropic prompt caching（三锚点断点 + `metadata.user_id` 粘性）、对话压缩、可选 summarizer 省 token。工具迭代全链路缓存命中：所有迭代统一开 thinking + 跨迭代原样回传 thinking block（content + signature），避免工具调用触发冷写（¥1.5 → ¥0.01）。
+Anthropic prompt caching（四锚点断点：tools BP0 + system BP1 + 最近两条 user BP4/HEAD，配 `metadata.user_id` 粘性）、对话压缩、可选 summarizer 省 token。工具迭代全链路缓存命中：所有迭代统一开 thinking + 跨迭代原样回传 thinking block（content + signature），避免工具调用触发冷写（¥1.5 → ¥0.01）。
 → 详见 [docs/caching.md](docs/caching.md)
 
 ### 🌤️ 天气 + 手机状态 + 健康快照注入
-用户消息自动附带环境信息，通过 `message.meta` 持久化（历史消息保留快照，**不影响 prompt cache 稳定性**——都进消息前缀的 BP2 锚点，不碰系统提示词 BP1，UI 不显示，只塞给 LLM）：
+用户消息自动附带环境信息，通过 `message.meta` 持久化（历史消息保留快照，**不影响 prompt cache 稳定性**——都进消息前缀的 BP4/HEAD 锚点，不碰系统提示词 BP1，UI 不显示，只塞给 LLM）：
 - **天气（每条）**：高精度 GPS 定位 → 区级地名 + 温度 / 体感（差 ≥3°C 时标注）/ 风速（≥20km/h 时标注）/ 天气状况。主数据源 **和风天气（QWeather）**（国内城市级精度、中文描述，需在设置填专属 API Host + API Key）；未配置时自动退回 **Open-Meteo**（无需 key），地名退回 BigDataCloud。1 小时缓存、后台静默刷新，每条消息都是最新值，不会锁死早上的天气。设置页有调试面板（数据源 / 坐标 / 城市 / 温度 / 强制刷新）。和风新版认证细节（`X-QW-Api-Key` header + 专属 API Host）见 [docs/changelog.md](docs/changelog.md)。
 - **手机状态（每条，APK）**：`[手机] 🔋32%充电中 · 静音 · 蓝牙:AirPods · Wi-Fi · 光线:漆黑`。自定义 `EnvState` 插件本机读取——电量+充电（`@capacitor/device`）、铃声（静音/震动）、音频输出（耳机 / 蓝牙+设备名，名字让模型自己判断耳机 vs 车载）、网络（Wi-Fi/流量/离线，**不读 SSID**）、**环境光**（光线传感器，只报有信号量的两端：漆黑/昏暗/户外强光，普通室内光不占 token——「灯都关了还刷手机？」就是它给的）。全本机读取、零 API、不轮询；缓存在挂载 + 每次前台刷新 + 每次发消息后顺手再刷（长聊中途关灯下一条就能感知）。蓝牙设备名需 `BLUETOOTH_CONNECT`（首次弹一次授权，没给则降级"蓝牙音频"；`getProductName` 守卫在 API 30+，老安卓不崩）；光线传感器零权限。
 - **健康快照（每条，30 分钟缓存）**：每条用户消息都附带（不再是"每天第一条"），查 `health_data`（昨晚睡眠 + 深/浅/REM 分段 / 步数）+ `period_tracking`（经期状态），格式如 `昨晚睡了 5.5h（深睡 1.2h／REM 1.0h／浅睡 3.3h），步数 2341；经期进行中`。底层 Supabase 读取 + Health Connect 强制同步走 30 分钟 TTL（过期才重查），其余消息复用缓存值；库里没数据时明说「暂无数据」而非静默省略。
@@ -374,7 +374,7 @@ DB 函数:
 
 ```
 src/
-├── App.tsx                    # 主路由 + sendMessage + 20 个工具循环 + 锁定记忆注入 + 每条健康快照注入
+├── App.tsx                    # 主路由 + sendMessage + 31 个工具循环 + 锁定记忆注入 + 每条健康快照注入
 ├── tools/
 │   └── definitions.ts         # 所有 TOOL_* schema 定义（拆出来减肥 App.tsx）
 ├── plugins/
