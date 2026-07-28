@@ -209,7 +209,7 @@ const buildSummarizerUserPrompt = (
     return [
       '你在【回看整理】自己的私人备忘：把「之前的备忘」和「新增对话记录」合并压实成一段更紧凑的手记（沈暮视角，第一人称「我」、称她「她」，过去式，有温度但事实要准）。这不是聊天，不要回复/接话/复述。',
       `不要逐句复述，按线索归拢成连贯手记（不是要点清单、不是「她说…我说…」的对话）。之前备忘里仍然有效的内容原样带着走、别挤掉，新旧融进同一段。${priority}`,
-      '纯文本，上限约 2000 字——先读得顺，再追求信息密度。',
+      '这是【压实】：成品要【明显短于】下面「之前的备忘」，把它重新拧干、去重、合并同类，只留仍然有效的。上限 1500 字，宁可更短，先读得顺再追求密度。',
       `之前的备忘：\n${existingSummary}`,
       `新增对话记录：\n<聊天记录>\n${chunkText}\n</聊天记录>`,
       antiEcho,
@@ -298,15 +298,17 @@ const summarizeMessagesOnce = async (
   if (looksLikeRefusalOrGarbage(text)) {
     throw new Error(`summarizer refused / returned garbage: ${text.slice(0, 60)}`)
   }
-  // 塌缩护栏（2026-07-23）：增量折叠时，新摘要 = 旧摘要 + 揉进新对话，理应
-  // ≥ 旧摘要体量。若新摘要比旧的缩水一大半，说明模型偷懒把旧内容丢了（实测
-  // compression_cache 出现过 8+ 条消息压成 71 字的「短桩子」，还被存下来污染
-  // 后续折叠——这正是「一会好一会坏」的根）。判为坏 → 抛错触发重试；两次+
-  // 兜底全失败时，compressIfNeeded 会保留旧摘要（cachedFallback），绝不把短
-  // 桩子写进缓存。阈值 0.5 给正常收紧留足空间，只拦真正的塌缩。
+  // 塌缩护栏（2026-07-23 立，2026-07-28 改绝对地板）：只拦「几十字的短桩子/
+  // 拒答残片」，放行正当压实。原来用【相对比例】(新摘要 < 旧摘要一半 → 判塌缩)
+  // ——那是 append-only 之前「每次整体重写、新≈旧+增量」时代的判据。现在压实路径
+  // (existingSummary 非空)的【本意就是把长时间线大幅收紧】，相对护栏反而把正当的
+  // 4900→2000 压实误判为塌缩、抛错 → 退回旧摘要 → 摘要永远卡在 ~5000 下不来
+  // (实测就是这么涨上去又压不动的)。改成【绝对地板】：压实结果只要 ≥200 字就放行,
+  // 让它能真正缩下去；桩子(实测 71 字)由 200 字地板 + looksLikeRefusalOrGarbage
+  // 兜住。追加路径(existingSummary 空、prevLen 0)本就不触发这条,不受影响。
   const prevLen = existingSummary.trim().length
-  if (prevLen >= 300 && text.length < prevLen * 0.5) {
-    throw new Error(`summary collapsed: ${text.length} chars vs prev ${prevLen}`)
+  if (prevLen >= 300 && text.length < 200) {
+    throw new Error(`summary collapsed to stub: ${text.length} chars`)
   }
   return text
 }
