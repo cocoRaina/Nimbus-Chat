@@ -19,7 +19,7 @@
 - [**Prompt Caching 入门（给所有人）**](docs/guides/prompt-caching.md) — 不依赖本项目的通用教程，可直接分享：原理、挑中转、两要件、怎么验证、踩坑
 - [**Prompt Caching 指南（实现 / 内部）**](docs/caching.md) — 缓存原理、各家中转对比、怎么配（金瓜瓜等）、怎么验证命中、块布局铁律、图片转文字、踩坑 FAQ
 - [**AI 长期记忆系统入门（给所有人）**](docs/guides/memory-system.md) — 通用教程，可直接分享：为什么 Claude 失忆、常驻注入 vs 按需搜索、向量检索、RRF 混合检索、记忆生命周期、去重、访问追踪、AI 自管理、最小实现代码
-- [**记忆系统（实现 / 内部）**](docs/features/memory.md) — 各表结构、混合检索实现、核心记忆生命周期、自动提取确认流程、去重逻辑、访问追踪、每日状态注入
+- [**记忆系统（实现 / 内部）**](docs/features/memory.md) — 各表结构、混合检索实现、核心记忆生命周期、自动提取确认流程、去重逻辑、访问追踪、每条消息健康注入
 - [**情绪系统（沈暮的贪嗔痴念 + 生理体征）**](docs/features/mood-system.md) — 四相动力学（衰减/饥饿）、`<<MOOD>>` 自评 + 三层鲁棒解析、先衰减再加增量、护缓存（规则进 system / 旁白冻进消息 meta）、持久化、只读浮层面板（含心率/体温/和弦色）、成本
 - [**改动记录 & Debug 日志**](docs/changelog.md) — 按日期的改动 + 踩过的坑和修法
 
@@ -98,11 +98,11 @@ cd android && ./gradlew assembleDebug
 Anthropic prompt caching（三锚点断点 + `metadata.user_id` 粘性）、对话压缩、可选 summarizer 省 token。工具迭代全链路缓存命中：所有迭代统一开 thinking + 跨迭代原样回传 thinking block（content + signature），避免工具调用触发冷写（¥1.5 → ¥0.01）。
 → 详见 [docs/caching.md](docs/caching.md)
 
-### 🌤️ 天气 + 手机状态 + 每日状态注入
+### 🌤️ 天气 + 手机状态 + 健康快照注入
 用户消息自动附带环境信息，通过 `message.meta` 持久化（历史消息保留快照，**不影响 prompt cache 稳定性**——都进消息前缀的 BP2 锚点，不碰系统提示词 BP1，UI 不显示，只塞给 LLM）：
 - **天气（每条）**：高精度 GPS 定位 → 区级地名 + 温度 / 体感（差 ≥3°C 时标注）/ 风速（≥20km/h 时标注）/ 天气状况。主数据源 **和风天气（QWeather）**（国内城市级精度、中文描述，需在设置填专属 API Host + API Key）；未配置时自动退回 **Open-Meteo**（无需 key），地名退回 BigDataCloud。1 小时缓存、后台静默刷新，每条消息都是最新值，不会锁死早上的天气。设置页有调试面板（数据源 / 坐标 / 城市 / 温度 / 强制刷新）。和风新版认证细节（`X-QW-Api-Key` header + 专属 API Host）见 [docs/changelog.md](docs/changelog.md)。
 - **手机状态（每条，APK）**：`[手机] 🔋32%充电中 · 静音 · 蓝牙:AirPods · Wi-Fi · 光线:漆黑`。自定义 `EnvState` 插件本机读取——电量+充电（`@capacitor/device`）、铃声（静音/震动）、音频输出（耳机 / 蓝牙+设备名，名字让模型自己判断耳机 vs 车载）、网络（Wi-Fi/流量/离线，**不读 SSID**）、**环境光**（光线传感器，只报有信号量的两端：漆黑/昏暗/户外强光，普通室内光不占 token——「灯都关了还刷手机？」就是它给的）。全本机读取、零 API、不轮询；缓存在挂载 + 每次前台刷新 + 每次发消息后顺手再刷（长聊中途关灯下一条就能感知）。蓝牙设备名需 `BLUETOOTH_CONNECT`（首次弹一次授权，没给则降级"蓝牙音频"；`getProductName` 守卫在 API 30+，老安卓不崩）；光线传感器零权限。
-- **健康快照（每天一次）**：查 `health_data`（昨晚睡眠 + 深/浅/REM 分段 / 步数）+ `period_tracking`（经期状态），格式如 `昨晚睡了 5.5h（深睡 1.2h／REM 1.0h／浅睡 3.3h），步数 2341；经期进行中`。
+- **健康快照（每条，30 分钟缓存）**：每条用户消息都附带（不再是"每天第一条"），查 `health_data`（昨晚睡眠 + 深/浅/REM 分段 / 步数）+ `period_tracking`（经期状态），格式如 `昨晚睡了 5.5h（深睡 1.2h／REM 1.0h／浅睡 3.3h），步数 2341；经期进行中`。底层 Supabase 读取 + Health Connect 强制同步走 30 分钟 TTL（过期才重查），其余消息复用缓存值；库里没数据时明说「暂无数据」而非静默省略。
 
 Claude 看到这些后能自然地关心"昨晚睡得不太好，今天感觉怎么样"、"浦东新区今天下雨记得带伞"、"快没电了记得充"、"戴耳机听歌呢"，无需调用任何工具。
 
@@ -374,7 +374,7 @@ DB 函数:
 
 ```
 src/
-├── App.tsx                    # 主路由 + sendMessage + 20 个工具循环 + 锁定记忆注入 + 每日健康快照注入
+├── App.tsx                    # 主路由 + sendMessage + 20 个工具循环 + 锁定记忆注入 + 每条健康快照注入
 ├── tools/
 │   └── definitions.ts         # 所有 TOOL_* schema 定义（拆出来减肥 App.tsx）
 ├── plugins/

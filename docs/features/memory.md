@@ -108,11 +108,3 @@
 - **提取发现重复** → 也触发 `bump_memory_access`（强化而非新建）
 - **`check_memory_health` 工具** → 调用 `get_stale_memories(days_inactive, min_days_old, max_count)` RPC，返回长期未被召回的未锁定记忆。Claude 据此决定归档（过时）或保留（仍有效）。锁定的记忆永远不出现在休眠列表里。
 
-## 每日状态注入
-
-每天第一条消息，在用户消息内容前自动注入一行 `[TA 今日状态]`，包含：
-- 最近一次 `health_data`（昨晚睡眠 / 步数，APK 先 force 同步 Health Connect 再读）
-- `period_tracking` 最新一条（进行中或上次结束日期）
-- 当前电量 + 充电状态（APK only，`🔋32% 充电中`）
-
-Claude 看到后可自然关心"昨晚睡得不太好"等，无需主动调工具。数据为空时不注入，不影响对话。亦可随时调 `get_health_status` 工具获取最新数据。
