@@ -860,19 +860,41 @@ const CACHE_BETA_OPTOUT_KEY = 'nimbus_cache_beta_optout_v1'
 // rejects the ttl field itself, we drop to the default 5-minute marker for
 // that host instead of hard-failing (worse cache, but the chat works).
 const CACHE_TTL_OPTOUT_KEY = 'nimbus_cache_ttl_optout_v1'
-const readHostOptOuts = (key: string): Record<string, boolean> => {
+// 降级记录会过期（2026-07-30）：原来 remember 一次就【永久】降级——但号池会
+// 换节点、也会撞上无关的临时 400，一次误判就把这个渠道永远钉死在 5m（实测
+// 「同渠道别人 1h、我们 5m」的根：一发临时 400 → 去 beta 头重试碰巧成功 → 永久
+// 拉黑）。改成存时间戳、24h 后自动失效重探：误判最多影响一天，之后自动重试 1h；
+// 真不支持的渠道每天多花一发「失败 400（不计费）+ 无头重试」而已，可忽略。旧格式
+// (存的是 true) 一律当「已过期、该重探」→ 装上新包即自愈历史误判。
+const OPTOUT_TTL_MS = 24 * 60 * 60 * 1000
+// 原始时间戳表（写入时用，保住其他 host 的计时不被覆盖）。只认 number 值，
+// 旧的布尔 true 直接丢弃 = 当作没降级。
+const readRawOptOuts = (key: string): Record<string, number> => {
   if (typeof window === 'undefined') return {}
   try {
-    return JSON.parse(window.localStorage.getItem(key) ?? '{}') as Record<string, boolean>
+    const raw = JSON.parse(window.localStorage.getItem(key) ?? '{}') as Record<string, unknown>
+    const out: Record<string, number> = {}
+    for (const [host, val] of Object.entries(raw)) {
+      if (typeof val === 'number') out[host] = val
+    }
+    return out
   } catch {
     return {}
   }
 }
+const readHostOptOuts = (key: string): Record<string, boolean> => {
+  const now = Date.now()
+  const out: Record<string, boolean> = {}
+  for (const [host, ts] of Object.entries(readRawOptOuts(key))) {
+    if (now - ts < OPTOUT_TTL_MS) out[host] = true // 仍在 TTL 内才算降级
+  }
+  return out
+}
 const rememberHostOptOut = (key: string, host: string) => {
   if (typeof window === 'undefined') return
   try {
-    const map = readHostOptOuts(key)
-    map[host] = true
+    const map = readRawOptOuts(key)
+    map[host] = Date.now()
     window.localStorage.setItem(key, JSON.stringify(map))
   } catch {
     // ignore quota errors
