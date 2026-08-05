@@ -67,6 +67,11 @@ const SUMMARY_SYSTEM_PROMPT =
   '有没有我想替她记住的小事或她的心愿。用我自己的口吻，有温度、具体，' +
   '别写成流水账，也别客套。只输出回顾正文，不要标题、不要列表、不要解释。'
 
+// 完整句尾判据：用于「上游把 completion 砍在半句」的截断检测。有的模型/中转
+// finish_reason 报 stop 却其实截断了（实测每日摘要出现「下午她超倔」这种半句
+// stub），所以不只看 finish_reason，也看结尾是不是断在词中间。
+const endsCleanly = (t: string): boolean => /[。！？…”"）】.!?)\]]\s*$/.test(t)
+
 const callChatApi = async (
   url: string,
   apiKey: string,
@@ -74,7 +79,9 @@ const callChatApi = async (
   transcript: string,
   dateStr: string,
 ): Promise<string | null> => {
-  try {
+  const post = async (
+    messages: Array<{ role: string; content: string }>,
+  ): Promise<{ text: string; truncated: boolean } | null> => {
     const r = await fetch(url, {
       method: 'POST',
       headers: {
@@ -84,25 +91,57 @@ const callChatApi = async (
       body: JSON.stringify({
         model,
         temperature: 0.5, // 第一人称回顾要点温度，但别高到开始自由发挥
-        max_tokens: 300,
-        messages: [
-          { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content:
-              `日期：${dateStr}\n\n<聊天记录>\n${transcript}\n</聊天记录>\n\n` +
-              '（记录到此结束。现在写下这一天的回顾：2-4 句、第一人称、过去时、覆盖全天。' +
-              '这是深夜写给自己的记录，她看不到——不要回复她，不要提问。）',
-          },
-        ],
+        // 300 太紧:若 extractModel 是思考模型,思考先吃掉预算,正文被砍在半句
+        // （「下午她超倔」）。给足余量,让 2-4 句正文写得完。
+        max_tokens: 800,
+        messages,
       }),
     })
     if (!r.ok) return null
     const data = await r.json()
-    const text = data?.choices?.[0]?.message?.content
-    const trimmed = typeof text === 'string' ? text.trim() : ''
+    const choice = data?.choices?.[0]
+    const text = typeof choice?.message?.content === 'string' ? choice.message.content.trim() : ''
+    const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason : ''
+    // finish_reason=length 或结尾断在半句 → 判截断。不只信 finish_reason（有的
+    // 中转命中截断却报 stop），结尾判据兜住。
+    const truncated = finishReason === 'length' || (text.length > 0 && !endsCleanly(text))
+    return { text, truncated }
+  }
+  try {
+    const baseMessages = [
+      { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content:
+          `日期：${dateStr}\n\n<聊天记录>\n${transcript}\n</聊天记录>\n\n` +
+          '（记录到此结束。现在写下这一天的回顾：2-4 句、第一人称、过去时、覆盖全天。' +
+          '这是深夜写给自己的记录，她看不到——不要回复她，不要提问。）',
+      },
+    ]
+    const first = await post(baseMessages)
+    if (!first || !first.text) return null
+    // 截断兜底:从断处续写一次(最多 2 轮)拼上,别把「下午她超倔」这种半句 stub 存库。
+    let full = first.text
+    let truncated = first.truncated
+    let rounds = 0
+    while (truncated && rounds < 2) {
+      rounds += 1
+      const cont = await post([
+        ...baseMessages,
+        { role: 'assistant', content: full },
+        {
+          role: 'user',
+          content:
+            '你上面这段回顾被截断了，从断掉的地方接着写完最后一两句，' +
+            '不要重复已经写过的、也不要重新开头，直接续上。',
+        },
+      ])
+      if (!cont || !cont.text) break
+      full = `${full}${cont.text}`.trim()
+      truncated = cont.truncated
+    }
     // 太短 = 生成断了/崩了(见 MIN_SUMMARY_CHARS 注释),当失败返回 null。
-    return trimmed.length >= MIN_SUMMARY_CHARS ? trimmed : null
+    return full.length >= MIN_SUMMARY_CHARS ? full : null
   } catch (_) {
     return null
   }
