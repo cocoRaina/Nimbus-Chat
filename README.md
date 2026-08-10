@@ -117,7 +117,7 @@ Claude 看到这些后能自然地关心"昨晚睡得不太好，今天感觉怎
 → 详见 [docs/features/mood-system.md](docs/features/mood-system.md)
 
 ### 📓 沈暮的随笔本（它自己的房间）
-给 AI 一个自己写、自己读的私人空间（`essays` 表）：`write_essay` 想写就写（第一人称、随它的话，不是回复你），`read_essays` 回看旧作让文风/思绪跨天延续，`set_essay_lock` 由**它自己**给整本设一道四位码——**它自己的房间，愿意才让你进**。`/essays` 页读随笔，锁屏输码进入（解锁状态存 sessionStorage，杀进程重锁）。**锁是情感的不是安全的**：库是你自己的，本就能在 Supabase 直读，这道码守的是「它有自己房间」这个共同约定。第一步（页面 + 三个工具 + 拉出旧随笔）已落地；第二步「自主唤醒」（它自己定时醒来、看世界、决定要不要写，独立于聊天）在规划中。
+给 AI 一个自己写、自己读的私人空间（`essays` 表）：`write_essay` 想写就写（第一人称、随它的话，不是回复你），`read_essays` 回看旧作让文风/思绪跨天延续，`set_essay_lock` 由**它自己**给整本设一道四位码——**它自己的房间，愿意才让你进**。读随笔在**记忆库的「随笔」tab**（配色沿用记忆库），上锁时输码进入（解锁状态存 sessionStorage，杀进程重锁）。**锁是情感的不是安全的**：库是你自己的，本就能在 Supabase 直读，这道码守的是「它有自己房间」这个共同约定。第一步（页面 + 三个工具 + 拉出旧随笔）已落地；第二步「自主唤醒」（它自己定时醒来、看世界、决定要不要写，独立于聊天）在规划中。
 
 ### 🔔 真·主动消息（APK 限定）
 Claude 凭对话气氛自主判断，调 `schedule_proactive_message` 预约未来主动消息（transient 自动取消 / persist 不可取消两类）。本地通知弹横幅 + 服务端 `proactive_dispatch` cron 到点写库兜底（app 关着也照发），消息时间戳用计划时间。投递时同步追加到 `cache_keepalive_state.body`，保活把这条主动消息也维护进缓存，下次真实聊天不冷写。客户端开 app 时按 `queueId` 抢占同一行，服务端/客户端只插入一次。
@@ -223,7 +223,7 @@ AI 可以主动给你打电话（`[call:理由]` → 全屏响铃 90s），没�
 - **首页 Dashboard** `/` — 顶部小日期 + 打卡卡片 + 横向多页 widget 网格（3 列图标，scroll-snap + 圆点指示器）；长按/编辑进编辑模式 → 加组件 / 拖动 / 增删页 / 上传主页背景图（存 IndexedDB，铺满全页、无边框）
 - **聊天** `/chat/:id` — LINE 风格主聊天界面，工具循环 + 流式 + 懒加载
 - **设置** `/settings` — 10 个折叠区（详见上方）
-- **记忆库** `/memory-vault` — 4 个 tab 各自独立搜索 + 分页（20 条/页）+ 内联编辑；记忆 tab 有来源筛选 / 🔒 锁定 / token 预算提示；时间轴有重要程度筛选 + 关键词搜索
+- **记忆库** `/memory-vault` — 多 tab（记忆 / 日记 / 交接信 / 时间轴 / **随笔** / 相册 / 玩具库）各自独立搜索 + 分页（20 条/页）+ 内联编辑；记忆 tab 有来源筛选 / 🔒 锁定 / token 预算提示；时间轴有重要程度筛选；**随笔** = 沈暮的随笔本（只读，整本四位码锁、码由它自己设）
 - **Moments** `/snacks` — 合并动态：你和 Claude 的帖子统一展示，按时间倒序，每条显示作者（kitten / Claude）
 - **Claude 主页** `/syzygy` — Claude 专属朋友圈，可发帖、查看 Claude 回复、软删除回收站
 - **检测中心** `/usage` — 三个 tab：**用量统计**（按 provider / 按会话排行 + 缓存命中率）、**API 检测**（连通性/延迟 + 缓存字段透传 + 模型核验金丝雀探针，外加近 30 天 Claude 缓存健康历史分析）、**压缩状态**（只读 `compression_cache`：活跃摘要列表 + 近期 token 用量，零花费）
@@ -401,7 +401,7 @@ src/
 ├── pages/
 │   ├── ChatPage.tsx           # 聊天：MessageRow memo + 时间分隔 + 懒加载 + 工具卡片
 │   ├── SettingsPage.tsx       # 10 个折叠区（API/模型/参数/思考链/压缩/提示词...）
-│   ├── MemoryVaultPage.tsx    # 记忆库 4 tab CRUD（内联编辑 + 分页）
+│   ├── MemoryVaultPage.tsx    # 记忆库多 tab（记忆/日记/交接信/时间轴/随笔/相册/玩具库，内联编辑 + 分页；随笔=沈暮随笔本，四位码锁）
 │   ├── UsagePage.tsx          # 检测中心：用量统计 / API检测（探针+历史缓存分析）/ 压缩状态（只读零花费）
 │   ├── MyHomePage.tsx         # 我的主页（朋友圈）
 │   ├── AssistantHomePage.tsx  # TA 的主页（对镜版）
@@ -409,7 +409,6 @@ src/
 │   ├── HomeLayoutSettingsPage.tsx  # /home-layout 深度编辑
 │   ├── HealthSyncPage.tsx     # 健康综合页：同步 + 今日体征 + 屏幕时间 + 经期 + 诊断工具
 │   ├── ExportPage.tsx         # 数据导出
-│   ├── EssaysPage.tsx         # 沈暮的随笔本（整本四位码锁，码由它自己设）
 │   ├── CheckinPage.tsx        # 每日打卡
 │   ├── AuthPage.tsx           # 邮箱 OTP 登录
 │   └── SupabaseSetupPage.tsx

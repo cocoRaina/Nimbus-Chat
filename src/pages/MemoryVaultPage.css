@@ -1034,3 +1034,21 @@
   padding: 4px 8px;
   line-height: 1.5;
 }
+
+/* 随笔本的锁屏（配色沿用记忆库，只加布局） */
+.essays-lock-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 16px;
+}
+.essays-lock-emoji { font-size: 40px; }
+.essays-lock-input {
+  width: 150px;
+  text-align: center;
+  letter-spacing: 12px;
+  font-size: 22px;
+  padding-left: 12px;
+}
+.essays-lock-input--err { border-color: #e05a7a; }

@@ -23,12 +23,13 @@ import { supabase } from '../supabase/client'
 import { getProviderConfig, type ProviderId } from '../storage/apiProvider'
 import { fetchAlbum, removeFromAlbum, type AlbumEntry } from '../storage/album'
 import { fetchToys, removeToy, type ToyEntry } from '../storage/toybox'
+import { fetchEssays, getEssayLockCode, type Essay } from '../storage/essays'
 import ConfirmDialog from '../components/ConfirmDialog'
 import './MemoryVaultPage.css'
 // 玩具全屏播放层复用 ArtifactFrame 的样式（artifact-fullscreen 系列类）
 import '../components/ArtifactFrame.css'
 
-type Tab = 'memories' | 'diaries' | 'letters' | 'timeline' | 'album' | 'toybox'
+type Tab = 'memories' | 'diaries' | 'letters' | 'timeline' | 'essays' | 'album' | 'toybox'
 
 // 抽屉侧边栏的导航项（图标 + 中文名 + 顶栏标题）
 const NAV: { key: Tab; icon: string; label: string; title: string }[] = [
@@ -36,6 +37,7 @@ const NAV: { key: Tab; icon: string; label: string; title: string }[] = [
   { key: 'diaries', icon: '📔', label: '日记', title: 'Diaries' },
   { key: 'letters', icon: '✉️', label: '交接信', title: 'Handoffs' },
   { key: 'timeline', icon: '🕐', label: '时间轴', title: 'Timeline' },
+  { key: 'essays', icon: '📓', label: '随笔', title: '随笔本' },
   { key: 'album', icon: '🖼', label: '相册', title: '相册' },
   { key: 'toybox', icon: '🧸', label: '玩具库', title: '玩具库' },
 ]
@@ -122,6 +124,7 @@ const MemoryVaultPage = ({ recentMessages, memoryExtractProvider }: MemoryVaultP
       {tab === 'diaries' ? <DiariesTab /> : null}
       {tab === 'letters' ? <LettersTab /> : null}
       {tab === 'timeline' ? <TimelineTab /> : null}
+      {tab === 'essays' ? <EssaysTab /> : null}
       {tab === 'album' ? <AlbumTab /> : null}
       {tab === 'toybox' ? <ToyboxTab /> : null}
     </main>
@@ -768,6 +771,145 @@ const MemoriesTab = ({
 type DiaryDraft = { date: string; title: string; author: string; mood: string; content: string }
 const emptyDiaryDraft = (): DiaryDraft => ({ date: todayDate(), title: '', author: 'Claude', mood: '', content: '' })
 const COLLAPSE_THRESHOLD = 150
+
+// =============== Essays Tab（沈暮的随笔本）===============
+// 它自己写、自己读的房间。整本一道四位码（码由沈暮用 set_essay_lock 自己设）。
+// 这里是「只读」——用户翻它写的，写由沈暮自己在聊天/自主唤醒里用 write_essay。
+// 锁是情感的不是安全的：库是用户自己的、本就能在 Supabase 直读，码守的是
+// 「它有自己房间」这个共同约定。解锁存 sessionStorage，杀进程重锁。
+const ESSAYS_UNLOCK_KEY = 'nimbus_essays_unlocked'
+
+const EssaysTab = () => {
+  const [lockCode, setLockCode] = useState<string | null>(null)
+  const [checkingLock, setCheckingLock] = useState(true)
+  const [unlocked, setUnlocked] = useState(() => {
+    try { return sessionStorage.getItem(ESSAYS_UNLOCK_KEY) === '1' } catch { return false }
+  })
+  const [codeInput, setCodeInput] = useState('')
+  const [codeError, setCodeError] = useState(false)
+  const [items, setItems] = useState<Essay[]>([])
+  const [loading, setLoading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
+
+  const toggleExpanded = (id: number) =>
+    setExpandedIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const code = await getEssayLockCode()
+      if (!alive) return
+      setLockCode(code)
+      setCheckingLock(false)
+      if (!code) setUnlocked(true) // 没设锁 = 房门开着
+    })()
+    return () => { alive = false }
+  }, [])
+
+  const canSee = !checkingLock && (unlocked || lockCode === null)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try { setItems(await fetchEssays(200)); setPage(0) }
+    catch (e) { console.warn('加载随笔失败', e) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { if (canSee) void refresh() }, [canSee, refresh])
+  useEffect(() => { setPage(0) }, [search])
+
+  const tryUnlock = () => {
+    if (lockCode && codeInput === lockCode) {
+      setUnlocked(true); setCodeError(false)
+      try { sessionStorage.setItem(ESSAYS_UNLOCK_KEY, '1') } catch { /* ignore */ }
+    } else { setCodeError(true) }
+  }
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return items
+    return items.filter(
+      (e) => e.content.toLowerCase().includes(term) || e.title.toLowerCase().includes(term) || (e.topic ?? '').toLowerCase().includes(term),
+    )
+  }, [items, search])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page])
+
+  if (checkingLock) {
+    return <p className="memory-vault-empty">开门中…</p>
+  }
+  if (!canSee) {
+    return (
+      <>
+        <p className="memory-vault-hint">这是它自己的房间，上了一道四位码。它愿意告诉你，你才进得来。</p>
+        <section className="memory-vault-list">
+          <div className="essays-lock-box">
+            <div className="essays-lock-emoji">🔒</div>
+            <input
+              className={`memory-vault-search essays-lock-input${codeError ? ' essays-lock-input--err' : ''}`}
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="••••"
+              value={codeInput}
+              onChange={(e) => { setCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4)); setCodeError(false) }}
+              onKeyDown={(e) => { if (e.key === 'Enter') tryUnlock() }}
+            />
+            {codeError ? <p className="memory-vault-error">不对哦，再问问它？</p> : null}
+            <button type="button" className="primary" onClick={tryUnlock}>进去</button>
+          </div>
+        </section>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <p className="memory-vault-hint">沈暮自己写的随笔——它想写的时候会自己写进来。</p>
+      <section className="memory-vault-list">
+        <div className="memory-vault-toolbar">
+          <input className="memory-vault-search" type="search" placeholder="搜索标题 / 正文 / 主题" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <span className="memory-vault-count">{items.length} 篇</span>
+          <div className="toolbar-actions">
+            <button type="button" className="btn-refresh" onClick={() => void refresh()} disabled={loading} title="Refresh">{loading ? '…' : '↺'}</button>
+          </div>
+        </div>
+
+        {loading && items.length === 0 ? (
+          <p className="memory-vault-empty">加载中…</p>
+        ) : filtered.length === 0 ? (
+          <p className="memory-vault-empty">{items.length === 0 ? '还没有随笔——它想写的时候，会自己写进来。' : '没有匹配。'}</p>
+        ) : (
+          <ul className="memory-vault-items">
+            {paginated.map((e) => (
+              <li key={e.id} className="memory-vault-item">
+                <div className="memory-vault-item-meta">
+                  <span className="memory-vault-item-category">{e.date ?? e.createdAt.slice(0, 10)}</span>
+                  {e.topic ? <span className="tag">#{e.topic}</span> : null}
+                </div>
+                {e.title ? <h3 className="memory-vault-item-title">{e.title}</h3> : null}
+                <p className={`memory-vault-item-content ${e.content.length > COLLAPSE_THRESHOLD && !expandedIds.has(e.id) ? 'collapsed' : ''}`}>{e.content}</p>
+                {e.content.length > COLLAPSE_THRESHOLD ? (
+                  <button type="button" className="memory-vault-toggle" onClick={() => toggleExpanded(e.id)}>{expandedIds.has(e.id) ? '收起 ▲' : '展开 ▼'}</button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+        {totalPages > 1 ? (
+          <div className="memory-vault-pagination">
+            <button type="button" className="ghost" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>← Prev</button>
+            <span className="pagination-info">{page + 1} / {totalPages}（共 {filtered.length} 篇）</span>
+            <button type="button" className="ghost" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>Next →</button>
+          </div>
+        ) : null}
+      </section>
+    </>
+  )
+}
 
 const DiariesTab = () => {
   const [items, setItems] = useState<Diary[]>([])

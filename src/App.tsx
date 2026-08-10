@@ -105,7 +105,6 @@ const ExportPage = lazy(() => import('./pages/ExportPage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
 const HomeLayoutSettingsPage = lazy(() => import('./pages/HomeLayoutSettingsPage'))
 const UsagePage = lazy(() => import('./pages/UsagePage'))
-const EssaysPage = lazy(() => import('./pages/EssaysPage'))
 import {
   resolveSnackSystemOverlay,
   resolveSyzygyPostPrompt,
@@ -5765,14 +5764,6 @@ TOOL_SEARCH_HANDOFF,
           element={
             <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
               <ExportPage user={user} />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/essays"
-          element={
-            <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
-              <EssaysPage user={user} />
             </RequireAuth>
           }
         />
