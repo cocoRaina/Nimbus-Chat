@@ -2622,8 +2622,17 @@ const App = () => {
                 const caption = isCurrentTurn ? null : getImageCaption(att.url)
                 if (caption) {
                   blocks.push({ type: 'text', text: `[图片：${caption}]` })
-                } else {
+                } else if (isCurrentTurn) {
+                  // 当前轮：模型必须真看到这张图 → 发原图 base64（就这一次），顺手转述备用。
                   blocks.push({ type: 'image_url', image_url: { url: att.url } })
+                  void ensureImageCaption(att.url, effectiveModel, getActiveProvider(), user?.id, () =>
+                    setImageCaptionWarning(IMAGE_CAPTION_FAIL_MESSAGE),
+                  )
+                } else {
+                  // 历史轮 + 还没转出文字：【绝不】把原图 base64 反复重发（2026-08-10 实锤：
+                  // 这是 prompt 胀到 100 万 token / 一次好几块钱的真凶——一张原图几十万 token，
+                  // 每轮重发 × 几张图直接爆表）。发个占位文字顶着，后台补转述，下一轮就有 caption。
+                  blocks.push({ type: 'text', text: '[图片：（这张还没转成文字，先略过——省 token）]' })
                   void ensureImageCaption(att.url, effectiveModel, getActiveProvider(), user?.id, () =>
                     setImageCaptionWarning(IMAGE_CAPTION_FAIL_MESSAGE),
                   )
