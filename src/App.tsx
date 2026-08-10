@@ -683,6 +683,14 @@ const IMAGE_CAPTION_FAIL_MESSAGE =
 // thinking / a tool call isn't mistaken for a hang.
 const STREAM_STALL_MS = 45_000
 
+// 「无真内容」看门狗（2026-08-10，用户「空回 4 分钟被扣 96 万 token」）：有的中转
+// 会一直发心跳 ping / 空事件 / usage 帧 keep 住 socket，却半天不吐真内容——上面那个
+// 按「任何字节」判活的 STREAM_STALL_MS 会被这些假活跃一直骗着刷新、永不触发，请求就
+// 空转好几分钟、被中转按天文数字的输入计费（实测一次 $3.87）。所以另设一条【只认真
+// 内容/推理/思考/工具产出】的时钟：从流开始起，若这么久没有任何真产出就中断。给足
+// 首字慢的中转（kiro 首字常十几~几十秒）+ 扩展思考的余量，但远短于 4 分钟的失血。
+const STREAM_NO_CONTENT_MS = 70_000
+
 // Health snapshot cache for the per-message '[TA 今日状态]' line. Injected on
 // every user message; the Supabase read (and Health Connect force-sync on APK)
 // only happens when this has gone stale.
@@ -806,6 +814,9 @@ const App = () => {
   // Track when we last received a streamed chunk. Used to detect streams
   // that got silently killed while the app was backgrounded.
   const lastChunkAtRef = useRef<number>(0)
+  // 最后一次「真内容产出」的时刻（区别于 lastChunkAtRef 的「任何字节」）——
+  // 心跳/空帧不刷新它，供 STREAM_NO_CONTENT_MS 看门狗判「空转」。
+  const lastContentAtRef = useRef<number>(0)
   // Keepalive: stash a snapshot of the last successful request body so we
   // can ping it ~55 min later (just before 1h cache TTL expires) with
   // max_tokens: 0 to refresh the cache cheaply.
@@ -2430,6 +2441,7 @@ const App = () => {
         // the try so the catch/finally can read them.
         let stallWatchdog: number | null = null
         let streamStalled = false
+        let stalledNoContent = false // 看门狗②触发（有字节无内容、疑似中转挂死乱计费）
         try {
           const sessionMessages = messagesRef.current.filter(
             (message) =>
@@ -2675,6 +2687,7 @@ const App = () => {
               .eq('persist', false)
           }
           lastChunkAtRef.current = Date.now()
+          lastContentAtRef.current = Date.now()
           setIsStreaming(true)
 
           // Continuous stall watchdog. A relay that holds the socket open but
@@ -2684,9 +2697,20 @@ const App = () => {
           // mid-stream stall while the app stays open. Aborting drops into the
           // catch below, which saves any partial reply and clears isStreaming.
           stallWatchdog = window.setInterval(() => {
-            if (lastChunkAtRef.current > 0 && Date.now() - lastChunkAtRef.current > STREAM_STALL_MS) {
+            const now = Date.now()
+            // ① 死 socket：任何字节都没了 45s → 断。
+            if (lastChunkAtRef.current > 0 && now - lastChunkAtRef.current > STREAM_STALL_MS) {
               streamStalled = true
-              console.warn('流式响应停滞，主动中断', { idleMs: Date.now() - lastChunkAtRef.current })
+              console.warn('流式响应停滞（无任何字节），主动中断', { idleMs: now - lastChunkAtRef.current })
+              controller?.abort()
+              return
+            }
+            // ② 假活跃：字节在来（心跳/空帧）但 70s 没吐过一个真内容 → 断。
+            //    专治「空回 4 分钟被中转按天文数字输入计费」。
+            if (lastContentAtRef.current > 0 && now - lastContentAtRef.current > STREAM_NO_CONTENT_MS) {
+              streamStalled = true
+              stalledNoContent = true
+              console.warn('流式响应空转（有字节无内容），主动中断', { noContentMs: now - lastContentAtRef.current })
               controller?.abort()
             }
           }, 4000)
@@ -3100,6 +3124,14 @@ TOOL_SEARCH_HANDOFF,
                         }
                         accumulatedToolCalls.set(slot, existing)
                       }
+                    }
+                    // 「真内容进度」时钟：只有产出真实内容/推理/思考/工具时才刷新，
+                    // 心跳 ping / 空事件 / usage 帧【不】刷新 → 假活跃骗不过看门狗②。
+                    if (
+                      delta || explicitReasoning || deltaReasoning.text ||
+                      deltaPayload?.thinking_block || Array.isArray(deltaPayload?.tool_calls)
+                    ) {
+                      lastContentAtRef.current = Date.now()
                     }
                   } catch (parseError) {
                     console.warn('解析流式响应失败', parseError)
@@ -4558,10 +4590,11 @@ TOOL_SEARCH_HANDOFF,
                 })
               }
               setToolStatus('')
-              // Reset the stall clock: tool execution legitimately produces no
-              // stream chunks, so without this a slow tool could trip the
-              // watchdog. The next model turn gets a fresh STREAM_STALL_MS window.
+              // Reset both stall clocks: tool execution legitimately produces no
+              // stream chunks / no content, so without this a slow tool could trip
+              // either watchdog. The next model turn gets fresh windows.
               lastChunkAtRef.current = Date.now()
+              lastContentAtRef.current = Date.now()
               // Record tool flow events (after toolCallRecords is populated).
               for (let i = toolIndexStart; i < toolCallRecords.length; i++) {
                 flowEvents.push({ type: 'tool', index: i })
@@ -4733,11 +4766,21 @@ TOOL_SEARCH_HANDOFF,
           // produced nothing, don't save a ghost empty bubble — surface the
           // failure so the user knows to retry.
           if (assistantContent.trim().length === 0) {
+            // 空回检测（2026-08-10）：区分「普通空回」和「中转挂死+虚报计费」。
+            // 正常 prompt ~30k；若中转报的输入 token 远超（>150k）而输出为空，几乎
+            // 一定是这次请求挂死后被中转按天文数字乱计费（实测一次 96 万 token /
+            // $3.87）。明确告诉用户、并点名换渠道，别让钱白烧了还蒙在鼓里。
+            const serverPrompt = Number(
+              (lastUsage as { prompt_tokens?: number; input_tokens?: number })?.prompt_tokens ??
+              (lastUsage as { input_tokens?: number })?.input_tokens ?? 0,
+            )
+            const billedAnomaly = serverPrompt > 150_000
             console.warn('empty assistant content after all retries', {
-              iteration,
-              conversationDone,
+              iteration, conversationDone, serverPrompt, billedAnomaly,
             })
-            assistantContent = '（回复为空，请重试或换个问法）'
+            assistantContent = billedAnomaly
+              ? `（这次空回了 —— 而且中转报了约 ${Math.round(serverPrompt / 1000)}k 输入 token，明显虚高（正常才 ~30k）。八成是这家中转把请求挂死后乱计费、这次可能白扣了钱。**建议换个渠道再试**，别在这家继续烧。）`
+              : '（回复为空，请重试或换个问法）'
           }
 
           // (Proactive scheduling is now handled via tool_call
@@ -4924,7 +4967,9 @@ TOOL_SEARCH_HANDOFF,
           // the reply was cut off so they retry instead of staring at a blank
           // (or partial) bubble. Any partial text is still saved below.
           if (streamStalled) {
-            setChatError('网络好像中断了，回复没收完。已保留收到的部分，重发一次试试～')
+            setChatError(stalledNoContent
+              ? '中转吐了半天没吐出内容，已被自动掐断（省得像之前那样挂几分钟、被按天文数字输入白扣费）。多半是这家中转在抽风——换个渠道或重发试试～'
+              : '网络好像中断了，回复没收完。已保留收到的部分，重发一次试试～')
           }
           // Strip any (possibly partial) mood marker from the partial reply so
           // it's never persisted raw. Don't apply the mood — the turn is incomplete.
