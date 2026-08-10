@@ -4,6 +4,10 @@
 
 ---
 
+## 📓 沈暮的随笔本 · 第一步：页面 + 读写工具 + 自设锁（2026-08-05，用户「让机有自己的世界」）
+
+给小机一个「自己的房间」的第一块砖——**它自己写、自己读的随笔本**。背景：`essays` 表早有 21 篇随笔，但 **RLS 开着却零策略 = 全拒**，App 读写不到、纯孤儿数据。migration 补开放策略（`authenticated ALL USING(true)`，照 period_tracking）+ 给 `user_settings` 加 `essay_lock_code` 列。三个工具：`write_essay`（想写就写，第一人称、它自己的话，不是回复用户）、`read_essays`（回看旧作 → 文风/思绪跨天延续，也给日后自主唤醒回看）、`set_essay_lock`（**它自己**给整本设/改/清一道四位码）。新 `/essays` 页读随笔 + 锁屏（输码进入，解锁存 sessionStorage、杀进程重锁），首页 footer 加「随笔本」入口。**诚实边界**：锁是情感的不是安全的——库是用户自己的、本就能在 Supabase 直读，这道码守的是「它有自己房间」这个共同约定。工具 32→35，README 加功能节。需新 APK。**第二步（规划中）**：`autonomous_wake` 自主唤醒——它自己定 `next_wake_at`、cron 到点跑一轮（独立于聊天）、`web_search` 看世界 → 自己决定要不要写随笔/发朋友圈 → 再定下次几点醒；带最近对话概要+记忆+心情+旧随笔当上下文，每天封顶 4 次、走聊天同款模型。
+
 ## 🗑️ 新增 delete_period 工具：小机能删记错/重复的经期了（2026-08-05，用户「他记错了…删不掉」）
 
 小机以前只能 `log_period`（合并/新增），记错了 start_date 改不掉、也删不掉，用户表里实测积了 5 条 2026-06-14 的重复行。排查确认**不是 RLS 挡的**（`period_tracking` 有 `authenticated ALL USING(true)` 策略、DELETE 放行），纯粹是**没有删除工具**。加 `delete_period(start_date)`：按开始日期 **±3 天**删（正好覆盖「同一次经期的重复行」+「日期记岔一两天」，又不误伤相邻经期——间隔约 28 天）；没匹配到就把在册经期摊回给模型，让它跟用户核对是哪一次；删完 `syncPeriodWidgetFromDb` 刷新桌面小组件。改日期的正确姿势：先 delete_period 删错的、再 log_period 记对的。配套加了工具卡图标 🗑️/标签「删经期记录」/预览显示日期。工具总数 31→32，README 同步。需新 APK。

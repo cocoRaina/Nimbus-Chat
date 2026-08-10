@@ -500,6 +500,10 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                 <button type="button" className="home-footer-link" onClick={() => navigate("/export")}>
                   Export
                 </button>
+                <span className="home-footer-sep">·</span>
+                <button type="button" className="home-footer-link" onClick={() => navigate("/essays")}>
+                  随笔本
+                </button>
               </footer>
 
             </div>

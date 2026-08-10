@@ -25,6 +25,7 @@ import {
   applyMoodAssessment,
   commitMood,
 } from './storage/moodSystem'
+import { writeEssay, searchEssays, setEssayLockCode } from './storage/essays'
 import {
   buildReactionRulesSection,
   buildReactionExcerpt,
@@ -104,6 +105,7 @@ const ExportPage = lazy(() => import('./pages/ExportPage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
 const HomeLayoutSettingsPage = lazy(() => import('./pages/HomeLayoutSettingsPage'))
 const UsagePage = lazy(() => import('./pages/UsagePage'))
+const EssaysPage = lazy(() => import('./pages/EssaysPage'))
 import {
   resolveSnackSystemOverlay,
   resolveSyzygyPostPrompt,
@@ -142,6 +144,9 @@ import {
   TOOL_SEARCH_CHAT_HISTORY,
   TOOL_LOG_PERIOD,
   TOOL_DELETE_PERIOD,
+  TOOL_WRITE_ESSAY,
+  TOOL_READ_ESSAYS,
+  TOOL_SET_ESSAY_LOCK,
   TOOL_LOG_HEALTH,
   TOOL_POST_MOMENT,
   TOOL_REPLY_MOMENT,
@@ -2797,7 +2802,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_DELETE_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
-                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES, TOOL_SAVE_TOY] : []),
+                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES, TOOL_SAVE_TOY, TOOL_WRITE_ESSAY, TOOL_READ_ESSAYS, TOOL_SET_ESSAY_LOCK] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
@@ -3794,6 +3799,60 @@ TOOL_SEARCH_HANDOFF,
                           })
                         }
                       }
+                    }
+                  } else if (tc.function.name === 'write_essay' && supabase) {
+                    // 沈暮往自己的随笔本写一篇（essays 表，它自己的房间）。
+                    let args: { title?: string; content?: string; topic?: string; date?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 write_essay 参数失败', jsonError)
+                    }
+                    const title = typeof args.title === 'string' ? args.title.trim() : ''
+                    const content = typeof args.content === 'string' ? args.content.trim() : ''
+                    if (!title || !content) {
+                      resultText = JSON.stringify({ error: 'title 和 content 都不能为空' })
+                    } else {
+                      setToolStatus('✍️ 写随笔…')
+                      const saved = await writeEssay({ title, content, topic: args.topic, date: args.date })
+                      resultText = saved
+                        ? JSON.stringify({ ok: true, essay: { id: saved.id, date: saved.date, title: saved.title, topic: saved.topic } })
+                        : JSON.stringify({ error: '随笔没写进去（存储失败）' })
+                    }
+                  } else if (tc.function.name === 'read_essays' && supabase) {
+                    // 回看自己的旧随笔（连续性）。
+                    let args: { topic?: string; query?: string; limit?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 read_essays 参数失败', jsonError)
+                    }
+                    setToolStatus('📖 翻自己的随笔…')
+                    const essays = await searchEssays({
+                      topic: args.topic,
+                      query: args.query,
+                      limit: typeof args.limit === 'number' ? args.limit : 5,
+                    })
+                    resultText = JSON.stringify({
+                      ok: true,
+                      count: essays.length,
+                      essays: essays.map((e) => ({ date: e.date, title: e.title, topic: e.topic, content: e.content })),
+                    })
+                  } else if (tc.function.name === 'set_essay_lock' && supabase) {
+                    // 沈暮自己设/改/清随笔本的四位码。
+                    let args: { code?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 set_essay_lock 参数失败', jsonError)
+                    }
+                    if (!user?.id) {
+                      resultText = JSON.stringify({ error: '没登录，改不了锁' })
+                    } else {
+                      const res = await setEssayLockCode(user.id, args.code)
+                      resultText = res.ok
+                        ? JSON.stringify({ ok: true, locked: res.locked, note: res.locked ? '随笔本已上锁（四位码已设好）。' : '随笔本已解锁、房门打开了。' })
+                        : JSON.stringify({ error: res.error ?? '设置失败' })
                     }
                   } else if (tc.function.name === 'post_moment' && supabase) {
                     // Self-initiated Moments post — the one write tool the
@@ -5706,6 +5765,14 @@ TOOL_SEARCH_HANDOFF,
           element={
             <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
               <ExportPage user={user} />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/essays"
+          element={
+            <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
+              <EssaysPage user={user} />
             </RequireAuth>
           }
         />

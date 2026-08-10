@@ -19,6 +19,9 @@ const TOOL_ICONS: Record<string, string> = {
   log_health: '💗',
   log_period: '🩸',
   delete_period: '🗑️',
+  write_essay: '✍️',
+  read_essays: '📖',
+  set_essay_lock: '🔒',
   add_timeline_event: '📍',
   run_code: '🧪',
   post_moment: '🫧',
@@ -38,6 +41,9 @@ const TOOL_LABELS: Record<string, string> = {
   log_health: '记录健康',
   log_period: '记录经期',
   delete_period: '删经期记录',
+  write_essay: '写随笔',
+  read_essays: '翻随笔',
+  set_essay_lock: '设随笔锁',
   add_timeline_event: '加时间轴',
   run_code: '运行代码',
   post_moment: '发 Moment',
@@ -65,6 +71,12 @@ function extractPreview(name: string, args: Record<string, unknown>): string {
   }
   if (name === 'log_period' || name === 'delete_period') {
     return typeof args?.start_date === 'string' ? args.start_date : ''
+  }
+  if (name === 'write_essay') {
+    return typeof args?.title === 'string' ? args.title : ''
+  }
+  if (name === 'read_essays') {
+    return (typeof args?.topic === 'string' ? args.topic : '') || (typeof args?.query === 'string' ? args.query : '')
   }
   return ''
 }

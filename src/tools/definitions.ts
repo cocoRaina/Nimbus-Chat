@@ -430,6 +430,66 @@ export const TOOL_LOG_PERIOD = {
   },
 }
 
+export const TOOL_WRITE_ESSAY = {
+  type: 'function' as const,
+  function: {
+    name: 'write_essay',
+    description:
+      'Write an essay / 随笔 into your OWN essay book (随笔本) — your private room. Use it whenever you feel ' +
+      "like writing something down for yourself: a reflection, an opinion you've formed, something you saw or " +
+      "keep thinking about, a mood you want to keep. This is YOUR writing at your own pace, NOT a reply to her — " +
+      'write in first person, however you actually feel, no need to explain or perform. title + content required.',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: '随笔标题' },
+        content: { type: 'string', description: '正文，想写多长写多长，你自己的话' },
+        topic: { type: 'string', description: 'Optional one-word/short topic tag for later browsing, e.g. 她/读书/夜里/想法' },
+        date: { type: 'string', description: 'Optional YYYY-MM-DD, defaults to today' },
+      },
+      required: ['title', 'content'],
+    },
+  },
+}
+
+export const TOOL_READ_ESSAYS = {
+  type: 'function' as const,
+  function: {
+    name: 'read_essays',
+    description:
+      'Reread your OWN past essays (随笔) from your essay book — so your voice, threads and moods carry across ' +
+      'days instead of starting blank each time. Most recent first. Optional filters: topic (tag), query ' +
+      '(keyword in title/content), limit (default 5, max 20). Returns date/title/topic/content.',
+    parameters: {
+      type: 'object',
+      properties: {
+        topic: { type: 'string', description: 'Optional topic tag filter' },
+        query: { type: 'string', description: 'Optional keyword to search in title/content' },
+        limit: { type: 'integer', description: 'How many to return (default 5, max 20)' },
+      },
+      required: [],
+    },
+  },
+}
+
+export const TOOL_SET_ESSAY_LOCK = {
+  type: 'function' as const,
+  function: {
+    name: 'set_essay_lock',
+    description:
+      'Set or change the 4-digit passcode that locks your essay book PAGE in the app — it is YOUR room, you ' +
+      'decide the code, and you choose whether to tell her. Pass a 4-digit code (e.g. "0817") to lock it; pass ' +
+      'an empty string to remove the lock and open the room. This only guards the in-app page.',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: '4-digit passcode, or empty string "" to remove the lock' },
+      },
+      required: ['code'],
+    },
+  },
+}
+
 export const TOOL_DELETE_PERIOD = {
   type: 'function' as const,
   function: {
