@@ -141,6 +141,7 @@ import {
   TOOL_BROWSE_MOMENTS,
   TOOL_SEARCH_CHAT_HISTORY,
   TOOL_LOG_PERIOD,
+  TOOL_DELETE_PERIOD,
   TOOL_LOG_HEALTH,
   TOOL_POST_MOMENT,
   TOOL_REPLY_MOMENT,
@@ -2793,6 +2794,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_WRITE_LETTER,
                 TOOL_ADD_TIMELINE,
                 TOOL_LOG_PERIOD,
+                TOOL_DELETE_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
                 ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES, TOOL_SAVE_TOY] : []),
@@ -3732,6 +3734,67 @@ TOOL_SEARCH_HANDOFF,
                       ?? (insertErr
                         ? JSON.stringify({ error: insertErr.message })
                         : JSON.stringify({ ok: true, table, inserted }))
+                  } else if (tc.function.name === 'delete_period' && supabase) {
+                    // 删经期：小机记错/记重复了要能删（log_period 只会合并/新增，
+                    // 改不了记错的 start_date）。按 start_date ±3 天删——正好覆盖
+                    // 「同一次经期的重复行」+「日期记岔一两天」，又不会误伤相邻的
+                    // 另一次经期（经期间隔约 28 天）。删完把在册经期摊回给模型，
+                    // 没匹配到就摊出现有记录让它跟用户核对是哪一次。
+                    let args: { start_date?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 delete_period 参数失败', jsonError)
+                    }
+                    const startDate = typeof args.start_date === 'string' ? args.start_date.trim() : ''
+                    const baseTime = startDate ? new Date(`${startDate}T00:00:00Z`).getTime() : NaN
+                    if (!startDate || Number.isNaN(baseTime)) {
+                      resultText = JSON.stringify({ error: 'start_date 缺失或格式不对（要 YYYY-MM-DD）' })
+                    } else {
+                      const dayMs = 86400000
+                      const dMinus = new Date(baseTime - 3 * dayMs).toISOString().slice(0, 10)
+                      const dPlus = new Date(baseTime + 3 * dayMs).toISOString().slice(0, 10)
+                      setToolStatus('🩸 查要删的经期记录…')
+                      const { data: matchRows, error: findErr } = await supabase
+                        .from('period_tracking')
+                        .select('id,start_date,end_date,cycle_length,notes')
+                        .gte('start_date', dMinus)
+                        .lte('start_date', dPlus)
+                        .order('start_date', { ascending: false })
+                      if (findErr) {
+                        resultText = JSON.stringify({ error: findErr.message })
+                      } else if (!matchRows || matchRows.length === 0) {
+                        const { data: recent } = await supabase
+                          .from('period_tracking')
+                          .select('start_date,end_date,notes')
+                          .order('start_date', { ascending: false })
+                          .limit(6)
+                        resultText = JSON.stringify({
+                          ok: false,
+                          not_found: true,
+                          queried_start_date: startDate,
+                          recorded_periods: recent ?? [],
+                          note: `没找到 ${startDate} 前后 3 天内的经期记录。上面是目前在册的经期——先跟她核对要删的是哪一次，再按那条的开始日期调一次。`,
+                        })
+                      } else {
+                        const ids = (matchRows as Array<{ id?: number }>)
+                          .map((r) => r.id)
+                          .filter((id): id is number => typeof id === 'number')
+                        setToolStatus(`🩸 删除 ${ids.length} 条经期记录…`)
+                        const { error: delErr } = await supabase.from('period_tracking').delete().in('id', ids)
+                        if (delErr) {
+                          resultText = JSON.stringify({ error: delErr.message })
+                        } else {
+                          void syncPeriodWidgetFromDb({ force: true })
+                          resultText = JSON.stringify({
+                            ok: true,
+                            deleted_count: ids.length,
+                            deleted: matchRows,
+                            note: '已删掉上面这些经期记录。如果是记错了日期，现在用 log_period 记一次正确的就好。',
+                          })
+                        }
+                      }
+                    }
                   } else if (tc.function.name === 'post_moment' && supabase) {
                     // Self-initiated Moments post — the one write tool the
                     // model uses at its own discretion (no user instruction

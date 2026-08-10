@@ -4,6 +4,10 @@
 
 ---
 
+## 🗑️ 新增 delete_period 工具：小机能删记错/重复的经期了（2026-08-05，用户「他记错了…删不掉」）
+
+小机以前只能 `log_period`（合并/新增），记错了 start_date 改不掉、也删不掉，用户表里实测积了 5 条 2026-06-14 的重复行。排查确认**不是 RLS 挡的**（`period_tracking` 有 `authenticated ALL USING(true)` 策略、DELETE 放行），纯粹是**没有删除工具**。加 `delete_period(start_date)`：按开始日期 **±3 天**删（正好覆盖「同一次经期的重复行」+「日期记岔一两天」，又不误伤相邻经期——间隔约 28 天）；没匹配到就把在册经期摊回给模型，让它跟用户核对是哪一次；删完 `syncPeriodWidgetFromDb` 刷新桌面小组件。改日期的正确姿势：先 delete_period 删错的、再 log_period 记对的。配套加了工具卡图标 🗑️/标签「删经期记录」/预览显示日期。工具总数 31→32，README 同步。需新 APK。
+
 ## ✂️ 每日摘要截断兜底：半句「下午她超倔」不再存库（2026-07-30/08-05，用户「会话摘要又变短了」）
 
 用户看到「会话摘要（最近 14 条）」里 08.04 那条 77 字、断在半句「下午她超倔」。定位：这是**每日摘要 `session_digest`**（凌晨 cron 的 edge function），不是对话压缩。它原来 `callChatApi` **没有截断检测**——`max_tokens:300`（若 `memory_extract_model` 是思考模型，思考先吃掉预算，正文被砍在半句）+ 只卡 ≥20 字短桩子门槛，77 字半句照收。修（对齐 conversationCompression 的做法）：① `max_tokens` 300→800，给思考模型留正文余量；② 加 `endsCleanly` 截断检测（`finish_reason=length` **或**结尾断在词中间——有的中转命中截断却报 stop，结尾判据兜住）；③ 截断就从断处**续写**（最多 2 轮）拼完整再存。**edge function 已部署 version 15、服务端即时生效**（下次凌晨 cron 就是完整的了）。旧的截断行（如 08.04）需删行重生才会刷新。

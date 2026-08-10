@@ -18,6 +18,7 @@ const TOOL_ICONS: Record<string, string> = {
   schedule_proactive_message: '⏰',
   log_health: '💗',
   log_period: '🩸',
+  delete_period: '🗑️',
   add_timeline_event: '📍',
   run_code: '🧪',
   post_moment: '🫧',
@@ -36,6 +37,7 @@ const TOOL_LABELS: Record<string, string> = {
   schedule_proactive_message: '预约主动消息',
   log_health: '记录健康',
   log_period: '记录经期',
+  delete_period: '删经期记录',
   add_timeline_event: '加时间轴',
   run_code: '运行代码',
   post_moment: '发 Moment',
@@ -60,6 +62,9 @@ function extractPreview(name: string, args: Record<string, unknown>): string {
   }
   if (name === 'write_diary') {
     return typeof args?.date === 'string' ? args.date : ''
+  }
+  if (name === 'log_period' || name === 'delete_period') {
+    return typeof args?.start_date === 'string' ? args.start_date : ''
   }
   return ''
 }

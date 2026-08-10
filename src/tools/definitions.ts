@@ -430,6 +430,26 @@ export const TOOL_LOG_PERIOD = {
   },
 }
 
+export const TOOL_DELETE_PERIOD = {
+  type: 'function' as const,
+  function: {
+    name: 'delete_period',
+    description:
+      'Delete a WRONG or duplicate period record when she says you logged it wrong (记错了 / 删掉那次 / 重复了).\n' +
+      'Pass the start_date of the record to remove; every record whose start_date is within ±3 days is deleted ' +
+      '(so duplicates of the same period all go). Returns what was deleted, or not_found plus the periods ' +
+      'currently on file so you can check the right date with her. To FIX a date: delete the wrong one, then ' +
+      'log_period the correct one.',
+    parameters: {
+      type: 'object',
+      properties: {
+        start_date: { type: 'string', description: 'Start date (YYYY-MM-DD) of the period record to delete' },
+      },
+      required: ['start_date'],
+    },
+  },
+}
+
 export const TOOL_LOG_HEALTH = {
   type: 'function' as const,
   function: {
