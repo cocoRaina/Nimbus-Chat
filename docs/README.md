@@ -20,6 +20,7 @@
 | 渠道体检 + Token 对账（防中转骗）| [features/diagnostics.md](features/diagnostics.md) |
 | Claude 工具（12 个） | [features/tools.md](features/tools.md) |
 | 情绪系统（贪嗔痴念） | [features/mood-system.md](features/mood-system.md) |
+| 随笔本 + 自主唤醒（它自己写/读/上锁 + 你不在时自己醒来过日子） | [features/essays.md](features/essays.md) |
 | 真·主动消息 | 见 [features/tools.md](features/tools.md) 的 `schedule_proactive_message`（没有单独的 proactive.md） |
 | 健康同步（Health Connect） | [features/health-sync.md](features/health-sync.md) |
 | 屏幕使用时间（UsageStats） | [features/screen-time.md](features/screen-time.md) |

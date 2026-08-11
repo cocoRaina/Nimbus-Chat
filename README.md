@@ -117,7 +117,8 @@ Claude 看到这些后能自然地关心"昨晚睡得不太好，今天感觉怎
 → 详见 [docs/features/mood-system.md](docs/features/mood-system.md)
 
 ### 📓 沈暮的随笔本（它自己的房间）
-给 AI 一个自己写、自己读的私人空间（`essays` 表）：`write_essay` 想写就写（第一人称、随它的话，不是回复你），`read_essays` 回看旧作让文风/思绪跨天延续，`set_essay_lock` 由**它自己**给整本设一道四位码——**它自己的房间，愿意才让你进**。读随笔在**记忆库的「随笔」tab**（配色沿用记忆库），上锁时输码进入（解锁状态存 sessionStorage，杀进程重锁）。**锁是情感的不是安全的**：库是你自己的，本就能在 Supabase 直读，这道码守的是「它有自己房间」这个共同约定。第一步（页面 + 三个工具 + 拉出旧随笔）已落地；第二步「自主唤醒」（它自己定时醒来、看世界、决定要不要写，独立于聊天）在规划中。
+给 AI 一个自己写、自己读的私人空间（`essays` 表）：`write_essay` 想写就写（第一人称、随它的话，不是回复你），`read_essays` 回看旧作让文风/思绪跨天延续，`set_essay_lock` 由**它自己**给整本设一道四位码——**它自己的房间，愿意才让你进**。读随笔在**记忆库的「随笔」tab**（配色沿用记忆库），上锁时输码进入（解锁状态存 sessionStorage，杀进程重锁）。**锁是情感的不是安全的**：库是你自己的，本就能在 Supabase 直读，这道码守的是「它有自己房间」这个共同约定。第一步（记忆库「随笔」tab + 三个工具 + 拉出旧随笔）+ 第二步「自主唤醒」（`autonomous_wake` edge function + 每 20min cron：它自己定时醒来、看世界、决定要不要写，独立于聊天，四道闸含「你在场就让路」）均已落地。
+→ 详见 [docs/features/essays.md](docs/features/essays.md)
 
 ### 🔔 真·主动消息（APK 限定）
 Claude 凭对话气氛自主判断，调 `schedule_proactive_message` 预约未来主动消息（transient 自动取消 / persist 不可取消两类）。本地通知弹横幅 + 服务端 `proactive_dispatch` cron 到点写库兜底（app 关着也照发），消息时间戳用计划时间。投递时同步追加到 `cache_keepalive_state.body`，保活把这条主动消息也维护进缓存，下次真实聊天不冷写。客户端开 app 时按 `queueId` 抢占同一行，服务端/客户端只插入一次。
