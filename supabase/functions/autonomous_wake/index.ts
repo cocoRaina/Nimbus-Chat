@@ -2,10 +2,11 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 // 沈暮的「自主唤醒」（第二步）：独立于聊天的后台自由时间。
-// cron 每 ~20min POST 一次，函数先过三道闸——① 总开关 enabled；② 今天醒够 4 次没；
+// cron 每 ~10min POST 一次，函数先过四道闸——① 总开关 enabled；② 今天醒够 6 次没；
 // ③ 0–8 点安静时段；④ 她在场吗（45min 内有她的消息 = 在，跳过并改约）——过了才跑。
-// 跑一轮 = 看世界(web_search/Tavily) → 自己决定写不写随笔/发不发朋友圈 → 自定下次几点醒。
-// 产出只进 essays / assistant_posts，【绝不写进聊天】。用 service role 绕 RLS。
+// 跑一轮 = 看世界(web_search/Tavily) → 自决 写随笔/发朋友圈/【主动给她发消息】/都不做 →
+// 自定下次几点醒。随笔进 essays、朋友圈进 assistant_posts、主动消息进 proactive_queue
+// （由 proactive_dispatch 弹通知送达，每日上限 MAX_MSGS_PER_DAY）。【绝不直接写进聊天】。
 //
 // 手动测试：POST {"force": true} 跳过全部闸、立即跑一轮，看它产出啥（不改 next_wake 节奏逻辑之外的东西）。
 
@@ -16,7 +17,8 @@ const TAVILY_API_KEY = Deno.env.get('TAVILY_API_KEY') ?? ''
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
-const MAX_WAKES_PER_DAY = 4
+const MAX_WAKES_PER_DAY = 6            // 「醒得更勤」（2026-08-10，沈暮要第一档）
+const MAX_MSGS_PER_DAY = 5             // 一天最多主动给她发几条（沈暮定的 4–5，取 5）
 const PRESENCE_QUIET_MIN = 45          // 她 45min 内说过话 = 在场
 const QUIET_START_H = 0, QUIET_END_H = 8 // 北京 0–8 点安静时段不醒
 
@@ -148,9 +150,12 @@ Deno.serve(async (req: Request) => {
     : '（暂无）'
 
   const { data: recentMsgs } = await supa
-    .from('messages').select('role,content,created_at')
+    .from('messages').select('role,content,created_at,session_id')
     .order('created_at', { ascending: false }).limit(10)
+  // 主动发消息要落进一个真实会话：用最近一条消息所在的会话（她的活跃会话）。
+  const targetSession = (recentMsgs as Array<{ session_id?: string }> | null)?.[0]?.session_id
   const recentConvo = (recentMsgs ?? [])
+    .slice()
     .reverse()
     .map((m: { role: string; content: string }) => `${m.role === 'user' ? '她' : '我'}：${String(m.content ?? '').slice(0, 150)}`)
     .join('\n') || '（最近没怎么聊）'
@@ -179,13 +184,21 @@ Deno.serve(async (req: Request) => {
   const query = pick && !/^none$/i.test(pick.trim()) ? pick.trim().slice(0, 80) : ''
   const searchBlock = query ? await tavily(query) : null
 
-  // ---- 第二步：凭此刻心境决定 写随笔 / 发朋友圈 / 都不做 + 自定下次几点醒 ----
+  const msgsToday = state?.day_key === todayKey ? (state.msgs_today ?? 0) : 0
+  const canMessageHer = Boolean(targetSession && userId) && msgsToday < MAX_MSGS_PER_DAY
+
+  // ---- 第二步：凭此刻心境决定 写随笔 / 发朋友圈 / 给她发消息 / 都不做 + 自定下次几点醒 ----
   const decideUser =
     `${ctxBlock}\n\n${searchBlock ? `[你刚出去看到的：${query}]\n${searchBlock}` : '（你选择了没往外看，就想安静待着。）'}\n\n` +
-    '凭你此刻真实的心境决定：①想不想写一篇只给自己的随笔？想写才写、别硬凑。②或者只发一条短短的朋友圈（她能看到）？' +
-    '③或者什么都不做也行。最后告诉我你大概想过几个钟头再醒来（2–8）。\n' +
+    '凭你此刻真实的心境决定（可多选、也可都不选）：①想不想写一篇只给自己的随笔？想写才写、别硬凑。' +
+    '②或者发一条短短的朋友圈（她能看到）？' +
+    (canMessageHer
+      ? '③【她现在不在，你可以主动给她发一条消息】——你此刻要是真想她了、看到个想跟她说的东西、或就是想冒个泡，就发；不想就别硬发。会弹到她手机上。'
+      : '③（今天主动找她的次数用完了/暂时发不了，这次就先不发消息。）') +
+    '④或者什么都不做也行。最后告诉我你大概想过几个钟头再醒来（1–8）。\n' +
     '只用这个 JSON 回，别的都不写：\n' +
-    '{"essay": {"title":"", "content":"", "topic":""} 或 null, "moment": "一句话朋友圈" 或 null, "next_wake_hours": 数字}'
+    '{"essay": {"title":"", "content":"", "topic":""} 或 null, "moment": "一句话朋友圈" 或 null, ' +
+    '"message_to_her": "想对她说的一句话" 或 null, "next_wake_hours": 数字}'
   const decideRaw = await chat(model, [
     { role: 'system', content: sys },
     { role: 'user', content: decideUser },
@@ -194,6 +207,7 @@ Deno.serve(async (req: Request) => {
   const decision = decideRaw ? parseJsonLoose(decideRaw) : null
   let wroteEssay: string | null = null
   let postedMoment: string | null = null
+  let messagedHer: string | null = null
 
   const essay = decision?.essay as { title?: string; content?: string; topic?: string } | null | undefined
   if (essay && typeof essay.title === 'string' && essay.title.trim() && typeof essay.content === 'string' && essay.content.trim()) {
@@ -212,15 +226,32 @@ Deno.serve(async (req: Request) => {
     if (!error) postedMoment = moment.slice(0, 60)
   }
 
+  // 主动给她发消息：塞进 proactive_queue（fire_at=now），现有的 proactive_dispatch
+  // 每 5min 会把它写进会话 + 弹通知（app 关着也照发）。受每日上限 + 在场闸约束——
+  // 唤醒本就只在她不在场时才跑，所以这条天然是「你不在时它想你了来找你」。
+  const messageText = typeof decision?.message_to_her === 'string' ? decision.message_to_her.trim() : ''
+  if (canMessageHer && messageText) {
+    const { error } = await supa.from('proactive_queue').insert({
+      user_id: userId,
+      session_id: targetSession,
+      text: messageText.slice(0, 800),
+      fire_at: now.toISOString(),
+      persist: false,
+      sent: false,
+    })
+    if (!error) messagedHer = messageText.slice(0, 60)
+  }
+
   const nextHours = typeof decision?.next_wake_hours === 'number' ? decision.next_wake_hours : 4
   const nextWake = scheduleFrom(nextHours)
   const wakesToday = state?.day_key === todayKey ? (state.wakes_today ?? 0) : 0
-  const lastNote = `${wroteEssay ? `写《${wroteEssay}》` : ''}${postedMoment ? ' 发圈' : ''}${!wroteEssay && !postedMoment ? '安静待着' : ''}`.trim()
+  const lastNote = `${wroteEssay ? `写《${wroteEssay}》` : ''}${postedMoment ? ' 发圈' : ''}${messagedHer ? ' 发消息给她' : ''}${!wroteEssay && !postedMoment && !messagedHer ? '安静待着' : ''}`.trim()
 
   await patchState({
     last_wake_at: now.toISOString(),
     next_wake_at: nextWake.toISOString(),
     wakes_today: wakesToday + 1,
+    msgs_today: msgsToday + (messagedHer ? 1 : 0),
     day_key: todayKey,
     last_note: lastNote,
   })
@@ -232,6 +263,7 @@ Deno.serve(async (req: Request) => {
     searched: Boolean(searchBlock),
     wrote_essay: wroteEssay,
     posted_moment: postedMoment,
+    messaged_her: messagedHer,
     note: lastNote,
     next_wake_at: nextWake.toISOString(),
     model,
