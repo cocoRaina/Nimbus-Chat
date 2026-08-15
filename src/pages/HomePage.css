@@ -691,3 +691,239 @@
   .home-shenmu-line { color: #d8d3ee; }
   .home-shenmu-detail { color: #8a85a6; }
 }
+
+/* ── 顶部 ☰ 菜单（= 编辑首页入口） ─────────────────────────── */
+.home-topbar-menu {
+  background: transparent;
+  border: none;
+  color: var(--ab-accent);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  border-radius: 10px;
+  font-family: inherit;
+  min-width: 3rem;
+  text-align: left;
+  transition: color 0.15s;
+}
+.home-topbar-menu:hover { color: var(--ab-ink); }
+
+/* ── 天气 + 沈暮心情 两张小卡 ──────────────────────────────── */
+.home-duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+.home-mini {
+  padding: 0.7rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-height: 60px;
+  justify-content: center;
+}
+.home-mini-k {
+  font-size: 0.72rem;
+  color: var(--ab-accent);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-mini-v {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--ab-deep);
+  font-family: var(--font-rounded);
+}
+.home-mini-v small {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ab-ink);
+  margin-left: 0.3rem;
+}
+.home-mini-v--mood {
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── 重要的日子倒数卡 ──────────────────────────────────────── */
+.home-dates {
+  padding: 0.5rem 1rem 0.3rem;
+  margin-top: 0.15rem;
+}
+.home-dates-head {
+  font-size: 13px;
+  font-weight: 700;
+  color: #6a6488;
+  padding: 0.4rem 0 0.1rem;
+}
+.home-dates-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid rgba(120, 145, 190, 0.14);
+}
+.home-dates-row:last-child { border-bottom: none; }
+.home-dates-left { display: flex; align-items: center; gap: 0.6rem; }
+.home-dates-emo { font-size: 1.05rem; }
+.home-dates-name { font-size: 0.86rem; font-weight: 600; color: var(--ab-deep); }
+.home-dates-date { font-size: 0.68rem; color: var(--ab-muted); margin-top: 1px; }
+.home-dates-cd { font-size: 0.76rem; color: var(--ab-accent); font-weight: 600; white-space: nowrap; }
+.home-dates-cd b { font-size: 1.05rem; color: var(--ab-strong); font-weight: 800; margin: 0 1px; }
+
+/* ── 重要日子编辑行（编辑首页面板内） ─────────────────────── */
+.impdate-empty { margin: 0; font-size: 0.8rem; color: var(--ab-muted); }
+.impdate-row {
+  display: grid;
+  grid-template-columns: 2.6rem 1fr auto auto;
+  align-items: center;
+  gap: 0.4rem;
+}
+.impdate-row input {
+  font-size: 16px;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: rgba(244, 248, 252, 0.92);
+  color: var(--ab-deep);
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+.impdate-emoji { text-align: center; padding: 6px 2px; }
+.impdate-row input:focus { border-color: var(--ab-accent); }
+.impdate-del {
+  border: none;
+  background: rgba(197, 214, 236, 0.35);
+  color: var(--ab-ink);
+  border-radius: 8px;
+  width: 1.9rem;
+  height: 1.9rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+/* ── 底部导航浮栏 ──────────────────────────────────────────── */
+.home-tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, 100%);
+  z-index: 30;
+  height: calc(66px + env(safe-area-inset-bottom));
+  padding: 8px 12px env(safe-area-inset-bottom);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-around;
+  background: rgba(255, 255, 255, 0.72);
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 -4px 22px rgba(88, 104, 120, 0.1);
+}
+.home-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 3.4rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ab-muted);
+  padding: 4px 0 0;
+}
+.home-tab-ico { font-size: 1.15rem; line-height: 1; }
+.home-tab-lab { font-size: 0.6rem; font-weight: 600; font-style: italic; letter-spacing: 0.02em; }
+.home-tab.is-active { color: var(--ab-strong); }
+.home-tab--fab { position: relative; }
+.home-tab-fab {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1.45rem;
+  background: linear-gradient(150deg, #b7a0d6, #8ea0dd);
+  box-shadow: 0 8px 18px rgba(120, 110, 190, 0.42), inset 0 0 0 3px rgba(255, 255, 255, 0.7);
+}
+.home-tab-lab--fab { margin-top: 34px; color: var(--ab-strong); }
+
+/* content 底部留白，别被浮栏盖住（只正常模式有浮栏） */
+.home-page:not(.home-page--settings):not(.home-page--edit) .home-layout {
+  padding-bottom: calc(90px + env(safe-area-inset-bottom));
+}
+
+/* ── Other 抽屉 ────────────────────────────────────────────── */
+.home-other-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(40, 52, 74, 0.28);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: home-other-fade 0.16s ease;
+}
+@keyframes home-other-fade { from { opacity: 0; } to { opacity: 1; } }
+.home-other-sheet {
+  width: min(420px, 100%);
+  background: rgba(248, 251, 255, 0.96);
+  border-radius: 22px 22px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 -8px 30px rgba(60, 78, 110, 0.22);
+  padding: 0.5rem 0.9rem calc(1rem + env(safe-area-inset-bottom));
+  animation: home-other-up 0.2s ease;
+}
+@keyframes home-other-up { from { transform: translateY(18px); } to { transform: translateY(0); } }
+.home-other-grabber {
+  width: 38px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(120, 145, 190, 0.3);
+  margin: 0.35rem auto 0.6rem;
+}
+.home-other-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  padding: 0.85rem 0.5rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(88, 104, 120, 0.09);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.home-other-row:last-child { border-bottom: none; }
+.home-other-row:active { background: rgba(152, 181, 216, 0.12); }
+.home-other-emo { font-size: 1.2rem; width: 1.6rem; text-align: center; }
+.home-other-nm { flex: 1; font-size: 0.92rem; font-weight: 600; color: var(--ab-deep); }
+.home-other-arrow { color: var(--ab-muted); font-size: 1.05rem; }
+
+@media (prefers-color-scheme: dark) {
+  .home-tabbar { background: rgba(30, 34, 52, 0.72); border-top-color: rgba(255, 255, 255, 0.12); }
+  .home-other-sheet { background: rgba(26, 30, 46, 0.97); }
+  .home-dates-head { color: #b3aecc; }
+  .home-dates-name { color: #e2ddf4; }
+  .home-other-nm { color: #e2ddf4; }
+  .home-mini-v { color: #e2ddf4; }
+}

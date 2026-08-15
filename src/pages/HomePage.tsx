@@ -18,6 +18,7 @@ import {
 } from "../storage/homeLayout";
 import { createTodayCheckin, fetchRecentCheckins } from "../storage/supabaseSync";
 import { supabase } from "../supabase/client";
+import { fetchCurrentWeather, peekCachedWeather, type WeatherSnapshot } from "../storage/weather";
 import "./HomePage.css";
 
 // 沈暮今天动态：把它自主唤醒的活动（醒了几次 / 写了几篇随笔 / 主动找你几次 +
@@ -84,6 +85,88 @@ function ShenmuTodayCard() {
     </section>
   );
 }
+
+// 天气(复用现成定位/和风天气,沈暮读的同一份) + 沈暮心情(取它自主唤醒时写的
+// last_note——目前它唯一一处自己写的自由文本;以后想要专门的「心情」字段再单开)。
+function WeatherMoodDuo() {
+  const [wx, setWx] = useState<WeatherSnapshot | null>(() => peekCachedWeather());
+  const [mood, setMood] = useState<string>("");
+
+  useEffect(() => {
+    void fetchCurrentWeather().then((snap) => { if (snap) setWx(snap); });
+    if (!supabase) return;
+    const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
+    void supabase
+      .from("autonomous_state")
+      .select("last_note,day_key")
+      .eq("id", 1)
+      .maybeSingle()
+      .then(({ data }) => {
+        const row = data as { last_note?: string; day_key?: string } | null;
+        if (row?.last_note && row.day_key === todayKey) setMood(row.last_note);
+      });
+  }, []);
+
+  return (
+    <div className="home-duo">
+      <div className="home-mini glass-card">
+        <div className="home-mini-k">📍 {wx?.city ?? "今日天气"}</div>
+        <div className="home-mini-v">
+          {wx ? `${wx.temperatureC}°` : "—"}
+          {wx?.condition ? <small>{wx.condition}</small> : null}
+        </div>
+      </div>
+      <div className="home-mini glass-card">
+        <div className="home-mini-k">沈暮心情</div>
+        <div className="home-mini-v home-mini-v--mood">{mood || "☾ 安静待着"}</div>
+      </div>
+    </div>
+  );
+}
+
+// 重要的日子：本地存储（只属于首页，不动别的存储文件），可在「编辑首页」里增删改。
+export type ImportantDate = { id: string; emoji: string; name: string; date: string };
+const IMPORTANT_DATES_KEY = "nimbus_important_dates_v1";
+const genId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const loadImportantDates = (): ImportantDate[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(IMPORTANT_DATES_KEY);
+    const arr = raw ? (JSON.parse(raw) as ImportantDate[]) : [];
+    return Array.isArray(arr) ? arr.filter((d) => d && d.id) : [];
+  } catch {
+    return [];
+  }
+};
+const saveImportantDates = (list: ImportantDate[]) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(IMPORTANT_DATES_KEY, JSON.stringify(list));
+  } catch {
+    // ignore quota
+  }
+};
+// 距下一次「每年这天」还有几天（忽略年份，按周年循环）。0 = 就是今天。
+const daysUntilAnnual = (dateStr: string): number | null => {
+  const m = dateStr.match(/(?:\d{4}-)?(\d{1,2})-(\d{1,2})/);
+  if (!m) return null;
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  if (!month || !day) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let next = new Date(now.getFullYear(), month - 1, day);
+  if (next.getTime() < today.getTime()) next = new Date(now.getFullYear() + 1, month - 1, day);
+  return Math.round((next.getTime() - today.getTime()) / 86400000);
+};
+const impDateMMDD = (dateStr: string): string => {
+  const m = dateStr.match(/(?:\d{4}-)?(\d{1,2})-(\d{1,2})/);
+  if (!m) return "";
+  return `${m[1].padStart(2, "0")} · ${m[2].padStart(2, "0")}`;
+};
 
 const WEEK_DAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"] as const;
 
@@ -171,6 +254,41 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   const [backgroundImageKey, setBackgroundImageKey] = useState<string | undefined>(undefined);
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | undefined>(undefined);
   const bgFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [importantDates, setImportantDates] = useState<ImportantDate[]>(() => loadImportantDates());
+
+  useEffect(() => { saveImportantDates(importantDates); }, [importantDates]);
+  const addImpDate = useCallback(() => {
+    setImportantDates((l) => [...l, { id: genId(), emoji: "💝", name: "", date: "" }]);
+  }, []);
+  const updateImpDate = useCallback((id: string, patch: Partial<ImportantDate>) => {
+    setImportantDates((l) => l.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+  }, []);
+  const removeImpDate = useCallback((id: string) => {
+    setImportantDates((l) => l.filter((d) => d.id !== id));
+  }, []);
+
+  // 首页倒数只显示填好名字和日期的，按剩余天数升序。
+  const visibleImportantDates = useMemo(() => {
+    return importantDates
+      .filter((d) => d.name.trim() && d.date)
+      .map((d) => ({ ...d, left: daysUntilAnnual(d.date) }))
+      .filter((d) => d.left != null)
+      .sort((a, b) => (a.left ?? 0) - (b.left ?? 0));
+  }, [importantDates]);
+
+  // Other 抽屉的入口——全是现有页面（朋友圈是你和沈暮合并的那个 feed）。
+  const otherLinks = useMemo(
+    () => [
+      { emoji: "🫧", label: "朋友圈", route: "/snacks" },
+      { emoji: "📘", label: "Claude", route: "/syzygy" },
+      { emoji: "✅", label: "打卡", route: "/checkin" },
+      { emoji: "📊", label: "检测中心", route: "/usage" },
+      { emoji: "📦", label: "导出", route: "/export" },
+      { emoji: "⚙️", label: "设置", route: "/settings" },
+    ],
+    [],
+  );
 
   const appIcons = useMemo(() => [
     { id: "chat",     defaultEmoji: "💬", label: "聊天",   action: onOpenChat },
@@ -189,11 +307,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       appIcons.map((icon) => [icon.id, { type: "emoji" as const, emoji: icon.defaultEmoji }])
     ),
     [appIcons],
-  );
-
-  const dateLabel = useMemo(
-    () => now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" }),
-    [now],
   );
 
   const togetherElapsed = useMemo(() => {
@@ -344,13 +457,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     setBackgroundImageUrl(undefined);
   };
 
-  const mainListItems = [
-    { id: "chat",   label: "Chat",    sub: "Start a new conversation", action: onOpenChat,  route: undefined },
-    { id: "memory", label: "Memory",  sub: "View memories",            action: undefined,   route: "/memory-vault" },
-    { id: "snacks", label: "Moments", sub: "Mine · Yours",             action: undefined,   route: "/snacks" },
-    { id: "health", label: "Health",  sub: "Today's health data",      action: undefined,   route: "/health-sync" },
-  ];
-
   return (
     <main
       className={`home-page app-shell ${isSettingsPage ? "home-page--settings" : ""}${editMode ? " home-page--edit" : ""}${backgroundImageUrl ? " home-page--has-bg" : ""}`}
@@ -453,6 +559,50 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   </button>
                 </div>
               </section>
+
+              <section className="glass-card home-settings-card">
+                <h2 className="home-settings-title ui-title">重要的日子</h2>
+                {importantDates.length === 0 ? (
+                  <p className="impdate-empty">还没有——点下面添加，会在首页倒数。</p>
+                ) : null}
+                {importantDates.map((d) => (
+                  <div key={d.id} className="impdate-row">
+                    <input
+                      className="impdate-emoji"
+                      type="text"
+                      value={d.emoji}
+                      maxLength={2}
+                      onChange={(e) => updateImpDate(d.id, { emoji: e.target.value })}
+                      aria-label="emoji"
+                    />
+                    <input
+                      className="impdate-name"
+                      type="text"
+                      value={d.name}
+                      placeholder="名字（如 咪咪生日）"
+                      onChange={(e) => updateImpDate(d.id, { name: e.target.value })}
+                    />
+                    <input
+                      className="impdate-date"
+                      type="date"
+                      value={/^\d{4}-\d{2}-\d{2}$/.test(d.date) ? d.date : ""}
+                      onChange={(e) => updateImpDate(d.id, { date: e.target.value })}
+                      aria-label="日期"
+                    />
+                    <button
+                      type="button"
+                      className="impdate-del"
+                      onClick={() => removeImpDate(d.id)}
+                      aria-label="删除"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <div className="background-controls">
+                  <button type="button" className="ghost" onClick={addImpDate}>＋ 添加</button>
+                </div>
+              </section>
             </div>
           ) : null}
 
@@ -465,16 +615,16 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                 {!isSettingsPage ? (
                   <button
                     type="button"
-                    className="home-topbar-edit"
+                    className="home-topbar-menu"
                     onClick={() => setEditMode((v) => !v)}
-                    aria-label={editMode ? "Done" : "Edit"}
+                    aria-label={editMode ? "完成编辑" : "编辑首页"}
                   >
-                    {editMode ? "Done" : "Edit"}
+                    ☰
                   </button>
                 ) : (
                   <span />
                 )}
-                <p className="home-date-label">{dateLabel}</p>
+                <p className="home-date-label">Claude &amp; Wren</p>
                 <button
                   type="button"
                   className="home-topbar-settings"
@@ -535,47 +685,78 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                 </button>
               </section>
 
+              {/* 天气 + 沈暮心情 两张小卡 */}
+              <WeatherMoodDuo />
+
               {/* 沈暮今天动态（打卡下方） */}
               <ShenmuTodayCard />
 
-              {/* Vertical nav list */}
-              <nav className="home-list glass-card" aria-label="功能导航">
-                {mainListItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="home-list-row"
-                    onClick={() => {
-                      if (item.action) item.action();
-                      else if (item.route) navigate(item.route);
-                    }}
-                  >
-                    <div className="home-list-body">
-                      <strong className="home-list-title">{item.label}</strong>
-                      <span className="home-list-sub">{item.sub}</span>
+              {/* 重要的日子倒数（在「编辑首页」里增删） */}
+              {visibleImportantDates.length > 0 && (
+                <section className="home-dates glass-card" aria-label="重要的日子">
+                  <div className="home-dates-head">重要的日子</div>
+                  {visibleImportantDates.map((d) => (
+                    <div key={d.id} className="home-dates-row">
+                      <div className="home-dates-left">
+                        <span className="home-dates-emo" aria-hidden="true">{d.emoji || "💝"}</span>
+                        <div>
+                          <div className="home-dates-name">{d.name}</div>
+                          <div className="home-dates-date">{impDateMMDD(d.date)}</div>
+                        </div>
+                      </div>
+                      <div className="home-dates-cd">
+                        {d.left === 0 ? <b>就是今天 🎉</b> : <>还有 <b>{d.left}</b> 天</>}
+                      </div>
                     </div>
-                    <span className="home-list-chevron" aria-hidden="true">›</span>
-                  </button>
-                ))}
-              </nav>
-
-              {/* Footer links */}
-              <footer className="home-footer">
-                <button type="button" className="home-footer-link" onClick={() => navigate("/checkin")}>
-                  Check-in
-                </button>
-                <span className="home-footer-sep">·</span>
-                <button type="button" className="home-footer-link" onClick={() => navigate("/usage")}>
-                  Diagnostics
-                </button>
-                <span className="home-footer-sep">·</span>
-                <button type="button" className="home-footer-link" onClick={() => navigate("/export")}>
-                  Export
-                </button>
-              </footer>
+                  ))}
+                </section>
+              )}
 
             </div>
           </div>
+
+          {/* ── 底部导航浮栏（仅正常模式） ─────────────────────────── */}
+          {!editMode && !isSettingsPage && (
+            <>
+              <nav className="home-tabbar" aria-label="导航">
+                <button type="button" className="home-tab is-active" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+                  <span className="home-tab-ico">🏠</span><span className="home-tab-lab">Home</span>
+                </button>
+                <button type="button" className="home-tab" onClick={() => navigate("/memory-vault")}>
+                  <span className="home-tab-ico">🧠</span><span className="home-tab-lab">Memory</span>
+                </button>
+                <button type="button" className="home-tab home-tab--fab" onClick={onOpenChat} aria-label="聊天">
+                  <span className="home-tab-fab">💗</span><span className="home-tab-lab home-tab-lab--fab">Chat</span>
+                </button>
+                <button type="button" className="home-tab" onClick={() => navigate("/health-sync")}>
+                  <span className="home-tab-ico">🫀</span><span className="home-tab-lab">Health</span>
+                </button>
+                <button type="button" className="home-tab" onClick={() => setOtherOpen(true)}>
+                  <span className="home-tab-ico">⋯</span><span className="home-tab-lab">Other</span>
+                </button>
+              </nav>
+
+              {otherOpen && (
+                <div className="home-other-overlay" onClick={() => setOtherOpen(false)}>
+                  <div className="home-other-sheet" onClick={(e) => e.stopPropagation()}>
+                    <div className="home-other-grabber" aria-hidden="true" />
+                    {otherLinks.map((l) => (
+                      <button
+                        key={l.route}
+                        type="button"
+                        className="home-other-row"
+                        onClick={() => { setOtherOpen(false); navigate(l.route); }}
+                      >
+                        <span className="home-other-emo" aria-hidden="true">{l.emoji}</span>
+                        <span className="home-other-nm">{l.label}</span>
+                        <span className="home-other-arrow" aria-hidden="true">›</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
         </div>
       </div>
