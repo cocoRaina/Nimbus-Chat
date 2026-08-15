@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import type { User } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
 import {
@@ -715,8 +716,11 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
             </div>
           </div>
 
-          {/* ── 底部导航浮栏（仅正常模式） ─────────────────────────── */}
-          {!editMode && !isSettingsPage && (
+          {/* ── 底部导航浮栏（仅正常模式） ───────────────────────────
+              用 portal 挂到 <body>：祖先 .app-shell 有 animation(...) both 会留下
+              transform → 成为 fixed 定位的包含块，浮栏会被钉在容器里跟着滚。挂到
+              body 就真正相对视口 fixed，稳稳贴屏幕底、不随页面滑动。*/}
+          {!editMode && !isSettingsPage && createPortal(
             <>
               <nav className="home-tabbar" aria-label="导航">
                 <button type="button" className="home-tab is-active" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
@@ -755,7 +759,8 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   </div>
                 </div>
               )}
-            </>
+            </>,
+            document.body,
           )}
 
         </div>
