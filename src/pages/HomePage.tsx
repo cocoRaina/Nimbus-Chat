@@ -195,7 +195,7 @@ type HomePageProps = {
 type AppIconState = Record<string, AppIconConfig>;
 
 const DEFAULT_ICON_ORDER = [
-  "chat", "checkin", "memory", "snacks", "syzygy", "usage", "health", "settings", "export",
+  "chat", "checkin", "memory", "snacks", "usage", "health", "settings", "export",
 ];
 
 const HomeCoupleCard = () => {
@@ -281,7 +281,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   const otherLinks = useMemo(
     () => [
       { emoji: "🫧", label: "朋友圈", route: "/snacks" },
-      { emoji: "📘", label: "Claude", route: "/syzygy" },
       { emoji: "✅", label: "打卡", route: "/checkin" },
       { emoji: "📊", label: "检测中心", route: "/usage" },
       { emoji: "📦", label: "导出", route: "/export" },
@@ -295,7 +294,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     { id: "checkin",  defaultEmoji: "✅", label: "打卡",   route: "/checkin" },
     { id: "memory",   defaultEmoji: "🧠", label: "记忆库", route: "/memory-vault" },
     { id: "snacks",   defaultEmoji: "🍪", label: "mimi",   route: "/snacks" },
-    { id: "syzygy",   defaultEmoji: "📘", label: "Claude", route: "/syzygy" },
     { id: "usage",    defaultEmoji: "📊", label: "检测中心", route: "/usage" },
     { id: "health",   defaultEmoji: "🫀", label: "健康",   route: "/health-sync" },
     { id: "settings", defaultEmoji: "⚙️", label: "设置",   route: "/settings" },

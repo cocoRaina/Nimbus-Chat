@@ -96,7 +96,6 @@ import './App.css'
 // Heavy routes are code-split — only the active route's chunk loads.
 // Keep AuthPage and ChatPage statically imported (they're hit immediately).
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const AssistantHomePage = lazy(() => import('./pages/AssistantHomePage'))
 const MomentsPage = lazy(() => import('./pages/MomentsPage'))
 const MemoryVaultPage = lazy(() => import('./pages/MemoryVaultPage'))
 const CheckinPage = lazy(() => import('./pages/CheckinPage'))
@@ -5888,14 +5887,6 @@ TOOL_SEARCH_HANDOFF,
                 )}
                 memoryExtractProvider={activeSettings.memoryExtractProvider}
               />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/syzygy"
-          element={
-            <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
-              <AssistantHomePage user={user} snackAiConfig={syzygyAiConfig} />
             </RequireAuth>
           }
         />
