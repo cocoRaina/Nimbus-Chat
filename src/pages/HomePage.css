@@ -153,11 +153,20 @@
 .home-topbar-settings:hover { opacity: 0.65; }
 
 /* ── Couple avatar widget ──────────────────────────────────── */
+/* 头像行现在嵌在「我们」卡(home-hero)内部，不再是独立卡：去掉自身 padding，
+   横向留白交给 hero 卡。*/
 .home-couple {
-  padding: 0.95rem 1.2rem;
+  padding: 0.2rem 0.2rem 0;
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+/* 头像行 与 天数/打卡 之间的细分隔线，负边距撑满卡宽 */
+.home-hero-divider {
+  height: 1px;
+  background: rgba(120, 145, 190, 0.16);
+  margin: 0.15rem -1.2rem 0.25rem;
 }
 
 .home-couple__side {

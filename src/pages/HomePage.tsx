@@ -119,7 +119,7 @@ const HomeCoupleCard = () => {
   const myAvatar = useState(() => localStorage.getItem('my-homepage-avatar'))[0]
   const claudeAvatar = useState(() => localStorage.getItem('syzygy-homepage-avatar'))[0]
   return (
-    <section className="home-couple glass-card">
+    <div className="home-couple">
       <div className="home-couple__side">
         {claudeAvatar
           ? <img src={claudeAvatar} alt="Claude" className="home-couple__avatar" />
@@ -139,7 +139,7 @@ const HomeCoupleCard = () => {
           ? <img src={myAvatar} alt="我" className="home-couple__avatar" />
           : <div className="home-couple__avatar home-couple__avatar--empty">🐱</div>}
       </div>
-    </section>
+    </div>
   )
 }
 
@@ -485,11 +485,14 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                 </button>
               </div>
 
-              {/* Couple avatar widget — hidden in edit mode */}
-              {!editMode && <HomeCoupleCard />}
-
-              {/* Hero: days counter + week dots + check-in */}
+              {/* Hero: 头像 + 在一起天数 + 本周打卡（合并成一张「我们」卡） */}
               <section className="home-hero glass-card">
+                {!editMode && (
+                  <>
+                    <HomeCoupleCard />
+                    <div className="home-hero-divider" aria-hidden="true"></div>
+                  </>
+                )}
                 <div className="hero-days">
                   {togetherElapsed ? (
                     <>
