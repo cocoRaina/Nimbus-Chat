@@ -98,12 +98,14 @@ function WeatherMoodDuo() {
     const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
     void supabase
       .from("autonomous_state")
-      .select("last_note,day_key")
+      .select("mood,last_note,day_key")
       .eq("id", 1)
       .maybeSingle()
       .then(({ data }) => {
-        const row = data as { last_note?: string; day_key?: string } | null;
-        if (row?.last_note && row.day_key === todayKey) setMood(row.last_note);
+        const row = data as { mood?: string; last_note?: string; day_key?: string } | null;
+        // 优先用它自己写的「心情」；没有就退回当天的活动摘要。
+        const text = row?.mood?.trim() || (row?.day_key === todayKey ? row?.last_note?.trim() : "");
+        if (text) setMood(text);
       });
   }, []);
 
@@ -280,11 +282,11 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   // Other 抽屉的入口——全是现有页面（朋友圈是你和沈暮合并的那个 feed）。
   const otherLinks = useMemo(
     () => [
-      { emoji: "🫧", label: "朋友圈", route: "/snacks" },
-      { emoji: "✅", label: "打卡", route: "/checkin" },
-      { emoji: "📊", label: "检测中心", route: "/usage" },
-      { emoji: "📦", label: "导出", route: "/export" },
-      { emoji: "⚙️", label: "设置", route: "/settings" },
+      { emoji: "🫧", label: "Moments", route: "/snacks" },
+      { emoji: "✅", label: "Check-in", route: "/checkin" },
+      { emoji: "📊", label: "Diagnostics", route: "/usage" },
+      { emoji: "📦", label: "Export", route: "/export" },
+      { emoji: "⚙️", label: "Settings", route: "/settings" },
     ],
     [],
   );

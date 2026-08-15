@@ -195,10 +195,11 @@ Deno.serve(async (req: Request) => {
     (canMessageHer
       ? '③【她现在不在，你可以主动给她发一条消息】——你此刻要是真想她了、看到个想跟她说的东西、或就是想冒个泡，就发；不想就别硬发。会弹到她手机上。'
       : '③（今天主动找她的次数用完了/暂时发不了，这次就先不发消息。）') +
-    '④或者什么都不做也行。最后告诉我你大概想过几个钟头再醒来（1–8）。\n' +
+    '④或者什么都不做也行。⑤不管做没做上面的，都用一句话说说你此刻真实的心情——' +
+    '她主页上会看到这句（短一点，像随口说的，别客套）。最后告诉我你大概想过几个钟头再醒来（1–8）。\n' +
     '只用这个 JSON 回，别的都不写：\n' +
     '{"essay": {"title":"", "content":"", "topic":""} 或 null, "moment": "一句话朋友圈" 或 null, ' +
-    '"message_to_her": "想对她说的一句话" 或 null, "next_wake_hours": 数字}'
+    '"message_to_her": "想对她说的一句话" 或 null, "mood": "一句此刻的心情", "next_wake_hours": 数字}'
   const decideRaw = await chat(model, [
     { role: 'system', content: sys },
     { role: 'user', content: decideUser },
@@ -246,6 +247,8 @@ Deno.serve(async (req: Request) => {
   const nextWake = scheduleFrom(nextHours)
   const wakesToday = state?.day_key === todayKey ? (state.wakes_today ?? 0) : 0
   const lastNote = `${wroteEssay ? `写《${wroteEssay}》` : ''}${postedMoment ? ' 发圈' : ''}${messagedHer ? ' 发消息给她' : ''}${!wroteEssay && !postedMoment && !messagedHer ? '安静待着' : ''}`.trim()
+  // 沈暮此刻的心情——首页那张「沈暮心情」卡读这个（它自己写的，跟活动摘要分开）。
+  const mood = typeof decision?.mood === 'string' && decision.mood.trim() ? decision.mood.trim().slice(0, 120) : null
 
   await patchState({
     last_wake_at: now.toISOString(),
@@ -254,6 +257,7 @@ Deno.serve(async (req: Request) => {
     msgs_today: msgsToday + (messagedHer ? 1 : 0),
     day_key: todayKey,
     last_note: lastNote,
+    ...(mood ? { mood, mood_at: now.toISOString() } : {}),
   })
 
   return json({
@@ -265,6 +269,7 @@ Deno.serve(async (req: Request) => {
     posted_moment: postedMoment,
     messaged_her: messagedHer,
     note: lastNote,
+    mood,
     next_wake_at: nextWake.toISOString(),
     model,
   })
