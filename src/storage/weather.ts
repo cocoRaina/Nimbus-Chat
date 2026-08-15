@@ -14,7 +14,7 @@ import { getQWeatherCredential, generateQWeatherJWT, isHexApiKey, normalizeApiHo
 const LEGACY_HOST = 'devapi.qweather.com'
 const LEGACY_GEO_HOST = 'geoapi.qweather.com'
 
-const STORAGE_KEY = 'nimbus_weather_cache_v1'
+const STORAGE_KEY = 'nimbus_weather_cache_v2'
 const TTL_MS = 60 * 60 * 1000 // 1 hour
 
 const WEATHER_CODE_LABEL: Record<number, string> = {
@@ -130,11 +130,12 @@ const weatherHost = (cred: QWeatherCredential): string =>
 
 // GeoAPI path differs by host: on a custom host it's /geo/v2/city/lookup;
 // the legacy shared domain is geoapi.qweather.com/v2/city/lookup.
+// lang=zh 强制简体中文城市名（不加时某些账号/区域默认回繁体，实测「新絳縣」）。
 const geoLookupUrl = (cred: QWeatherCredential, lat: number, lon: number): string => {
   const host = normalizeApiHost(cred.apiHost)
   return host
-    ? `https://${host}/geo/v2/city/lookup?location=${lon},${lat}`
-    : `https://${LEGACY_GEO_HOST}/v2/city/lookup?location=${lon},${lat}`
+    ? `https://${host}/geo/v2/city/lookup?location=${lon},${lat}&lang=zh`
+    : `https://${LEGACY_GEO_HOST}/v2/city/lookup?location=${lon},${lat}&lang=zh`
 }
 
 // QWeather GeoAPI reverse-geocode: coords → Chinese city name.
@@ -160,13 +161,15 @@ const qweatherReverseGeocode = async (
 }
 
 // Fallback reverse-geocode (no key). BigDataCloud is CORS-safe.
+// localityLanguage=en：它的中文常回繁体，用户要简体或英文，这里退英文城市名
+// （和风那条已 lang=zh 出简体；只有没配和风 key 时才走到这条）。
 const fallbackReverseGeocode = async (lat: number, lon: number): Promise<string | null> => {
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 4000)
     const url =
       `https://api.bigdatacloud.net/data/reverse-geocode-client` +
-      `?latitude=${lat}&longitude=${lon}&localityLanguage=zh`
+      `?latitude=${lat}&longitude=${lon}&localityLanguage=en`
     const r = await fetch(url, { signal: controller.signal })
     clearTimeout(timer)
     if (!r.ok) return null

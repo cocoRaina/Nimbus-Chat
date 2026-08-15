@@ -511,9 +511,9 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
 
   const getReplyAuthorLabel = (entry: FeedEntry, reply: SnackReply | SyzygyReply) => {
     if (entry.kind === 'user') {
-      return (reply as SnackReply).role === 'assistant' ? 'Claude' : 'kitten'
+      return (reply as SnackReply).role === 'assistant' ? 'Claude' : 'Wren'
     }
-    return (reply as SyzygyReply).authorRole === 'ai' ? 'Claude' : 'kitten'
+    return (reply as SyzygyReply).authorRole === 'ai' ? 'Claude' : 'Wren'
   }
 
   const isReplyFromAI = (entry: FeedEntry, reply: SnackReply | SyzygyReply) => {
@@ -555,7 +555,7 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
               <li key={entry.post.id} className="moments-card glass-card">
                 <div className="moments-card-header">
                   <span className={`moments-author-badge ${entry.kind === 'ai' ? 'moments-author-badge--ai' : 'moments-author-badge--user'}`}>
-                    {entry.kind === 'ai' ? 'Claude' : 'kitten'}
+                    {entry.kind === 'ai' ? 'Claude' : 'Wren'}
                   </span>
                   <span className="moments-card-time">{formatTime(entry.post.createdAt)}</span>
                 </div>
@@ -645,7 +645,7 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
                 {/* Post header */}
                 <div className="moments-card-header">
                   <span className={`moments-author-badge ${entry.kind === 'ai' ? 'moments-author-badge--ai' : 'moments-author-badge--user'}`}>
-                    {entry.kind === 'ai' ? 'Claude' : 'kitten'}
+                    {entry.kind === 'ai' ? 'Claude' : 'Wren'}
                   </span>
                   <span className="moments-card-time">{formatTime(entry.post.createdAt)}</span>
                   <button
