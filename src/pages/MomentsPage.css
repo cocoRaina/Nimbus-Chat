@@ -380,6 +380,47 @@
   color: var(--ab-muted);
 }
 
+/* ── Claude(AI) 内容走 Markdown 渲染 ──────────────────────────────
+   ReactMarkdown 直接吐 <p>/<h*>：每段一个 <p>，默认 margin:1em(上下各 16px)，
+   多段之间就撑出大空隙，块级默认字号也没压 → 在朋友圈卡里显得又大又松。
+   这里把字号/段距压到跟纯文本(.moments-card-text / .moments-reply-text)一致。 */
+.moments-card-body > :first-child { margin-top: 0; }
+.moments-card-body > :last-child { margin-bottom: 0; }
+.moments-card-body p,
+.moments-card-body ul,
+.moments-card-body ol,
+.moments-card-body blockquote {
+  margin: 0 0 0.5rem;
+  font-size: inherit;   /* = .moments-card-body 的 0.93rem */
+  line-height: inherit; /* = 1.6 */
+}
+.moments-card-body h1,
+.moments-card-body h2,
+.moments-card-body h3,
+.moments-card-body h4,
+.moments-card-body h5 {
+  font-size: 1em;
+  font-weight: 700;
+  margin: 0.35rem 0;
+  line-height: 1.4;
+}
+.moments-reply p,
+.moments-reply ul,
+.moments-reply ol,
+.moments-reply blockquote {
+  margin: 0 0 0.35rem;
+  font-size: 0.87rem;   /* 对齐 .moments-reply-text */
+  line-height: 1.5;
+}
+.moments-reply h1,
+.moments-reply h2,
+.moments-reply h3,
+.moments-reply h4 {
+  font-size: 1em;
+  font-weight: 700;
+  margin: 0.25rem 0;
+}
+
 @media (max-width: 680px) {
   .moments-page {
     padding-left: 0.75rem;
