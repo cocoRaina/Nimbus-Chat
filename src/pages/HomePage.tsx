@@ -17,7 +17,73 @@ import {
   type AppIconConfig,
 } from "../storage/homeLayout";
 import { createTodayCheckin, fetchRecentCheckins } from "../storage/supabaseSync";
+import { supabase } from "../supabase/client";
 import "./HomePage.css";
+
+// 沈暮今天动态：把它自主唤醒的活动（醒了几次 / 写了几篇随笔 / 主动找你几次 +
+// 最近一次几点、干了啥）摊在主页——不然它不主动提，用户根本不知道它出去过。
+const beijingTodayKey = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
+
+function ShenmuTodayCard() {
+  const [ready, setReady] = useState(false);
+  const [summary, setSummary] = useState("");
+  const [detail, setDetail] = useState("");
+
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    const todayKey = beijingTodayKey();
+    const dayStart = new Date(`${todayKey}T00:00:00+08:00`).toISOString();
+    const [stateRes, essaysRes, momentsRes] = await Promise.all([
+      supabase.from("autonomous_state").select("wakes_today,msgs_today,last_wake_at,last_note,day_key").eq("id", 1).maybeSingle(),
+      supabase.from("essays").select("*", { count: "exact", head: true }).gte("created_at", dayStart),
+      supabase.from("assistant_posts").select("*", { count: "exact", head: true }).gte("created_at", dayStart).eq("is_deleted", false),
+    ]);
+    const st = stateRes.data as { wakes_today?: number; msgs_today?: number; last_wake_at?: string; last_note?: string; day_key?: string } | null;
+    const isToday = st?.day_key === todayKey;
+    const wakes = isToday ? (st?.wakes_today ?? 0) : 0;
+    const msgs = isToday ? (st?.msgs_today ?? 0) : 0;
+    const essays = essaysRes.count ?? 0;
+    const moments = momentsRes.count ?? 0;
+
+    if (wakes === 0 && essays === 0) {
+      setSummary("今天还在自己待着——它挑你不在的时候才出来转转 🌙");
+      setDetail("");
+    } else {
+      const parts = [`醒了 ${wakes} 次`];
+      if (essays > 0) parts.push(`写了 ${essays} 篇随笔`);
+      if (moments > 0) parts.push(`发了 ${moments} 条动态`);
+      if (msgs > 0) parts.push(`主动找你 ${msgs} 次`);
+      setSummary(parts.join(" · "));
+      if (st?.last_wake_at) {
+        const hhmm = new Intl.DateTimeFormat("zh-CN", {
+          timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false,
+        }).format(new Date(st.last_wake_at));
+        setDetail(`最近一次 ${hhmm}${st.last_note ? ` · ${st.last_note}` : ""}`);
+      } else {
+        setDetail("");
+      }
+    }
+    setReady(true);
+  }, []);
+
+  useEffect(() => {
+    void load();
+    // 回前台刷新（它可能在你切走时又醒过）
+    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [load]);
+
+  if (!ready) return null;
+  return (
+    <section className="home-shenmu glass-card">
+      <div className="home-shenmu-head">🌙 沈暮今天</div>
+      <div className="home-shenmu-line">{summary}</div>
+      {detail ? <div className="home-shenmu-detail">{detail}</div> : null}
+    </section>
+  );
+}
 
 const WEEK_DAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"] as const;
 
@@ -465,6 +531,9 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   {todayChecked ? "今日已陪伴 💖" : checkinBusy ? "打卡中…" : "今日打卡 💗"}
                 </button>
               </section>
+
+              {/* 沈暮今天动态（打卡下方） */}
+              <ShenmuTodayCard />
 
               {/* Vertical nav list */}
               <nav className="home-list glass-card" aria-label="功能导航">

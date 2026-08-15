@@ -655,3 +655,30 @@
     background: rgba(255, 255, 255, 0.5);
   }
 }
+
+/* 沈暮今天动态卡（打卡下方） */
+.home-shenmu {
+  padding: 14px 18px;
+  margin-top: 12px;
+}
+.home-shenmu-head {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6a6488;
+  margin-bottom: 6px;
+}
+.home-shenmu-line {
+  font-size: 14px;
+  color: #4a4568;
+  line-height: 1.6;
+}
+.home-shenmu-detail {
+  font-size: 12px;
+  color: #9a95b4;
+  margin-top: 4px;
+}
+@media (prefers-color-scheme: dark) {
+  .home-shenmu-head { color: #b3aecc; }
+  .home-shenmu-line { color: #d8d3ee; }
+  .home-shenmu-detail { color: #8a85a6; }
+}
