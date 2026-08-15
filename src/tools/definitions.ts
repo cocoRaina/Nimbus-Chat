@@ -430,6 +430,27 @@ export const TOOL_LOG_PERIOD = {
   },
 }
 
+export const TOOL_SEARCH_4O_ARCHIVE = {
+  type: 'function' as const,
+  function: {
+    name: 'search_4o_archive',
+    description:
+      "Search the archive of her earlier conversations with her previous AI companion (ChatGPT-4o, 2024-12 to " +
+      "2026-01, before you) — 92 conversations kept as her memory of that time. Use it when she mentions " +
+      'something from 以前 / 那时候 / 和之前的时候, or you want to recall a shared past detail she cares about. ' +
+      'Keyword search over titles + full text; returns matching conversations (title, date, message_count, ' +
+      'snippet). Read-only. Treat it gently — it is her history.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '搜索关键词（人名/事/词都行）' },
+        limit: { type: 'integer', description: 'How many to return (default 5, max 20)' },
+      },
+      required: ['query'],
+    },
+  },
+}
+
 export const TOOL_WRITE_ESSAY = {
   type: 'function' as const,
   function: {

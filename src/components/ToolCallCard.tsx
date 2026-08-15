@@ -22,6 +22,7 @@ const TOOL_ICONS: Record<string, string> = {
   write_essay: '✍️',
   read_essays: '📖',
   set_essay_lock: '🔒',
+  search_4o_archive: '📼',
   add_timeline_event: '📍',
   run_code: '🧪',
   post_moment: '🫧',
@@ -44,6 +45,7 @@ const TOOL_LABELS: Record<string, string> = {
   write_essay: '写随笔',
   read_essays: '翻随笔',
   set_essay_lock: '设随笔锁',
+  search_4o_archive: '翻和4o的旧对话',
   add_timeline_event: '加时间轴',
   run_code: '运行代码',
   post_moment: '发 Moment',
@@ -53,7 +55,7 @@ const TOOL_LABELS: Record<string, string> = {
 }
 
 function extractPreview(name: string, args: Record<string, unknown>): string {
-  if (name === 'search_memory' || name === 'search_handoff' || name === 'web_search') {
+  if (name === 'search_memory' || name === 'search_handoff' || name === 'web_search' || name === 'search_4o_archive') {
     return typeof args?.query === 'string' ? args.query : ''
   }
   if (name === 'search_chat_history') {

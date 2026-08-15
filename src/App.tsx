@@ -146,6 +146,7 @@ import {
   TOOL_WRITE_ESSAY,
   TOOL_READ_ESSAYS,
   TOOL_SET_ESSAY_LOCK,
+  TOOL_SEARCH_4O_ARCHIVE,
   TOOL_LOG_HEALTH,
   TOOL_POST_MOMENT,
   TOOL_REPLY_MOMENT,
@@ -2834,7 +2835,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_DELETE_PERIOD,
                 TOOL_LOG_HEALTH,
                 TOOL_RUN_CODE,
-                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES, TOOL_SAVE_TOY, TOOL_WRITE_ESSAY, TOOL_READ_ESSAYS, TOOL_SET_ESSAY_LOCK] : []),
+                ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES, TOOL_SAVE_TOY, TOOL_WRITE_ESSAY, TOOL_READ_ESSAYS, TOOL_SET_ESSAY_LOCK, TOOL_SEARCH_4O_ARCHIVE] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
               ]
               requestBody.tool_choice = 'auto'
@@ -3893,6 +3894,27 @@ TOOL_SEARCH_HANDOFF,
                       resultText = res.ok
                         ? JSON.stringify({ ok: true, locked: res.locked, note: res.locked ? '随笔本已上锁（四位码已设好）。' : '随笔本已解锁、房门打开了。' })
                         : JSON.stringify({ error: res.error ?? '设置失败' })
+                    }
+                  } else if (tc.function.name === 'search_4o_archive' && supabase) {
+                    // 搜她和 4o 的旧对话存档（92 段，已搬进主库 archive_4o）。关键词 RPC。
+                    let args: { query?: string; limit?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 search_4o_archive 参数失败', jsonError)
+                    }
+                    const q = typeof args.query === 'string' ? args.query.trim() : ''
+                    if (!q) {
+                      resultText = JSON.stringify({ error: 'query 为空' })
+                    } else {
+                      setToolStatus('📼 翻和 4o 的旧对话…')
+                      const { data, error } = await supabase.rpc('search_archive_4o', {
+                        q,
+                        max_count: typeof args.limit === 'number' ? args.limit : 5,
+                      })
+                      resultText = error
+                        ? JSON.stringify({ error: error.message })
+                        : JSON.stringify({ ok: true, count: (data ?? []).length, results: data ?? [] })
                     }
                   } else if (tc.function.name === 'post_moment' && supabase) {
                     // Self-initiated Moments post — the one write tool the
