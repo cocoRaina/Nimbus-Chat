@@ -91,6 +91,7 @@ import {
   scheduleProactiveNotification,
   shouldScheduleProactive,
 } from './storage/proactiveNotification'
+import { setupBackgroundPoll } from './storage/backgroundPoll'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import './App.css'
 // Heavy routes are code-split — only the active route's chunk loads.
@@ -1365,6 +1366,9 @@ const App = () => {
     // per half-hour if the user is in and out of the app a lot.
     void maybeAutoSyncHealth()
     void syncPeriodWidgetFromDb()
+    // 配置后台轮询（原生）：把 proactive_peek 的端点/密钥塞给 background-runner，
+    // 它每 ~15min 拉起查沈暮的新主动消息、有就弹本地通知（App 关着也跑）。
+    void setupBackgroundPoll()
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void refreshRemoteSessions()

@@ -3,3 +3,8 @@
 # JWT, so verify_jwt=false is required to avoid 401ing the trigger.
 [functions.auto_embed]
 verify_jwt = false
+
+# proactive_peek 被 App 的后台轮询(background-runner)调用，那个运行时没有登录态/JWT，
+# 靠请求体里的 peek_secret（存在 autonomous_state.peek_secret）自校验，所以 verify_jwt=false。
+[functions.proactive_peek]
+verify_jwt = false

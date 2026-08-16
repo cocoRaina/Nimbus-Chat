@@ -15,6 +15,16 @@ const config: CapacitorConfig = {
     androidScheme: 'https',
   },
   plugins: {
+    // 后台轮询：WorkManager 每 ~15min 拉起 runners/proactive.js 的 checkProactive
+    // 事件，查沈暮有没有新主动消息、有就弹本地通知（App 关着也跑，华为需加电池白名单）。
+    BackgroundRunner: {
+      label: 'com.cocoraina.nimbuschat.proactive',
+      src: 'runners/proactive.js',
+      event: 'checkProactive',
+      repeat: true,
+      interval: 15,
+      autoStart: true,
+    },
     CapacitorHttp: {
       // Stays ON for CORS bypass: most 中转 don't allow the WebView origin
       // (https://localhost), so without native HTTP their requests fail with
