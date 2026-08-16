@@ -205,13 +205,17 @@ const SettingsPage = ({
   const [wakeError, setWakeError] = useState<string | null>(null)
 
   // 首次展开「自主唤醒」板块时从服务端拉一次配置（避免每次进设置页都查库）。
+  // 用 ref 标「已加载」而不是把 wakeStatus 放进依赖——否则 setWakeStatus('loading')
+  // 会让 effect 重跑，重跑的 cleanup 把自己这次请求 cancel 掉，状态永远停在 loading。
+  const wakeLoadedRef = useRef(false)
   useEffect(() => {
-    if (!wakeSectionExpanded || wakeStatus !== 'idle') return
+    if (!wakeSectionExpanded || wakeLoadedRef.current) return
     let cancelled = false
     setWakeStatus('loading')
     void fetchAutonomousWakeConfig()
       .then((cfg) => {
         if (cancelled) return
+        wakeLoadedRef.current = true
         setWakeConfig(cfg)
         setDraftWakeConfig(cfg)
         setWakeStatus('saved')
@@ -222,7 +226,7 @@ const SettingsPage = ({
     return () => {
       cancelled = true
     }
-  }, [wakeSectionExpanded, wakeStatus])
+  }, [wakeSectionExpanded])
 
   const hasUnsavedWake =
     draftWakeConfig.enabled !== wakeConfig.enabled ||
