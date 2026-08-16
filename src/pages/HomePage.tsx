@@ -111,25 +111,47 @@ function WeatherMoodDuo() {
       });
   }, []);
 
+  const dateLabel = new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" });
+  const wxEmoji = weatherEmoji(wx?.condition);
+  const wxText = wx
+    ? [wx.city, wx.condition, `${wx.temperatureC}°C`].filter(Boolean).join(" · ")
+    : "定位中…";
+
   return (
     <div className="home-duo">
-      <div className="home-mini glass-card">
-        <div className="home-mini-k">📍 {wx?.city ?? "今日天气"}</div>
-        <div className="home-mini-v">
-          {wx ? `${wx.temperatureC}°` : "—"}
-          {wx?.condition ? <small>{wx.condition}</small> : null}
+      <div className="home-card2 glass-card">
+        <div className="home-card2-label">今日天气</div>
+        <div className="home-card2-main">
+          <span className="home-card2-icon">{wxEmoji}</span>
+          <span className="home-card2-text">{wxText}</span>
         </div>
+        <div className="home-card2-sub">{dateLabel}</div>
       </div>
       <button
         type="button"
-        className="home-mini home-mini--tap glass-card"
+        className="home-card2 home-card2--tap glass-card"
         onClick={() => navigate("/snacks?view=mood")}
       >
-        <div className="home-mini-k">沈暮心情 ›</div>
-        <div className="home-mini-v home-mini-v--mood">{mood || "☾ 安静待着"}</div>
+        <div className="home-card2-label">今日心情</div>
+        <div className="home-card2-main">
+          <span className="home-card2-icon">🤍</span>
+          <span className="home-card2-text home-card2-text--mood">{mood || "安静待着"}</span>
+        </div>
+        <div className="home-card2-sub">点一下看沈暮心情 ›</div>
       </button>
     </div>
   );
+}
+
+// 天气文字 → 一个应景 emoji（和风返回中文天气文字）。
+function weatherEmoji(cond?: string): string {
+  const c = cond ?? "";
+  if (/晴/.test(c)) return "☀️";
+  if (/雷/.test(c)) return "⛈️";
+  if (/雪/.test(c)) return "🌨️";
+  if (/雨/.test(c)) return "🌧️";
+  if (/雾|霾/.test(c)) return "🌫️";
+  return "⛅";
 }
 
 // 重要的日子：本地存储（只属于首页，不动别的存储文件），可在「编辑首页」里增删改。

@@ -939,3 +939,58 @@
   transition: transform 0.1s ease, box-shadow 0.15s ease;
 }
 .home-mini--tap:active { transform: scale(0.98); }
+
+/* ── 今日天气 / 今日心情 双大卡（仿参考 UI：标签 + 图标+内容 + 副标题） ── */
+.home-card2 {
+  padding: 0.85rem 0.95rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 118px;
+  text-align: left;
+}
+.home-card2-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--ab-accent);
+  letter-spacing: 0.02em;
+}
+.home-card2-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+.home-card2-icon {
+  font-size: 1.7rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.home-card2-text {
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--ab-deep);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.home-card2-text--mood { font-weight: 600; }
+.home-card2-sub {
+  font-size: 0.7rem;
+  color: var(--ab-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-card2--tap {
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  color: inherit;
+  transition: transform 0.1s ease;
+}
+.home-card2--tap:active { transform: scale(0.98); }
