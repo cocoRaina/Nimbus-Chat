@@ -69,7 +69,8 @@
 
 ### 部件
 
-- **状态表 `autonomous_state`**（单行）：`enabled`（总开关）/ `next_wake_at`（**它自己
+- **状态表 `autonomous_state`**（单行）：`enabled`（总开关）/ `wake_provider`（走 openrouter
+  还是 relay 中转）/ `max_wakes_per_day`（每天上限，默认 6）/ `next_wake_at`（**它自己
   定的**下次醒来）/ `wakes_today` / `day_key`（北京日期，重置计数用）/ `last_note`。
 - **edge function `autonomous_wake`**：cron 每 ~20min POST 一次。
 - **pg_cron** `autonomous_wake`：`*/20 * * * *`。
@@ -115,10 +116,18 @@
   `next_wake_at`。真·连续意识要 VPS 常驻进程（本项目暂不上）。
 - **你在场永远优先**（同 proactive_dispatch 的在场感知）→ 解「它神游时你正好在聊」的
   冲突：你在，它让路；你安静了，它才自己活。
-- **模型**走服务端 `OPENROUTER_API_KEY` + `user_settings.default_model`（裸 slug
-  归一成 `anthropic/claude-opus-4.6`）。跟聊天同款模型、人格连贯；一个月 ~¥20 量级。
-- **成本兜底**：每天封顶 4 次、深夜不醒、便宜也就便宜在低频。
-- **关停**：`update autonomous_state set enabled=false;` 或 `cron.unschedule('autonomous_wake')`。
+- **模型**用 `user_settings.default_model`（跟聊天同款、人格连贯）。**走哪个站由
+  `autonomous_state.wake_provider` 决定**（`openrouter` | `relay`）：
+  - `openrouter`（默认）→ 服务端 `OPENROUTER_API_KEY`，slug 归一成 `anthropic/claude-opus-4.6`。
+  - `relay` → 走**聊天用的中转**（如 treegpt）的 OpenAI 兼容 `/chat/completions`，用
+    Supabase 密钥 `RELAY_BASE_URL` + `RELAY_API_KEY`。**为什么要单独存密钥**：cron 没有
+    客户端在场，读不到手机 localStorage 里的中转配置，所以中转凭证必须以服务端密钥形式
+    另存一份。密钥缺失或中转打不通（下线/不认工具/超时）会**自动回退 OpenRouter**，唤醒
+    绝不因切站哑掉；两个 LLM 调用各有 25s fetch 超时，防中转吊住把整轮拖到墙钟被杀。
+- **配置入口**：设置页「🌙 自主唤醒」板块——开关(`enabled`)、站子选择(`wake_provider`)、
+  每天最多唤醒次数(`max_wakes_per_day`，替代旧的写死常量 6)。存进 `autonomous_state` 即时生效。
+- **成本兜底**：每天封顶 `max_wakes_per_day` 次、深夜不醒、便宜也就便宜在低频。
+- **关停**：设置页关开关，或 `update autonomous_state set enabled=false;`，或 `cron.unschedule('autonomous_wake')`。
 
 ### 首验（force 试跑）
 

@@ -221,6 +221,16 @@
   margin-top: 8px;
 }
 
+/* 合并板块里的分隔小标题（如「生成 & 思考」里的思考链、「人设 & 主页文案」里的各子块） */
+.settings-subhead {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(197, 214, 236, 0.5);
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: inherit;
+}
+
 .model-select-card,
 .catalog-result-item,
 .catalog-dropdown {

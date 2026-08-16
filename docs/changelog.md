@@ -4,6 +4,23 @@
 
 ---
 
+## 🌙 自主唤醒改走聊天中转 + 设置页加唤醒板块 + 精简（2026-08-16，用户「自主唤醒走的 OR，想换成聊天用的中转」）
+
+**背景**：查日志发现聊天 100% 走 msuicode→treegpt，唯独**自主唤醒 cron 硬编码 OpenRouter**（`OR_CHAT_URL` + 服务端 `OPENROUTER_API_KEY`）。根因：cron 没有客户端在场，读不到手机 localStorage 里的中转 key/base，只能退回服务端唯一的 OR 密钥。
+
+**服务端（即时生效，实测跑通）**：
+- `autonomous_state` 加 `wake_provider`（openrouter|relay）+ `max_wakes_per_day` 两字段（迁移 `20260816130000`）。
+- `autonomous_wake` 函数重构成「路由对象」：`wake_provider=relay` 且配了 Supabase 密钥 `RELAY_BASE_URL`/`RELAY_API_KEY` → 走中转（treegpt）的 OpenAI 兼容 `/chat/completions`（裸模型名，NewAPI 通吃 function-calling）；密钥缺失/中转打不通**自动回退 OR**。`MAX_WAKES_PER_DAY` 常量改读字段。
+- 给两个 LLM 调用加 **25s AbortController 超时**：实测首切 relay 时整轮无产出——中转某条 fetch 吊住、没超时会把 Edge 运行时拖到墙钟上限被杀，`patchState` 都跑不到。加超时后卡住即 abort→回退，唤醒不再哑掉。
+- 验证：切 `wake_provider=relay` + `pg_net` force 试跑一轮 → `provider=relay`、发消息+更新心情成功（pg_net 5s 超时抓不到响应体，但函数服务端跑完，看 `autonomous_state.last_wake_at` 落库确认）。
+
+**客户端（需新 APK）**：
+- 设置页加「🌙 自主唤醒」板块：开关 / 站子选择(OR·中转) / 每天最多唤醒次数。数据层 `storage/autonomousWake.ts` 读写 `autonomous_state` 那三个字段。
+- **精简**：①「OpenRouter API Key」+「中转 API Key」+ 模型库的 provider 切换 → 合成一个「模型 & API · 密钥」板块（provider 开关置顶，选哪个只显示哪个的 Key）；②「生成参数」+「思考链」→「生成 & 思考」；③「系统提示词」+「我的主页」+「TA的主页」→「人设 & 主页文案」（子块用 `.settings-subhead` 分隔）。
+- **删**两个没用的：中转区的「自研缓存·不打点」开关、「余额·花费·模型」查余额面板（`RelayChannelPanel`，连带 `channelTargets`）。
+
+**用户侧一次性操作**：在 Supabase 后台存 `RELAY_BASE_URL`（如 `https://api.treegpt.cc/v1`）+ `RELAY_API_KEY` 两个密钥。
+
 ## 🏡 主页大改版 · 仿 Claire&Claude（2026-08-16，用户「参考那个给我重做首页」）
 
 用户拿了一个参考 App「Claire&Claude」，只改**首页**、别的一律不动。旧首页是「桌面式多页 widget 网格」，改成单页竖排卡片流 + **底部 5 键 Tab 栏**（Home / Memory / Chat（中间凸起 FAB）/ Health / Other）。顶部 hero 卡：双头像（下面**不放名字**）+ 心电图 + 心，标题 **Claude & Wren**（不要「在一起」+ since 行），保留每日打卡。往下：**今日天气 + 今日心情** 双卡（`WeatherMoodDuo`，天气复用现有定位、心情读 `autonomous_state.mood` 带 `day_key` 当天新鲜度校验 + 回退 `last_note`，点心情卡跳 `/snacks?view=mood`）、**沈暮今天** 动态卡、**重要的日子** 倒数（`nimbus_important_dates_v1` localStorage，`daysUntilAnnual` 周年制）。**☰ = 原有的编辑首页**（不是新功能，仍复用编辑模式；重要日子在编辑面板里加）。底部 Tab 栏 + Other 抽屉用 `createPortal` 到 `document.body`（逃出 `.app-shell` 的 transform 定位）。底部字全英文。**踩坑**：Tab 栏本用 `position:fixed` 却跟着滚动漂移 → 根因是 `.app-shell` 的 `app-fade-in` 动画带 translateY，`animation … both` 留了个持久 transform，让 fixed 子元素以它为包含块 → 把 keyframes 改成纯 opacity（去掉 translateY）根治。需新 APK。设计图先给用户预览确认过再改。

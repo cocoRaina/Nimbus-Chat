@@ -104,7 +104,6 @@ const SettingsPage = ({
   const [draftSummarizerProvider, setDraftSummarizerProvider] = useState<ProviderId>('openrouter')
   const [modelSectionExpanded, setModelSectionExpanded] = useState(false)
   const [generationSectionExpanded, setGenerationSectionExpanded] = useState(false)
-  const [reasoningSectionExpanded, setReasoningSectionExpanded] = useState(false)
   const [compressionSectionExpanded, setCompressionSectionExpanded] = useState(false)
   const [systemPromptSectionExpanded, setSystemPromptSectionExpanded] = useState(false)
   const [openRouterKeySectionExpanded, setOpenRouterKeySectionExpanded] = useState(false)
@@ -115,7 +114,6 @@ const SettingsPage = ({
   const [openRouterFormat, setOpenRouterFormatState] = useState<ApiFormat>(() => getOpenRouterFormat())
   const [activeProvider, setActiveProviderState] = useState<ProviderId>(() => getActiveProvider())
   const [relayPresets, setRelayPresets] = useState<RelayPreset[]>(() => getRelayPresets())
-  const [msuicodeSectionExpanded, setMsuicodeSectionExpanded] = useState(false)
   const [msuicodeApiKeyInput, setMsuicodeApiKeyInput] = useState(() => getMsuicodeApiKey())
   const [msuicodeApiKeyVisible, setMsuicodeApiKeyVisible] = useState(false)
   const [msuicodeApiKeyStatus, setMsuicodeApiKeyStatus] = useState<'idle' | 'saved'>('idle')
@@ -198,8 +196,6 @@ const SettingsPage = ({
   const [syzygyPostStatus, setSyzygyPostStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [syzygyReplyStatus, setSyzygyReplyStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [showUnsavedPromptDialog, setShowUnsavedPromptDialog] = useState(false)
-  const [snackSectionExpanded, setSnackSectionExpanded] = useState(false)
-  const [syzygySectionExpanded, setSyzygySectionExpanded] = useState(false)
   const [memoryExtractSectionExpanded, setMemoryExtractSectionExpanded] = useState(false)
   // 自主唤醒（服务端 autonomous_state：enabled / wake_provider / max_wakes_per_day）
   const [wakeSectionExpanded, setWakeSectionExpanded] = useState(false)
@@ -1049,13 +1045,43 @@ const SettingsPage = ({
         >
           <span className="section-title">
             <span className="section-icon" aria-hidden="true">🔑</span>
-            <h2 className="ui-title">OpenRouter API Key</h2>
-            <p>API Key 仅保存在本地浏览器，不会上传。更换设备/浏览器需要重新填写。清除浏览器数据会丢失。</p>
+            <h2 className="ui-title">模型 & API · 密钥</h2>
+            <p>先选 API 提供商，再填对应的 Key。Key 仅存本地浏览器、不上传；换设备/清缓存会丢。</p>
           </span>
           <span className="collapse-indicator" aria-hidden="true">›</span>
         </button>
         {openRouterKeySectionExpanded ? (
           <div className="accordion-content">
+            <div className="model-select-card">
+              <label>当前使用的 API</label>
+              <div className="system-prompt-actions" role="radiogroup" aria-label="API 提供商">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={activeProvider === 'openrouter'}
+                  className={activeProvider === 'openrouter' ? 'primary' : 'ghost'}
+                  onClick={() => handleSwitchProvider('openrouter')}
+                >
+                  OpenRouter
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={activeProvider === 'msuicode'}
+                  className={activeProvider === 'msuicode' ? 'primary' : 'ghost'}
+                  onClick={() => handleSwitchProvider('msuicode')}
+                >
+                  {customProviderName}
+                </button>
+                <span className="system-prompt-status">
+                  {activeProvider === 'msuicode'
+                    ? `⚠️ ${customProviderName} 下无 prompt caching（按全价）`
+                    : '🚀 OR 下走 Anthropic 缓存可省 ~90%'}
+                </span>
+              </div>
+            </div>
+            {activeProvider === 'openrouter' ? (
+              <>
             <label>API 格式</label>
             <div className="system-prompt-actions" role="radiogroup" aria-label="API 格式">
               <button
@@ -1128,25 +1154,9 @@ const SettingsPage = ({
               </button>
               {openRouterApiKeyStatus === 'saved' ? <span className="system-prompt-status">已保存到本地</span> : null}
             </div>
-          </div>
-        ) : null}
-      </section>
-      <section className="settings-section" role="listitem">
-        <button
-          type="button"
-          className="collapse-header"
-          onClick={() => setMsuicodeSectionExpanded((current) => !current)}
-          aria-expanded={msuicodeSectionExpanded}
-        >
-          <span className="section-title">
-            <span className="section-icon" aria-hidden="true">🪞</span>
-            <h2 className="ui-title">{customProviderName} API Key</h2>
-            <p>备用 API 提供商（OpenAI 兼容格式）。在模型库里切换激活。</p>
-          </span>
-          <span className="collapse-indicator" aria-hidden="true">›</span>
-        </button>
-        {msuicodeSectionExpanded ? (
-          <div className="accordion-content">
+              </>
+            ) : (
+              <>
             <label>API 格式</label>
             <div className="system-prompt-actions" role="radiogroup" aria-label="API 格式">
               <button
@@ -1287,6 +1297,8 @@ const SettingsPage = ({
                 ? `当前记录:${selfHealSummary.join(';')}。渠道换池子/升级后可重置让 App 重试最优请求形态——不兼容会自动再降级,重置永远安全。`
                 : '暂无降级记录。撞到不兼容的中转节点时,App 会自动降级(如停用原生思考回传)并按渠道记住,这里可以随时清除重试。'}
             </span>
+              </>
+            )}
           </div>
         ) : null}
       </section>
@@ -1614,34 +1626,9 @@ const SettingsPage = ({
         </button>
         {modelSectionExpanded ? (
           <div className="accordion-content">
-            <div className="model-select-card">
-              <label>当前使用的 API</label>
-              <div className="system-prompt-actions" role="radiogroup" aria-label="API 提供商">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={activeProvider === 'openrouter'}
-                  className={activeProvider === 'openrouter' ? 'primary' : 'ghost'}
-                  onClick={() => handleSwitchProvider('openrouter')}
-                >
-                  OpenRouter
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={activeProvider === 'msuicode'}
-                  className={activeProvider === 'msuicode' ? 'primary' : 'ghost'}
-                  onClick={() => handleSwitchProvider('msuicode')}
-                >
-                  {customProviderName}
-                </button>
-                <span className="system-prompt-status">
-                  {activeProvider === 'msuicode'
-                    ? `⚠️ ${customProviderName} 下无 prompt caching（按全价）`
-                    : '🚀 OR 下走 Anthropic 缓存可省 ~90%'}
-                </span>
-              </div>
-            </div>
+            <span className="settings-hint">
+              切换 API 提供商在「模型 & API · 密钥」板块顶部；这里管理当前提供商下启用哪些模型、设默认模型。
+            </span>
             {draftEnabledModels.length === 0 ? (
               <div className="empty-state">暂无启用模型，请从下方模型库启用。</div>
             ) : (
@@ -1768,8 +1755,8 @@ const SettingsPage = ({
         >
           <span className="section-title">
             <span className="section-icon" aria-hidden="true">🎛️</span>
-            <h2 className="ui-title">生成参数</h2>
-            <p>调整生成行为与推理开关。</p>
+            <h2 className="ui-title">生成 & 思考</h2>
+            <p>采样参数（温度/Top P/最大 tokens）与聊天思考链开关。</p>
           </span>
           <span className="collapse-indicator" aria-hidden="true">›</span>
         </button>
@@ -1814,26 +1801,7 @@ const SettingsPage = ({
               />
               {errors.maxTokens ? <span className="field-error">{errors.maxTokens}</span> : null}
             </div>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="settings-section" role="listitem">
-        <button
-          type="button"
-          className="collapse-header"
-          onClick={() => setReasoningSectionExpanded((current) => !current)}
-          aria-expanded={reasoningSectionExpanded}
-        >
-          <span className="section-title">
-            <span className="section-icon" aria-hidden="true">🔮</span>
-            <h2 className="ui-title">思考链</h2>
-            <p>控制日常聊天是否请求思考链。</p>
-          </span>
-          <span className="collapse-indicator" aria-hidden="true">›</span>
-        </button>
-        {reasoningSectionExpanded ? (
-          <div className="accordion-content">
+            <div className="settings-subhead">🔮 思考链</div>
             <div className="field-group">
               <label htmlFor="chatReasoningEnabled">日常聊天思考链</label>
               <label className="toggle-control">
@@ -2205,8 +2173,8 @@ const SettingsPage = ({
         >
           <span className="section-title">
             <span className="section-icon" aria-hidden="true">📝</span>
-            <h2 className="ui-title">系统提示词</h2>
-            <p>用于引导模型的全局指令，仅对当前用户生效。</p>
+            <h2 className="ui-title">人设 & 主页文案</h2>
+            <p>全局系统提示词，以及我的主页 / TA的主页的发帖·回复文案。</p>
           </span>
           <span className="collapse-indicator" aria-hidden="true">›</span>
         </button>
@@ -2231,26 +2199,9 @@ const SettingsPage = ({
                 <span className="system-prompt-status">已保存</span>
               ) : null}
             </div>
-          </div>
-        ) : null}
-      </section>
 
-      <section className="settings-section" role="listitem">
-        <button
-          type="button"
-          className="collapse-header"
-          onClick={() => setSnackSectionExpanded((current) => !current)}
-          aria-expanded={snackSectionExpanded}
-        >
-          <span className="section-title">
-            <span className="section-icon" aria-hidden="true">🐱</span>
-            <h2 className="ui-title">我的主页</h2>
-            <p>仅用于我的主页；基础系统提示词保持不变。</p>
-          </span>
-          <span className="collapse-indicator" aria-hidden="true">›</span>
-        </button>
-        {snackSectionExpanded ? (
-          <div className="accordion-content">
+            <div className="settings-subhead">🐱 我的主页</div>
+            <p className="field-help">仅用于我的主页；基础系统提示词保持不变。</p>
             <textarea
               className="system-prompt"
               value={draftSnackSystemPrompt}
@@ -2272,27 +2223,9 @@ const SettingsPage = ({
                 <span className="system-prompt-status">已保存</span>
               ) : null}
             </div>
-          </div>
-        ) : null}
-      </section>
 
-      <section className="settings-section" role="listitem">
-        <button
-          type="button"
-          className="collapse-header"
-          onClick={() => setSyzygySectionExpanded((current) => !current)}
-          aria-expanded={syzygySectionExpanded}
-        >
-          <span className="section-title">
-            <span className="section-icon" aria-hidden="true">🐺</span>
-            <h2 className="ui-title">TA的主页</h2>
-            <p>控制发帖与回复时的提示词行为。</p>
-          </span>
-          <span className="collapse-indicator" aria-hidden="true">›</span>
-        </button>
-        {syzygySectionExpanded ? (
-          <div className="accordion-content">
-            <div className="section-title">
+            <div className="settings-subhead">🐺 TA的主页</div>
+            <div className="section-title nested-prompt-title">
               <h2 className="ui-title">发帖风格（TA Post Prompt）</h2>
               <p>控制发帖按钮的文风与输出约束。</p>
             </div>
