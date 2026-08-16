@@ -5,7 +5,6 @@ import {
   fetchDailyMoods,
   upsertMyMood,
   todayMoodDate,
-  MOOD_EMOJIS,
   type DailyMood,
 } from '../storage/dailyMood'
 import { getAssistantName } from '../storage/assistantPersona'
@@ -89,7 +88,6 @@ const fmtMoodDate = (d: string): string => {
 const MoodTab = () => {
   const [moods, setMoods] = useState<DailyMood[]>([])
   const [loading, setLoading] = useState(true)
-  const [draftEmoji, setDraftEmoji] = useState('')
   const [draftText, setDraftText] = useState('')
   const [saving, setSaving] = useState(false)
   const aiName = getAssistantName()
@@ -99,35 +97,29 @@ const MoodTab = () => {
     setMoods(rows)
     const today = todayMoodDate()
     const mine = rows.find((m) => m.moodDate === today && m.author === 'user')
-    if (mine) {
-      setDraftEmoji(mine.emoji ?? '')
-      setDraftText(mine.text ?? '')
-    }
+    if (mine) setDraftText(mine.text ?? '')
     setLoading(false)
   }, [])
   useEffect(() => { void load() }, [load])
 
   const today = todayMoodDate()
-  const todayAi = moods.find((m) => m.moodDate === today && m.author === 'ai')
   const todayMine = moods.find((m) => m.moodDate === today && m.author === 'user')
 
-  // 历史（不含今天）按天分组，每天一行显示两人各自的心情。
-  const history = useMemo(() => {
+  // 按天分组（含今天），每天：沈暮一行 + 我一行。都是纯文字。
+  const days = useMemo(() => {
     const byDate = new Map<string, { ai?: DailyMood; user?: DailyMood }>()
     for (const m of moods) {
-      if (m.moodDate === today) continue
       const e = byDate.get(m.moodDate) ?? {}
       e[m.author] = m
       byDate.set(m.moodDate, e)
     }
     return [...byDate.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
-  }, [moods, today])
+  }, [moods])
 
   const save = async () => {
-    if (saving) return
-    if (!draftEmoji && !draftText.trim()) return
+    if (saving || !draftText.trim()) return
     setSaving(true)
-    const saved = await upsertMyMood(draftEmoji || '😊', draftText)
+    const saved = await upsertMyMood(draftText)
     if (saved) await load()
     setSaving(false)
   }
@@ -136,54 +128,33 @@ const MoodTab = () => {
 
   return (
     <div className="mood-tab">
-      {/* 今天 */}
-      <div className="mood-today">
-        <div className="mood-card mood-card--ai glass-card">
-          <div className="mood-card-who">{aiName}</div>
-          <div className="mood-card-text">
-            {todayAi?.text || '今天还没醒来说心情～'}
-          </div>
-        </div>
-        <div className="mood-card mood-card--me glass-card">
-          <div className="mood-card-who">我</div>
-          <div className="mood-emoji-row">
-            {MOOD_EMOJIS.map((e) => (
-              <button
-                key={e}
-                type="button"
-                className={`mood-emoji-pick${draftEmoji === e ? ' is-on' : ''}`}
-                onClick={() => setDraftEmoji(e)}
-              >
-                {e}
-              </button>
-            ))}
-          </div>
-          <textarea
-            className="mood-input"
-            placeholder="今天心情怎么样…"
-            value={draftText}
-            maxLength={200}
-            rows={2}
-            onChange={(e) => setDraftText(e.target.value)}
-          />
-          <button
-            type="button"
-            className="moments-btn-post mood-save"
-            onClick={() => void save()}
-            disabled={saving || (!draftEmoji && !draftText.trim())}
-          >
-            {saving ? '…' : todayMine ? '更新今天' : '记下今天'}
-          </button>
-        </div>
+      {/* 今天我的心情（纯文字，想加 emoji 自己打进去） */}
+      <div className="mood-card glass-card mood-editor">
+        <div className="mood-card-who">今天我的心情</div>
+        <textarea
+          className="mood-input"
+          placeholder="今天心情怎么样…（想加 emoji 自己打进去）"
+          value={draftText}
+          maxLength={200}
+          rows={2}
+          onChange={(e) => setDraftText(e.target.value)}
+        />
+        <button
+          type="button"
+          className="moments-btn-post mood-save"
+          onClick={() => void save()}
+          disabled={saving || !draftText.trim()}
+        >
+          {saving ? '…' : todayMine ? '更新今天' : '记下今天'}
+        </button>
       </div>
 
-      {/* 历史 */}
-      {history.length > 0 ? (
+      {/* 心情表格（含今天） */}
+      {days.length > 0 ? (
         <div className="mood-history">
-          <div className="mood-history-head">History</div>
-          {history.map(([date, pair]) => (
+          {days.map(([date, pair]) => (
             <div key={date} className="mood-day glass-card">
-              <div className="mood-day-date">{fmtMoodDate(date)}</div>
+              <div className="mood-day-date">{date === today ? '今天' : fmtMoodDate(date)}</div>
               {pair.ai ? (
                 <div className="mood-line mood-line--ai">
                   <span className="mood-line-who">{aiName}</span>
@@ -193,9 +164,6 @@ const MoodTab = () => {
               {pair.user ? (
                 <div className="mood-line mood-line--me">
                   <span className="mood-line-who">我</span>
-                  {pair.user.emoji ? (
-                    <span className="mood-line-emoji">{pair.user.emoji}</span>
-                  ) : null}
                   <span className="mood-line-text">{pair.user.text || '—'}</span>
                 </div>
               ) : null}
@@ -203,7 +171,7 @@ const MoodTab = () => {
           ))}
         </div>
       ) : (
-        <p className="moments-empty">还没有往日心情——今天先记一条吧。</p>
+        <p className="moments-empty">还没有心情记录——今天先记一条吧。</p>
       )}
     </div>
   )

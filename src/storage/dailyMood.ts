@@ -51,11 +51,8 @@ export const fetchDailyMoods = async (days = 30): Promise<DailyMood[]> => {
   return (data ?? []).map((r) => map(r as DailyMoodRow))
 }
 
-// 写/更新「我」今天的心情（每人每天一条，upsert）。
-export const upsertMyMood = async (
-  emoji: string,
-  text: string,
-): Promise<DailyMood | null> => {
+// 写/更新「我」今天的心情（每人每天一条，upsert）。纯文字，想加 emoji 自己打进去。
+export const upsertMyMood = async (text: string): Promise<DailyMood | null> => {
   if (!supabase) return null
   const { data: userData } = await supabase.auth.getUser()
   const userId = userData.user?.id
@@ -67,7 +64,7 @@ export const upsertMyMood = async (
         user_id: userId,
         mood_date: todayMoodDate(),
         author: 'user',
-        emoji: emoji || null,
+        emoji: null,
         text: text.trim() || null,
         updated_at: new Date().toISOString(),
       },
@@ -81,6 +78,3 @@ export const upsertMyMood = async (
   }
   return data ? map(data as DailyMoodRow) : null
 }
-
-// 一组常用心情 emoji（你点选）。
-export const MOOD_EMOJIS = ['😊', '🥰', '😌', '😐', '🥲', '😔', '😤', '😴', '🤒', '✨'] as const
