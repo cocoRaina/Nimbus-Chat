@@ -3,7 +3,6 @@ import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LocalAvatar from '../components/LocalAvatar'
-import RelayChannelPanel, { type ChannelTarget } from '../components/RelayChannelPanel'
 import { fetchOpenRouterModels } from '../api/openrouter'
 import { getRelaySelfHealHosts, clearRelaySelfHealRecords } from '../api/anthropic'
 import type { UserSettings } from '../types'
@@ -33,8 +32,6 @@ import {
   setActiveProvider,
   setMsuicodeFormat,
   setOpenRouterFormat,
-  getRelayNoBreakpoints,
-  setRelayNoBreakpoints,
   getRelayPresets,
   saveRelayPreset,
   deleteRelayPreset,
@@ -45,6 +42,13 @@ import {
 } from '../storage/apiProvider'
 import { getTtsConfig, saveTtsConfig, commitTtsConfig, hydrateTtsConfig, readbackTtsActive, DEFAULT_TTS_BASE, type TtsProvider, type TtsConfig } from '../storage/ttsConfig'
 import { getCallConfig, saveCallConfig, type CallConfig } from '../storage/callConfig'
+import {
+  fetchAutonomousWakeConfig,
+  saveAutonomousWakeConfig,
+  DEFAULT_WAKE_CONFIG,
+  type AutonomousWakeConfig,
+  type WakeProvider,
+} from '../storage/autonomousWake'
 const TTS_MODELS = ['speech-2.8-turbo', 'speech-2.8-hd']
 const EL_MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_turbo_v2_5']
 import {
@@ -116,7 +120,6 @@ const SettingsPage = ({
   const [msuicodeApiKeyVisible, setMsuicodeApiKeyVisible] = useState(false)
   const [msuicodeApiKeyStatus, setMsuicodeApiKeyStatus] = useState<'idle' | 'saved'>('idle')
   const [msuicodeFormat, setMsuicodeFormatState] = useState<ApiFormat>(() => getMsuicodeFormat())
-  const [relayNoBreakpoints, setRelayNoBreakpointsState] = useState(() => getRelayNoBreakpoints())
   const [msuicodeBaseUrlInput, setMsuicodeBaseUrlInput] = useState(() => getMsuicodeBaseUrl())
   const [selfHealHosts, setSelfHealHosts] = useState(() => getRelaySelfHealHosts())
   const [selfHealResetStatus, setSelfHealResetStatus] = useState<'idle' | 'done'>('idle')
@@ -178,23 +181,6 @@ const SettingsPage = ({
     () => deriveProviderDisplayName(msuicodeBaseUrlInput || DEFAULT_MSUICODE_BASE),
     [msuicodeBaseUrlInput],
   )
-  // Relays to show in the channel panel: every saved preset, plus the
-  // current (unsaved) custom slot when it isn't already one of them.
-  const channelTargets = useMemo<ChannelTarget[]>(() => {
-    const norm = (u: string) => u.trim().replace(/\/+$/, '')
-    const list: ChannelTarget[] = relayPresets.map((p) => ({
-      id: p.id,
-      name: p.name,
-      baseUrl: p.baseUrl,
-      apiKey: p.apiKey,
-    }))
-    const curBase = msuicodeBaseUrlInput.trim()
-    const curKey = msuicodeApiKeyInput.trim() || getMsuicodeApiKey()
-    if (curBase && curKey && !relayPresets.some((p) => norm(p.baseUrl) === norm(curBase))) {
-      list.unshift({ id: 'current-slot', name: customProviderName || '当前中转', baseUrl: curBase, apiKey: curKey })
-    }
-    return list
-  }, [relayPresets, msuicodeBaseUrlInput, msuicodeApiKeyInput, customProviderName])
   const [catalogReloadKey, setCatalogReloadKey] = useState(0)
   const [draftDefaultModel, setDraftDefaultModel] = useState(defaultModelId)
   const [draftChatReasoning, setDraftChatReasoning] = useState(true)
@@ -215,6 +201,50 @@ const SettingsPage = ({
   const [snackSectionExpanded, setSnackSectionExpanded] = useState(false)
   const [syzygySectionExpanded, setSyzygySectionExpanded] = useState(false)
   const [memoryExtractSectionExpanded, setMemoryExtractSectionExpanded] = useState(false)
+  // 自主唤醒（服务端 autonomous_state：enabled / wake_provider / max_wakes_per_day）
+  const [wakeSectionExpanded, setWakeSectionExpanded] = useState(false)
+  const [wakeConfig, setWakeConfig] = useState<AutonomousWakeConfig>(DEFAULT_WAKE_CONFIG)
+  const [draftWakeConfig, setDraftWakeConfig] = useState<AutonomousWakeConfig>(DEFAULT_WAKE_CONFIG)
+  const [wakeStatus, setWakeStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('idle')
+  const [wakeError, setWakeError] = useState<string | null>(null)
+
+  // 首次展开「自主唤醒」板块时从服务端拉一次配置（避免每次进设置页都查库）。
+  useEffect(() => {
+    if (!wakeSectionExpanded || wakeStatus !== 'idle') return
+    let cancelled = false
+    setWakeStatus('loading')
+    void fetchAutonomousWakeConfig()
+      .then((cfg) => {
+        if (cancelled) return
+        setWakeConfig(cfg)
+        setDraftWakeConfig(cfg)
+        setWakeStatus('saved')
+      })
+      .catch(() => {
+        if (!cancelled) setWakeStatus('error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [wakeSectionExpanded, wakeStatus])
+
+  const hasUnsavedWake =
+    draftWakeConfig.enabled !== wakeConfig.enabled ||
+    draftWakeConfig.wakeProvider !== wakeConfig.wakeProvider ||
+    draftWakeConfig.maxWakesPerDay !== wakeConfig.maxWakesPerDay
+
+  const handleSaveWake = useCallback(async () => {
+    setWakeStatus('saving')
+    setWakeError(null)
+    const res = await saveAutonomousWakeConfig(draftWakeConfig)
+    if (res.ok) {
+      setWakeConfig(draftWakeConfig)
+      setWakeStatus('saved')
+    } else {
+      setWakeStatus('error')
+      setWakeError(res.error ?? '保存失败')
+    }
+  }, [draftWakeConfig])
   const [draftAutoExtractEnabled, setDraftAutoExtractEnabled] = useState(true)
   const [draftExtractModel, setDraftExtractModel] = useState('anthropic/claude-haiku-4-5')
   const [draftExtractProvider, setDraftExtractProvider] = useState<ProviderId>('openrouter')
@@ -1150,29 +1180,6 @@ const SettingsPage = ({
                 : '走 /v1/chat/completions 路径，OpenAI 格式，通用但中转模型一般无思考链。'}
             </span>
 
-            <div className="field-group">
-              <label htmlFor="relayNoBreakpoints">中转自研缓存（不打缓存断点）</label>
-              <label className="toggle-control">
-                <input
-                  id="relayNoBreakpoints"
-                  type="checkbox"
-                  checked={relayNoBreakpoints}
-                  onChange={(event) => {
-                    setRelayNoBreakpointsState(event.target.checked)
-                    setRelayNoBreakpoints(event.target.checked)
-                  }}
-                />
-                <span>{relayNoBreakpoints ? '已开启（不打点）' : '已关闭（正常打点）'}</span>
-              </label>
-            </div>
-            <span className="settings-hint">
-              逆向中转分组（如 camel 的 kiro 档）有自己的服务端缓存，却对我们主动挂的
-              缓存断点乱计费——把正文按全价重数一遍塞进 input，账面 token 凭空翻倍。开启后
-              一个断点都不打，把缓存全交给中转自己（实测它照样满命中、且不再翻倍）。
-              ⚠️ 仅对这类中转开；OpenRouter、金瓜瓜等认原生 cache_control 的渠道要关，
-              否则会丢失缓存。切分组时记得跟着拨。即时生效，无需保存。
-            </span>
-
             <label htmlFor="msuicode-base-url">Base URL</label>
             <input
               id="msuicode-base-url"
@@ -1265,9 +1272,6 @@ const SettingsPage = ({
                 把当前 Base URL + Key + 格式存成预设，之后点一下就能在多个中转站之间切换。
               </span>
             )}
-
-            <label>余额 · 花费 · 模型</label>
-            <RelayChannelPanel targets={channelTargets} />
 
             <label>渠道自愈记录</label>
             <div className="system-prompt-actions">
@@ -2079,6 +2083,115 @@ const SettingsPage = ({
               {extractStatus === 'saved' ? <span className="system-prompt-status">已保存</span> : null}
               {extractStatus === 'error' ? <span className="field-error">保存失败</span> : null}
             </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="settings-section" role="listitem">
+        <button
+          type="button"
+          className="collapse-header"
+          onClick={() => setWakeSectionExpanded((current) => !current)}
+          aria-expanded={wakeSectionExpanded}
+        >
+          <span className="section-title">
+            <span className="section-icon" aria-hidden="true">🌙</span>
+            <h2 className="ui-title">自主唤醒</h2>
+            <p>她不在时自己醒来过日子——走哪个站、每天醒几次。</p>
+          </span>
+          <span className="collapse-indicator" aria-hidden="true">›</span>
+        </button>
+        {wakeSectionExpanded ? (
+          <div className="accordion-content">
+            {wakeStatus === 'loading' ? (
+              <span className="settings-hint">读取中…</span>
+            ) : (
+              <>
+                <div className="field-group">
+                  <label htmlFor="wakeEnabled">自主唤醒</label>
+                  <label className="toggle-control">
+                    <input
+                      id="wakeEnabled"
+                      type="checkbox"
+                      checked={draftWakeConfig.enabled}
+                      onChange={(event) =>
+                        setDraftWakeConfig((c) => ({ ...c, enabled: event.target.checked }))
+                      }
+                    />
+                    <span>{draftWakeConfig.enabled ? '已开启' : '已关闭'}</span>
+                  </label>
+                </div>
+
+                <label>唤醒走哪个站</label>
+                <div className="system-prompt-actions" role="radiogroup" aria-label="唤醒使用的 API">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={draftWakeConfig.wakeProvider === 'openrouter'}
+                    className={draftWakeConfig.wakeProvider === 'openrouter' ? 'primary' : 'ghost'}
+                    onClick={() =>
+                      setDraftWakeConfig((c) => ({ ...c, wakeProvider: 'openrouter' as WakeProvider }))
+                    }
+                  >
+                    OpenRouter
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={draftWakeConfig.wakeProvider === 'relay'}
+                    className={draftWakeConfig.wakeProvider === 'relay' ? 'primary' : 'ghost'}
+                    onClick={() =>
+                      setDraftWakeConfig((c) => ({ ...c, wakeProvider: 'relay' as WakeProvider }))
+                    }
+                  >
+                    中转（聊天用的站）
+                  </button>
+                </div>
+                <span className="settings-hint">
+                  选「中转」需先在 Supabase 后台存两个密钥 <code>RELAY_BASE_URL</code> 和{' '}
+                  <code>RELAY_API_KEY</code>（唤醒是服务端定时任务，读不到你手机里的中转设置，
+                  所以要单独存）。密钥没配好或中转打不通时，会自动回退 OpenRouter，唤醒不会中断。
+                </span>
+
+                <label htmlFor="wakeMaxPerDay">每天最多唤醒次数 (1 - 12)</label>
+                <input
+                  id="wakeMaxPerDay"
+                  type="number"
+                  min="1"
+                  max="12"
+                  step="1"
+                  value={draftWakeConfig.maxWakesPerDay}
+                  onChange={(event) => {
+                    const n = Math.round(Number(event.target.value))
+                    setDraftWakeConfig((c) => ({
+                      ...c,
+                      maxWakesPerDay: Number.isFinite(n) ? Math.max(1, Math.min(12, n)) : c.maxWakesPerDay,
+                    }))
+                  }}
+                />
+                <span className="settings-hint">
+                  她还会在这个上限内自己决定隔几小时醒一次（1–8h）、深夜 0–8 点不醒、你在聊天时让路。
+                </span>
+
+                <div className="system-prompt-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => void handleSaveWake()}
+                    disabled={!hasUnsavedWake || wakeStatus === 'saving'}
+                  >
+                    {wakeStatus === 'saving' ? '保存中…' : '保存'}
+                  </button>
+                  {hasUnsavedWake ? <span className="system-prompt-status">有未保存修改</span> : null}
+                  {!hasUnsavedWake && wakeStatus === 'saved' ? (
+                    <span className="system-prompt-status">已保存</span>
+                  ) : null}
+                  {wakeStatus === 'error' ? (
+                    <span className="field-error">{wakeError ?? '保存失败'}</span>
+                  ) : null}
+                </div>
+              </>
+            )}
           </div>
         ) : null}
       </section>

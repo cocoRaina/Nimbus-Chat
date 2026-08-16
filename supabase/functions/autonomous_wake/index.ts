@@ -18,6 +18,11 @@ const OR_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const TAVILY_URL = 'https://api.tavily.com/search'
 const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY') ?? ''
 const TAVILY_API_KEY = Deno.env.get('TAVILY_API_KEY') ?? ''
+// 中转（treegpt 等）凭证——聊天走中转但这个 cron 没有客户端在场，读不到 localStorage，
+// 所以要单独存两个 Supabase 密钥才能让自主唤醒也走同一个站。缺省则回退 OpenRouter。
+// RELAY_BASE_URL 例：https://api.treegpt.cc/v1（会自动补 /chat/completions）。
+const RELAY_BASE_URL = Deno.env.get('RELAY_BASE_URL') ?? ''
+const RELAY_API_KEY = Deno.env.get('RELAY_API_KEY') ?? ''
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
@@ -48,6 +53,8 @@ const scheduleFrom = (hours: number): Date => {
   return beijingHour(t) < QUIET_END_H ? next9am(t) : t
 }
 
+const trimSlash = (s: string) => s.replace(/\/+$/, '')
+
 // 把裸 slug 归一成 OpenRouter 认的：claude-opus-4-6 → anthropic/claude-opus-4.6。
 const orModel = (m: string | null): string => {
   const s = (m ?? '').trim()
@@ -57,6 +64,16 @@ const orModel = (m: string | null): string => {
   return `anthropic/${dotted}`
 }
 
+// 中转（NewAPI/One-API）走它自己模型广场里的裸 id，跟聊天发的一模一样，不加
+// anthropic/ 前缀、不点分化——聊天用 default_model 原样发就命中，这里照抄。
+const relayModel = (m: string | null): string => {
+  const s = (m ?? '').trim()
+  return s || 'claude-opus-4-6'
+}
+
+// 一条上游路由：打哪个 URL、用哪个 key、发哪个模型名。
+type Route = { url: string; key: string; model: string; label: 'relay' | 'openrouter' }
+
 const trunc = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s)
 const fmtDate = (iso?: string | null): string => {
   if (!iso) return ''
@@ -65,42 +82,58 @@ const fmtDate = (iso?: string | null): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-// 普通（无工具）单发，用于最后兜底问一句心情+下次醒。
-const chat = async (
-  model: string,
+// 单次上游请求的超时（毫秒）。关键：中转/上游若吊住，没有超时会把整个 Edge 运行时
+// 拖到墙钟上限被杀，patchState 都跑不到（实测 relay 首切时整轮无产出）。超时后 abort，
+// 由调用方回退另一条路由。25s 足够慢上游返回，又远低于 Edge 的墙钟限制。
+const REQUEST_TIMEOUT_MS = 25_000
+const onErr = (fn: ((msg: string) => void) | undefined, msg: string) => { console.warn(msg); fn?.(msg) }
+
+// 普通（无工具）单发，用于最后兜底问一句心情+下次醒。走给定路由。
+const chatOnce = async (
+  route: Route,
   messages: Array<Record<string, unknown>>,
   maxTokens: number,
+  report?: (msg: string) => void,
 ): Promise<string | null> => {
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS)
   try {
-    const r = await fetch(OR_CHAT_URL, {
+    const r = await fetch(route.url, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.8 }),
+      headers: { Authorization: `Bearer ${route.key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: route.model, messages, max_tokens: maxTokens, temperature: 0.8 }),
+      signal: ac.signal,
     })
-    if (!r.ok) { console.warn('[wake] OR chat 失败', r.status, await r.text().catch(() => '')); return null }
+    if (!r.ok) { onErr(report, `[wake] ${route.label} chat 失败 ${r.status} ${(await r.text().catch(() => '')).slice(0, 200)}`); return null }
     const data = await r.json()
     const t = data?.choices?.[0]?.message?.content
     return typeof t === 'string' ? t.trim() : null
-  } catch (e) { console.warn('[wake] OR chat 异常', e); return null }
+  } catch (e) { onErr(report, `[wake] ${route.label} chat 异常 ${String(e).slice(0, 200)}`); return null }
+  finally { clearTimeout(timer) }
 }
 
-// 带工具的单发，返回 assistant message（可能含 tool_calls）。
-const chatWithTools = async (
-  model: string,
+// 带工具的单发，返回 assistant message（可能含 tool_calls）。走给定路由。
+const chatToolsOnce = async (
+  route: Route,
   messages: Array<Record<string, unknown>>,
   tools: unknown[],
   maxTokens: number,
+  report?: (msg: string) => void,
 ): Promise<Record<string, unknown> | null> => {
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS)
   try {
-    const r = await fetch(OR_CHAT_URL, {
+    const r = await fetch(route.url, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, tools, tool_choice: 'auto', max_tokens: maxTokens, temperature: 0.8 }),
+      headers: { Authorization: `Bearer ${route.key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: route.model, messages, tools, tool_choice: 'auto', max_tokens: maxTokens, temperature: 0.8 }),
+      signal: ac.signal,
     })
-    if (!r.ok) { console.warn('[wake] OR tools 失败', r.status, await r.text().catch(() => '')); return null }
+    if (!r.ok) { onErr(report, `[wake] ${route.label} tools 失败 ${r.status} ${(await r.text().catch(() => '')).slice(0, 200)}`); return null }
     const data = await r.json()
     return (data?.choices?.[0]?.message ?? null) as Record<string, unknown> | null
-  } catch (e) { console.warn('[wake] OR tools 异常', e); return null }
+  } catch (e) { onErr(report, `[wake] ${route.label} tools 异常 ${String(e).slice(0, 200)}`); return null }
+  finally { clearTimeout(timer) }
 }
 
 const tavily = async (query: string): Promise<string | null> => {
@@ -174,11 +207,17 @@ Deno.serve(async (req: Request) => {
   const patchState = async (patch: Record<string, unknown>) =>
     supa.from('autonomous_state').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', 1)
 
+  // 每天最多醒几次：设置页可调（autonomous_state.max_wakes_per_day），缺省 6。
+  const maxWakesPerDay =
+    typeof state?.max_wakes_per_day === 'number' && state.max_wakes_per_day >= 1
+      ? state.max_wakes_per_day
+      : MAX_WAKES_PER_DAY
+
   // ---- 四道闸（force 时全跳过）----
   if (!force) {
     if (!state?.enabled) return json({ ran: false, skipped: 'disabled' })
     const wakesToday = state.day_key === todayKey ? (state.wakes_today ?? 0) : 0
-    if (wakesToday >= MAX_WAKES_PER_DAY) {
+    if (wakesToday >= maxWakesPerDay) {
       await patchState({ next_wake_at: next9am(now).toISOString() })
       return json({ ran: false, skipped: 'daily cap reached' })
     }
@@ -202,8 +241,62 @@ Deno.serve(async (req: Request) => {
   const { data: settings } = await supa
     .from('user_settings').select('user_id, default_model, system_prompt').limit(1).maybeSingle()
   const userId = settings?.user_id as string | undefined
-  const model = orModel(settings?.default_model ?? null)
   const persona = typeof settings?.system_prompt === 'string' ? settings.system_prompt : ''
+
+  // ---- 选站：'relay' 且中转密钥齐 → 走中转（聊天用的那个）；否则 OpenRouter。----
+  // 两条路都是 OpenAI 兼容 /chat/completions + function-calling，中转（NewAPI）通吃。
+  const orRoute: Route = {
+    url: OR_CHAT_URL,
+    key: OPENROUTER_API_KEY,
+    model: orModel(settings?.default_model ?? null),
+    label: 'openrouter',
+  }
+  const relayConfigured = Boolean(RELAY_BASE_URL && RELAY_API_KEY)
+  const wantRelay = state?.wake_provider === 'relay'
+  const relayRoute: Route | null =
+    wantRelay && relayConfigured
+      ? {
+          url: `${trimSlash(RELAY_BASE_URL)}/chat/completions`,
+          key: RELAY_API_KEY,
+          model: relayModel(settings?.default_model ?? null),
+          label: 'relay',
+        }
+      : null
+  if (wantRelay && !relayConfigured) {
+    console.warn('[wake] wake_provider=relay 但未配 RELAY_BASE_URL/RELAY_API_KEY 密钥，本轮回退 OpenRouter')
+  }
+  // 主路由 + 兜底：中转打不通（下线/不认工具/网络）就自动回退 OR，唤醒绝不因切站哑掉。
+  const primaryRoute = relayRoute ?? orRoute
+  const fallbackRoute = relayRoute ? orRoute : null
+  const model = primaryRoute.model
+
+  // 无工具单发：主路由失败自动回退。
+  const chat = async (
+    messages: Array<Record<string, unknown>>,
+    maxTokens: number,
+  ): Promise<string | null> => {
+    const r = await chatOnce(primaryRoute, messages, maxTokens)
+    if (r != null) return r
+    if (fallbackRoute) {
+      console.warn(`[wake] ${primaryRoute.label} 失败，回退 ${fallbackRoute.label}`)
+      return chatOnce(fallbackRoute, messages, maxTokens)
+    }
+    return null
+  }
+  // 带工具单发：主路由失败自动回退。
+  const chatWithTools = async (
+    messages: Array<Record<string, unknown>>,
+    tools: unknown[],
+    maxTokens: number,
+  ): Promise<Record<string, unknown> | null> => {
+    const r = await chatToolsOnce(primaryRoute, messages, tools, maxTokens)
+    if (r != null) return r
+    if (fallbackRoute) {
+      console.warn(`[wake] ${primaryRoute.label} tools 失败，回退 ${fallbackRoute.label}`)
+      return chatToolsOnce(fallbackRoute, messages, tools, maxTokens)
+    }
+    return null
+  }
 
   const { data: moodRow } = await supa.from('mood_state').select('tan,chen,chi,nian,tone').limit(1).maybeSingle()
   const moodLine = moodRow
@@ -374,7 +467,7 @@ Deno.serve(async (req: Request) => {
   ]
 
   for (let i = 0; i < MAX_TOOL_ITERS && !finished; i++) {
-    const msg = await chatWithTools(model, messages, tools, 1500)
+    const msg = await chatWithTools(messages, tools, 1500)
     if (!msg) break
     messages.push(msg)
     const calls = (msg.tool_calls as Array<{ id: string; function: { name: string; arguments: string } }> | undefined) ?? []
@@ -389,7 +482,7 @@ Deno.serve(async (req: Request) => {
 
   // ---- 兜底：它没调 finish 就没心情，补问一句 ----
   if (!finished) {
-    const raw = await chat(model, [
+    const raw = await chat([
       { role: 'system', content: sys },
       { role: 'user', content: `${firstUser}\n\n（现在只用一个 JSON 回：{"mood":"一句此刻的心情","next_wake_hours":数字}）` },
     ], 300)
@@ -438,5 +531,7 @@ Deno.serve(async (req: Request) => {
     finished_cleanly: finished,
     next_wake_at: nextWake.toISOString(),
     model,
+    provider: primaryRoute.label,
+    relay_configured: relayConfigured,
   })
 })
