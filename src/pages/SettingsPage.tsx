@@ -1074,9 +1074,9 @@ const SettingsPage = ({
                   {customProviderName}
                 </button>
                 <span className="system-prompt-status">
-                  {activeProvider === 'msuicode'
-                    ? `⚠️ ${customProviderName} 下无 prompt caching（按全价）`
-                    : '🚀 OR 下走 Anthropic 缓存可省 ~90%'}
+                  {(activeProvider === 'msuicode' ? msuicodeFormat : openRouterFormat) === 'anthropic'
+                    ? '🚀 Anthropic 兼容格式 → 走原生 /v1/messages，prompt 缓存省 ~90%'
+                    : '⚠️ OpenAI 兼容格式无原生缓存；想省钱把下方格式切「Anthropic 兼容」'}
                 </span>
               </div>
             </div>
@@ -1186,8 +1186,8 @@ const SettingsPage = ({
             </div>
             <span className="settings-hint">
               {msuicodeFormat === 'anthropic'
-                ? '走 /v1/messages 路径，中转需透传 Anthropic 原生格式才能用，可拿到思考链。'
-                : '走 /v1/chat/completions 路径，OpenAI 格式，通用但中转模型一般无思考链。'}
+                ? '走 /v1/messages 路径，中转透传 Anthropic 原生格式：原生 prompt 缓存 + 思考链都有。'
+                : '走 /v1/chat/completions 路径，OpenAI 格式，通用但一般无原生缓存/思考链。'}
             </span>
 
             <label htmlFor="msuicode-base-url">Base URL</label>
