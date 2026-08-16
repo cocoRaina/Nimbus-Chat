@@ -427,3 +427,152 @@
     padding-right: 0.75rem;
   }
 }
+
+/* ── 动态 | 每日心情 切换 ─────────────────────────────────────── */
+.moments-tabs {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  gap: 6px;
+  margin: 0.9rem 0 0.2rem;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+.moments-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  border-radius: 11px;
+  padding: 0.45rem 0;
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ab-accent);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.moments-tab.is-active {
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ab-deep);
+  box-shadow: 0 2px 8px rgba(88, 104, 120, 0.1);
+}
+
+/* ── 每日心情 tab ─────────────────────────────────────────────── */
+.mood-tab {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin-top: 0.6rem;
+}
+.mood-today {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  align-items: start;
+}
+.mood-card {
+  border-radius: 18px;
+  padding: 0.85rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.mood-card-who {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ab-strong);
+}
+.mood-card-emoji { font-size: 1.9rem; line-height: 1; }
+.mood-card-text {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--ab-deep);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.mood-emoji-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.mood-emoji-pick {
+  border: none;
+  background: transparent;
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 3px;
+  border-radius: 8px;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.12s, background 0.12s, transform 0.12s;
+}
+.mood-emoji-pick.is-on {
+  opacity: 1;
+  background: rgba(152, 181, 216, 0.25);
+  transform: scale(1.12);
+}
+.mood-input {
+  width: 100%;
+  resize: none;
+  border: 1px solid rgba(197, 214, 236, 0.7);
+  border-radius: 10px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--ab-deep);
+  background: rgba(244, 248, 252, 0.9);
+  font-family: inherit;
+  outline: none;
+}
+.mood-input:focus { border-color: var(--ab-accent); }
+.mood-save { align-self: flex-start; }
+
+.mood-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.mood-history-head {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ab-accent);
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.2rem 0;
+}
+.mood-hrow {
+  border-radius: 14px;
+  padding: 0.6rem 0.8rem;
+  display: grid;
+  grid-template-columns: 2.6rem 1fr 1fr;
+  align-items: center;
+  gap: 0.5rem;
+}
+.mood-hrow-date {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ab-muted);
+  font-variant-numeric: tabular-nums;
+}
+.mood-hrow-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.mood-hrow-who {
+  font-size: 0.64rem;
+  color: var(--ab-muted);
+  flex-shrink: 0;
+}
+.mood-hrow-emoji { font-size: 1rem; flex-shrink: 0; }
+.mood-hrow-text {
+  font-size: 0.76rem;
+  color: var(--ab-deep);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

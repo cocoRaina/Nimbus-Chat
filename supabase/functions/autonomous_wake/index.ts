@@ -409,6 +409,18 @@ Deno.serve(async (req: Request) => {
     ...(mood ? { mood, mood_at: now.toISOString() } : {}),
   })
 
+  // 同时写进「每日心情」（Moments 的心情 tab 读它，有历史）。每天一条、upsert。
+  if (mood && userId) {
+    await supa.from('daily_moods').upsert({
+      user_id: userId,
+      mood_date: todayKey,
+      author: 'ai',
+      emoji: '🌙',
+      text: mood,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,mood_date,author' })
+  }
+
   return json({
     ran: true,
     force,

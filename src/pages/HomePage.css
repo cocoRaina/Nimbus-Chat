@@ -927,3 +927,15 @@
   .home-other-nm { color: #e2ddf4; }
   .home-mini-v { color: #e2ddf4; }
 }
+
+/* 沈暮心情小卡改成可点按钮：抹掉 button 默认样式，和天气卡长一样，加个可点反馈 */
+.home-mini--tap {
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  color: inherit;
+  transition: transform 0.1s ease, box-shadow 0.15s ease;
+}
+.home-mini--tap:active { transform: scale(0.98); }

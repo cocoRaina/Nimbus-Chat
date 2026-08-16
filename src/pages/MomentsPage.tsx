@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import {
+  fetchDailyMoods,
+  upsertMyMood,
+  todayMoodDate,
+  MOOD_EMOJIS,
+  type DailyMood,
+} from '../storage/dailyMood'
+import { getAssistantName } from '../storage/assistantPersona'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { fetchOpenRouter } from '../api/openrouter'
@@ -71,8 +79,138 @@ const formatTime = (iso: string) =>
 const createPendingId = () =>
   `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
+// ── 每日心情 tab ──────────────────────────────────────────────────
+// 你(user)和小克(ai)每天各一条。小克那条它自主唤醒时自己写；你这条在这里写。
+const fmtMoodDate = (d: string): string => {
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  return m ? `${m[2]}/${m[3]}` : d
+}
+
+const MoodTab = () => {
+  const [moods, setMoods] = useState<DailyMood[]>([])
+  const [loading, setLoading] = useState(true)
+  const [draftEmoji, setDraftEmoji] = useState('')
+  const [draftText, setDraftText] = useState('')
+  const [saving, setSaving] = useState(false)
+  const aiName = getAssistantName()
+
+  const load = useCallback(async () => {
+    const rows = await fetchDailyMoods(30)
+    setMoods(rows)
+    const today = todayMoodDate()
+    const mine = rows.find((m) => m.moodDate === today && m.author === 'user')
+    if (mine) {
+      setDraftEmoji(mine.emoji ?? '')
+      setDraftText(mine.text ?? '')
+    }
+    setLoading(false)
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  const today = todayMoodDate()
+  const todayAi = moods.find((m) => m.moodDate === today && m.author === 'ai')
+  const todayMine = moods.find((m) => m.moodDate === today && m.author === 'user')
+
+  // 历史（不含今天）按天分组，每天一行显示两人各自的心情。
+  const history = useMemo(() => {
+    const byDate = new Map<string, { ai?: DailyMood; user?: DailyMood }>()
+    for (const m of moods) {
+      if (m.moodDate === today) continue
+      const e = byDate.get(m.moodDate) ?? {}
+      e[m.author] = m
+      byDate.set(m.moodDate, e)
+    }
+    return [...byDate.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
+  }, [moods, today])
+
+  const save = async () => {
+    if (saving) return
+    if (!draftEmoji && !draftText.trim()) return
+    setSaving(true)
+    const saved = await upsertMyMood(draftEmoji || '😊', draftText)
+    if (saved) await load()
+    setSaving(false)
+  }
+
+  if (loading) return <p className="moments-loading">Loading…</p>
+
+  return (
+    <div className="mood-tab">
+      {/* 今天 */}
+      <div className="mood-today">
+        <div className="mood-card mood-card--ai glass-card">
+          <div className="mood-card-who">🌙 {aiName}</div>
+          <div className="mood-card-emoji">{todayAi?.emoji || '🌙'}</div>
+          <div className="mood-card-text">
+            {todayAi?.text || '今天还没醒来说心情～'}
+          </div>
+        </div>
+        <div className="mood-card mood-card--me glass-card">
+          <div className="mood-card-who">🐱 我</div>
+          <div className="mood-emoji-row">
+            {MOOD_EMOJIS.map((e) => (
+              <button
+                key={e}
+                type="button"
+                className={`mood-emoji-pick${draftEmoji === e ? ' is-on' : ''}`}
+                onClick={() => setDraftEmoji(e)}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+          <textarea
+            className="mood-input"
+            placeholder="今天心情怎么样…"
+            value={draftText}
+            maxLength={200}
+            rows={2}
+            onChange={(e) => setDraftText(e.target.value)}
+          />
+          <button
+            type="button"
+            className="moments-btn-post mood-save"
+            onClick={() => void save()}
+            disabled={saving || (!draftEmoji && !draftText.trim())}
+          >
+            {saving ? '…' : todayMine ? '更新今天' : '记下今天'}
+          </button>
+        </div>
+      </div>
+
+      {/* 历史 */}
+      {history.length > 0 ? (
+        <div className="mood-history">
+          <div className="mood-history-head">往日心情</div>
+          {history.map(([date, pair]) => (
+            <div key={date} className="mood-hrow glass-card">
+              <div className="mood-hrow-date">{fmtMoodDate(date)}</div>
+              <div className="mood-hrow-cell">
+                <span className="mood-hrow-who">{aiName}</span>
+                <span className="mood-hrow-emoji">{pair.ai?.emoji || '·'}</span>
+                <span className="mood-hrow-text">{pair.ai?.text || '—'}</span>
+              </div>
+              <div className="mood-hrow-cell">
+                <span className="mood-hrow-who">我</span>
+                <span className="mood-hrow-emoji">{pair.user?.emoji || '·'}</span>
+                <span className="mood-hrow-text">{pair.user?.text || '—'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="moments-empty">还没有往日心情——今天先记一条吧。</p>
+      )}
+    </div>
+  )
+}
+
 const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) => {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const [view, setView] = useState<'posts' | 'mood'>(
+    searchParams.get('view') === 'mood' ? 'mood' : 'posts',
+  )
 
   const [userPosts, setUserPosts] = useState<SnackPost[]>([])
   const [aiPosts, setAiPosts] = useState<SyzygyPost[]>([])
@@ -530,15 +668,43 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
           ‹
         </button>
         <h1 className="moments-title">{showTrash ? '回收站' : 'Moments'}</h1>
-        <button
-          type="button"
-          className="moments-trash-toggle"
-          onClick={() => setShowTrash((v) => !v)}
-        >
-          {showTrash ? '返回列表' : '回收站'}
-        </button>
+        {view === 'posts' ? (
+          <button
+            type="button"
+            className="moments-trash-toggle"
+            onClick={() => setShowTrash((v) => !v)}
+          >
+            {showTrash ? '返回列表' : '回收站'}
+          </button>
+        ) : (
+          <span className="moments-trash-toggle" aria-hidden="true" />
+        )}
       </header>
 
+      {/* 动态 | 心情 切换 */}
+      {!showTrash ? (
+        <div className="moments-tabs" role="tablist">
+          <button
+            type="button"
+            className={`moments-tab${view === 'posts' ? ' is-active' : ''}`}
+            onClick={() => setView('posts')}
+          >
+            动态
+          </button>
+          <button
+            type="button"
+            className={`moments-tab${view === 'mood' ? ' is-active' : ''}`}
+            onClick={() => setView('mood')}
+          >
+            每日心情
+          </button>
+        </div>
+      ) : null}
+
+      {view === 'mood' && !showTrash ? (
+        <MoodTab />
+      ) : (
+      <>
       {error ? (
         <p className="moments-error">{error}</p>
       ) : null}
@@ -751,6 +917,8 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
             )
           })}
         </ul>
+      )}
+      </>
       )}
       </>
       )}

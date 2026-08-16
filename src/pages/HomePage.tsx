@@ -90,6 +90,7 @@ function ShenmuTodayCard() {
 // 天气(复用现成定位/和风天气,沈暮读的同一份) + 沈暮心情(取它自主唤醒时写的
 // last_note——目前它唯一一处自己写的自由文本;以后想要专门的「心情」字段再单开)。
 function WeatherMoodDuo() {
+  const navigate = useNavigate();
   const [wx, setWx] = useState<WeatherSnapshot | null>(() => peekCachedWeather());
   const [mood, setMood] = useState<string>("");
 
@@ -119,10 +120,14 @@ function WeatherMoodDuo() {
           {wx?.condition ? <small>{wx.condition}</small> : null}
         </div>
       </div>
-      <div className="home-mini glass-card">
-        <div className="home-mini-k">沈暮心情</div>
+      <button
+        type="button"
+        className="home-mini home-mini--tap glass-card"
+        onClick={() => navigate("/snacks?view=mood")}
+      >
+        <div className="home-mini-k">沈暮心情 ›</div>
         <div className="home-mini-v home-mini-v--mood">{mood || "☾ 安静待着"}</div>
-      </div>
+      </button>
     </div>
   );
 }
