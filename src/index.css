@@ -13,12 +13,27 @@
   box-sizing: border-box;
 }
 
+/* 固定全屏渐变背景层：用真正的 position:fixed 元素——安卓 WebView 一定认，
+   不像 background-attachment:fixed 会被它忽略（那是「划两下就分层」的根）。
+   各页背景已改 transparent，全 App 只有这一张锚定视口的渐变，怎么滚、多高都无缝。
+   z-index:-1 垫在所有内容后面；no-fx 降级模式下各页仍是纯色，无渐变无缝。 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--page-bg);
+  pointer-events: none;
+}
+html.no-fx body::before {
+  background: var(--ab-bg);
+}
+
 body {
   margin: 0;
   min-height: 100vh;
   min-height: 100dvh;
-  background: var(--page-bg);
-  background-attachment: fixed; /* 锚定视口，避免 100dvh 处露出 body 渐变的接缝(背景分层) */
+  background: transparent;
   font-family: var(--font-sans);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
