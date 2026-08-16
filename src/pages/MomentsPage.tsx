@@ -94,8 +94,21 @@ const MoodTab = () => {
 
   const load = useCallback(async () => {
     const rows = await fetchDailyMoods(30)
-    setMoods(rows)
     const today = todayMoodDate()
+    // 兜底：沈暮今天的心情若还没进 daily_moods（旧唤醒/尚未跑新代码），从
+    // autonomous_state.mood 取来当今天那条，保证和首页「今日心情」卡一致。
+    if (supabase && !rows.some((m) => m.moodDate === today && m.author === 'ai')) {
+      const { data } = await supabase
+        .from('autonomous_state').select('mood, day_key').eq('id', 1).maybeSingle()
+      const st = data as { mood?: string; day_key?: string } | null
+      if (st?.mood?.trim() && st.day_key === today) {
+        rows.unshift({
+          id: -1, moodDate: today, author: 'ai', emoji: null,
+          text: st.mood.trim(), createdAt: new Date().toISOString(),
+        })
+      }
+    }
+    setMoods(rows)
     const mine = rows.find((m) => m.moodDate === today && m.author === 'user')
     if (mine) setDraftText(mine.text ?? '')
     setLoading(false)

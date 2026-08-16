@@ -105,8 +105,10 @@ function WeatherMoodDuo() {
       .maybeSingle()
       .then(({ data }) => {
         const row = data as { mood?: string; last_note?: string; day_key?: string } | null;
-        // 优先用它自己写的「心情」；没有就退回当天的活动摘要。
-        const text = row?.mood?.trim() || (row?.day_key === todayKey ? row?.last_note?.trim() : "");
+        // 只显示「今天」的心情（day_key===今天），别把昨天的当今日心情——
+        // 和 Moments 心情表格保持同一口径。
+        const fresh = row?.day_key === todayKey;
+        const text = fresh ? (row?.mood?.trim() || row?.last_note?.trim() || "") : "";
         if (text) setMood(text);
       });
   }, []);

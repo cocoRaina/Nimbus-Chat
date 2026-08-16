@@ -968,16 +968,16 @@
   flex-shrink: 0;
 }
 .home-card2-text {
-  font-size: 0.92rem;
-  font-weight: 700;
-  line-height: 1.35;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.4;
   color: var(--ab-deep);
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.home-card2-text--mood { font-weight: 600; }
+.home-card2-text--mood { font-weight: 500; }
 .home-card2-sub {
   font-size: 0.7rem;
   color: var(--ab-muted);
