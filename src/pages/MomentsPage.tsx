@@ -107,8 +107,6 @@ const MoodTab = () => {
       }
     }
     setMoods(rows)
-    const mine = rows.find((m) => m.moodDate === today && m.author === 'user')
-    if (mine) setDraftText(mine.text ?? '')
     setLoading(false)
   }, [])
   useEffect(() => { void load() }, [load])
@@ -131,7 +129,7 @@ const MoodTab = () => {
     if (saving || !draftText.trim()) return
     setSaving(true)
     const saved = await upsertMyMood(draftText)
-    if (saved) await load()
+    if (saved) { setDraftText(''); await load() }
     setSaving(false)
   }
 
