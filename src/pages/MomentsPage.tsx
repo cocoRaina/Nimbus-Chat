@@ -139,14 +139,13 @@ const MoodTab = () => {
       {/* 今天 */}
       <div className="mood-today">
         <div className="mood-card mood-card--ai glass-card">
-          <div className="mood-card-who">🐺 {aiName}</div>
-          <div className="mood-card-emoji">{todayAi?.emoji || '🐺'}</div>
+          <div className="mood-card-who">{aiName}</div>
           <div className="mood-card-text">
             {todayAi?.text || '今天还没醒来说心情～'}
           </div>
         </div>
         <div className="mood-card mood-card--me glass-card">
-          <div className="mood-card-who">🐱 我</div>
+          <div className="mood-card-who">我</div>
           <div className="mood-emoji-row">
             {MOOD_EMOJIS.map((e) => (
               <button
@@ -187,15 +186,16 @@ const MoodTab = () => {
               <div className="mood-day-date">{fmtMoodDate(date)}</div>
               {pair.ai ? (
                 <div className="mood-line mood-line--ai">
-                  <span className="mood-line-emoji">{pair.ai.emoji || '🐺'}</span>
-                  <span className="mood-line-who">🐺 {aiName}</span>
+                  <span className="mood-line-who">{aiName}</span>
                   <span className="mood-line-text">{pair.ai.text || '—'}</span>
                 </div>
               ) : null}
               {pair.user ? (
                 <div className="mood-line mood-line--me">
-                  <span className="mood-line-emoji">{pair.user.emoji || '🐱'}</span>
-                  <span className="mood-line-who">🐱 我</span>
+                  <span className="mood-line-who">我</span>
+                  {pair.user.emoji ? (
+                    <span className="mood-line-emoji">{pair.user.emoji}</span>
+                  ) : null}
                   <span className="mood-line-text">{pair.user.text || '—'}</span>
                 </div>
               ) : null}

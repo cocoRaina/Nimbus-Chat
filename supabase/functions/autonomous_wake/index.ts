@@ -415,7 +415,7 @@ Deno.serve(async (req: Request) => {
       user_id: userId,
       mood_date: todayKey,
       author: 'ai',
-      emoji: '🐺',
+      emoji: null, // 沈暮不用身份/心情 emoji，只用文字表达；心情 tab 里它那行不显示 emoji
       text: mood,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id,mood_date,author' })
