@@ -1817,7 +1817,7 @@ const ChatPage = ({
             type="button"
             className="ghost chat-header-icon"
             aria-label="沈暮的心"
-            onClick={() => setMoodOpen(true)}
+            onClick={() => { setOpenHeaderMenu(false); setMoodOpen(true); }}
           >
             💗
           </button>

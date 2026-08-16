@@ -940,7 +940,7 @@ const SettingsPage = ({
           >
             ‹
           </button>
-          <h1 className="ui-title">设置</h1>
+          <h1 className="ui-title">Settings</h1>
           <span className="header-spacer" />
         </header>
         <div className="settings-page app-shell__content">
@@ -966,7 +966,7 @@ const SettingsPage = ({
         >
           ‹
         </button>
-        <h1 className="ui-title">设置</h1>
+        <h1 className="ui-title">Settings</h1>
         <span className="header-spacer" />
       </header>
 
