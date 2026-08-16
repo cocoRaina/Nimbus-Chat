@@ -31,6 +31,14 @@ const config: CapacitorConfig = {
       // streams. Everything else keeps using this buffered native fetch.
       enabled: true,
     },
+    LocalNotifications: {
+      // 状态栏通知小图标：专门的透明底单色 silhouette（两只猫）。安卓通知小图标
+      // 只认 alpha 通道、不透明处一律被系统 tint 成单色，所以不能直接用彩色 launcher
+      // 图标（会变一坨白）。iconColor 给通知点缀成品牌蓝。资源见
+      // android/.../res/drawable-*/ic_stat_notify.png。
+      smallIcon: 'ic_stat_notify',
+      iconColor: '#5F7FB3',
+    },
     SplashScreen: {
       launchShowDuration: 1200,
       launchAutoHide: false,
