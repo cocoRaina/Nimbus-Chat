@@ -12,15 +12,12 @@
   animation: app-fade-in 400ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+/* 只渐显、不做位移：translateY 会给 .app-shell 留下 transform(fill both)，
+   使它成为所有 position:fixed 后代的包含块 —— 记忆库抽屉/遮罩、主页底栏这类
+   浮层就被钉在容器里、盖不满全屏（「背景不对」）。去掉位移，根上解决。 */
 @keyframes app-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 html.no-fx .app-shell {
