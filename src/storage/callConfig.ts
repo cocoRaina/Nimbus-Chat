@@ -145,6 +145,7 @@ export const createScheduledCallInvite = async (
           ongoing: true,               // 常驻,划不走(像真来电)
           autoCancel: false,
           actionTypeId: 'INCOMING_CALL', // 接听/挂断 按钮
+          largeIcon: 'notif_large',      // 通知右侧彩色大图标 = App 图标
           extra: { inviteId, reason },
         }],
       })
@@ -315,6 +316,7 @@ export const notifyIncomingCall = async (reason: string): Promise<void> => {
         body: reason,
         schedule: { at: new Date(Date.now() + 200) },
         channelId: 'proactive',
+        largeIcon: 'notif_large',
       }],
     })
   } catch { /* 无通知权限时静默——App 内响铃页照常 */ }

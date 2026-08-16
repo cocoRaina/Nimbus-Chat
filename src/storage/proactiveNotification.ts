@@ -61,6 +61,7 @@ export const scheduleProactiveNotification = async (
         body: text,
         schedule: { at: new Date(Date.now() + delayMs) },
         channelId: 'proactive',
+        largeIcon: 'notif_large', // 通知条右侧的彩色大图标 = App 图标（两只猫），状态栏小图标只能单色
       }],
     })
   } catch {}
