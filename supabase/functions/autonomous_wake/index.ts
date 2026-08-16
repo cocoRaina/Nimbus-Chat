@@ -415,7 +415,7 @@ Deno.serve(async (req: Request) => {
       user_id: userId,
       mood_date: todayKey,
       author: 'ai',
-      emoji: '🌙',
+      emoji: '🐺',
       text: mood,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id,mood_date,author' })

@@ -139,8 +139,8 @@ const MoodTab = () => {
       {/* 今天 */}
       <div className="mood-today">
         <div className="mood-card mood-card--ai glass-card">
-          <div className="mood-card-who">🌙 {aiName}</div>
-          <div className="mood-card-emoji">{todayAi?.emoji || '🌙'}</div>
+          <div className="mood-card-who">🐺 {aiName}</div>
+          <div className="mood-card-emoji">{todayAi?.emoji || '🐺'}</div>
           <div className="mood-card-text">
             {todayAi?.text || '今天还没醒来说心情～'}
           </div>
@@ -181,20 +181,24 @@ const MoodTab = () => {
       {/* 历史 */}
       {history.length > 0 ? (
         <div className="mood-history">
-          <div className="mood-history-head">往日心情</div>
+          <div className="mood-history-head">History</div>
           {history.map(([date, pair]) => (
-            <div key={date} className="mood-hrow glass-card">
-              <div className="mood-hrow-date">{fmtMoodDate(date)}</div>
-              <div className="mood-hrow-cell">
-                <span className="mood-hrow-who">{aiName}</span>
-                <span className="mood-hrow-emoji">{pair.ai?.emoji || '·'}</span>
-                <span className="mood-hrow-text">{pair.ai?.text || '—'}</span>
-              </div>
-              <div className="mood-hrow-cell">
-                <span className="mood-hrow-who">我</span>
-                <span className="mood-hrow-emoji">{pair.user?.emoji || '·'}</span>
-                <span className="mood-hrow-text">{pair.user?.text || '—'}</span>
-              </div>
+            <div key={date} className="mood-day glass-card">
+              <div className="mood-day-date">{fmtMoodDate(date)}</div>
+              {pair.ai ? (
+                <div className="mood-line mood-line--ai">
+                  <span className="mood-line-emoji">{pair.ai.emoji || '🐺'}</span>
+                  <span className="mood-line-who">🐺 {aiName}</span>
+                  <span className="mood-line-text">{pair.ai.text || '—'}</span>
+                </div>
+              ) : null}
+              {pair.user ? (
+                <div className="mood-line mood-line--me">
+                  <span className="mood-line-emoji">{pair.user.emoji || '🐱'}</span>
+                  <span className="mood-line-who">🐱 我</span>
+                  <span className="mood-line-text">{pair.user.text || '—'}</span>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -689,14 +693,14 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
             className={`moments-tab${view === 'posts' ? ' is-active' : ''}`}
             onClick={() => setView('posts')}
           >
-            动态
+            Posts
           </button>
           <button
             type="button"
             className={`moments-tab${view === 'mood' ? ' is-active' : ''}`}
             onClick={() => setView('mood')}
           >
-            每日心情
+            Mood
           </button>
         </div>
       ) : null}

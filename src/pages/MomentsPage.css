@@ -543,36 +543,38 @@
   letter-spacing: 0.04em;
   padding: 0.2rem 0.2rem 0;
 }
-.mood-hrow {
+/* 一天一组：日期 + 沈暮一行 + 我一行（各占整行，文字可换行不截断） */
+.mood-day {
   border-radius: 14px;
-  padding: 0.6rem 0.8rem;
-  display: grid;
-  grid-template-columns: 2.6rem 1fr 1fr;
-  align-items: center;
-  gap: 0.5rem;
+  padding: 0.55rem 0.8rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
-.mood-hrow-date {
-  font-size: 0.72rem;
+.mood-day-date {
+  font-size: 0.68rem;
   font-weight: 700;
   color: var(--ab-muted);
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
 }
-.mood-hrow-cell {
+.mood-line {
   display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-width: 0;
+  align-items: baseline;
+  gap: 0.45rem;
 }
-.mood-hrow-who {
-  font-size: 0.64rem;
+.mood-line-emoji { font-size: 1rem; flex-shrink: 0; align-self: center; }
+.mood-line-who {
+  font-size: 0.66rem;
   color: var(--ab-muted);
   flex-shrink: 0;
+  width: 3.4rem;
 }
-.mood-hrow-emoji { font-size: 1rem; flex-shrink: 0; }
-.mood-hrow-text {
-  font-size: 0.76rem;
+.mood-line-text {
+  flex: 1;
+  font-size: 0.82rem;
+  line-height: 1.45;
   color: var(--ab-deep);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word;
 }
+.mood-line--ai .mood-line-who { color: var(--ab-strong); }
