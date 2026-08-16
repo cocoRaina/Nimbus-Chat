@@ -125,6 +125,8 @@ Claude 凭对话气氛自主判断，调 `schedule_proactive_message` 预约未�
 
 > **只剩"预约"这一种**：早期那套"空闲 N 分钟服务端自发调 LLM 找你"的自发主动消息（每次 cron 都跑一次模型推理）因为太费钱已移除。现在 `proactive_dispatch` 是**纯数据库操作、零 token**，每 5min 跑一次几乎不花钱——只负责把工具预约好的消息到点投递。
 
+**App 被杀也能收到（后台轮询）**：沈暮自主唤醒时写的消息，App 关着本地通知不会弹。华为机 FCM 常年不通，改用 `@capacitor/background-runner`（WorkManager ~15min）跑 `runners/proactive.js` → 打 `proactive_peek`（`verify_jwt=false`，靠 `autonomous_state.peek_secret` 校验）拿新的服务端消息 → `CapacitorNotifications` 弹通知。**需用户在华为「电池/自启」白名单放行**才不被冻结；15min 粒度，真·即时推送要活的 FCM/APNs 或厂商推送（以后的事）。
+
 ### 🎵 网易云放歌 + 媒体控制（APK 限定）
 Claude 能给你**放指定的歌**：`play_music` 走 `netease_search` Edge Function 服务端搜网易云（绕 WebView CORS），用 `orpheus://song/{id}/?autoplay=1` deep link 直接拉起网易云并自动播放首条结果；`control_media` 控制当前播放（暂停/继续/上一首/下一首，任意 App 都生效）；`get_now_playing` 读**现在在放什么歌**（歌名/歌手/专辑/进度）。后两个在开了**通知使用权**时走 `MediaSessionManager`/`MediaController` 精准控制 + 读元数据；`control_media` 没权限时降级广播媒体键仍可用。需手机已装并登录网易云。
 → 详见 [docs/features/tools.md](docs/features/tools.md)
@@ -133,9 +135,12 @@ Claude 能给你**放指定的歌**：`play_music` 走 `netease_search` Edge Fun
 自动从手机健康数据拉近三天的步数 / 睡眠（含深/浅/REM 分段）/ 心率 / 静息心率 / 血氧，写进 `health_data` 给 Claude。仅 APK，走 `@capgo/capacitor-health`（read-only）。睡眠分段来自每个 session 的 `stages[]` 数组，而非父 session 的 `sleepState`。
 → 详见 [docs/features/health-sync.md](docs/features/health-sync.md)
 
-### 🏠 主页 widget 系统（App 内）
-App **内部**首页的桌面式多页 widget 网格（打卡 / 健康 / 屏幕时间 / 经期 / 文本 / 图片 / app 入口），编辑模式「设置/预览」分离。
+### 🏠 主页 Dashboard（仿 Claire&Claude）
+App 内部首页：单页卡片流 + **底部 5 键 Tab 栏**（Home / Memory / Chat 中间凸起 FAB / Health / Other）。hero 卡（双头像 + 心电图 + Claude & Wren）+ 每日打卡 + 今日天气/今日心情双卡（心情读 `autonomous_state`，点跳 Moments Mood tab）+ 沈暮今天动态卡 + 重要的日子倒数（本地存）。☰ 进编辑模式（加组件 / 排列 / 编辑重要日子 / 换背景图）。底部 Tab 栏走 `createPortal` 到 body 避开 app-shell transform。
 → 详见 [docs/features/widgets.md](docs/features/widgets.md)
+
+### 💗 每日心情（双向）
+你和沈暮各记一条**当天心情**、彼此都看得到：Moments 页 **Mood** tab 上编辑、按天成表（每天 Claude 一行 + Wren 一行，纯文字无 emoji）。数据在 `daily_moods` 表（每 `user_id/mood_date/author` 一行 upsert）；你写的走 `upsertMyMood`，沈暮那条由 `autonomous_wake` 醒来时 service role 写、且它醒来能读到你今天写的心情。首页「今日心情」卡直读 `autonomous_state.mood`（当天新鲜度校验）。
 
 ### 📱 桌面小组件 + Clawd 螃蟹桌宠（Android 主屏，APK 限定）
 真正放手机桌面上的 AppWidget（不开 App 也能看）：经期卡、emoji 桌宠、以及主打的 **2×1~4×2 组合卡**（左 日期+经期，右**会动的 Clawd 螃蟹**：按相位/时段切 6 种状态动画，戳一下随机播 24 个动画之一，点左侧开 App）。实现走 RemoteViews + `ViewFlipper` 帧循环（无需 GIF 解码）；螃蟹帧抽自 [clawd-tank](https://github.com/marciogranzotto/clawd-tank)（MIT，署名见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)），放独立资源目录 `res-crab/`。
@@ -221,12 +226,11 @@ AI 可以主动给你打电话（`[call:理由]` → 全屏响铃 90s），没�
 
 ## 📱 页面一览
 
-- **首页 Dashboard** `/` — 顶部小日期 + 打卡卡片 + 横向多页 widget 网格（3 列图标，scroll-snap + 圆点指示器）；长按/编辑进编辑模式 → 加组件 / 拖动 / 增删页 / 上传主页背景图（存 IndexedDB，铺满全页、无边框）
+- **首页 Dashboard** `/` — 仿 Claire&Claude 的单页卡片流 + **底部 5 键 Tab 栏**（Home / Memory / Chat 中间凸起 FAB / Health / Other 抽屉）。hero 卡（双头像 + 心电图 + 心，标题 Claude & Wren）+ 每日打卡 + **今日天气/今日心情** 双卡 + **沈暮今天** 动态卡 + **重要的日子** 倒数。☰ 进编辑模式（加组件 / 排列 / 编辑重要日子 / 上传主页背景图）
 - **聊天** `/chat/:id` — LINE 风格主聊天界面，工具循环 + 流式 + 懒加载
 - **设置** `/settings` — 10 个折叠区（详见上方）
 - **记忆库** `/memory-vault` — 多 tab（记忆 / 日记 / 交接信 / 时间轴 / **随笔** / 相册 / 玩具库）各自独立搜索 + 分页（20 条/页）+ 内联编辑；记忆 tab 有来源筛选 / 🔒 锁定 / token 预算提示；时间轴有重要程度筛选；**随笔** = 沈暮的随笔本（只读，整本四位码锁、码由它自己设）
-- **Moments** `/snacks` — 合并动态：你和 Claude 的帖子统一展示，按时间倒序，每条显示作者（kitten / Claude）
-- **Claude 主页** `/syzygy` — Claude 专属朋友圈，可发帖、查看 Claude 回复、软删除回收站
+- **Moments** `/snacks` — 合并动态，两个 tab：**Posts**（你和 Claude 的帖子统一按时间倒序，每条显示作者 Wren / Claude）+ **Mood**（每日心情：你和沈暮各记一条当天心情、按天成表彼此都看得到，纯文字）
 - **检测中心** `/usage` — 三个 tab：**用量统计**（按 provider / 按会话排行 + 缓存命中率）、**API 检测**（连通性/延迟 + 缓存字段透传 + 模型核验金丝雀探针，外加近 30 天 Claude 缓存健康历史分析）、**压缩状态**（只读 `compression_cache`：活跃摘要列表 + 近期 token 用量，零花费）
 - **健康同步** `/health-sync` — Health Connect → `health_data`（同步状态卡 + 今日体征 grid）、屏幕时间、经期跟踪。APK 限定
 - **每日打卡** `/checkin` — 连续打卡 streak + 月历
@@ -256,7 +260,7 @@ AI 可以主动给你打电话（`[call:理由]` → 全屏响铃 90s），没�
             │           diaries, handoff_letters, timeline,
             │           period_tracking, health_data, essays, usage_logs,
             │           cache_keepalive_state, proactive_queue, stickers,
-            │           mood_state, mood_history
+            │           mood_state, mood_history, daily_moods, autonomous_state
             │
             ├─→ edge functions: openrouter-chat, openrouter-models,
             │                   memory-extract, web_search, search_memory,
@@ -264,7 +268,9 @@ AI 可以主动给你打电话（`[call:理由]` → 全屏响铃 90s），没�
             │                   search_stickers (按关键词/包名搜表情包库),
             │                   auto_embed (INSERT trigger embedding + 批量 embedding),
             │                   cache_keepalive (缓存保活 ping, pg_cron */5, 安静时段 00-08 北京),
-            │                   proactive_dispatch (预约主动消息到点派发 + 保活追加, 纯DB零token, pg_cron */5)
+            │                   proactive_dispatch (预约主动消息到点派发 + 保活追加, 纯DB零token, pg_cron */5),
+            │                   autonomous_wake (自主唤醒 Agent 循环: 上网+读任意数据, 写随笔/朋友圈/心情, cron),
+            │                   proactive_peek (后台轮询拉服务端新消息, verify_jwt=false, peek_secret 校验)
             │
             └─→ DB functions: search_memories_hybrid (RPC, 向量+关键词 RRF+近度),
                               find_similar_memory_pairs (RPC, 近重复对扫描, garden_memories 用),
@@ -285,7 +291,7 @@ AI 可以主动给你打电话（`[call:理由]` → 全屏响铃 90s），没�
 - `vector` (pgvector) — 向量搜索（含 HNSW 索引）
 - `pg_trgm` — 三元组 GIN 索引，加速 ILIKE 关键词搜索
 - `pg_net` — DB trigger 调 Edge Function（auto embedding）
-- `pg_cron` — 定时任务扩展（活跃 job：`cache_keepalive` 缓存保活 + `proactive_dispatch` 预约主动消息派发，均 */5；FCM 推送、自发主动消息均已移除）
+- `pg_cron` — 定时任务扩展（活跃 job：`cache_keepalive` 缓存保活 + `proactive_dispatch` 预约主动消息派发，均 */5；`autonomous_wake` 自主唤醒；FCM 推送、自发主动消息均已移除）
 
 关键表 schema：
 - 全量 schema 在 `supabase/init.sql`（已和线上对齐）
@@ -306,6 +312,8 @@ Edge Functions（已部署，除 cache_keepalive / proactive_dispatch / auto_emb
 - `cache_keepalive` — 缓存保活 ping（pg_cron 每 5min 触发，内部 50min 冷却 → 实际约每小时打一次，~¥0.07 热读；「今日门槛」确保只有当天 08:00 后的真实聊天才激活 ping，不会拿昨晚记录在早上冷写；全天 ping 到午夜，中途聊天自动后延；00:00–08:00 北京安静时段不 ping。ping 必须原样带 `thinking`/`budget_tokens` 才命中聊天缓存血脉，见 [caching.md §9](docs/caching.md)）
 - `search_stickers` — 表情包关键词搜索（JWT 校验 + `user_id` 过滤）：按 `query`（ilike）和可选 `pack` 筛选 `stickers` 表，返回 `{stickers:[{name,url,pack}]}`，最多 20 条
 - `proactive_dispatch` — 预约主动消息服务端兜底派发（pg_cron 每 5min，**纯数据库操作、零 LLM token**）：扫 `proactive_queue` 到点未发的行，原子抢占（`UPDATE … WHERE sent=false`）后写进 `messages`，touch session，并把这条消息追加进 `cache_keepalive_state.body.messages`，让保活 ping 把它也维护进缓存（用户下次真实聊天不冷写）。transient 类若用户在排程后已活跃则跳过投递，persist 类（叫醒等）只在 `fire_at` 后回复才跳过
+- `autonomous_wake` — 自主唤醒 **Agent 循环**（function-calling，`MAX_TOOL_ITERS=6`）：cron 到点、过四道闸（enabled / 今日次数 / 安静时段 / 你在场就让路）后跑一轮——能 `web_search` 上网 + 读记忆/随笔/存档/朋友圈/健康/时间轴任意数据，`finish` 给出当天 `mood` + 下次几点醒；产出写 `essays`/`assistant_posts`/`daily_moods`（不写聊天，想冒泡才走 `proactive_queue`），醒来还读得到你今天写的心情
+- `proactive_peek` — 后台轮询专用（`verify_jwt=false`，靠 `autonomous_state.peek_secret` 校验，body `{secret, since}`）：返回 `messages` 里 role=assistant & `meta.provider='server'` 且 `created_at>since` 的新消息，给 `@capacitor/background-runner`（App 关着 ~15min 轮询）拉去弹通知
 
 > 旧 FCM 推送（`send_proactive_push` 函数 + `fcm_tokens` 表）、自发主动消息（`poll_proactive` 函数 + 服务端空闲调 LLM 那套）均已移除——主动消息现在只剩"工具预约"一种：本地通知（`@capacitor/local-notifications`）+ 服务端 `proactive_dispatch` 写库兜底。
 
@@ -361,6 +369,7 @@ DB 函数:
 - `@capacitor/app`, `@capacitor/device`, `@capacitor/status-bar`, `@capacitor/splash-screen` — 基础生命周期 / 设备信息 / 状态栏 / 启动屏
 - `@capacitor/geolocation` — 天气定位
 - `@capacitor/local-notifications` — 主动消息（本地通知）
+- `@capacitor/background-runner` — 后台轮询（WorkManager ~15min 跑 `runners/proactive.js` 拉 `proactive_peek` 弹通知，App 关着也收沈暮消息）
 - `@capgo/capacitor-health` — Health Connect 读取
 - `@capacitor/haptics` — 震动反馈
 - `@capacitor/share` — 长按菜单 → 分享
@@ -405,8 +414,8 @@ src/
 │   ├── MemoryVaultPage.tsx    # 记忆库多 tab（记忆/日记/交接信/时间轴/随笔/相册/玩具库，内联编辑 + 分页；随笔=沈暮随笔本，四位码锁）
 │   ├── UsagePage.tsx          # 检测中心：用量统计 / API检测（探针+历史缓存分析）/ 压缩状态（只读零花费）
 │   ├── MyHomePage.tsx         # 我的主页（朋友圈）
-│   ├── AssistantHomePage.tsx  # TA 的主页（对镜版）
-│   ├── HomePage.tsx           # 首页 dashboard：多页 widget grid（无 dock）+ 编辑模式
+│   ├── AssistantHomePage.tsx  # TA 的主页（对镜版，已不挂路由——Moments 合并了双方朋友圈）
+│   ├── HomePage.tsx           # 首页 dashboard：仿 Claire&Claude 卡片流 + 底部 5 键 Tab 栏（portal）+ 编辑模式
 │   ├── HomeLayoutSettingsPage.tsx  # /home-layout 深度编辑
 │   ├── HealthSyncPage.tsx     # 健康综合页：同步 + 今日体征 + 屏幕时间 + 经期 + 诊断工具
 │   ├── ExportPage.tsx         # 数据导出
@@ -427,6 +436,8 @@ src/
 │   ├── qweatherKey.ts         # 和风凭据（API Host + hex Key / Ed25519 PEM）本地存储；hex 判定 + EdDSA JWT 签名（@noble/ed25519）
 │   ├── envState.ts            # 手机状态快照（电量/铃声/音频/网络）合成一行，每条消息注入；挂载+前台刷新缓存
 │   ├── proactiveNotification.ts  # 预约主动消息：localStorage 暂存 + 本地通知调度/cancel/re-arm（title 走 assistantPersona）；PendingProactive 带 queueId 对接服务端 proactive_dispatch 兜底
+│   ├── backgroundPoll.ts      # 后台轮询通知：下发 proactive_peek 配置给 background-runner（App 关着也收沈暮消息）
+│   ├── dailyMood.ts           # 每日心情：daily_moods 读写（todayMoodDate/fetchDailyMoods/upsertMyMood，纯文字）
 │   ├── assistantPersona.ts    # 助手显示名（默认"沈暮"，可在聊天点头部名字改）
 │   ├── moodSystem.ts          # 情绪系统：贪嗔痴念四相动力学 + <<MOOD>> 自评解析 + 生理体征/和弦推算 + 旁白/规则生成 + 三层持久化
 │   ├── supabaseSync.ts        # 远程 CRUD（sessions/messages/checkins/overrides）

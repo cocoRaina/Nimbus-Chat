@@ -4,6 +4,42 @@
 
 ---
 
+## 🏡 主页大改版 · 仿 Claire&Claude（2026-08-16，用户「参考那个给我重做首页」）
+
+用户拿了一个参考 App「Claire&Claude」，只改**首页**、别的一律不动。旧首页是「桌面式多页 widget 网格」，改成单页竖排卡片流 + **底部 5 键 Tab 栏**（Home / Memory / Chat（中间凸起 FAB）/ Health / Other）。顶部 hero 卡：双头像（下面**不放名字**）+ 心电图 + 心，标题 **Claude & Wren**（不要「在一起」+ since 行），保留每日打卡。往下：**今日天气 + 今日心情** 双卡（`WeatherMoodDuo`，天气复用现有定位、心情读 `autonomous_state.mood` 带 `day_key` 当天新鲜度校验 + 回退 `last_note`，点心情卡跳 `/snacks?view=mood`）、**沈暮今天** 动态卡、**重要的日子** 倒数（`nimbus_important_dates_v1` localStorage，`daysUntilAnnual` 周年制）。**☰ = 原有的编辑首页**（不是新功能，仍复用编辑模式；重要日子在编辑面板里加）。底部 Tab 栏 + Other 抽屉用 `createPortal` 到 `document.body`（逃出 `.app-shell` 的 transform 定位）。底部字全英文。**踩坑**：Tab 栏本用 `position:fixed` 却跟着滚动漂移 → 根因是 `.app-shell` 的 `app-fade-in` 动画带 translateY，`animation … both` 留了个持久 transform，让 fixed 子元素以它为包含块 → 把 keyframes 改成纯 opacity（去掉 translateY）根治。需新 APK。设计图先给用户预览确认过再改。
+
+## 🎨 换 App 图标（双猫线稿）+ 通知图标分层（2026-08-16，用户给图「改成这个」）
+
+用户给了一张双猫线稿图，全端换：`mipmap-*/ic_launcher*.png` + `mipmap-anydpi-v26`（满幅）+ PWA `pwa-{180,192,512}.png` + favicon。**通知图标**分两层踩过坑：Android 状态栏小图标只认 **alpha 剪影**（不透明→纯白），塞彩色进去会变成白块 → 做 `drawable-*/ic_stat_notify.png`（纯剪影 24–96px）当 `smallIcon` + `iconColor:#5F7FB3`；通知体内的大图标可上彩色 → `drawable-*/notif_large.png`（64–256px）当 `largeIcon`。用户吐槽「通知图标不能和 App 图标一致吗，白底看着别扭」→ 解释状态栏小图标是系统硬规矩（只能单色剪影），彩色只能进大图标位。需新 APK。
+
+## 🩹 背景分层（划两下就分层）根治 · 真·固定层（2026-08-16，用户截图「背景页还是有分层」）
+
+滚动时背景出现接缝/分层。第一版给页面加 `background-attachment: fixed` **没用**——Android WebView 直接忽略这属性。改用真·固定层：`index.css` 加 `body::before { position:fixed; inset:0; z-index:-1; background:var(--page-bg) }`（`html.no-fx` 时换 `--ab-bg`），再把 `.app-shell`/各页/body 的渐变背景全设 `transparent`，让那一层固定的伪元素透上来 → 滚动时背景不动、无缝。配合上面 Tab 栏那条：`.app-shell` 的 transform 也一并清了（本来也会把 fixed 背景层拽成局部包含块）。需新 APK。**备查**：WebView 里要「固定背景」别用 `background-attachment`，得摆一个真的 `position:fixed` 元素。
+
+## 🌤️ 天气地名简体 + 英文兜底（2026-08-16，随首页改版）
+
+首页天气卡地名有时冒繁体/英文。QWeather geo 查询加 `&lang=zh`（简体），BigDataCloud 兜底用 `localityLanguage=en`；缓存键升到 `nimbus_weather_cache_v2`。需新 APK。
+
+## 🗑️ 删掉多余的「Claude 主页」`/syzygy`（2026-08-16，用户「moment 不就是两个人的朋友圈吗」）
+
+Moments（`/snacks`）已经合并了「你 + 沈暮」双方的朋友圈、能查看/评论，`/syzygy`（Claude 专属主页）纯属重复。删路由 + `App.tsx` 的 `AssistantHomePage` lazy import + 首页图标里的 `syzygy` 项。`AssistantHomePage.tsx` 文件留着（对镜逻辑以后可能复用），只是不再挂路由。需新 APK。
+
+## 💗 每日心情 · Moments 拆 Posts | Mood 双 Tab + 名称改 Claude/Wren（2026-08-16，用户「仿这个 widget，双方都能记每日心情」）
+
+用户看到一个每日心情 widget、想要「你和沈暮各记一条当天心情、彼此都能看」。选了把 Moments 拆 **Posts | Mood** 两个 tab（不新建页）。新 `daily_moods` 表：每 `(user_id, mood_date, author)` 一行 upsert（`author` = `user`/`ai`，同一 user_id 下两行 → 用户一次读到双方；沈暮那行由服务端 wake 用 service role 写）。`storage/dailyMood.ts`：`todayMoodDate()`（Asia/Shanghai en-CA）、`fetchDailyMoods`、`upsertMyMood(text)`。Mood tab：上面编辑卡（`Wren · 今天心情` + textarea + 保存）、下面按天表格（每天 Claude 一行 + Wren 一行）。**踩坑**：首页心情卡有值、点进 Mood tab 却空 → 老 wake 没写 `daily_moods`，加兜底：当天没有 ai 行时回读 `autonomous_state.mood`（`day_key==今天` 才用）。**反复被否的方向**：一开始加了心情 emoji 选择器 + 身份 emoji（🐺/🐱），用户明确「除了表达心情的 emoji 全去掉」→ 再「我的情感 emoji 也不要了、我可以自己打进文案」→ **彻底纯文字化**。名称统一从「哥哥/咪咪」改成 **Claude / Wren**。表 `daily_moods` RLS `auth.uid()=user_id`。migration `20260816120000_daily_moods.sql`，DB 即时生效；前端需新 APK。
+
+## 🤖 自主唤醒升级成「带工具的 Agent 循环」+ 沈暮能看今日心情（2026-08-16，用户「给他加醒来能上网、能看任何数据」）
+
+`autonomous_wake` 从「单次自决 JSON」重写成 **function-calling Agent 循环**（OpenRouter tools，`MAX_TOOL_ITERS=6`）：醒来能 web_search 上网 + 读记忆/随笔/存档/朋友圈/健康/时间轴任意数据，最后 `finish` 给出 `mood` + `next_wake_hours`。产出 `mood` 写进 `daily_moods`（`author='ai'`, `onConflict`），首页/Mood tab 就都能看到沈暮当天心情。另外把她当天写的心情（`daily_moods`, today, `author='user'`）拉出来注入 `firstUser` 当 `[她今天写的心情]`——沈暮醒来看得到她今天心情。edge function 服务端即时生效。
+
+## 🔔 App 关着也能收到沈暮的消息 · 后台轮询通知（2026-08-16，用户「沈暮醒来发消息不弹窗」）
+
+沈暮醒来发的消息，App 被杀就收不到。用户华为机 FCM socket 长期死（mtalk.google.com:5228，诊断显示 Not connected / ERR_IO_FIN），FCM 这条走不通。选**后台轮询**：`@capacitor/background-runner`（WorkManager ~15min）跑 `public/runners/proactive.js`（受限 QuickJS，只有 `CapacitorKV`/`CapacitorNotifications`/`fetch`）→ 打 `proactive_peek` edge function 拿新消息 → `CapacitorNotifications.schedule` 弹通知、更新 `nimbus_last_seen`。新 `proactive_peek`（`verify_jwt=false`，靠 `autonomous_state.peek_secret` 校验，body `{secret, since}`，返回 `messages` 里 role=assistant & `meta.provider='server'` 且 `created_at>since`）。`setupBackgroundPoll()` 在挂载时下发配置（fnUrl/anon/secret）。**诚实边界**：15min 粒度、且**要用户在华为「电池/自启」白名单里放行**才不被系统冻结；真·即时推送要 FCM/APNs（谷歌框架活的机器）或厂商推送（微信那种系统级白名单，sideload 应用拿不到）——都是以后的事。migration `20260815130000_autonomous_state_peek_secret.sql`。前端/原生需新 APK；edge function + DB 即时生效。APK build #783 成功。
+
+## 🔤 设置页标题改英文 + 修聊天「设置菜单压住心情浮层」（2026-08-16，用户截图）
+
+`SettingsPage` 顶部 `设置` → **Settings**（两处 h1，缩进不同分两次改）。聊天页点了 header 的设置菜单、再点 💗 心情，两层叠一起 → 💗 的 onClick 先 `setOpenHeaderMenu(false)` 再 `setMoodOpen(true)`，互斥打开。需新 APK。
+
 ## 💸 真·省钱大头：历史图片不再反复重发原图（2026-08-10，查 usage_logs 实锤）
 
 用户问「$3.87 是不是发了三次」→ 查 usage_logs `request_debug` 实锤：**不是三次，是单条 prompt 自己胀到 ~100 万 token**（08-06 那条 `sent_est`=120 万、`server`=100 万——我们自己估算就 120 万，中转没虚报）。根因在 `App.tsx` 图片重放：历史轮图片一旦 `getImageCaption` 没命中（转述失败/中转不支持读图/缓存没同步），旧代码直接把**原图 base64 每一轮都重发**——一张原图几十万 token × 几张 × 每轮 = prompt 爆表、一次好几块。修：`else` 拆成两支——**当前轮**才发原图（模型必须看到，仅这一次）；**历史轮 + 无 caption** 一律发占位文字 `[图片：（还没转成文字，先略过）]`、【绝不】重发原图，后台仍补转述（下一轮就有 caption）。代价：转述始终失败的图，历史回放里模型看不到原图（但省下的是 100 万 token 的账，值）。需新 APK。**另注**：07-30 那种「3 条各 21.7 万、sent_est 各 4.8 万」是工具循环的 3 次调用 + 中转 ~4.5× 虚报，是另一回事（幽灵，见 caching.md），本次不动。
