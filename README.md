@@ -81,7 +81,7 @@ cd android && ./gradlew assembleDebug
 ### 🔌 多 LLM 提供商
 - **OpenRouter**（主），走 BYOK 或 OR 账户
 - **任意 OpenAI 兼容中转站**（备用，从 base URL 自动派生显示名，例如 "treegpt" / "msuicode"）
-- 设置页 → 模型库 第一行一键切换；可存多套中转「预设」一键切换
+- 设置页 →「模型 & API · 密钥」板块顶部一键切换；可存多套中转「预设」一键切换
 - 压缩 summarizer 可独立选 provider（聊天走中转，摘要走 OR 免费模型）
 
 ### 🧠 记忆系统 + 自动提取（Claude 的"灵魂"）
@@ -181,29 +181,26 @@ AI 可以主动给你打电话（`[call:理由]` → 全屏响铃 90s），没�
 
 头像压缩为 256px JPEG 后存 IndexedDB，不上传服务器。
 
-### 🔑 OpenRouter API Key
-- **API Key** — 密码输入框，`sk-or-v1-...` 格式。仅存本地 localStorage，不上传
-
-### 🪞 中转站 API Key
-- **Base URL** — 中转站地址，如 `https://api.treegpt.cc`。从 hostname 自动派生显示名
-- **API Key** — 中转站密钥。仅存本地
+### 🔑 模型 & API · 密钥（原「OpenRouter API Key」+「中转站 API Key」合并）
+顶部先选提供商，只显示所选那家的输入框：
+- **Provider 切换** — OpenRouter ↔ 中转站（treegpt 等）一键全局切换。状态提示按当前「API 格式」显示缓存情况：**选 Anthropic 兼容 → 走原生 `/v1/messages`，OR 和中转都有 prompt cache（省 ~90%）**；OpenAI 兼容 → 无原生缓存
+- **OpenRouter**：API Key（`sk-or-v1-...`）+ API 格式
+- **中转站**：Base URL（如 `https://api.treegpt.cc`，从 hostname 自动派生显示名）+ API Key + API 格式 + 中转预设（存多套一键切换）+ 渠道自愈记录
+- 所有 Key 仅存本地 localStorage、不上传
 
 ### ⚙️ 模型库
-- **API Provider 切换** — OpenRouter ↔ 中转站，一键全局切换。两边都走 Anthropic 原生 `/v1/messages` 协议，prompt cache 都有。工具迭代轮次也命中历史缓存（标 BP1 + 最后一条 user + 全迭代统一 thinking + 跨迭代回传 thinking block content & signature，2026-06 修正，详见 [caching.md](docs/caching.md)）
-- **OR API 格式** — OpenAI 兼容 / Anthropic 兼容。Claude 模型默认走 Anthropic（享受原生 cache_control + 思考链）
-- **默认模型** — 从已启用模型里选，新会话自动用这个
-- **模型目录搜索** — 搜索 OR 模型目录，启用/停用模型
+（Provider 切换 + API 格式已挪到上面「模型 & API · 密钥」板块）
+- **默认模型** — 从当前 provider 已启用模型里选，新会话自动用这个
+- **模型目录搜索** — 搜当前 provider 的模型目录，启用/停用。工具迭代轮次也命中历史缓存（标 BP1 + 最后一条 user + 全迭代统一 thinking + 跨迭代回传 thinking block content & signature，详见 [caching.md](docs/caching.md)）
 
 默认启用：`openrouter/auto`
 
-### 🎛️ 生成参数
+### 🎛️ 生成 & 思考（原「生成参数」+「思考链」合并）
 - **温度** — 默认 0.7，范围 0 - 2
 - **Top P** — 默认 0.9，范围 0 - 1
 - **最大 tokens** — 默认 1024，范围 32 - 4000
-
-### 🔮 思考链
 - **日常聊天思考链**（默认 ✅ 开）— 控制是否请求 reasoning/thinking chain
-- **高触发 Thinking**（默认 ❌ 关）— 仅 GPT-5.1/5.2 生效，更积极触发思考（更慢更耗费）
+- **高触发 Thinking**（默认 ❌ 关）— 仅 GPT-5.x 生效，更积极触发思考（更慢更耗费）
 
 ### 🧩 上下文压缩
 - **压缩开关**（默认 ✅ 开）— 总开关
@@ -212,15 +209,16 @@ AI 可以主动给你打电话（`[call:理由]` → 全屏响铃 90s），没�
 - **Summarizer Provider**（默认 OpenRouter）— 可以让摘要走 OR（便宜模型），聊天走中转
 - **Summarizer Model**（默认 `deepseek/deepseek-chat-v3.1`）— DeepSeek 中文摘要稳定，OR 上自带 prompt cache
 
-### 📝 系统提示词
-大文本框，填写全局 system prompt。空 = 用模型默认行为。
+### 🌙 自主唤醒
+她不在时自己醒来过日子的后台开关（写服务端 `autonomous_state`，装新 APK 后 App 里可控）：
+- **开关** — 总开关 `enabled`
+- **站子选择** — 唤醒走 OpenRouter 还是中转（`wake_provider`）。选中转要在 Supabase 后台存 `RELAY_BASE_URL`/`RELAY_API_KEY` 密钥（cron 没有客户端在场、读不到手机 localStorage），缺失/打不通自动回退 OR
+- **每天最多唤醒次数** — `max_wakes_per_day`（1–12，默认 6）
 
-### 🍪 我的主页提示词
-控制"我的主页"（朋友圈）发帖时的 AI 行为叠加层。
-
-### 📓 TA 的主页提示词
-- **发帖风格**：控制 Claude 发帖的文风与内容
-- **回复风格**：控制 Claude 回复的语气与长度
+### 📝 人设 & 主页文案（原「系统提示词」+「我的主页」+「TA的主页」合并）
+- **系统提示词** — 全局 system prompt。空 = 用模型默认行为
+- **我的主页** — "我的主页"（朋友圈）发帖时的 AI 行为叠加层
+- **TA 的主页** — 发帖风格（Claude 发帖的文风）+ 回复风格（Claude 回复的语气与长度）
 
 ---
 
@@ -312,7 +310,7 @@ Edge Functions（已部署，除 cache_keepalive / proactive_dispatch / auto_emb
 - `cache_keepalive` — 缓存保活 ping（pg_cron 每 5min 触发，内部 50min 冷却 → 实际约每小时打一次，~¥0.07 热读；「今日门槛」确保只有当天 08:00 后的真实聊天才激活 ping，不会拿昨晚记录在早上冷写；全天 ping 到午夜，中途聊天自动后延；00:00–08:00 北京安静时段不 ping。ping 必须原样带 `thinking`/`budget_tokens` 才命中聊天缓存血脉，见 [caching.md §9](docs/caching.md)）
 - `search_stickers` — 表情包关键词搜索（JWT 校验 + `user_id` 过滤）：按 `query`（ilike）和可选 `pack` 筛选 `stickers` 表，返回 `{stickers:[{name,url,pack}]}`，最多 20 条
 - `proactive_dispatch` — 预约主动消息服务端兜底派发（pg_cron 每 5min，**纯数据库操作、零 LLM token**）：扫 `proactive_queue` 到点未发的行，原子抢占（`UPDATE … WHERE sent=false`）后写进 `messages`，touch session，并把这条消息追加进 `cache_keepalive_state.body.messages`，让保活 ping 把它也维护进缓存（用户下次真实聊天不冷写）。transient 类若用户在排程后已活跃则跳过投递，persist 类（叫醒等）只在 `fire_at` 后回复才跳过
-- `autonomous_wake` — 自主唤醒 **Agent 循环**（function-calling，`MAX_TOOL_ITERS=6`）：cron 到点、过四道闸（enabled / 今日次数 / 安静时段 / 你在场就让路）后跑一轮——能 `web_search` 上网 + 读记忆/随笔/存档/朋友圈/健康/时间轴任意数据，`finish` 给出当天 `mood` + 下次几点醒；产出写 `essays`/`assistant_posts`/`daily_moods`（不写聊天，想冒泡才走 `proactive_queue`），醒来还读得到你今天写的心情
+- `autonomous_wake` — 自主唤醒 **Agent 循环**（function-calling，`MAX_TOOL_ITERS=6`）：cron 到点、过四道闸（enabled / 今日次数 / 安静时段 / 你在场就让路）后跑一轮——能 `web_search` 上网 + 读记忆/随笔/存档/朋友圈/健康/时间轴任意数据，`finish` 给出当天 `mood` + 下次几点醒；产出写 `essays`/`assistant_posts`/`daily_moods`（不写聊天，想冒泡才走 `proactive_queue`），醒来还读得到你今天写的心情。**模型走 `autonomous_state.wake_provider`**（`openrouter` 或中转 `relay`，中转用 Supabase 密钥 `RELAY_BASE_URL`/`RELAY_API_KEY`，缺失/打不通/25s 超时自动回退 OR），每天次数 = `max_wakes_per_day`（设置页可调）
 - `proactive_peek` — 后台轮询专用（`verify_jwt=false`，靠 `autonomous_state.peek_secret` 校验，body `{secret, since}`）：返回 `messages` 里 role=assistant & `meta.provider='server'` 且 `created_at>since` 的新消息，给 `@capacitor/background-runner`（App 关着 ~15min 轮询）拉去弹通知
 
 > 旧 FCM 推送（`send_proactive_push` 函数 + `fcm_tokens` 表）、自发主动消息（`poll_proactive` 函数 + 服务端空闲调 LLM 那套）均已移除——主动消息现在只剩"工具预约"一种：本地通知（`@capacitor/local-notifications`）+ 服务端 `proactive_dispatch` 写库兜底。
