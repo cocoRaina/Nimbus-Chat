@@ -134,7 +134,6 @@ function WeatherMoodDuo() {
       >
         <div className="home-card2-label">今日心情</div>
         <div className="home-card2-main">
-          <span className="home-card2-icon">🤍</span>
           <span className="home-card2-text home-card2-text--mood">{mood || "安静待着"}</span>
         </div>
         <div className="home-card2-sub">点一下看沈暮心情 ›</div>
