@@ -7,6 +7,7 @@
   min-height: 100vh;
   min-height: 100dvh;
   background: var(--page-bg);
+  background-attachment: fixed; /* 锚定视口，避免 100dvh 处露出 body 渐变的接缝(背景分层) */
   overflow: hidden;
   overscroll-behavior: none;
   color: var(--text-main);

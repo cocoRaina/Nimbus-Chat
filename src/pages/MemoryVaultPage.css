@@ -2,6 +2,7 @@
   min-height: 100vh;
   min-height: 100dvh;
   background: linear-gradient(160deg, var(--ab-bg) 0%, var(--ab-bg-2) 50%, var(--ab-surface) 100%);
+  background-attachment: fixed; /* 锚定视口，避免 100dvh 处露出 body 渐变的接缝(背景分层) */
   padding: 16px;
   padding-bottom: calc(2rem + env(safe-area-inset-bottom));
   color: var(--ab-deep);

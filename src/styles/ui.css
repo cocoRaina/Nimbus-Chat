@@ -204,6 +204,7 @@
   display: flex;
   flex-direction: column;
   background: var(--page-bg);
+  background-attachment: fixed; /* 锚定视口，避免 100dvh 处露出 body 渐变的接缝(背景分层) */
 }
 
 .app-shell__header {
