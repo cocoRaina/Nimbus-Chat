@@ -7,7 +7,6 @@ import {
   todayMoodDate,
   type DailyMood,
 } from '../storage/dailyMood'
-import { getAssistantName } from '../storage/assistantPersona'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { fetchOpenRouter } from '../api/openrouter'
@@ -90,7 +89,6 @@ const MoodTab = () => {
   const [loading, setLoading] = useState(true)
   const [draftText, setDraftText] = useState('')
   const [saving, setSaving] = useState(false)
-  const aiName = getAssistantName()
 
   const load = useCallback(async () => {
     const rows = await fetchDailyMoods(30)
@@ -141,9 +139,9 @@ const MoodTab = () => {
 
   return (
     <div className="mood-tab">
-      {/* 今天我的心情（纯文字，想加 emoji 自己打进去） */}
+      {/* 今天心情（Wren，纯文字，想加 emoji 自己打进去） */}
       <div className="mood-card glass-card mood-editor">
-        <div className="mood-card-who">今天我的心情</div>
+        <div className="mood-card-who">Wren · 今天心情</div>
         <textarea
           className="mood-input"
           placeholder="今天心情怎么样…（想加 emoji 自己打进去）"
@@ -170,13 +168,13 @@ const MoodTab = () => {
               <div className="mood-day-date">{date === today ? '今天' : fmtMoodDate(date)}</div>
               {pair.ai ? (
                 <div className="mood-line mood-line--ai">
-                  <span className="mood-line-who">{aiName}</span>
+                  <span className="mood-line-who">Claude</span>
                   <span className="mood-line-text">{pair.ai.text || '—'}</span>
                 </div>
               ) : null}
               {pair.user ? (
                 <div className="mood-line mood-line--me">
-                  <span className="mood-line-who">我</span>
+                  <span className="mood-line-who">Wren</span>
                   <span className="mood-line-text">{pair.user.text || '—'}</span>
                 </div>
               ) : null}

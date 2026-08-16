@@ -566,9 +566,10 @@
 .mood-line-emoji { font-size: 1rem; flex-shrink: 0; align-self: center; }
 .mood-line-who {
   font-size: 0.66rem;
+  font-weight: 600;
   color: var(--ab-muted);
   flex-shrink: 0;
-  width: 2rem;
+  width: 3.2rem;
 }
 .mood-line-text {
   flex: 1;

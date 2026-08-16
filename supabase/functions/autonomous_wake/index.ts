@@ -219,6 +219,12 @@ Deno.serve(async (req: Request) => {
     .map((m: { role: string; content: string }) => `${m.role === 'user' ? '她' : '我'}：${String(m.content ?? '').slice(0, 150)}`)
     .join('\n') || '（最近没怎么聊）'
 
+  // 她今天在 Moments 心情表格里写的心情——让沈暮醒来能看到、能回应。
+  const { data: herMoodRow } = await supa
+    .from('daily_moods').select('text').eq('mood_date', todayKey).eq('author', 'user')
+    .limit(1).maybeSingle()
+  const herMoodToday = (herMoodRow as { text?: string } | null)?.text?.trim() || '（她今天还没写心情）'
+
   const msgsToday = state?.day_key === todayKey ? (state.msgs_today ?? 0) : 0
   const canMessageHer = Boolean(targetSession && userId) && msgsToday < MAX_MSGS_PER_DAY
 
@@ -357,7 +363,7 @@ Deno.serve(async (req: Request) => {
     '【务必】最后调用一次 finish，交出你此刻真实的心情 + 你想过几小时再醒来（1–8）。'
 
   const firstUser =
-    `[你最近的心情]\n${moodLine}\n\n[你俩最近聊的]\n${recentConvo}\n\n` +
+    `[你最近的心情]\n${moodLine}\n\n[她今天写的心情]\n${herMoodToday}\n\n[你俩最近聊的]\n${recentConvo}\n\n` +
     '这是你的自由时间。想看什么就用工具去翻（上网、记忆库、随笔、旧对话、朋友圈、健康、时间线都行），' +
     '看完凭此刻真实的心境决定要不要写点/发点/找她，最后别忘了调用 finish 交出心情和下次醒来时间。'
 
