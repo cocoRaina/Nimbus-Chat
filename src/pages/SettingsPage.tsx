@@ -2142,7 +2142,7 @@ const SettingsPage = ({
                   }}
                 />
                 <span className="settings-hint">
-                  她还会在这个上限内自己决定隔几小时醒一次（1–8h）、深夜 0–8 点不醒、你在聊天时让路。
+                  他还会在这个上限内自己决定隔几小时醒一次（1–8h）、深夜 0–8 点不醒、你在聊天时让路。
                 </span>
 
                 <div className="system-prompt-actions">
