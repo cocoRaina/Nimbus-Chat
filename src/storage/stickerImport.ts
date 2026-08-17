@@ -31,15 +31,27 @@ export const sanitizeStickerName = (s: string): string =>
 
 // 让小机看一张表情图，返回它自己起的名字 + 一句视觉描述。走当前渠道（现在是中转，
 // 便宜且支持视觉）。失败返回 null，调用方保留原名（文件名）即可，优雅回退。
+//
+// ⚠️ 用「两行纯文本」而不是 JSON：表情的配文常带引号（例：配文"我睡睡睡睡"），
+// 塞进 JSON 字符串会顶破 `"` 导致 JSON.parse 失败——实测 92% 的失败就是这么来的
+// （侥幸成功的都是配文用单引号的）。两行格式无引号转义问题，且能容忍模型
+// 前置的 <think> 思考块。
 const CAPTION_PROMPT =
-  '这是一张聊天表情包/贴纸。只返回一个 JSON（不要任何别的字）：' +
-  '{"name":"给它起个名字，≤10字，像人发表情时脑子里会冒出的短语，体现它的情绪/动作/场景，例：小猫生气、躲被窝里哭、早安亲亲、白眼三连","desc":"一句话客观描述图里画了啥：主体/表情/动作/画面里的文字"}'
+  '看这张聊天表情包/贴纸，严格用下面两行回答，不要 JSON、不要多余的话、不要解释：\n' +
+  '名字：给它起个≤10字的名字，像人发表情时脑子里会冒出的短语，体现情绪/动作/场景（例：小猫生气、躲被窝里哭、早安亲亲、白眼三连）\n' +
+  '描述：一句话客观描述图里画了啥（主体/表情/动作/画面里的文字）'
 
-const parseLooseJson = (text: string): { name?: unknown; desc?: unknown } | null => {
-  const t = text.replace(/```json/gi, '').replace(/```/g, '')
-  const a = t.indexOf('{'), b = t.lastIndexOf('}')
-  if (a < 0 || b <= a) return null
-  try { return JSON.parse(t.slice(a, b + 1)) } catch { return null }
+// 从回复里抠出「名字：」「描述：」两行的值。先去掉模型可能前置的 <think> 块，
+// 再逐行找标签（中英文冒号都认）。任何一行缺失就返回空串，调用方按需回退。
+const pickLabeledLine = (text: string, labels: string[]): string => {
+  const clean = text.replace(/<think>[\s\S]*?<\/think>/gi, '')
+  for (const line of clean.split(/\r?\n/)) {
+    const t = line.trim().replace(/^[-*•\s]+/, '')
+    for (const lab of labels) {
+      if (t.startsWith(lab)) return t.slice(lab.length).replace(/^[：:\s]+/, '').trim()
+    }
+  }
+  return ''
 }
 
 export type StickerCaption = { name: string; description: string }
@@ -77,10 +89,8 @@ export const captionStickerImage = async (
     const choice = (payload.choices as Array<Record<string, unknown>> | undefined)?.[0]
     const message = (choice?.message as Record<string, unknown> | undefined) ?? {}
     const raw = typeof message.content === 'string' ? message.content : ''
-    const parsed = parseLooseJson(raw)
-    if (!parsed) return null
-    const name = sanitizeStickerName(typeof parsed.name === 'string' ? parsed.name : '')
-    const description = typeof parsed.desc === 'string' ? parsed.desc.trim().slice(0, 200) : ''
+    const name = sanitizeStickerName(pickLabeledLine(raw, ['名字', '名称', 'name', 'Name']))
+    const description = pickLabeledLine(raw, ['描述', 'desc', 'Desc', '描述文字']).slice(0, 200)
     if (!name && !description) return null
     return { name, description }
   } catch (err) {
