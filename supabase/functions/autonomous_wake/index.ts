@@ -2,35 +2,40 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 // 沈暮的「自主唤醒」（Agent 版）：独立于聊天的后台自由时间。
-// cron 每 ~10min POST 一次，先过四道闸——① 总开关 enabled；② 今天醒够 6 次没；
+// cron 每 ~10min POST 一次，先过四道闸——① 总开关 enabled；② 今天醒够 N 次没；
 // ③ 0–8 点安静时段；④ 她在场吗（45min 内有她的消息 = 在，跳过并改约）——过了才跑。
 //
-// 跑一轮 = 一个【真正的工具循环 Agent】：它能自己上网、翻记忆库、读随笔、搜 4o 存档、
-// 看朋友圈/健康/经期/时间线——边看边想，然后自决 写随笔 / 发朋友圈 / 主动给她发消息 /
-// 什么都不做，最后调用 finish 交出「此刻心情」+「下次几小时后醒」。随笔进 essays、
-// 朋友圈进 assistant_posts、主动消息进 proactive_queue（proactive_dispatch 弹通知送达，
-// 每日上限 MAX_MSGS_PER_DAY）、心情进 autonomous_state.mood（首页那张卡读它）。
-// 【绝不直接写进聊天】。所有「查看」工具都是只读的。
+// 跑一轮 = 一个【真正的工具循环 Agent】：能上网、翻记忆/随笔/存档/朋友圈/健康/时间线，
+// 自决 写随笔 / 发朋友圈 / 主动给她发消息 / 什么都不做，最后调 finish 交出「此刻心情」+
+// 「下次几小时后醒」。产出写 essays/assistant_posts/daily_moods，主动消息进 proactive_queue。
+//
+// ⚠️ 走 A 社原生 /v1/messages（跟聊天同一条路，用 Anthropic 工具 tool_use），不再走
+// OpenAI /chat/completions——treegpt 这类中转的便宜档（Claude-hyper）在 OpenAI 那扇门里
+// 翻译工具调用会翻车（只吐短文本、不吐 tool_calls），但 Anthropic 原生门是好的（聊天就靠它
+// 调 search_memory 等工具）。选站看 autonomous_state.wake_provider：
+//   relay → {RELAY_BASE_URL}/messages + x-api-key（聊天用的 treegpt）
+//   openrouter → openrouter.ai/api/v1/messages + Bearer
+// 【无跨站兜底】：选谁就打谁，打不通这轮就空过（下一 tick 再来）。
 //
 // 手动测试：POST {"force": true} 跳过全部闸、立即跑一轮。
 
-const OR_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const TAVILY_URL = 'https://api.tavily.com/search'
 const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY') ?? ''
 const TAVILY_API_KEY = Deno.env.get('TAVILY_API_KEY') ?? ''
-// 中转（treegpt 等）凭证——聊天走中转但这个 cron 没有客户端在场，读不到 localStorage，
-// 所以要单独存两个 Supabase 密钥才能让自主唤醒也走同一个站。缺省则回退 OpenRouter。
-// RELAY_BASE_URL 例：https://api.treegpt.cc/v1（会自动补 /chat/completions）。
+// 中转（treegpt 等）凭证——cron 没有客户端在场、读不到手机 localStorage，故单独存密钥。
+// RELAY_BASE_URL 例：https://api.treegpt.cc/v1（会自动补 /messages）。
 const RELAY_BASE_URL = Deno.env.get('RELAY_BASE_URL') ?? ''
 const RELAY_API_KEY = Deno.env.get('RELAY_API_KEY') ?? ''
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
-const MAX_WAKES_PER_DAY = 6            // 「醒得更勤」（2026-08-10，沈暮要第一档）
-const MAX_MSGS_PER_DAY = 5             // 一天最多主动给她发几条（沈暮定的 4–5，取 5）
+const MAX_WAKES_PER_DAY = 6            // 缺省每天最多醒几次（autonomous_state.max_wakes_per_day 可覆盖）
+const MAX_MSGS_PER_DAY = 5             // 一天最多主动给她发几条
 const PRESENCE_QUIET_MIN = 45          // 她 45min 内说过话 = 在场
 const QUIET_START_H = 0, QUIET_END_H = 8 // 北京 0–8 点安静时段不醒
-const MAX_TOOL_ITERS = 6              // 工具循环最多几轮（控成本，够它看几样东西再决定）
+const MAX_TOOL_ITERS = 6              // 工具循环最多几轮
+// 单次上游请求超时：上游吊住若没超时会把整个 Edge 运行时拖到墙钟上限被杀，patchState 都跑不到。
+const REQUEST_TIMEOUT_MS = 40_000
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -40,13 +45,11 @@ const beijingHour = (d = new Date()): number =>
 const beijingDate = (d = new Date()): string =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(d)
 
-// 下一个北京 9:00（安静时段结束）。
 const next9am = (from = new Date()): Date => {
   let t = new Date(`${beijingDate(from)}T09:00:00+08:00`)
   if (t.getTime() <= from.getTime()) t = new Date(t.getTime() + 86400000)
   return t
 }
-// 从现在起 h 小时后，但若落进安静时段就顺延到 9:00。
 const scheduleFrom = (hours: number): Date => {
   const h = Math.max(1, Math.min(8, Math.round(hours || 4)))
   const t = new Date(Date.now() + h * 3600000)
@@ -55,7 +58,7 @@ const scheduleFrom = (hours: number): Date => {
 
 const trimSlash = (s: string) => s.replace(/\/+$/, '')
 
-// 把裸 slug 归一成 OpenRouter 认的：claude-opus-4-6 → anthropic/claude-opus-4.6。
+// OpenRouter 原生 /messages 认 anthropic/<model> 这种 slug；裸 slug 归一：claude-opus-4-6 → anthropic/claude-opus-4.6
 const orModel = (m: string | null): string => {
   const s = (m ?? '').trim()
   if (!s) return 'anthropic/claude-opus-4.6'
@@ -63,16 +66,22 @@ const orModel = (m: string | null): string => {
   const dotted = s.replace(/^(claude-(?:opus|sonnet|haiku)-\d+)-(\d+)$/i, '$1.$2')
   return `anthropic/${dotted}`
 }
-
-// 中转（NewAPI/One-API）走它自己模型广场里的裸 id，跟聊天发的一模一样，不加
-// anthropic/ 前缀、不点分化——聊天用 default_model 原样发就命中，这里照抄。
+// 中转 /v1/messages 走它模型广场里的裸 id，跟聊天发的一模一样。
 const relayModel = (m: string | null): string => {
   const s = (m ?? '').trim()
   return s || 'claude-opus-4-6'
 }
 
-// 一条上游路由：打哪个 URL、用哪个 key、发哪个模型名。
-type Route = { url: string; key: string; model: string; label: 'relay' | 'openrouter' }
+// 一条上游路由：打哪个 /messages、用哪个 key、发哪个模型名、什么认证头。
+type Route = {
+  url: string
+  key: string
+  model: string
+  authStyle: 'bearer' | 'x-api-key'
+  label: 'relay' | 'openrouter'
+}
+
+type AnthropicBlock = { type: string; text?: string; id?: string; name?: string; input?: unknown }
 
 const trunc = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s)
 const fmtDate = (iso?: string | null): string => {
@@ -82,59 +91,60 @@ const fmtDate = (iso?: string | null): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-// 单次上游请求的超时（毫秒）。关键：中转/上游若吊住，没有超时会把整个 Edge 运行时
-// 拖到墙钟上限被杀，patchState 都跑不到（实测 relay 首切时整轮无产出）。超时后 abort，
-// 由调用方回退另一条路由。25s 足够慢上游返回，又远低于 Edge 的墙钟限制。
-const REQUEST_TIMEOUT_MS = 25_000
-const onErr = (fn: ((msg: string) => void) | undefined, msg: string) => { console.warn(msg); fn?.(msg) }
-
-// 普通（无工具）单发，用于最后兜底问一句心情+下次醒。走给定路由。
-const chatOnce = async (
+// A 社原生 /v1/messages 单发。tools 传 null = 不带工具（收尾问心情）。
+// 返回助手回复的 content 块数组（含 text / tool_use），失败返回 null。
+const callAnthropic = async (
   route: Route,
+  system: string,
   messages: Array<Record<string, unknown>>,
+  tools: unknown[] | null,
   maxTokens: number,
-  report?: (msg: string) => void,
-): Promise<string | null> => {
+): Promise<AnthropicBlock[] | null> => {
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS)
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+    }
+    if (route.authStyle === 'bearer') headers['Authorization'] = `Bearer ${route.key}`
+    else headers['x-api-key'] = route.key
+
+    const body: Record<string, unknown> = {
+      model: route.model,
+      system,
+      messages,
+      max_tokens: maxTokens,
+      temperature: 0.8,
+    }
+    if (tools) {
+      body.tools = tools
+      body.tool_choice = { type: 'auto' }
+    }
+
     const r = await fetch(route.url, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${route.key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: route.model, messages, max_tokens: maxTokens, temperature: 0.8 }),
+      headers,
+      body: JSON.stringify(body),
       signal: ac.signal,
     })
-    if (!r.ok) { onErr(report, `[wake] ${route.label} chat 失败 ${r.status} ${(await r.text().catch(() => '')).slice(0, 200)}`); return null }
+    if (!r.ok) {
+      console.warn(`[wake] ${route.label} 失败 ${r.status} ${(await r.text().catch(() => '')).slice(0, 300)}`)
+      return null
+    }
     const data = await r.json()
-    const t = data?.choices?.[0]?.message?.content
-    return typeof t === 'string' ? t.trim() : null
-  } catch (e) { onErr(report, `[wake] ${route.label} chat 异常 ${String(e).slice(0, 200)}`); return null }
-  finally { clearTimeout(timer) }
+    const content = data?.content
+    return Array.isArray(content) ? (content as AnthropicBlock[]) : null
+  } catch (e) {
+    console.warn(`[wake] ${route.label} 异常 ${String(e).slice(0, 200)}`)
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
-// 带工具的单发，返回 assistant message（可能含 tool_calls）。走给定路由。
-const chatToolsOnce = async (
-  route: Route,
-  messages: Array<Record<string, unknown>>,
-  tools: unknown[],
-  maxTokens: number,
-  report?: (msg: string) => void,
-): Promise<Record<string, unknown> | null> => {
-  const ac = new AbortController()
-  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS)
-  try {
-    const r = await fetch(route.url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${route.key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: route.model, messages, tools, tool_choice: 'auto', max_tokens: maxTokens, temperature: 0.8 }),
-      signal: ac.signal,
-    })
-    if (!r.ok) { onErr(report, `[wake] ${route.label} tools 失败 ${r.status} ${(await r.text().catch(() => '')).slice(0, 200)}`); return null }
-    const data = await r.json()
-    return (data?.choices?.[0]?.message ?? null) as Record<string, unknown> | null
-  } catch (e) { onErr(report, `[wake] ${route.label} tools 异常 ${String(e).slice(0, 200)}`); return null }
-  finally { clearTimeout(timer) }
-}
+const textOf = (blocks: AnthropicBlock[] | null): string =>
+  (blocks ?? []).filter((b) => b.type === 'text').map((b) => b.text ?? '').join('')
 
 const tavily = async (query: string): Promise<string | null> => {
   if (!TAVILY_API_KEY) return null
@@ -155,7 +165,6 @@ const tavily = async (query: string): Promise<string | null> => {
   } catch { return null }
 }
 
-// 从 ```json 包裹/前后废话里抠出第一个完整 JSON 对象。
 const parseJsonLoose = (text: string): Record<string, unknown> | null => {
   const t = text.replace(/```json/gi, '').replace(/```/g, '')
   const a = t.indexOf('{'), b = t.lastIndexOf('}')
@@ -163,7 +172,7 @@ const parseJsonLoose = (text: string): Record<string, unknown> | null => {
   try { return JSON.parse(t.slice(a, b + 1)) as Record<string, unknown> } catch { return null }
 }
 
-// 工具清单（OpenAI function-calling 格式）。查看类只读；动作类有副作用。
+// 工具清单（Anthropic 原生格式：name/description/input_schema）。查看类只读；动作类有副作用。
 const buildTools = (canMessageHer: boolean) => {
   const readTools = [
     { name: 'web_search', desc: '上网搜一个关键词，看看外面的世界/新闻/资料/你好奇的东西', params: { query: { type: 'string', description: '搜索词，中英都行' } }, req: ['query'] },
@@ -183,18 +192,15 @@ const buildTools = (canMessageHer: boolean) => {
     { name: 'finish', desc: '结束这次醒来。必须最后调用一次：交出你此刻真实的心情（她主页会看到，短一点、像随口说的）+ 你想过几小时再醒来（1–8）', params: { mood: { type: 'string' }, next_wake_hours: { type: 'number' } }, req: ['mood', 'next_wake_hours'] },
   ]
   return [...readTools, ...actionTools].map((t) => ({
-    type: 'function',
-    function: {
-      name: t.name,
-      description: t.desc,
-      parameters: { type: 'object', properties: t.params, required: t.req },
-    },
+    name: t.name,
+    description: t.desc,
+    input_schema: { type: 'object', properties: t.params, required: t.req },
   }))
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405)
-  if (!OPENROUTER_API_KEY || !SUPABASE_URL || !SERVICE_ROLE_KEY) return json({ error: 'env not configured' }, 500)
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return json({ error: 'env not configured' }, 500)
 
   let force = false
   try { const b = await req.json(); force = b?.force === true } catch { /* cron 空 body */ }
@@ -207,7 +213,6 @@ Deno.serve(async (req: Request) => {
   const patchState = async (patch: Record<string, unknown>) =>
     supa.from('autonomous_state').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', 1)
 
-  // 每天最多醒几次：设置页可调（autonomous_state.max_wakes_per_day），缺省 6。
   const maxWakesPerDay =
     typeof state?.max_wakes_per_day === 'number' && state.max_wakes_per_day >= 1
       ? state.max_wakes_per_day
@@ -243,60 +248,30 @@ Deno.serve(async (req: Request) => {
   const userId = settings?.user_id as string | undefined
   const persona = typeof settings?.system_prompt === 'string' ? settings.system_prompt : ''
 
-  // ---- 选站：'relay' 且中转密钥齐 → 走中转（聊天用的那个）；否则 OpenRouter。----
-  // 两条路都是 OpenAI 兼容 /chat/completions + function-calling，中转（NewAPI）通吃。
-  const orRoute: Route = {
-    url: OR_CHAT_URL,
-    key: OPENROUTER_API_KEY,
-    model: orModel(settings?.default_model ?? null),
-    label: 'openrouter',
-  }
+  // ---- 选站（无跨站兜底）：relay 且密钥齐 → 走中转 /messages；否则 OpenRouter /messages ----
   const relayConfigured = Boolean(RELAY_BASE_URL && RELAY_API_KEY)
   const wantRelay = state?.wake_provider === 'relay'
-  const relayRoute: Route | null =
-    wantRelay && relayConfigured
-      ? {
-          url: `${trimSlash(RELAY_BASE_URL)}/chat/completions`,
-          key: RELAY_API_KEY,
-          model: relayModel(settings?.default_model ?? null),
-          label: 'relay',
-        }
-      : null
-  if (wantRelay && !relayConfigured) {
-    console.warn('[wake] wake_provider=relay 但未配 RELAY_BASE_URL/RELAY_API_KEY 密钥，本轮回退 OpenRouter')
-  }
-  // 主路由 + 兜底：中转打不通（下线/不认工具/网络）就自动回退 OR，唤醒绝不因切站哑掉。
-  const primaryRoute = relayRoute ?? orRoute
-  const fallbackRoute = relayRoute ? orRoute : null
-  const model = primaryRoute.model
-
-  // 无工具单发：主路由失败自动回退。
-  const chat = async (
-    messages: Array<Record<string, unknown>>,
-    maxTokens: number,
-  ): Promise<string | null> => {
-    const r = await chatOnce(primaryRoute, messages, maxTokens)
-    if (r != null) return r
-    if (fallbackRoute) {
-      console.warn(`[wake] ${primaryRoute.label} 失败，回退 ${fallbackRoute.label}`)
-      return chatOnce(fallbackRoute, messages, maxTokens)
+  let route: Route
+  if (wantRelay && relayConfigured) {
+    route = {
+      url: `${trimSlash(RELAY_BASE_URL)}/messages`,
+      key: RELAY_API_KEY,
+      model: relayModel(settings?.default_model ?? null),
+      authStyle: 'x-api-key',
+      label: 'relay',
     }
-    return null
-  }
-  // 带工具单发：主路由失败自动回退。
-  const chatWithTools = async (
-    messages: Array<Record<string, unknown>>,
-    tools: unknown[],
-    maxTokens: number,
-  ): Promise<Record<string, unknown> | null> => {
-    const r = await chatToolsOnce(primaryRoute, messages, tools, maxTokens)
-    if (r != null) return r
-    if (fallbackRoute) {
-      console.warn(`[wake] ${primaryRoute.label} tools 失败，回退 ${fallbackRoute.label}`)
-      return chatToolsOnce(fallbackRoute, messages, tools, maxTokens)
+  } else {
+    if (wantRelay && !relayConfigured) console.warn('[wake] wake_provider=relay 但未配 RELAY_* 密钥，本轮用 OpenRouter')
+    route = {
+      url: 'https://openrouter.ai/api/v1/messages',
+      key: OPENROUTER_API_KEY,
+      model: orModel(settings?.default_model ?? null),
+      authStyle: 'bearer',
+      label: 'openrouter',
     }
-    return null
   }
+  if (route.authStyle === 'bearer' && !OPENROUTER_API_KEY) return json({ error: 'openrouter key missing' }, 500)
+  const model = route.model
 
   const { data: moodRow } = await supa.from('mood_state').select('tan,chen,chi,nian,tone').limit(1).maybeSingle()
   const moodLine = moodRow
@@ -312,7 +287,6 @@ Deno.serve(async (req: Request) => {
     .map((m: { role: string; content: string }) => `${m.role === 'user' ? '她' : '我'}：${String(m.content ?? '').slice(0, 150)}`)
     .join('\n') || '（最近没怎么聊）'
 
-  // 她今天在 Moments 心情表格里写的心情——让沈暮醒来能看到、能回应。
   const { data: herMoodRow } = await supa
     .from('daily_moods').select('text').eq('mood_date', todayKey).eq('author', 'user')
     .limit(1).maybeSingle()
@@ -321,7 +295,7 @@ Deno.serve(async (req: Request) => {
   const msgsToday = state?.day_key === todayKey ? (state.msgs_today ?? 0) : 0
   const canMessageHer = Boolean(targetSession && userId) && msgsToday < MAX_MSGS_PER_DAY
 
-  // ---- 结果累加（工具执行时写入）----
+  // ---- 结果累加 ----
   let wroteEssay: string | null = null
   let postedMoment: string | null = null
   let messagedHer: string | null = null
@@ -329,7 +303,6 @@ Deno.serve(async (req: Request) => {
   let nextHours = 4
   let finished = false
 
-  // ---- 工具执行器 ----
   const execTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
     try {
       switch (name) {
@@ -462,31 +435,35 @@ Deno.serve(async (req: Request) => {
 
   const tools = buildTools(canMessageHer)
   const messages: Array<Record<string, unknown>> = [
-    { role: 'system', content: sys },
     { role: 'user', content: firstUser },
   ]
 
   for (let i = 0; i < MAX_TOOL_ITERS && !finished; i++) {
-    const msg = await chatWithTools(messages, tools, 1500)
-    if (!msg) break
-    messages.push(msg)
-    const calls = (msg.tool_calls as Array<{ id: string; function: { name: string; arguments: string } }> | undefined) ?? []
-    if (calls.length === 0) break // 它没调工具（可能只说了句话）——收尾
-    for (const c of calls) {
-      let a: Record<string, unknown> = {}
-      try { a = JSON.parse(c.function.arguments || '{}') } catch { a = {} }
-      const result = await execTool(c.function.name, a)
-      messages.push({ role: 'tool', tool_call_id: c.id, content: result })
+    const content = await callAnthropic(route, sys, messages, tools, 1500)
+    if (!content) break
+    // 把助手这轮的完整 content（text + tool_use）原样回填历史
+    messages.push({ role: 'assistant', content })
+    const toolUses = content.filter((b) => b.type === 'tool_use')
+    if (toolUses.length === 0) break // 它没调工具（只说了句话）——收尾
+    const toolResults = [] as Array<Record<string, unknown>>
+    for (const tu of toolUses) {
+      const args = (tu.input && typeof tu.input === 'object') ? tu.input as Record<string, unknown> : {}
+      const result = await execTool(String(tu.name ?? ''), args)
+      toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: result })
     }
+    messages.push({ role: 'user', content: toolResults })
   }
 
-  // ---- 兜底：它没调 finish 就没心情，补问一句 ----
+  // ---- 兜底：它没调 finish 就没心情，无工具补问一句 ----
   if (!finished) {
-    const raw = await chat([
-      { role: 'system', content: sys },
-      { role: 'user', content: `${firstUser}\n\n（现在只用一个 JSON 回：{"mood":"一句此刻的心情","next_wake_hours":数字}）` },
-    ], 300)
-    const d = raw ? parseJsonLoose(raw) : null
+    const content = await callAnthropic(
+      route,
+      sys,
+      [{ role: 'user', content: `${firstUser}\n\n（现在只用一个 JSON 回：{"mood":"一句此刻的心情","next_wake_hours":数字}）` }],
+      null,
+      300,
+    )
+    const d = content ? parseJsonLoose(textOf(content)) : null
     if (d) {
       if (typeof d.mood === 'string' && d.mood.trim()) mood = d.mood.trim().slice(0, 120)
       const h = typeof d.next_wake_hours === 'number' ? d.next_wake_hours : Number(d.next_wake_hours)
@@ -508,13 +485,12 @@ Deno.serve(async (req: Request) => {
     ...(mood ? { mood, mood_at: now.toISOString() } : {}),
   })
 
-  // 同时写进「每日心情」（Moments 的心情 tab 读它，有历史）。每天一条、upsert。
   if (mood && userId) {
     await supa.from('daily_moods').upsert({
       user_id: userId,
       mood_date: todayKey,
       author: 'ai',
-      emoji: null, // 沈暮不用身份/心情 emoji，只用文字表达；心情 tab 里它那行不显示 emoji
+      emoji: null,
       text: mood,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id,mood_date,author' })
@@ -531,7 +507,6 @@ Deno.serve(async (req: Request) => {
     finished_cleanly: finished,
     next_wake_at: nextWake.toISOString(),
     model,
-    provider: primaryRoute.label,
-    relay_configured: relayConfigured,
+    provider: route.label,
   })
 })

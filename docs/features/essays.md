@@ -119,11 +119,15 @@
 - **模型**用 `user_settings.default_model`（跟聊天同款、人格连贯）。**走哪个站由
   `autonomous_state.wake_provider` 决定**（`openrouter` | `relay`）：
   - `openrouter`（默认）→ 服务端 `OPENROUTER_API_KEY`，slug 归一成 `anthropic/claude-opus-4.6`。
-  - `relay` → 走**聊天用的中转**（如 treegpt）的 OpenAI 兼容 `/chat/completions`，用
-    Supabase 密钥 `RELAY_BASE_URL` + `RELAY_API_KEY`。**为什么要单独存密钥**：cron 没有
-    客户端在场，读不到手机 localStorage 里的中转配置，所以中转凭证必须以服务端密钥形式
-    另存一份。密钥缺失或中转打不通（下线/不认工具/超时）会**自动回退 OpenRouter**，唤醒
-    绝不因切站哑掉；两个 LLM 调用各有 25s fetch 超时，防中转吊住把整轮拖到墙钟被杀。
+  - `relay` → 走**聊天用的中转**（如 treegpt）的 **A 社原生 `/v1/messages`**（`x-api-key`），
+    用 Supabase 密钥 `RELAY_BASE_URL` + `RELAY_API_KEY`。**为什么要单独存密钥**：cron 没有
+    客户端在场，读不到手机 localStorage 里的中转配置，所以中转凭证必须以服务端密钥形式另存一份。
+  - ⚠️ **必须走 A 社原生 `/v1/messages` + Anthropic `tool_use`，不能走 OpenAI `/chat/completions`**
+    （2026-08-17 定案）：唤醒是工具循环 Agent，treegpt 的便宜档（Claude-hyper）在 OpenAI 那扇门
+    翻译 function-calling 会翻车——模型只吐短文本、不吐 `tool_calls`，`finish` 永远不触发 → 每次
+    「安静待着 + 空心情」还照扣钱。但同一个 treegpt 的 **Anthropic 原生门是好的**（聊天就靠它调
+    `search_memory` 等工具）。改走原生路后 treegpt 也能正常干活、且比 OR 便宜。**无跨站兜底**：选谁
+    打谁，打不通这轮空过（下一 tick 再来）；单请求 40s 超时，防中转吊住把整轮拖到墙钟被杀。
 - **配置入口**：设置页「🌙 自主唤醒」板块——开关(`enabled`)、站子选择(`wake_provider`)、
   每天最多唤醒次数(`max_wakes_per_day`，替代旧的写死常量 6)。存进 `autonomous_state` 即时生效。
 - **成本兜底**：每天封顶 `max_wakes_per_day` 次、深夜不醒、便宜也就便宜在低频。
