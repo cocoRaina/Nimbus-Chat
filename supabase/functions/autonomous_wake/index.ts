@@ -471,14 +471,20 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const nextWake = scheduleFrom(nextHours)
+  // 抽风判定：健康的一轮总会产出心情（finish 或兜底问出来）。mood 还是 null =
+  // 这轮 LLM 调用没接住（中转打嗝/空回/超时）。抽风时：① ~1h 后重试（不是默认 4h）；
+  // ② 不算掉当天名额（一次打嗝不该毁掉一整天）。真·安静待着（有心情但啥都没干）不算抽风。
+  const wakeFailed = mood === null
   const wakesToday = state?.day_key === todayKey ? (state.wakes_today ?? 0) : 0
-  const lastNote = `${wroteEssay ? `写《${wroteEssay}》` : ''}${postedMoment ? ' 发圈' : ''}${messagedHer ? ' 发消息给她' : ''}${!wroteEssay && !postedMoment && !messagedHer ? '安静待着' : ''}`.trim()
+  const nextWake = wakeFailed ? scheduleFrom(1) : scheduleFrom(nextHours)
+  const lastNote = wakeFailed
+    ? '中转没接住·约 1h 后重试'
+    : `${wroteEssay ? `写《${wroteEssay}》` : ''}${postedMoment ? ' 发圈' : ''}${messagedHer ? ' 发消息给她' : ''}${!wroteEssay && !postedMoment && !messagedHer ? '安静待着' : ''}`.trim()
 
   await patchState({
     last_wake_at: now.toISOString(),
     next_wake_at: nextWake.toISOString(),
-    wakes_today: wakesToday + 1,
+    wakes_today: wakesToday + (wakeFailed ? 0 : 1),
     msgs_today: msgsToday + (messagedHer ? 1 : 0),
     day_key: todayKey,
     last_note: lastNote,
