@@ -165,7 +165,7 @@ AI 可以主动给你打电话（`[call:理由]` → 全屏响铃 90s），没�
 
 ### 🧷 表情包 + 连发
 - **连发**：像 IM 一样一口气发好几条（文字、表情包都行），停顿 2.5 秒没新动作后 AI 才一次性把这一批一起回（`queueUserMessage` debounce）。**正在输入框打字也算"动作"**，会把定时器推后，所以打下一条时 AI 不会抢答。
-- **表情包**：你和 AI 共用一套贴纸，用 `[sticker:名字]` 引用。输入栏 🧷 按钮打开 **LINE 风格表情面板**（分 tab：「我的」= 本地导入，其余 tab = Supabase 远端表情包合集），4 列网格可滚动，导入/发送/删除。AI 用 `search_stickers` 工具按关键词搜库（不靠预注入的名字列表，避免系统 prompt 臃肿），找到名字后写 `[sticker:名字]` 自然发出。详见 [docs/features/chat-ui.md](docs/features/chat-ui.md)
+- **表情包**：你和 AI 共用一套贴纸，用 `[sticker:名字]` 引用。输入栏 🧷 按钮打开 **LINE 风格表情面板**（分 tab：「我的」= 本地导入，其余 tab = Supabase 远端表情包合集），4 列网格可滚动，导入/发送/删除。AI 用 `search_stickers` 工具按关键词搜库（不靠预注入的名字列表，避免系统 prompt 臃肿），找到名字后写 `[sticker:名字]` 自然发出。**导入时可点「🪄 小机自动命名」让它逐张看图起名 + 写视觉描述**（走当前渠道视觉，按钮触发不自动；旧表情有「一键补描述」），`search_stickers` 连描述一起搜 → 它按情绪短语和「图里画的啥」双重命中，不再靠名字瞎猜。详见 [docs/features/chat-ui.md](docs/features/chat-ui.md)
 - **附件面板（微信风格）**：输入栏 `+` 打开底部面板，📷 拍照（APK 走 `@capacitor/camera` 原生相机）/ 🖼 从相册。
 
 ---
@@ -308,7 +308,7 @@ Edge Functions（已部署，除 cache_keepalive / proactive_dispatch / auto_emb
 - `netease_search` — 网易云搜歌代理（`play_music` 工具用）：服务端带浏览器头打 `music.163.com/api/search/get`，返回 `{id,name,artist,duration_seconds}`，绕 WebView CORS
 - `auto_embed` — INSERT trigger embedding + 批量 embedding（`records[]` 模式）
 - `cache_keepalive` — 缓存保活 ping（pg_cron 每 5min 触发，内部 50min 冷却 → 实际约每小时打一次，~¥0.07 热读；「今日门槛」确保只有当天 08:00 后的真实聊天才激活 ping，不会拿昨晚记录在早上冷写；全天 ping 到午夜，中途聊天自动后延；00:00–08:00 北京安静时段不 ping。ping 必须原样带 `thinking`/`budget_tokens` 才命中聊天缓存血脉，见 [caching.md §9](docs/caching.md)）
-- `search_stickers` — 表情包关键词搜索（JWT 校验 + `user_id` 过滤）：按 `query`（ilike）和可选 `pack` 筛选 `stickers` 表，返回 `{stickers:[{name,url,pack}]}`，最多 20 条
+- `search_stickers` — 表情包关键词搜索（JWT 校验 + `user_id` 过滤）：按 `query`（同时 ilike `name` 和 `description` 视觉描述）和可选 `pack` 筛选 `stickers` 表，返回 `{stickers:[{name,url,pack,description}]}`，最多 20 条
 - `proactive_dispatch` — 预约主动消息服务端兜底派发（pg_cron 每 5min，**纯数据库操作、零 LLM token**）：扫 `proactive_queue` 到点未发的行，原子抢占（`UPDATE … WHERE sent=false`）后写进 `messages`，touch session，并把这条消息追加进 `cache_keepalive_state.body.messages`，让保活 ping 把它也维护进缓存（用户下次真实聊天不冷写）。transient 类若用户在排程后已活跃则跳过投递，persist 类（叫醒等）只在 `fire_at` 后回复才跳过
 - `autonomous_wake` — 自主唤醒 **Agent 循环**（function-calling，`MAX_TOOL_ITERS=6`）：cron 到点、过四道闸（enabled / 今日次数 / 安静时段 / 你在场就让路）后跑一轮——能 `web_search` 上网 + 读记忆/随笔/存档/朋友圈/健康/时间轴任意数据，`finish` 给出当天 `mood` + 下次几点醒；产出写 `essays`/`assistant_posts`/`daily_moods`（不写聊天，想冒泡才走 `proactive_queue`），醒来还读得到你今天写的心情。**模型走 `autonomous_state.wake_provider`**（`openrouter` 或中转 `relay`，中转用 Supabase 密钥 `RELAY_BASE_URL`/`RELAY_API_KEY`，缺失/打不通/25s 超时自动回退 OR），每天次数 = `max_wakes_per_day`（设置页可调）
 - `proactive_peek` — 后台轮询专用（`verify_jwt=false`，靠 `autonomous_state.peek_secret` 校验，body `{secret, since}`）：返回 `messages` 里 role=assistant & `meta.provider='server'` 且 `created_at>since` 的新消息，给 `@capacitor/background-runner`（App 关着 ~15min 轮询）拉去弹通知
