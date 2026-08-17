@@ -34,11 +34,18 @@ Deno.serve(async (req: Request) => {
 
   let q = supabase
     .from('stickers')
-    .select('name, url, pack')
+    .select('name, url, pack, description')
     .eq('user_id', user.id)
 
   if (pack) q = q.eq('pack', pack)
-  if (query) q = q.ilike('name', `%${query}%`)
+  // 同时搜「名字」和「视觉描述」：小机既能按情绪短语挑，也能按图里画的啥挑。
+  // query 里的逗号/括号/星号会破坏 PostgREST or() 过滤语法，先清成空格。
+  if (query) {
+    const safe = query.replace(/[,()*%]/g, ' ').trim()
+    q = safe
+      ? q.or(`name.ilike.%${safe}%,description.ilike.%${safe}%`)
+      : q
+  }
 
   const { data, error } = await q.limit(count)
 

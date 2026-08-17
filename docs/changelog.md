@@ -4,6 +4,16 @@
 
 ---
 
+## 🪄 表情包：小机看图自动命名 + 视觉描述 + 搜索（2026-08-17，用户「让小机自己存名字，我不用一个个打字」）
+
+以前小机发表情是**瞎猜**——`search_stickers` 只返回名字,它看不到图,全靠名字起得好不好。早年想让它看图命名,因为要多走 OR(国外渠道)贵,砍了。现在聊天走中转(treegpt,便宜且支持视觉),把这条重新接上,还顺带让它写「视觉描述」。
+
+- **DB**:`stickers` 加 `description` 列(迁移 `20260817120000`)。
+- **`search_stickers`**:`select` + `or(name.ilike, description.ilike)` 同时搜名字和描述,返回里带 description → 小机既按情绪短语、也按「图里画的啥」挑,准多了。query 里的 `,()*%` 先清成空格防 PostgREST or() 语法被破坏。
+- **导入弹窗**加「🪄 小机自动命名」按钮:逐张 `captionStickerImage(dataUrl, model, provider)` 走当前渠道视觉识别,返回 `{name, desc}` 自动填,用户还能手改;每行多一个描述输入框。**按钮触发**(不自动,省钱)。
+- **旧表情**:表情面板加「🪄 给旧表情补视觉描述」一键(`backfillStickerDescriptions`),扫 description 为空的行、逐张看图只补描述、名字不动。
+- 复用 `imageCaptions.ts` 同款 `fetchOpenRouter('/chat/completions', {vision})` 管线;失败优雅回退(保留文件名/原名)。代码:`storage/stickerImport.ts`、`pages/ChatPage.tsx`。需新 APK。
+
 ## 🌙 自主唤醒改走聊天中转 + 设置页加唤醒板块 + 精简（2026-08-16，用户「自主唤醒走的 OR，想换成聊天用的中转」）
 
 **背景**：查日志发现聊天 100% 走 msuicode→treegpt，唯独**自主唤醒 cron 硬编码 OpenRouter**（`OR_CHAT_URL` + 服务端 `OPENROUTER_API_KEY`）。根因：cron 没有客户端在场，读不到手机 localStorage 里的中转 key/base，只能退回服务端唯一的 OR 密钥。

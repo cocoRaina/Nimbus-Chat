@@ -38,6 +38,8 @@ import {
   uploadStickerPack,
   deleteRemoteSticker,
   dataUrlToBlob,
+  captionStickerImage,
+  backfillStickerDescriptions,
 } from '../storage/stickerImport'
 import { saveToAlbum } from '../storage/album'
 import { saveToy } from '../storage/toybox'
@@ -613,6 +615,9 @@ const ChatPage = ({
   // 贴纸导入/删除的失败原因——以前静默吞掉（localStorage 满、HEIC 解不了都
   // 毫无提示，"传不上去了"就是这么来的），现在一律弹出来。
   const [stickerError, setStickerError] = useState<string | null>(null)
+  // 小机看图自动命名/补描述的进度（导入弹窗按钮 + 旧表情一键补描述共用样式）
+  const [stickerCaptioning, setStickerCaptioning] = useState<{ done: number; total: number } | null>(null)
+  const [backfillDesc, setBackfillDesc] = useState<{ done: number; total: number } | null>(null)
   const [quoted, setQuoted] = useState<{ role: ChatMessage['role']; content: string } | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [pendingAttachments, setPendingAttachments] = useState<
@@ -1116,9 +1121,9 @@ const ChatPage = ({
       return
     }
     // 登录后：批量导入到自己的 Supabase（贴纸桶 + stickers 表），跨设备同步，
-    // AI 的 search_stickers 也搜得到，还不占 localStorage 配额。名字手动起
-    // （默认取文件名）——AI 看图起名试过一版，用户不要：多一次模型调用，
-    // 还得走国外渠道。
+    // AI 的 search_stickers 也搜得到，还不占 localStorage 配额。名字默认取文件名，
+    // 弹窗里可点「🪄 小机自动命名」逐张看图起名+写视觉描述（早年嫌它要走国外渠道贵，
+    // 现在聊天走中转便宜、且中转支持视觉，就把这条重新接上，见 handleAutoNameStickerBatch）。
     const { items, failures } = await prepareStickerFiles(list)
     if (items.length === 0) {
       setStickerError('一张都没读出来——可能全是 HEIC 等不支持的格式，换成 PNG/JPG/WebP 再试试')
@@ -1152,6 +1157,61 @@ const ChatPage = ({
     } catch (error) {
       setStickerBatch((prev) => (prev ? { ...prev, phase: 'review', progress: null } : null))
       setStickerError(`上传失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  // 「🪄 小机自动命名」：逐张让小机看图，填上它起的名字 + 视觉描述。走当前渠道
+  // （现在是中转，便宜且支持视觉）。生成后用户还能手改；某张失败就保留原名。
+  const handleAutoNameStickerBatch = async () => {
+    if (!stickerBatch || stickerBatch.phase !== 'review' || stickerCaptioning) return
+    const model = selectedModel
+    const provider = getActiveProvider()
+    const total = stickerBatch.items.length
+    setStickerCaptioning({ done: 0, total })
+    for (let i = 0; i < total; i++) {
+      const dataUrl = stickerBatch.items[i]?.dataUrl
+      if (dataUrl) {
+        const cap = await captionStickerImage(dataUrl, model, provider)
+        if (cap) {
+          setStickerBatch((prev) => {
+            if (!prev) return null
+            const items = [...prev.items]
+            if (items[i]) {
+              items[i] = {
+                ...items[i],
+                name: cap.name || items[i].name,
+                description: cap.description || items[i].description,
+              }
+            }
+            return { ...prev, items }
+          })
+        }
+      }
+      setStickerCaptioning({ done: i + 1, total })
+    }
+    setStickerCaptioning(null)
+  }
+
+  // 「给旧表情补视觉描述」：扫 description 为空的旧表情，逐张看图补描述（名字不动）。
+  const handleBackfillDescriptions = async () => {
+    if (backfillDesc) return
+    setBackfillDesc({ done: 0, total: 0 })
+    try {
+      const outcome = await backfillStickerDescriptions(
+        selectedModel,
+        getActiveProvider(),
+        (done, total) => setBackfillDesc({ done, total }),
+      )
+      await onRefreshStickers?.()
+      setStickerError(
+        outcome.total === 0
+          ? '所有表情都已经有描述了，无需补。'
+          : `补描述完成：${outcome.filled} 张成功${outcome.failed > 0 ? `，${outcome.failed} 张失败（可再点一次重试）` : ''}。`,
+      )
+    } catch (error) {
+      setStickerError(`补描述失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setBackfillDesc(null)
     }
   }
 
@@ -2310,6 +2370,18 @@ const ChatPage = ({
                 {migratingLocal ? '搬运中…' : `⬆ 把这 ${stickers.length} 张全部搬到云端(合并进"我的表情")`}
               </button>
             ) : null}
+            {activeStickerPack !== '我的' && user ? (
+              <button
+                type="button"
+                className="sticker-panel__migrate"
+                disabled={backfillDesc !== null}
+                onClick={() => void handleBackfillDescriptions()}
+              >
+                {backfillDesc
+                  ? `🪄 补描述中 ${backfillDesc.done}/${backfillDesc.total || '…'}`
+                  : '🪄 给旧表情补视觉描述（让小机搜得更准）'}
+              </button>
+            ) : null}
             <div className="sticker-panel__grid">
               {activeStickerPack === '我的' ? (
                 <>
@@ -2646,11 +2718,11 @@ const ChatPage = ({
             ? `上传中 ${stickerBatch.progress?.done ?? 0}/${stickerBatch.progress?.total ?? 0}`
             : '导入'
         }
-        confirmDisabled={stickerBatch?.phase !== 'review'}
-        cancelDisabled={stickerBatch?.phase === 'uploading'}
+        confirmDisabled={stickerBatch?.phase !== 'review' || stickerCaptioning !== null}
+        cancelDisabled={stickerBatch?.phase === 'uploading' || stickerCaptioning !== null}
         onConfirm={() => void handleConfirmStickerBatch()}
         onCancel={() => {
-          if (stickerBatch?.phase !== 'uploading') setStickerBatch(null)
+          if (stickerBatch?.phase !== 'uploading' && !stickerCaptioning) setStickerBatch(null)
         }}
       >
         {stickerBatch ? (
@@ -2668,25 +2740,55 @@ const ChatPage = ({
                 }}
               />
             </label>
+            <div className="sticker-batch__ai">
+              <button
+                type="button"
+                className="ghost small"
+                disabled={stickerBatch.phase !== 'review' || stickerCaptioning !== null}
+                onClick={() => void handleAutoNameStickerBatch()}
+              >
+                {stickerCaptioning
+                  ? `🪄 小机看图中 ${stickerCaptioning.done}/${stickerCaptioning.total}…`
+                  : '🪄 小机自动命名'}
+              </button>
+              <span className="sticker-batch__hint">让小机逐张看图起名 + 写视觉描述（走当前渠道，可先点这个再手动微调）</span>
+            </div>
             <div className="sticker-batch__list">
               {stickerBatch.items.map((item, idx) => (
                 <div key={idx} className="sticker-batch__row">
                   <img src={item.dataUrl} alt="" />
-                  <input
-                    type="text"
-                    value={item.name}
-                    placeholder="名字"
-                    disabled={stickerBatch.phase !== 'review'}
-                    onChange={(e) => {
-                      const name = (e.target as HTMLInputElement).value
-                      setStickerBatch((prev) => {
-                        if (!prev) return null
-                        const items = [...prev.items]
-                        items[idx] = { ...items[idx], name }
-                        return { ...prev, items }
-                      })
-                    }}
-                  />
+                  <div className="sticker-batch__fields">
+                    <input
+                      type="text"
+                      value={item.name}
+                      placeholder="名字"
+                      disabled={stickerBatch.phase !== 'review' || stickerCaptioning !== null}
+                      onChange={(e) => {
+                        const name = (e.target as HTMLInputElement).value
+                        setStickerBatch((prev) => {
+                          if (!prev) return null
+                          const items = [...prev.items]
+                          items[idx] = { ...items[idx], name }
+                          return { ...prev, items }
+                        })
+                      }}
+                    />
+                    <input
+                      type="text"
+                      value={item.description ?? ''}
+                      placeholder="视觉描述（小机看图写，可留空）"
+                      disabled={stickerBatch.phase !== 'review' || stickerCaptioning !== null}
+                      onChange={(e) => {
+                        const description = (e.target as HTMLInputElement).value
+                        setStickerBatch((prev) => {
+                          if (!prev) return null
+                          const items = [...prev.items]
+                          items[idx] = { ...items[idx], description }
+                          return { ...prev, items }
+                        })
+                      }}
+                    />
+                  </div>
                 </div>
               ))}
             </div>

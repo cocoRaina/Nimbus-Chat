@@ -5,6 +5,8 @@
 // used to fail SILENTLY on quota — the "传不上去了" bug).
 
 import { supabase } from '../supabase/client'
+import { fetchOpenRouter } from '../api/openrouter'
+import type { ProviderId } from './apiProvider'
 
 const BUCKET = 'stickers'
 // Stickers render at chat-bubble size; 256px webp is ~10-30KB each, so even
@@ -18,12 +20,74 @@ export type PreparedSticker = {
   dataUrl: string
   /** Editable in the review dialog before upload. */
   name: string
+  /** 小机看图生成的视觉描述（可选）。search_stickers 连它一起搜，让它按画面内容挑表情。 */
+  description?: string
 }
 
 // Names are functional: the AI sends by name and searches emotional phrases,
 // and [sticker:名字] parsing breaks on [ ] and newlines.
 export const sanitizeStickerName = (s: string): string =>
   s.replace(/[[\]\n\r]/g, '').trim().slice(0, 20)
+
+// 让小机看一张表情图，返回它自己起的名字 + 一句视觉描述。走当前渠道（现在是中转，
+// 便宜且支持视觉）。失败返回 null，调用方保留原名（文件名）即可，优雅回退。
+const CAPTION_PROMPT =
+  '这是一张聊天表情包/贴纸。只返回一个 JSON（不要任何别的字）：' +
+  '{"name":"给它起个名字，≤10字，像人发表情时脑子里会冒出的短语，体现它的情绪/动作/场景，例：小猫生气、躲被窝里哭、早安亲亲、白眼三连","desc":"一句话客观描述图里画了啥：主体/表情/动作/画面里的文字"}'
+
+const parseLooseJson = (text: string): { name?: unknown; desc?: unknown } | null => {
+  const t = text.replace(/```json/gi, '').replace(/```/g, '')
+  const a = t.indexOf('{'), b = t.lastIndexOf('}')
+  if (a < 0 || b <= a) return null
+  try { return JSON.parse(t.slice(a, b + 1)) } catch { return null }
+}
+
+export type StickerCaption = { name: string; description: string }
+
+export const captionStickerImage = async (
+  dataUrl: string,
+  model: string,
+  provider: ProviderId,
+): Promise<StickerCaption | null> => {
+  if (!dataUrl || !model) return null
+  try {
+    const response = await fetchOpenRouter('/chat/completions', {
+      provider,
+      body: {
+        model,
+        stream: false,
+        max_tokens: 300,
+        temperature: 0.4,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: CAPTION_PROMPT },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+      },
+    })
+    if (!response.ok) {
+      console.warn(`表情视觉命名失败 status=${response.status}`, await response.text().catch(() => ''))
+      return null
+    }
+    const payload = (await response.json()) as Record<string, unknown>
+    const choice = (payload.choices as Array<Record<string, unknown>> | undefined)?.[0]
+    const message = (choice?.message as Record<string, unknown> | undefined) ?? {}
+    const raw = typeof message.content === 'string' ? message.content : ''
+    const parsed = parseLooseJson(raw)
+    if (!parsed) return null
+    const name = sanitizeStickerName(typeof parsed.name === 'string' ? parsed.name : '')
+    const description = typeof parsed.desc === 'string' ? parsed.desc.trim().slice(0, 200) : ''
+    if (!name && !description) return null
+    return { name, description }
+  } catch (err) {
+    console.warn('表情视觉命名异常', err)
+    return null
+  }
+}
 
 const blobToDataUrl = (blob: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -144,6 +208,7 @@ export const uploadStickerPack = async (
         name: item.name,
         url: urlData.publicUrl,
         pack,
+        description: item.description?.trim() || null,
       })
       if (insertError) {
         // Roll back the orphan file so a failed row doesn't leak storage.
@@ -158,6 +223,54 @@ export const uploadStickerPack = async (
       })
     }
     onProgress?.(i + 1, items.length)
+  }
+  return outcome
+}
+
+// 给旧表情一键补视觉描述：找出 description 为空的行，逐张让小机看图写一句描述，
+// 只更新 description、**不动名字**（旧表情名字通常已经很好）。返回处理进度。
+export type BackfillOutcome = { total: number; done: number; filled: number; failed: number }
+
+export const backfillStickerDescriptions = async (
+  model: string,
+  provider: ProviderId,
+  onProgress?: (done: number, total: number) => void,
+): Promise<BackfillOutcome> => {
+  if (!supabase) throw new Error('Supabase 未配置')
+  const { data: userData } = await supabase.auth.getUser()
+  const userId = userData?.user?.id
+  if (!userId) throw new Error('未登录')
+
+  const { data, error } = await supabase
+    .from('stickers')
+    .select('name, url')
+    .eq('user_id', userId)
+    .is('description', null)
+  if (error) throw error
+  const rows = (data ?? []) as Array<{ name: string; url: string }>
+  const outcome: BackfillOutcome = { total: rows.length, done: 0, filled: 0, failed: 0 }
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    try {
+      const cap = await captionStickerImage(row.url, model, provider)
+      const desc = cap?.description?.trim()
+      if (desc) {
+        const { error: upErr } = await supabase
+          .from('stickers')
+          .update({ description: desc })
+          .eq('user_id', userId)
+          .eq('name', row.name)
+        if (upErr) outcome.failed++
+        else outcome.filled++
+      } else {
+        outcome.failed++
+      }
+    } catch {
+      outcome.failed++
+    }
+    outcome.done = i + 1
+    onProgress?.(outcome.done, outcome.total)
   }
   return outcome
 }
