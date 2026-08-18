@@ -99,6 +99,8 @@ const callAnthropic = async (
   messages: Array<Record<string, unknown>>,
   tools: unknown[] | null,
   maxTokens: number,
+  // 可选：强制它调某个工具（收尾时逼它调 finish 交心情，比"求它自觉调"稳）。
+  toolChoice?: Record<string, unknown>,
 ): Promise<AnthropicBlock[] | null> => {
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS)
@@ -119,7 +121,7 @@ const callAnthropic = async (
     }
     if (tools) {
       body.tools = tools
-      body.tool_choice = { type: 'auto' }
+      body.tool_choice = toolChoice ?? { type: 'auto' }
     }
 
     const r = await fetch(route.url, {
@@ -454,27 +456,37 @@ Deno.serve(async (req: Request) => {
     messages.push({ role: 'user', content: toolResults })
   }
 
-  // ---- 兜底：它没调 finish 就没心情，无工具补问一句 ----
+  // ---- 兜底：它没主动调 finish 就没心情。别求它自觉——带着完整历史再发一次，
+  // 用 tool_choice 【强制】它调 finish，心情/下次时间从结构化工具参数直接读
+  // （不再 parse JSON，彻底避开"心情文字带引号顶破 JSON"的坑，实测就是它害 08-18
+  // 写了随笔却没心情）。强制调用几乎必中；execTool('finish') 会置 mood/nextHours。----
   if (!finished) {
-    const content = await callAnthropic(
-      route,
-      sys,
-      [{ role: 'user', content: `${firstUser}\n\n（现在只用一个 JSON 回：{"mood":"一句此刻的心情","next_wake_hours":数字}）` }],
-      null,
-      300,
-    )
-    const d = content ? parseJsonLoose(textOf(content)) : null
-    if (d) {
-      if (typeof d.mood === 'string' && d.mood.trim()) mood = d.mood.trim().slice(0, 120)
-      const h = typeof d.next_wake_hours === 'number' ? d.next_wake_hours : Number(d.next_wake_hours)
-      if (Number.isFinite(h)) nextHours = h
+    messages.push({
+      role: 'user',
+      content: '好了，现在必须调用 finish：交出你此刻真实的心情（短一点、像随口说的）+ 你想过几小时再醒来（1–8）。',
+    })
+    const content = await callAnthropic(route, sys, messages, tools, 400, { type: 'tool', name: 'finish' })
+    const tu = (content ?? []).find((b) => b.type === 'tool_use' && b.name === 'finish')
+    if (tu) {
+      const input = (tu.input && typeof tu.input === 'object') ? tu.input as Record<string, unknown> : {}
+      await execTool('finish', input)
+    } else {
+      // 极少数强制也没吐 tool_use：退回从文本里捞个 JSON，能捞到算赚。
+      const d = content ? parseJsonLoose(textOf(content)) : null
+      if (d && typeof d.mood === 'string' && d.mood.trim()) {
+        mood = d.mood.trim().slice(0, 120)
+        const h = typeof d.next_wake_hours === 'number' ? d.next_wake_hours : Number(d.next_wake_hours)
+        if (Number.isFinite(h)) nextHours = h
+      }
     }
   }
 
-  // 抽风判定：健康的一轮总会产出心情（finish 或兜底问出来）。mood 还是 null =
-  // 这轮 LLM 调用没接住（中转打嗝/空回/超时）。抽风时：① ~1h 后重试（不是默认 4h）；
-  // ② 不算掉当天名额（一次打嗝不该毁掉一整天）。真·安静待着（有心情但啥都没干）不算抽风。
-  const wakeFailed = mood === null
+  // 抽风判定：只有【啥都没干成 + 也没交出心情】才算真·中转没接住 → 1h 重试、不占名额。
+  // 只要写了随笔/发了圈/发了消息（write_essay 等当场就写库了），就算这轮**干活了**，
+  // 哪怕心情没交出来也不能当失败（否则会像 08-18 那样：写了《后颈》却被记成"中转没接住"、
+  // 名额还不算）——那种情况按正常轮处理，last_note 照实显示干了啥。
+  const didSomething = Boolean(wroteEssay || postedMoment || messagedHer)
+  const wakeFailed = mood === null && !didSomething
   const wakesToday = state?.day_key === todayKey ? (state.wakes_today ?? 0) : 0
   const nextWake = wakeFailed ? scheduleFrom(1) : scheduleFrom(nextHours)
   const lastNote = wakeFailed
