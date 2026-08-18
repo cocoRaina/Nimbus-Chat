@@ -1934,10 +1934,6 @@ const App = () => {
       // ——若那个模块级 binding 在这一刻取到 null，字段就整段消失（和 healthSnap 同病）。
       const awayRecap: string =
         soloStatusCache.value ?? '（这是你自己的状态，不用主动汇报，除非她问起）最近还没自己醒着做什么'
-      // 探针：无条件写一个 debug 字段进 meta。若 DB 里能看到它 → 落库不丢键，
-      // 我就能从它的值直接读到运行时真相（supabase 是否就绪、cache 是否有货）；
-      // 若连它都看不到 → 是落库环节吞了新键。查完即删。
-      const awayDbg = `sb=${supabase ? 1 : 0}|cache=${soloStatusCache.value ? 1 : 0}|len=${awayRecap.length}`
 
       // Health snapshot — injected on EVERY user message (when the DB has
       // nothing we say so explicitly instead of going silent). The Supabase
@@ -1956,9 +1952,9 @@ const App = () => {
           healthSnapCache.fetchedAt = Date.now()
         }
       }
-      const healthSnap: string | null = supabase
-        ? healthSnapCache.value ?? '暂无数据（今天还没同步到任何健康记录）'
-        : null
+      // 不用 supabase 门控（同 awayRecap 的教训：模块级 binding 偶尔取到 null 会把
+      // 整段吞掉）。值本就是缓存 + 静态兜底，与 supabase 是否就绪无关。
+      const healthSnap: string = healthSnapCache.value ?? '暂无数据（今天还没同步到任何健康记录）'
 
       const recallSnap = await recallPromise
       const briefSnap = await briefPromise
@@ -1987,7 +1983,6 @@ const App = () => {
       }
 
       const userMeta: ChatMessage['meta'] = {
-        awayDbg, // 探针（无条件），查完即删
         ...(userAttachments.length > 0 ? { attachments: userAttachments } : {}),
         ...(weatherSnap
           ? {

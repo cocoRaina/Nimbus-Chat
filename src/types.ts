@@ -66,8 +66,6 @@ export type ChatMessage = {
     // 事 + 当前心情，注入 payload 前缀（[你的独处状态]），让它随时看得见自己独处
     // 干了啥、接得上。逐消息冻结 → 重放字节稳定。
     awayRecap?: string
-    /** 临时探针：诊断独处状态不落库的问题，查完即删。 */
-    awayDbg?: string
     tool_calls?: Array<{
       name: string
       args: unknown
