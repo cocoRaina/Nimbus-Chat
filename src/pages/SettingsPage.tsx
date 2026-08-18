@@ -2280,6 +2280,10 @@ const SettingsPage = ({
         ) : null}
       </section>
 
+        <p style={{ textAlign: 'center', opacity: 0.5, fontSize: 12, margin: '24px 0 8px', userSelect: 'text' }}>
+          构建 {__BUILD_ID__}
+        </p>
+
         </div>
       </div>
 
