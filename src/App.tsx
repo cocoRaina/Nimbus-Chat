@@ -789,7 +789,8 @@ const fetchSoloStatus = async (): Promise<string | null> => {
       if (postCount > 0) parts.push(`发了 ${postCount} 条朋友圈`)
       const activity = parts.length > 0 ? `最近自己醒着时${parts.join('，')}` : '最近没自己醒着做什么'
       const moodPart = st?.mood ? `；当前心情：${String(st.mood)}` : ''
-      if (!st?.mood && parts.length === 0) return null // 啥都没有就别挂空状态
+      // 【始终返回非空】——跟健康快照一样带兜底，这样这行状态每条消息都在，
+      // 绝不会"字段静默消失"（哪怕这次没查到东西，也明确挂一句"暂无"）。
       return `（这是你自己的状态，不用主动汇报，除非她问起）${activity}${moodPart}`
     })()
     const timeout = new Promise<never>((_, reject) => {
@@ -1923,10 +1924,16 @@ const App = () => {
       // 独处状态：像健康快照一样每条消息都挂（10min 缓存），让小机随时看得见自己
       // 独处干了啥 + 当前心情。不做"仅首轮"闸门，就是要一直在。
       if (Date.now() - soloStatusCache.fetchedAt > SOLO_STATUS_TTL_MS) {
-        soloStatusCache.value = await fetchSoloStatus()
-        soloStatusCache.fetchedAt = Date.now()
+        const fresh = await fetchSoloStatus()
+        // 只在拿到内容时才刷新缓存——瞬时失败(超时/鉴权未就绪)不把 null 写进去顶掉
+        // 上一份好的，避免"这一轮起 10min 都没状态"。
+        if (fresh) { soloStatusCache.value = fresh; soloStatusCache.fetchedAt = Date.now() }
       }
-      const awayRecap: string | null = soloStatusCache.value
+      // 始终注入(跟 healthSnap 一样非空兜底)：查不到就明确挂一句"暂无"，让字段永远在、
+      // 便于确认注入是通的，也不给"字段静默消失"留缝。
+      const awayRecap: string | null = supabase
+        ? soloStatusCache.value ?? '（这是你自己的状态，不用主动汇报，除非她问起）最近还没自己醒着做什么'
+        : null
 
       // Health snapshot — injected on EVERY user message (when the DB has
       // nothing we say so explicitly instead of going silent). The Supabase
