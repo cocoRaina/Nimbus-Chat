@@ -23,5 +23,6 @@ Nimbus Chat = 自托管的私人 AI 陪伴 App。前端 React + Vite，打包成
 - **Provider 系统**只有两个：`openrouter` 和 `msuicode`(自定义中转槽)。`msuicode` 的**格式必须设成 Anthropic 兼容**，才走原生 `/v1/messages`，**原生缓存 + 思考链才生效**；OpenAI 兼容那条两者都没有。`ProviderId` 联合类型缠在路由/缓存/续命多处，别轻易改成 N-provider（用「中转预设」绕过，见 `apiProvider.ts` `RelayPreset`）。
 - **缓存**只在原生路径有效，且要 `cache_control` + 固定 `metadata.user_id`。OR 用 1h TTL + 55min 续命 ping；金瓜瓜类 5m TTL、不 ping。细节全在 docs/caching.md。
 - **RLS 是单租户开放策略**（`USING(true)`），但 `memory_entries` 这类带 `user_id` 的表用 `auth.uid()=user_id` —— 加功能涉及 DELETE 等操作时记得**补对应 RLS 策略**，否则 PostgREST 静默返回 0 行(踩过)。
+- **别拿 `supabase` 当条件门控塞消息 meta 字段**：`client.ts` 里 `supabase` 是 `export let` 可变 binding，配置解析后才 reassign，某些时刻取到 `null`。写 `x = supabase ? 值 : null` 会让整段字段**偶发消失、不落库**（`awayRecap`/`healthSnapshot` 都踩过，debug 俩小时）。字段的值若本就带静态兜底，直接 `缓存 ?? 兜底串`、别加门控。**调 meta 注入类 bug 别信模型口头"看没看到"，直接查 `messages.meta`（`jsonb_object_keys`）落库真相。** 设置页底部有构建号可确认用户跑的是不是新包。
 - 改 README 前先看它现在很短（功能=一句话+链接），**长内容放 `docs/`**，别再往 README 堆。
 - **公用教程（可对外分享的通用原理文章）写到 [github.com/cocoRaina/ai-guides](https://github.com/cocoRaina/ai-guides)**，不要放在本仓库（本仓库是 fork，授权不明确）。本仓库 `docs/guides/` 只做镜像留档。
