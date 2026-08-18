@@ -62,6 +62,10 @@ export type ChatMessage = {
     // 开场简报（当天第一轮冻结）：昨日 session_digest 摘录 + 最新交接信一行，
     // 注入 payload 前缀（[昨日回顾]）。逐消息冻结 → 重放字节稳定。
     dayBrief?: string
+    // 独处回执：上次发言后小机又自主醒过（写随笔/发圈/更新心情），把它独处
+    // 做了啥冻进这一轮、注入 payload 前缀（[你独处时做的事]），让它知道自己
+    // 出过门、接得上。逐消息冻结 → 重放字节稳定。
+    awayRecap?: string
     tool_calls?: Array<{
       name: string
       args: unknown

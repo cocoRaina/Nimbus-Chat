@@ -748,6 +748,66 @@ const fetchDayBrief = async (): Promise<string | null> => {
   }
 }
 
+// 独处回执（2026-08-18）：小机自主唤醒时会自己写随笔/发圈/更新心情，但回到
+// 聊天里它并不知道自己"出过门"——它没有回看自己独处输出的通道。上一条发言之后
+// 又醒过一次（last_wake_at 比它上次发言新）→ 今天第一轮把它独处做的事冻进 meta、
+// 注入用户消息前缀，让它接得上、知道自己刚才干了啥。冻进 meta，重放字节稳定；
+// 同一次唤醒只回执一次（按 last_wake_at 去重）。取数 3s 超时静默放弃，绝不挡发送。
+const AWAY_RECAP_TIMEOUT_MS = 3000
+// 只有上一条 AI 发言距今超过这么久才值得查（快速连聊里不可能刚发生自主唤醒）。
+const AWAY_RECAP_MIN_GAP_MS = 30 * 60000
+// session → 已回执过的 last_wake_at（同一次醒来不重复注入；新一次醒来才再注入）。
+const recappedWakeBySession = new Map<string, string>()
+const fetchAwayRecap = async (): Promise<{ text: string; wakeAt: string } | null> => {
+  if (!supabase) return null
+  try {
+    const work = (async () => {
+      const stateRes = await supabase!
+        .from('autonomous_state')
+        .select('last_wake_at,last_note,mood')
+        .limit(1)
+        .maybeSingle()
+      const st = stateRes.data as { last_wake_at?: string; last_note?: string; mood?: string } | null
+      if (!st?.last_wake_at) return null
+      // 只回看最近 48h 内独处产出的随笔/朋友圈（够一两次唤醒，不翻旧账）。
+      const since = new Date(Date.now() - 48 * 3600000).toISOString()
+      const [essayRes, postRes] = await Promise.all([
+        supabase!
+          .from('essays')
+          .select('title,created_at')
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .limit(3),
+        supabase!
+          .from('assistant_posts')
+          .select('content,created_at')
+          .eq('is_deleted', false)
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .limit(2),
+      ])
+      const essays = (essayRes.data ?? []) as Array<{ title?: string }>
+      const posts = (postRes.data ?? []) as Array<{ content?: string }>
+      const parts: string[] = []
+      if (essays.length > 0) parts.push('写了随笔' + essays.map((e) => `《${e.title ?? ''}》`).join('、'))
+      if (posts.length > 0) {
+        parts.push('发了朋友圈：' + posts.map((p) => `"${String(p.content ?? '').slice(0, 40)}"`).join('；'))
+      }
+      // 都没具体产出就用 autonomous_state 的一句话小结（例："安静待着"）。
+      const doneLine = parts.length > 0 ? parts.join('；') : String(st.last_note ?? '一个人安静待了会儿')
+      const moodLine = st.mood ? `\n你现在的心情是：${String(st.mood)}` : ''
+      const text = `（这是你自己的记忆，不用主动汇报）她不在、你自己醒着的时候，你做了这些：${doneLine}。${moodLine}`
+      return { text, wakeAt: String(st.last_wake_at) }
+    })()
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('away recap timeout')), AWAY_RECAP_TIMEOUT_MS)
+    })
+    return await Promise.race([work, timeout])
+  } catch {
+    return null
+  }
+}
+
 // 每会话真实 prompt_tokens 的持久化（2026-07-22）：原先只在内存 ref 里，
 // App 被后台杀掉重启后第一条消息只能靠客户端估算兜底（估算看不见工具
 // schema 那 ~27k）。存 localStorage，重启后压缩触发继续拿真值。
@@ -1867,6 +1927,14 @@ const App = () => {
         (!lastAssistantMsg || logicalDayKey(new Date(lastAssistantMsg.createdAt).getTime()) < todayKey)
       const briefPromise: Promise<string | null> = needDayBrief ? fetchDayBrief() : Promise.resolve(null)
 
+      // 独处回执：上一条 AI 发言距今够久（可能中间自主醒过）才查一次。真正是否
+      // 注入，等拿到 last_wake_at 后再判（必须比上次发言新、且这次醒来还没回执过）。
+      const lastAssistantAt = lastAssistantMsg ? new Date(lastAssistantMsg.createdAt).getTime() : 0
+      const mayHaveBeenAway = !lastAssistantMsg || Date.now() - lastAssistantAt > AWAY_RECAP_MIN_GAP_MS
+      const awayPromise: Promise<{ text: string; wakeAt: string } | null> = mayHaveBeenAway
+        ? fetchAwayRecap()
+        : Promise.resolve(null)
+
       // Health snapshot — injected on EVERY user message (when the DB has
       // nothing we say so explicitly instead of going silent). The Supabase
       // read + Health Connect force-sync only run when the 30-min cache has
@@ -1892,11 +1960,22 @@ const App = () => {
       const briefSnap = await briefPromise
       if (briefSnap) briefedDayBySession.set(sessionId, todayKey)
 
+      // 独处回执定案：这次醒来必须比上一条 AI 发言更晚（是"这次不在时"发生的），
+      // 且本会话还没为这次醒来回执过，才注入；注入后记下 wakeAt 去重。
+      const awaySnap = await awayPromise
+      const awayRecap =
+        awaySnap &&
+        new Date(awaySnap.wakeAt).getTime() > lastAssistantAt &&
+        recappedWakeBySession.get(sessionId) !== awaySnap.wakeAt
+          ? awaySnap.text
+          : null
+      if (awayRecap && awaySnap) recappedWakeBySession.set(sessionId, awaySnap.wakeAt)
+
       // 批量路径：把召回结果冻进已落库的那条用户消息。本地快照先更新（payload
       // 构建从 messagesRef 读 meta.memoryRecall，本轮就能注入）；远端 fire-and-
       // forget 同步（updateRemoteMessageMeta 按 id/client_id 匹配，行还没插完
       // 就静默错过——本地才是本轮的数据源，丢远端只影响换设备重放）。
-      if ((recallSnap || briefSnap) && recallTarget) {
+      if ((recallSnap || briefSnap || awayRecap) && recallTarget) {
         const stamped: ChatMessage = {
           ...recallTarget,
           pending: recallTarget.pending,
@@ -1904,6 +1983,7 @@ const App = () => {
             ...(recallTarget.meta ?? {}),
             ...(recallSnap ? { memoryRecall: recallSnap } : {}),
             ...(briefSnap ? { dayBrief: briefSnap } : {}),
+            ...(awayRecap ? { awayRecap } : {}),
           },
         }
         applySnapshot(sessionsRef.current, updateMessage(messagesRef.current, stamped))
@@ -1931,6 +2011,7 @@ const App = () => {
         ...(envSnap ? { envSnapshot: envSnap } : {}),
         ...(recallSnap ? { memoryRecall: recallSnap } : {}),
         ...(briefSnap && !recallTarget ? { dayBrief: briefSnap } : {}),
+        ...(awayRecap && !recallTarget ? { awayRecap } : {}),
         ...(() => {
           // Freeze the AI's current mood narration into this turn's meta — it's
           // rendered into the payload prefix at send time and replayed verbatim
@@ -2602,12 +2683,15 @@ const App = () => {
             // 开场简报（当天第一轮冻结）：昨日聊了什么 + 最新交接信一行。
             const briefMeta = message.role === 'user' ? message.meta?.dayBrief : undefined
             const briefStr = briefMeta ? `\n[昨日回顾] ${briefMeta}` : ''
+            // 独处回执（上次发言后小机又自主醒过时冻结）：它独处做的事 + 当前心情。
+            const awayMeta = message.role === 'user' ? message.meta?.awayRecap : undefined
+            const awayStr = awayMeta ? `\n[你独处时做的事] ${awayMeta}` : ''
             // Frozen mood narration for this user turn (private emotional
             // context). Stored per-message so replay is byte-stable.
             const moodMeta = message.role === 'user' ? message.meta?.moodNarration : undefined
             const moodStr = moodMeta ? `${moodMeta}\n\n` : ''
             const prefix = stamp
-              ? `[当前时间] ${stamp}${weatherStr}${envStr}${statusStr}${briefStr}${recallStr}\n\n${moodStr}`
+              ? `[当前时间] ${stamp}${weatherStr}${envStr}${statusStr}${briefStr}${awayStr}${recallStr}\n\n${moodStr}`
               : moodStr
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []

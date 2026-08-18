@@ -430,10 +430,16 @@ Deno.serve(async (req: Request) => {
     '发条朋友圈(post_moment)' + (canMessageHer ? '、或主动给她发条消息(message_her)' : '') + '；也可以什么都不做、安静待着。怎么真实怎么来。\n' +
     '【务必】最后调用一次 finish，交出你此刻真实的心情 + 你想过几小时再醒来（1–8）。'
 
+  // 让它接得上上一次独处的心境：把它自己上次交出的那句自然语言心情喂回去，
+  // 别每次都从零起意（否则容易几次醒来写出雷同的心情）。
+  const lastMoodLine = (state?.mood && String(state.mood).trim())
+    ? String(state.mood).trim()
+    : '（还没有上一条，随你此刻的心境来）'
   const firstUser =
-    `[你最近的心情]\n${moodLine}\n\n[她今天写的心情]\n${herMoodToday}\n\n[你俩最近聊的]\n${recentConvo}\n\n` +
+    `[你四维情绪]\n${moodLine}\n\n[你上次醒来时的心情]\n${lastMoodLine}\n\n[她今天写的心情]\n${herMoodToday}\n\n[你俩最近聊的]\n${recentConvo}\n\n` +
     '这是你的自由时间。想看什么就用工具去翻（上网、记忆库、随笔、旧对话、朋友圈、健康、时间线都行），' +
-    '看完凭此刻真实的心境决定要不要写点/发点/找她，最后别忘了调用 finish 交出心情和下次醒来时间。'
+    '看完凭此刻真实的心境决定要不要写点/发点/找她，最后别忘了调用 finish 交出心情和下次醒来时间' +
+    '（心情别跟上次雷同，如果心境没大变化，就换个角度写、或写写这中间发生了什么）。'
 
   const tools = buildTools(canMessageHer)
   const messages: Array<Record<string, unknown>> = [
