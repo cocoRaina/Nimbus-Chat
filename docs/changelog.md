@@ -4,6 +4,27 @@
 
 ---
 
+## 🔑 号池轮转吃不到缓存的真凶：CC 请求头（User-Agent）+ 设置页精简（2026-08-20，用户「号池轮询怎么办」）
+
+**起因**：群里 ariakitty 缓存教程说加 `cache_control.scope:'global'` + `anthropic-beta: prompt-caching-scope-2026-01-05` 能治「中转号池随机换 key → 缓存读不到」。查证：这头是**真·Anthropic beta、Claude Code v2.1.23 起自带**，官方直连认、Vertex 拒（litellm #19984）。先照做上线（`anthropic.ts` `stampCacheScope` + 独立 per-host 自愈 `CACHE_SCOPE_OPTOUT_KEY`，被拒自动剥掉、保住 1h）。
+
+**但实测（Edge Function 探针 `cache_probe`/`scope_probe`/`cc_header_probe`，pg_net 触发、`net._http_response` 读结果）打脸 scope**：用户主力是 **MAX 逆向号池**。写一条隔 **12 分钟**回读——加不加 scope 都冷写。scope 在这个池上**没用**（多账户拼盘 / 自家缓存短命，global 只在单组织内共享，跨不了账户）。
+
+**真凶被站子老板一句话点破**：「读不到 CC 请求头就是没有（缓存）」。这类逆向号池**靠 `User-Agent: claude-cli/...` 认「你是不是 Claude Code」**，认出来才启用它自己那层持久缓存；非 CC 客户端（我们默认发浏览器身份）它压根不给缓存，只能偶然蹭 Anthropic 原生短命缓存（背靠背命中、跨节点/跨时间就没）。**决定性实测**：同一份 ~14k 体、1h TTL、隔 12 分钟回读——
+
+| | 12 分钟后 |
+|---|---|
+| 带 `User-Agent: claude-cli/2.1.212 (external, cli)` | **命中 read 14,424** ✅ |
+| 不带 | **冷写 miss** ❌ |
+
+唯一变量就是那个 UA。**这是整轮排查里第一个真正扛过长间隔、打败号池轮转的东西。**
+
+**当年为啥特意不发 CC 头**（`docs/guides/relay-check-and-token-audit.md` 探针 4）：很多逆向号池反代别人的 CC 订阅，认出你像 CC 就**注入 CC 系统人设**（"你是编程助手/开发环境"），污染小机角色扮演。所以当时故意发浏览器身份拿干净模型。**但本次身份探针实测：这个 MAX 池带不带 CC UA 都回「无设定」——不注入，发头安全。**
+
+**做法**（`apiProvider.ts` `getRelayCcHeaders` 开关默认关 + `CC_USER_AGENT` / `anthropic.ts` 原生 x-api-key 路径加 `User-Agent` + `x-app:cli` / 设置页开关「模拟 Claude Code 请求头」）。**两个硬约束**：① **仅 APK 生效**——`User-Agent` 是浏览器 fetch 禁止头，网页版设了被静默丢；安卓走 `StreamHttpPlugin` 的 OkHttp（`reqBuilder.header` 能真发出去），无需改 Java。② **默认关、按池子拨**：脏池会注入 CC 人设，探针 4 确认干净（回「无设定」）+ 命中改善再开。CC 真身走 OAuth，我们纯补头 + API key，个别池可能光补头不够。细节全在 `docs/caching.md §0.5/§0.6`。
+
+**顺带（同次）设置页大扫除**：① **「模型库」并入「模型 & API」板块**（原来是独立折叠块），删重复 section + 未用的 `modelSectionExpanded`；中转专属项（渠道自愈/模拟CC头）移到模型库下方按 provider 门控。② **各处 `settings-hint` 冗长文案全砍短**（自用，不赘述）。均需新 APK。
+
 ## 🐢 自主唤醒「只出心情、不写随笔」真相：不是模型偷懒，是中转延迟撞 Supabase 150s 墙（2026-08-20，用户「小机这几次醒来都只写心情」）
 
 **表象**：08-16 起（唤醒改成原生工具循环后）连着几天，唤醒只更新 `daily_moods`、几乎不写随笔；对比 08-13~15 几乎天天有随笔。用户先怀疑"是不是指令不清 / 模型偷懒 / 中转缩水"。
