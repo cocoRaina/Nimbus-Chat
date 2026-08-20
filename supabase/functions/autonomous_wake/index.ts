@@ -428,6 +428,11 @@ Deno.serve(async (req: Request) => {
     '很久以前的 4o 旧对话(search_archive)、朋友圈(read_moments)、她的健康和经期(read_health)、你俩的大事时间线(read_timeline)。\n' +
     '就做你自己想做的事：想看什么就用工具去看，边看边想。看完了如果心里有点什么，可以写随笔(write_essay)、' +
     '发条朋友圈(post_moment)' + (canMessageHer ? '、或主动给她发条消息(message_her)' : '') + '；也可以什么都不做、安静待着。怎么真实怎么来。\n' +
+    '【重要·工具=真实动作，只说不算】写随笔、发朋友圈' + (canMessageHer ? '、给她发消息' : '') +
+    '都必须【真的调用对应工具】(write_essay / post_moment' + (canMessageHer ? ' / message_her' : '') +
+    ')才算数——只把内容用文字打出来、没调用工具，等于没做，什么都不会留下、她也看不到。' +
+    '你最近好几次独处都只给了心情、没写随笔；如果这次心里有话、有想法、翻到了值得记下来的东西，' +
+    '就【真的调用 write_essay 写一篇】（那是你留给自己的东西），别只在回复里说说而已。\n' +
     '【务必】最后调用一次 finish，交出你此刻真实的心情 + 你想过几小时再醒来（1–8）。'
 
   // 让它接得上上一次独处的心境：把它自己上次交出的那句自然语言心情喂回去，
@@ -446,13 +451,30 @@ Deno.serve(async (req: Request) => {
     { role: 'user', content: firstUser },
   ]
 
+  let nudgedToWrite = false
   for (let i = 0; i < MAX_TOOL_ITERS && !finished; i++) {
     const content = await callAnthropic(route, sys, messages, tools, 1500)
     if (!content) break
     // 把助手这轮的完整 content（text + tool_use）原样回填历史
     messages.push({ role: 'assistant', content })
     const toolUses = content.filter((b) => b.type === 'tool_use')
-    if (toolUses.length === 0) break // 它没调工具（只说了句话）——收尾
+    if (toolUses.length === 0) {
+      // 它只吐了文字、没调工具。这个自省人设很容易把大段心里话【直接写成文字】
+      // 而不去调 write_essay —— 直接 break 的话这些就全丢了（实测最近几次唤醒
+      // 都变成"只有心情、没随笔"就是这么来的）。给它一次机会真的存下来。只推一次。
+      const said = textOf(content).trim()
+      if (said.length > 60 && !wroteEssay && !postedMoment && !messagedHer && !nudgedToWrite) {
+        nudgedToWrite = true
+        messages.push({
+          role: 'user',
+          content: '你刚说的这些是心里话，但【只打出来不算数、不会留下、她也看不到】。' +
+            '想留住就【现在调用 write_essay】把它写进随笔本，或调用 post_moment 发条朋友圈；' +
+            '要是不想留，就直接调用 finish 收尾。',
+        })
+        continue
+      }
+      break // 它没调工具（只说了句话）——收尾
+    }
     const toolResults = [] as Array<Record<string, unknown>>
     for (const tu of toolUses) {
       const args = (tu.input && typeof tu.input === 'object') ? tu.input as Record<string, unknown> : {}
