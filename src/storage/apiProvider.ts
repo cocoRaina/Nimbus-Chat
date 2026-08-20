@@ -113,6 +113,26 @@ export const setRelayNoBreakpoints = (on: boolean) => {
   else window.localStorage.removeItem(STORAGE_RELAY_NO_BREAKPOINTS)
 }
 
+// 「模拟 Claude Code 请求头」：给中转(x-api-key)路径带上 CC 的 User-Agent
+// (claude-cli/...) + x-app:cli。有些逆向号池【靠这个头才启用自己那层持久缓存】
+// ——实测(2026-08-20)同一份体、隔 12 分钟回读:带 CC 头稳稳命中、不带则冷写。
+// 这是唯一能治「号池轮转/长间隔冷写」的招。⚠️ 两个前提:① User-Agent 是浏览器
+// fetch 的禁止头,只有 APK 原生路径(OkHttp)发得出,网页版发了也被丢;② 个别池子
+// 会因为「看起来像 CC」反向注入 CC 人设(探针 4 能测),污染角色扮演——所以默认关,
+// 只在【确认干净 + 认 CC 头】的池上开。切换分组时自己拨。
+const STORAGE_CC_HEADERS = 'nimbus_cc_headers_v1'
+export const getRelayCcHeaders = (): boolean => {
+  if (typeof window === 'undefined') return false
+  return window.localStorage.getItem(STORAGE_CC_HEADERS) === '1'
+}
+export const setRelayCcHeaders = (on: boolean) => {
+  if (typeof window === 'undefined') return
+  if (on) window.localStorage.setItem(STORAGE_CC_HEADERS, '1')
+  else window.localStorage.removeItem(STORAGE_CC_HEADERS)
+}
+// CC CLI 的 User-Agent 招牌。号池按这个认「是不是 Claude Code」。
+export const CC_USER_AGENT = 'claude-cli/2.1.212 (external, cli)'
+
 export type ProviderConfig = {
   id: ProviderId
   baseUrl: string

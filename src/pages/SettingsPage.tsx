@@ -36,6 +36,8 @@ import {
   saveRelayPreset,
   deleteRelayPreset,
   applyRelayPreset,
+  getRelayCcHeaders,
+  setRelayCcHeaders,
   type ApiFormat,
   type ProviderId,
   type RelayPreset,
@@ -121,6 +123,14 @@ const SettingsPage = ({
   const [msuicodeBaseUrlInput, setMsuicodeBaseUrlInput] = useState(() => getMsuicodeBaseUrl())
   const [selfHealHosts, setSelfHealHosts] = useState(() => getRelaySelfHealHosts())
   const [selfHealResetStatus, setSelfHealResetStatus] = useState<'idle' | 'done'>('idle')
+  const [ccHeaders, setCcHeadersState] = useState(() => getRelayCcHeaders())
+  const handleToggleCcHeaders = useCallback(() => {
+    setCcHeadersState((cur) => {
+      const next = !cur
+      setRelayCcHeaders(next)
+      return next
+    })
+  }, [])
   const selfHealSummary = useMemo(() => {
     const parts: string[] = []
     for (const h of selfHealHosts.thinking) parts.push(`${h} 已停用原生思考回传(改发文字)`)
@@ -1301,6 +1311,20 @@ const SettingsPage = ({
               {selfHealSummary.length > 0
                 ? `当前记录:${selfHealSummary.join(';')}。渠道换池子/升级后可重置让 App 重试最优请求形态——不兼容会自动再降级,重置永远安全。`
                 : '暂无降级记录。撞到不兼容的中转节点时,App 会自动降级(如停用原生思考回传)并按渠道记住,这里可以随时清除重试。'}
+            </span>
+
+            <label htmlFor="ccHeaders">模拟 Claude Code 请求头</label>
+            <label className="toggle-control">
+              <input
+                id="ccHeaders"
+                type="checkbox"
+                checked={ccHeaders}
+                onChange={handleToggleCcHeaders}
+              />
+              <span>{ccHeaders ? '已开启' : '已关闭'}</span>
+            </label>
+            <span className="settings-hint">
+              给中转带上 CC 的 User-Agent（claude-cli）。有些逆向号池靠这个头才启用持久缓存，能治「隔一阵回来就冷写」。⚠️ 仅 APK 生效（网页版发不出 User-Agent）；个别号池会因此把小机当成 Claude Code、注入代码助手人设污染角色——先在设置底部确认渠道干净、命中改善再开，不对劲就关。
             </span>
               </>
             )}

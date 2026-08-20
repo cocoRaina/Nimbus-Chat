@@ -4,7 +4,7 @@
 // the Anthropic SSE stream → OpenAI-shaped SSE chunks on the fly.
 
 import { nativeStreamFetchOrThrow, nativeStreamFetch, isNativeStreamAvailable } from '../native/streamHttp'
-import { getRelayNoBreakpoints } from '../storage/apiProvider'
+import { getRelayNoBreakpoints, getRelayCcHeaders, CC_USER_AGENT } from '../storage/apiProvider'
 
 type OpenAiMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -1097,6 +1097,17 @@ export const fetchAnthropicAsOpenAi = async (
       scopeActive = true
     }
     if (betas.length > 0) headers['anthropic-beta'] = betas.join(',')
+
+    // 「模拟 Claude Code 请求头」(用户开关,默认关)。有些逆向号池靠 CC 的
+    // User-Agent 才启用自己那层持久缓存——实测(2026-08-20)同一份体隔 12 分钟
+    // 回读:带 CC 头稳稳命中、不带则冷写(是唯一治号池轮转的招)。只在原生 relay
+    // 路径发:User-Agent 是浏览器 fetch 的禁止头,网页版设了也被丢(无害 no-op),
+    // 只有 APK 的 OkHttp(StreamHttpPlugin)真发得出。x-app:cli 补齐 CC 指纹。
+    // ⚠️ 个别池会因此反向注入 CC 人设(探针 4 可测),故默认关、由用户在干净池上开。
+    if (getRelayCcHeaders()) {
+      headers['User-Agent'] = CC_USER_AGENT
+      headers['x-app'] = 'cli'
+    }
   }
   const relayHost = hostOfEndpoint(endpoint)
   let effectiveBody = anthropicBody
