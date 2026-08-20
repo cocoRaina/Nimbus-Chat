@@ -15,7 +15,7 @@ type OpenAiMessage = {
         type: string
         text?: string
         image_url?: { url: string }
-        cache_control?: { type: 'ephemeral'; ttl?: string }
+        cache_control?: { type: 'ephemeral'; ttl?: string; scope?: 'global' }
       }>
   name?: string
   tool_call_id?: string
@@ -62,7 +62,14 @@ type OpenAiRequest = {
   [key: string]: unknown
 }
 
-type CacheControl = { type: 'ephemeral'; ttl?: string }
+// scope:'global' decouples a cache entry from the workspace/upstream-key that
+// wrote it. Aggregator relays draw a random upstream key from a node pool on
+// every request, and Anthropic's cache is workspace-isolated by default, so the
+// entry the previous request wrote is unreadable once a different key is drawn
+// (hit rate ≈ 1 ÷ pool size). global scope makes the entry key-agnostic so any
+// pool node reads it. Requires the prompt-caching-scope beta header. Orthogonal
+// to ttl (works with both 1h and 5m).
+type CacheControl = { type: 'ephemeral'; ttl?: string; scope?: 'global' }
 
 type AnthropicTextBlock = { type: 'text'; text: string; cache_control?: CacheControl }
 
@@ -860,6 +867,12 @@ const CACHE_BETA_OPTOUT_KEY = 'nimbus_cache_beta_optout_v1'
 // rejects the ttl field itself, we drop to the default 5-minute marker for
 // that host instead of hard-failing (worse cache, but the chat works).
 const CACHE_TTL_OPTOUT_KEY = 'nimbus_cache_ttl_optout_v1'
+// Same idea for the global cache scope (cache_control.scope:'global' + the
+// prompt-caching-scope beta): relays that don't proxy the newer beta, or whose
+// upstream predates it, hard-400. Send by default; on a 400 that mentions
+// "scope" (or a scope-strip retry that then succeeds) drop it for that host and
+// retry. TTL'd like the others so a stale blacklist re-probes after 24h.
+const CACHE_SCOPE_OPTOUT_KEY = 'nimbus_cache_scope_optout_v1'
 // 降级记录会过期（2026-07-30）：原来 remember 一次就【永久】降级——但号池会
 // 换节点、也会撞上无关的临时 400，一次误判就把这个渠道永远钉死在 5m（实测
 // 「同渠道别人 1h、我们 5m」的根：一发临时 400 → 去 beta 头重试碰巧成功 → 永久
@@ -929,9 +942,15 @@ export const isThinkingReplayDisabledForHost = (host: string): boolean =>
 // may be stale by Friday. The user can inspect which hosts got downgraded
 // and reset everything — worst case the next incompatible request heals
 // itself right back, so resetting is always safe to try.
-export const getRelaySelfHealHosts = (): { beta: string[]; ttl: string[]; thinking: string[] } => ({
+export const getRelaySelfHealHosts = (): {
+  beta: string[]
+  ttl: string[]
+  scope: string[]
+  thinking: string[]
+} => ({
   beta: Object.keys(readHostOptOuts(CACHE_BETA_OPTOUT_KEY)),
   ttl: Object.keys(readHostOptOuts(CACHE_TTL_OPTOUT_KEY)),
+  scope: Object.keys(readHostOptOuts(CACHE_SCOPE_OPTOUT_KEY)),
   thinking: Object.keys(readHostOptOuts(THINKING_REPLAY_OPTOUT_KEY)),
 })
 export const clearRelaySelfHealRecords = (): void => {
@@ -939,6 +958,7 @@ export const clearRelaySelfHealRecords = (): void => {
   try {
     window.localStorage.removeItem(CACHE_BETA_OPTOUT_KEY)
     window.localStorage.removeItem(CACHE_TTL_OPTOUT_KEY)
+    window.localStorage.removeItem(CACHE_SCOPE_OPTOUT_KEY)
     window.localStorage.removeItem(THINKING_REPLAY_OPTOUT_KEY)
   } catch {
     // ignore storage errors
@@ -978,6 +998,28 @@ const stripCacheTtl = (body: AnthropicRequest): AnthropicRequest => {
   return clone
 }
 
+type ScopedCacheHolder = { cache_control?: { type: string; ttl?: string; scope?: string } }
+// Walk every existing cache_control marker and set/remove scope:'global'.
+// stamp: only touches blocks that ALREADY carry a cache_control (adds the
+// field), so non-cached bodies stay byte-identical. strip: removes it for the
+// self-heal retry. Both deep-clone so the caller's body is never mutated.
+const applyCacheScope = (body: AnthropicRequest, on: boolean): AnthropicRequest => {
+  const clone = JSON.parse(JSON.stringify(body)) as AnthropicRequest
+  const apply = (b: ScopedCacheHolder | undefined) => {
+    if (!b?.cache_control) return
+    if (on) b.cache_control.scope = 'global'
+    else if (b.cache_control.scope) delete b.cache_control.scope
+  }
+  if (Array.isArray(clone.system)) (clone.system as ScopedCacheHolder[]).forEach(apply)
+  ;(clone.tools as ScopedCacheHolder[] | undefined)?.forEach(apply)
+  for (const m of clone.messages) {
+    if (Array.isArray(m.content)) (m.content as ScopedCacheHolder[]).forEach(apply)
+  }
+  return clone
+}
+const stampCacheScope = (body: AnthropicRequest): AnthropicRequest => applyCacheScope(body, true)
+const stripCacheScope = (body: AnthropicRequest): AnthropicRequest => applyCacheScope(body, false)
+
 export const fetchAnthropicAsOpenAi = async (
   baseUrl: string,
   apiKey: string,
@@ -1013,6 +1055,9 @@ export const fetchAnthropicAsOpenAi = async (
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
+  // Set true when the prompt-caching-scope beta is live for this host, so the
+  // body gets scope:'global' stamped and the 400-fallback knows to peel it off.
+  let scopeActive = false
   if (authStyle === 'bearer') {
     headers.Authorization = `Bearer ${apiKey}`
   } else {
@@ -1036,17 +1081,32 @@ export const fetchAnthropicAsOpenAi = async (
     // 明着要「扩展缓存」的信号,是我们还在发的唯一「缓存的点」。开了不打点开关
     // 就等于「把缓存全交给中转自己」,那就不该再发任何 Anthropic 缓存信号,连头
     // 一起关。（OpenRouter 走 bearer 路径本就不发这个头,不受影响。）
-    if (
-      !readHostOptOuts(CACHE_BETA_OPTOUT_KEY)[hostOfEndpoint(endpoint)] &&
-      !getRelayNoBreakpoints()
-    ) {
-      headers['anthropic-beta'] = 'extended-cache-ttl-2025-04-11'
+    // anthropic-beta is a single comma-joined header carrying every beta we opt
+    // into. Two independent cache betas ride here, each with its own per-host
+    // opt-out: extended-cache-ttl (enables 1h) and prompt-caching-scope (enables
+    // scope:'global', which fixes node-pool cache misses). Both suppressed when
+    // 「不打点」is on (getRelayNoBreakpoints) — that hands caching entirely to the
+    // relay, so we send no Anthropic cache signal at all.
+    const host = hostOfEndpoint(endpoint)
+    const betas: string[] = []
+    if (!readHostOptOuts(CACHE_BETA_OPTOUT_KEY)[host] && !getRelayNoBreakpoints()) {
+      betas.push('extended-cache-ttl-2025-04-11')
     }
+    if (!readHostOptOuts(CACHE_SCOPE_OPTOUT_KEY)[host] && !getRelayNoBreakpoints()) {
+      betas.push('prompt-caching-scope-2026-01-05')
+      scopeActive = true
+    }
+    if (betas.length > 0) headers['anthropic-beta'] = betas.join(',')
   }
   const relayHost = hostOfEndpoint(endpoint)
   let effectiveBody = anthropicBody
   if (readHostOptOuts(CACHE_TTL_OPTOUT_KEY)[relayHost]) {
     effectiveBody = stripCacheTtl(effectiveBody)
+  }
+  // Stamp scope:'global' onto existing cache markers when the scope beta is live
+  // (independent of ttl — scope works with 5m too).
+  if (scopeActive) {
+    effectiveBody = stampCacheScope(effectiveBody)
   }
   if (readHostOptOuts(THINKING_REPLAY_OPTOUT_KEY)[relayHost]) {
     effectiveBody = stripReplayedThinking(effectiveBody)
@@ -1104,6 +1164,38 @@ export const fetchAnthropicAsOpenAi = async (
   }
 
   let response = await sendOnce(headers)
+
+  // Scope fallback: a 400 while we sent the prompt-caching-scope beta means this
+  // relay/upstream doesn't support global cache scope. Peel scope off the body
+  // AND drop just that beta from the (comma-joined) header — leaving extended-ttl
+  // intact — then retry. Remember the host on success (or when the error blamed
+  // scope) so later requests skip straight to the scope-less shape. Runs before
+  // the generic beta fallback so a scope-only rejection doesn't get the whole
+  // header (incl. 1h) blacklisted. Failed 400s are unbilled.
+  if (response.status === 400 && scopeActive) {
+    let errText = ''
+    try {
+      errText = await response.clone().text()
+    } catch {
+      // body unreadable — retry anyway
+    }
+    const blamedScope = /scope/i.test(errText)
+    const remaining = (headers['anthropic-beta'] ?? '')
+      .split(',')
+      .map((b) => b.trim())
+      .filter((b) => b && b !== 'prompt-caching-scope-2026-01-05')
+    if (remaining.length > 0) headers['anthropic-beta'] = remaining.join(',')
+    else delete headers['anthropic-beta']
+    scopeActive = false
+    effectiveBody = stripCacheScope(effectiveBody)
+    bodyJson = JSON.stringify(effectiveBody)
+    const retried = await sendOnce(headers)
+    if (retried.ok || blamedScope) {
+      console.warn('中转拒绝 prompt-caching-scope beta,已按渠道停用 global scope', relayHost)
+      rememberHostOptOut(CACHE_SCOPE_OPTOUT_KEY, relayHost)
+    }
+    response = retried
+  }
 
   // Beta-flag fallback: a 400 mentioning "beta" while we sent the extended-TTL
   // header means this relay's upstream rejects unknown beta flags (camel's AWS

@@ -24,6 +24,25 @@
 
 ---
 
+## 0.5 号池轮转吃不到缓存的解药:global scope(2026-08-20 上线)
+
+**症状**:中转「聚合分组/号池」类渠道,明明每发 system 一模一样,`cache_read_input_tokens` 却总是 0 或忽高忽低——就是用户在 treegpt 日志里看到的「一会能吃一会吃不到」。
+
+**根因**:Anthropic 缓存**默认按 workspace 隔离**。聚合分组每次请求从号池里随机抽一把上游 key,这些 key 分属不同账号/workspace;上一发写进去的缓存,下一发换把 key 就读不到。**命中率 ≈ 1 ÷ 号池大小**——这跟 §198 记的「节点亲和偶尔飘、随机全量冷写」是同一个病根。
+
+**解药(来自社区教程 ariakitty cache-guide,已实测 4/4 命中)**:让缓存条目**不绑 workspace/key**,号池随便换都读得到。两样,缺一不可:
+1. 请求头再带一张 beta 票:`anthropic-beta: prompt-caching-scope-2026-01-05`(和我们原来发的 `extended-cache-ttl-2025-04-11` 逗号并列,互不影响)。
+2. 每个 `cache_control` 里加 `"scope": "global"`(与 `ttl` 正交——1h/5m 都能用,scope 只管跨 key 共享、不改存活时长)。
+
+**实现**(`src/api/anthropic.ts`,纯前端、走 x-api-key 原生路径,OR bearer 路径不加):
+- `stampCacheScope()` 在临发前把 `scope:'global'` 盖到**已存在**的每个 cache 断点上(没断点的体保持逐字节不变)。
+- 走**独立的 per-host 自愈**(`CACHE_SCOPE_OPTOUT_KEY`,24h TTL,同 beta/ttl 那套):渠道若不认这张新票 → 400 提到 "scope" → 只摘掉 scope 那张票 + 剥掉 body 里的 scope 字段重试,**保住 extended-ttl(1h 不受牵连)**,并记下该 host。设置页「渠道自愈记录」会列出 `已停用 global 缓存 scope`。
+- 「不打点」开关(`getRelayNoBreakpoints`)照旧一票否决:开了就连 scope 一起不发。
+
+> ⚠️ 风险:`scope:'global'` 是较新的 beta,老上游/不透传的中转可能 400——但上面的自愈会自动退回现状,不会把整条路搞挂。装新包后可在设置页看有没有渠道被记进「停用 global scope」;真机若某渠道命中率没改善,大概率就是它把这张 beta 票吞了(判断法同 §226:同代码换官方直连测,能中就是中转吞头)。
+
+---
+
 ## 1. 一句话原理
 
 每一轮对话都要把「system + 全部历史」重新发给模型,对话越长越贵。**Prompt caching 让供应商把已经发过的「前缀」缓存在它自己的节点上**,下次命中只按 **0.1× 输入价** 收费(省 ~10 倍)。省的是**服务端少算钱**——客户端没法凭空造缓存,只能:① 正确发出缓存标记;② 让前缀逐字节稳定以提高命中率。
