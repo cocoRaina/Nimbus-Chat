@@ -1105,21 +1105,25 @@ export const fetchAnthropicAsOpenAi = async (
     // 只有 APK 的 OkHttp(StreamHttpPlugin)真发得出。x-app:cli 补齐 CC 指纹。
     // ⚠️ 个别池会因此反向注入 CC 人设(探针 4 可测),故默认关、由用户在干净池上开。
     if (getRelayCcHeaders()) {
-      // 伪装成 Claude Code CLI。关键:【删掉浏览器直连头】——真 CC 从不发
-      // anthropic-dangerous-direct-browser-access,留着它等于一边用 claude-cli 的
-      // UA 喊「我是 CC」、一边喊「我是浏览器」,逆向号池的 CC 识别据此判否、不给持久
-      // 缓存(2026-08-20 实测:探针只发 UA+x-app、不带这个头就命中 12 分钟;真机因为
-      // 多发了这个头,开了开关照样冷写)。再补上 CC 的 @anthropic-ai/sdk 指纹
-      // (x-stainless-*),尽量像真 CLI。
+      // 严格对齐【已实测命中 12 分钟】的探针头集,一个不多一个不少:
+      //   x-api-key + anthropic-version + anthropic-beta:extended-cache-ttl
+      //   + User-Agent: claude-cli/... + x-app: cli
+      // 相对真机原有头,CC 模式要【去掉两样探针没发的】:
+      //   ① anthropic-dangerous-direct-browser-access —— 真 CC 从不发,留着=一边
+      //      喊「我是 CC」一边喊「我是浏览器」,号池 CC 识别判否(日志记成 Claude sdk
+      //      而非 Claude Code)、不给持久缓存,就是「开了开关还冷写」的根。
+      //   ② prompt-caching-scope beta + body 的 scope:'global' —— 探针没发也命中,
+      //      且 scope 在这号池本就无效;CC 模式下头+body 一起撤,别引入探针没有的变量。
       delete headers['anthropic-dangerous-direct-browser-access']
       headers['User-Agent'] = CC_USER_AGENT
       headers['x-app'] = 'cli'
-      headers['x-stainless-lang'] = 'js'
-      headers['x-stainless-runtime'] = 'node'
-      headers['x-stainless-runtime-version'] = 'v22.14.0'
-      headers['x-stainless-os'] = 'Linux'
-      headers['x-stainless-arch'] = 'x64'
-      headers['x-stainless-retry-count'] = '0'
+      scopeActive = false // body 不再 stamp scope:'global'(见下方 stampCacheScope 门控)
+      const keptBetas = (headers['anthropic-beta'] ?? '')
+        .split(',')
+        .map((b) => b.trim())
+        .filter((b) => b && b !== 'prompt-caching-scope-2026-01-05')
+      if (keptBetas.length > 0) headers['anthropic-beta'] = keptBetas.join(',')
+      else delete headers['anthropic-beta']
     }
   }
   const relayHost = hostOfEndpoint(endpoint)
