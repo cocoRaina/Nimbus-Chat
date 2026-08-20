@@ -104,7 +104,6 @@ const SettingsPage = ({
   const [compressionKeepRecentInput, setCompressionKeepRecentInput] = useState('20')
   const [draftSummarizerModel, setDraftSummarizerModel] = useState<string | null>(null)
   const [draftSummarizerProvider, setDraftSummarizerProvider] = useState<ProviderId>('openrouter')
-  const [modelSectionExpanded, setModelSectionExpanded] = useState(false)
   const [generationSectionExpanded, setGenerationSectionExpanded] = useState(false)
   const [compressionSectionExpanded, setCompressionSectionExpanded] = useState(false)
   const [systemPromptSectionExpanded, setSystemPromptSectionExpanded] = useState(false)
@@ -1060,8 +1059,8 @@ const SettingsPage = ({
         >
           <span className="section-title">
             <span className="section-icon" aria-hidden="true">🔑</span>
-            <h2 className="ui-title">模型 & API · 密钥</h2>
-            <p>先选 API 提供商，再填对应的 Key。Key 仅存本地浏览器、不上传；换设备/清缓存会丢。</p>
+            <h2 className="ui-title">模型 & API</h2>
+            <p>提供商 · 密钥 · 模型库。Key 仅存本地。</p>
           </span>
           <span className="collapse-indicator" aria-hidden="true">›</span>
         </button>
@@ -1090,8 +1089,8 @@ const SettingsPage = ({
                 </button>
                 <span className="system-prompt-status">
                   {(activeProvider === 'msuicode' ? msuicodeFormat : openRouterFormat) === 'anthropic'
-                    ? '🚀 Anthropic 兼容格式 → 走原生 /v1/messages，prompt 缓存省 ~90%'
-                    : '⚠️ OpenAI 兼容格式无原生缓存；想省钱把下方格式切「Anthropic 兼容」'}
+                    ? '🚀 Anthropic 格式 · 原生缓存省 ~90%'
+                    : '⚠️ OpenAI 格式无原生缓存，建议切 Anthropic'}
                 </span>
               </div>
             </div>
@@ -1126,8 +1125,8 @@ const SettingsPage = ({
             </div>
             <span className="settings-hint">
               {openRouterFormat === 'anthropic'
-                ? '走 /v1/messages 路径，原生思考链 + 缓存。仅 Claude 模型可用。'
-                : '走 /v1/chat/completions 路径，所有模型通用。'}
+                ? '/v1/messages · 原生思考链+缓存 · 仅 Claude'
+                : '/v1/chat/completions · 全模型通用'}
             </span>
 
             <label htmlFor="openrouter-api-key">API Key</label>
@@ -1201,8 +1200,8 @@ const SettingsPage = ({
             </div>
             <span className="settings-hint">
               {msuicodeFormat === 'anthropic'
-                ? '走 /v1/messages 路径，中转透传 Anthropic 原生格式：原生 prompt 缓存 + 思考链都有。'
-                : '走 /v1/chat/completions 路径，OpenAI 格式，通用但一般无原生缓存/思考链。'}
+                ? '/v1/messages · 原生缓存+思考链（推荐）'
+                : '/v1/chat/completions · 通用，一般无原生缓存/思考链'}
             </span>
 
             <label htmlFor="msuicode-base-url">Base URL</label>
@@ -1294,40 +1293,152 @@ const SettingsPage = ({
               </ul>
             ) : (
               <span className="settings-hint">
-                把当前 Base URL + Key + 格式存成预设，之后点一下就能在多个中转站之间切换。
+                存成预设，一点切换多个中转站。
               </span>
             )}
-
-            <label>渠道自愈记录</label>
-            <div className="system-prompt-actions">
-              <button type="button" className="ghost small" onClick={handleResetSelfHeal}>
-                重置渠道自愈记录
-              </button>
-              {selfHealResetStatus === 'done' ? (
-                <span className="system-prompt-status">已重置,下次请求将重试最优形态</span>
-              ) : null}
-            </div>
-            <span className="settings-hint">
-              {selfHealSummary.length > 0
-                ? `当前记录:${selfHealSummary.join(';')}。渠道换池子/升级后可重置让 App 重试最优请求形态——不兼容会自动再降级,重置永远安全。`
-                : '暂无降级记录。撞到不兼容的中转节点时,App 会自动降级(如停用原生思考回传)并按渠道记住,这里可以随时清除重试。'}
-            </span>
-
-            <label htmlFor="ccHeaders">模拟 Claude Code 请求头</label>
-            <label className="toggle-control">
-              <input
-                id="ccHeaders"
-                type="checkbox"
-                checked={ccHeaders}
-                onChange={handleToggleCcHeaders}
-              />
-              <span>{ccHeaders ? '已开启' : '已关闭'}</span>
-            </label>
-            <span className="settings-hint">
-              给中转带上 CC 的 User-Agent（claude-cli）。有些逆向号池靠这个头才启用持久缓存，能治「隔一阵回来就冷写」。⚠️ 仅 APK 生效（网页版发不出 User-Agent）；个别号池会因此把小机当成 Claude Code、注入代码助手人设污染角色——先在设置底部确认渠道干净、命中改善再开，不对劲就关。
-            </span>
               </>
             )}
+
+            {/* 模型库（两个提供商通用）：选默认模型 + 启用/搜索 */}
+            <div className="section-title nested-prompt-title">
+              <h2 className="ui-title">模型库</h2>
+              <p>选默认模型、启用/停用模型。</p>
+            </div>
+            {draftEnabledModels.length === 0 ? (
+              <div className="empty-state">暂无启用模型，从下方启用。</div>
+            ) : (
+              <div className="model-select-card">
+                <div className="model-select-row">
+                  <label htmlFor="enabled-models">默认</label>
+                  <select
+                    id="enabled-models"
+                    value={selectedModelId}
+                    onChange={(event) => handleSetDefault(event.target.value)}
+                  >
+                    {draftEnabledModels.map((modelId) => (
+                      <option key={modelId} value={modelId}>
+                        {catalogMap.get(modelId) ?? modelId}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="ghost danger small"
+                    onClick={() => setPendingDisable(selectedModelId)}
+                  >
+                    停用
+                  </button>
+                </div>
+                <div className="model-selected-meta">
+                  <strong>{catalogMap.get(selectedModelId) ?? selectedModelId}</strong>
+                  <span className="model-id">{selectedModelId}</span>
+                </div>
+              </div>
+            )}
+            <div className="model-select-row">
+              <input
+                className="search-input"
+                type="search"
+                placeholder="搜索模型名称或 ID"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="ghost small"
+                disabled={catalogStatus === 'loading'}
+                onClick={() => setCatalogReloadKey((v) => v + 1)}
+                title="换分组后重新拉取模型列表"
+              >
+                {catalogStatus === 'loading' ? '…' : '↺ 刷新'}
+              </button>
+            </div>
+            {catalogStatus === 'loading' ? (
+              <div className="catalog-status">加载中…</div>
+            ) : null}
+            {catalogStatus === 'error' ? (
+              <div className="catalog-status error">{catalogError}</div>
+            ) : null}
+            {searchTerm.trim().length > 0 ? (
+              <div className="catalog-dropdown">
+                {visibleCatalog.length === 0 && catalogStatus !== 'loading' ? (
+                  <div className="catalog-empty">未找到匹配模型。</div>
+                ) : null}
+                <ul className="catalog-results">
+                  {visibleCatalog.map((model) => {
+                    const enabled = draftEnabledModels.includes(model.id)
+                    return (
+                      <li key={model.id} className="catalog-result-item">
+                        <div className="catalog-meta">
+                          <strong>{model.name ?? model.id}</strong>
+                          <span className="model-id">{model.id}</span>
+                          {model.context_length ? (
+                            <span className="context-length">上下文 {model.context_length}</span>
+                          ) : null}
+                        </div>
+                        <div className="catalog-actions">
+                          {enabled ? (
+                            <span className="badge subtle">已启用</span>
+                          ) : (
+                            <button type="button" onClick={() => handleEnableModel(model.id, false)}>
+                              启用
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+                {filteredCatalog.length > visibleCatalog.length ? (
+                  <div className="catalog-hint">继续输入缩小范围。</div>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="system-prompt-actions">
+              <button
+                type="button"
+                className="primary"
+                onClick={() => void handleSaveModelSettings()}
+                disabled={!hasUnsavedModelSettings || modelStatus === 'saving'}
+              >
+                {modelStatus === 'saving' ? '保存中…' : '保存'}
+              </button>
+              {hasUnsavedModelSettings ? <span className="system-prompt-status">有未保存修改</span> : null}
+              {modelStatus === 'saved' ? <span className="system-prompt-status">已保存</span> : null}
+              {modelStatus === 'error' ? <span className="field-error">{modelError}</span> : null}
+            </div>
+
+            {activeProvider === 'msuicode' ? (
+              <>
+                <label>渠道自愈</label>
+                <div className="system-prompt-actions">
+                  <button type="button" className="ghost small" onClick={handleResetSelfHeal}>
+                    重置
+                  </button>
+                  {selfHealResetStatus === 'done' ? (
+                    <span className="system-prompt-status">已重置</span>
+                  ) : null}
+                </div>
+                {selfHealSummary.length > 0 ? (
+                  <span className="settings-hint">当前:{selfHealSummary.join('；')}。重置永远安全。</span>
+                ) : null}
+
+                <label htmlFor="ccHeaders">模拟 Claude Code 请求头</label>
+                <label className="toggle-control">
+                  <input
+                    id="ccHeaders"
+                    type="checkbox"
+                    checked={ccHeaders}
+                    onChange={handleToggleCcHeaders}
+                  />
+                  <span>{ccHeaders ? '已开启' : '已关闭'}</span>
+                </label>
+                <span className="settings-hint">
+                  带 CC 的 User-Agent，逆向号池靠它才给持久缓存（治长间隔冷写）。仅 APK 生效；个别池会注入代码助手人设，脏了就关。
+                </span>
+              </>
+            ) : null}
           </div>
         ) : null}
       </section>
@@ -1403,7 +1514,7 @@ const SettingsPage = ({
                   <option value="0.5">0.5 · Natural（自然·推荐）</option>
                   <option value="1">1 · Robust（最稳·像念稿）</option>
                 </select>
-                <span className="settings-hint">v3 可在文本里写 [laughs]/[sighs]/[whispers] 等标签触发语气；积分用完到下月重置，免费档不会自动扣费。</span>
+                <span className="settings-hint">v3 支持文本内 [laughs]/[sighs] 等语气标签；免费档不自动扣费。</span>
               </>
             ) : (
               <>
@@ -1478,7 +1589,7 @@ const SettingsPage = ({
               </span>
             ) : null}
             {ttsError ? <span className="voice-bar__err">保存出错：{ttsError}</span> : null}
-            <span className="settings-hint">边填边会自动保存；填完点一下「保存」更稳妥（确保写进系统存储，关 App 也不丢）。</span>
+            <span className="settings-hint">边填自动存；填完点「保存」更稳。</span>
 
             <hr />
             <label className="header-menu-toggle" style={{ paddingLeft: 0 }}>
@@ -1490,10 +1601,7 @@ const SettingsPage = ({
               <span>📞 开启语音通话（callhome）</span>
             </label>
             <span className="settings-hint">
-              开启后 TA 可以主动给你打电话（回复里带 [call:理由] 就会全屏响铃 90 秒），
-              没接到会留语音留言；聊天页右上角也会出现 📞 让你打给 TA。通话是「按住说话」
-              轮次制：你的话经 SenseVoice 转写（带情绪），TA 的回复自动用上面的 TTS 读出来。
-              需要先把上面的语音（TTS）配置好并开启。
+              TA 可主动打来（回复带 [call:理由] 全屏响铃 90 秒，没接留语音），右上角 📞 也能打给 TA。按住说话轮次制，需先配好上面的 TTS。
             </span>
             <label className="header-menu-toggle" style={{ paddingLeft: 0 }}>
               <input
@@ -1503,7 +1611,7 @@ const SettingsPage = ({
               />
               <span>🔕 勿扰模式（拦下 TA 的主动来电）</span>
             </label>
-            <span className="settings-hint">也可以直接在聊天里说「帮我开勿扰」——TA 会用 [dnd:on]/[dnd:off] 帮你切换。</span>
+            <span className="settings-hint">聊天里说「开勿扰」也能切。</span>
           </div>
         ) : null}
       </section>
@@ -1524,7 +1632,7 @@ const SettingsPage = ({
         </button>
         {weatherSectionExpanded ? (
           <div className="accordion-content">
-            <span className="settings-hint">先在和风控制台「设置」页找到你的专属 API Host（形如 abc123.qweatherapi.com），填到下面第一栏——旧的 devapi 公共域名已停用，不填会 403。然后把凭据页的16进制 API Key 粘到第二栏即可。（Ed25519 凭据才需要填 PEM 私钥 + 凭据ID + 项目ID。）</span>
+            <span className="settings-hint">第一栏填专属 API Host（形如 abc123.qweatherapi.com，不填会 403），第二栏填16进制 API Key。Ed25519 才需下面的 PEM+凭据ID+项目ID。</span>
 
             <label htmlFor="qweather-host">API Host（控制台「设置」页）</label>
             <input
@@ -1634,142 +1742,6 @@ const SettingsPage = ({
               >
                 {weatherRefreshing ? '定位中…' : '强制刷新'}
               </button>
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="settings-section" role="listitem">
-        <button
-          type="button"
-          className="collapse-header"
-          onClick={() => setModelSectionExpanded((current) => !current)}
-          aria-expanded={modelSectionExpanded}
-        >
-          <span className="section-title">
-            <span className="section-icon" aria-hidden="true">⚙️</span>
-            <h2 className="ui-title">模型库</h2>
-            <p>管理已启用模型并设置默认模型。</p>
-          </span>
-          <span className="collapse-indicator" aria-hidden="true">›</span>
-        </button>
-        {modelSectionExpanded ? (
-          <div className="accordion-content">
-            <span className="settings-hint">
-              切换 API 提供商在「模型 & API · 密钥」板块顶部；这里管理当前提供商下启用哪些模型、设默认模型。
-            </span>
-            {draftEnabledModels.length === 0 ? (
-              <div className="empty-state">暂无启用模型，请从下方模型库启用。</div>
-            ) : (
-              <div className="model-select-card">
-                <div className="model-select-row">
-                  <label htmlFor="enabled-models">默认模型</label>
-                  <select
-                    id="enabled-models"
-                    value={selectedModelId}
-                    onChange={(event) => handleSetDefault(event.target.value)}
-                  >
-                    {draftEnabledModels.map((modelId) => (
-                      <option key={modelId} value={modelId}>
-                        {catalogMap.get(modelId) ?? modelId}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="ghost danger small"
-                    onClick={() => setPendingDisable(selectedModelId)}
-                  >
-                    停用
-                  </button>
-                </div>
-                <div className="model-selected-meta">
-                  <strong>{catalogMap.get(selectedModelId) ?? selectedModelId}</strong>
-                  <span className="model-id">{selectedModelId}</span>
-                </div>
-              </div>
-            )}
-
-            <div className="section-title nested-prompt-title">
-              <h2 className="ui-title">{activeProvider === 'msuicode' ? customProviderName : 'OpenRouter'} 模型库</h2>
-              <p>搜索并启用你想使用的模型。换了分组/站点后点刷新。</p>
-            </div>
-            <div className="model-select-row">
-              <input
-                className="search-input"
-                type="search"
-                placeholder="搜索模型名称或 ID"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                style={{ flex: 1 }}
-              />
-              <button
-                type="button"
-                className="ghost small"
-                disabled={catalogStatus === 'loading'}
-                onClick={() => setCatalogReloadKey((v) => v + 1)}
-                title="重新从服务器拉取模型列表"
-              >
-                {catalogStatus === 'loading' ? '…' : '↺ 刷新'}
-              </button>
-            </div>
-            {catalogStatus === 'loading' ? (
-              <div className="catalog-status">正在加载模型库...</div>
-            ) : null}
-            {catalogStatus === 'error' ? (
-              <div className="catalog-status error">{catalogError}</div>
-            ) : null}
-            {searchTerm.trim().length === 0 ? (
-              <div className="catalog-hint">继续输入以缩小范围。</div>
-            ) : null}
-            {searchTerm.trim().length > 0 ? (
-              <div className="catalog-dropdown">
-                {visibleCatalog.length === 0 && catalogStatus !== 'loading' ? (
-                  <div className="catalog-empty">未找到匹配模型。</div>
-                ) : null}
-                <ul className="catalog-results">
-                  {visibleCatalog.map((model) => {
-                    const enabled = draftEnabledModels.includes(model.id)
-                    return (
-                      <li key={model.id} className="catalog-result-item">
-                        <div className="catalog-meta">
-                          <strong>{model.name ?? model.id}</strong>
-                          <span className="model-id">{model.id}</span>
-                          {model.context_length ? (
-                            <span className="context-length">上下文 {model.context_length}</span>
-                          ) : null}
-                        </div>
-                        <div className="catalog-actions">
-                          {enabled ? (
-                            <span className="badge subtle">已启用</span>
-                          ) : (
-                            <button type="button" onClick={() => handleEnableModel(model.id, false)}>
-                              启用
-                            </button>
-                          )}
-                        </div>
-                      </li>
-                    )
-                  })}
-                </ul>
-                {filteredCatalog.length > visibleCatalog.length ? (
-                  <div className="catalog-hint">结果较多，请继续输入以缩小范围。</div>
-                ) : null}
-              </div>
-            ) : null}
-
-            <div className="system-prompt-actions">
-              <button
-                type="button"
-                className="primary"
-                onClick={() => void handleSaveModelSettings()}
-                disabled={!hasUnsavedModelSettings || modelStatus === 'saving'}
-              >
-                {modelStatus === 'saving' ? '保存中…' : '保存'}
-              </button>
-              {hasUnsavedModelSettings ? <span className="system-prompt-status">有未保存修改</span> : null}
-              {modelStatus === 'saved' ? <span className="system-prompt-status">已保存</span> : null}
-              {modelStatus === 'error' ? <span className="field-error">{modelError}</span> : null}
             </div>
           </div>
         ) : null}
@@ -1902,8 +1874,7 @@ const SettingsPage = ({
             />
             {errors.compressionRatio ? <span className="field-error">{errors.compressionRatio}</span> : null}
             <span className="settings-hint">
-              上下文用量超过该比例后开始压缩。注意:Claude/GPT 这类带工具的模型有 0.35 的有效上限
-              (工具消息会打断缓存,提前压缩省钱得多)——设更高也按 0.35 触发,设更低则按你的值。
+              超此比例开始压缩。带工具的模型（Claude/GPT）有效上限 0.35，设更高也按 0.35 触发。
             </span>
 
             <label htmlFor="compressionKeepRecent">保留最近消息数 (4 - 200)</label>
@@ -2145,9 +2116,7 @@ const SettingsPage = ({
                   </button>
                 </div>
                 <span className="settings-hint">
-                  选「中转」需先在 Supabase 后台存两个密钥 <code>RELAY_BASE_URL</code> 和{' '}
-                  <code>RELAY_API_KEY</code>（唤醒是服务端定时任务，读不到你手机里的中转设置，
-                  所以要单独存）。密钥没配好或中转打不通时，会自动回退 OpenRouter，唤醒不会中断。
+                  选「中转」需先在 Supabase 存 <code>RELAY_BASE_URL</code> + <code>RELAY_API_KEY</code>（服务端任务读不到手机设置）。打不通自动回退 OpenRouter。
                 </span>
 
                 <label htmlFor="wakeMaxPerDay">每天最多唤醒次数 (1 - 12)</label>
