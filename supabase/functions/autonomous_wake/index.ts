@@ -33,9 +33,11 @@ const MAX_WAKES_PER_DAY = 6            // 缺省每天最多醒几次（autonomo
 const MAX_MSGS_PER_DAY = 5             // 一天最多主动给她发几条
 const PRESENCE_QUIET_MIN = 45          // 她 45min 内说过话 = 在场
 const QUIET_START_H = 0, QUIET_END_H = 8 // 北京 0–8 点安静时段不醒
-const MAX_TOOL_ITERS = 6              // 工具循环最多几轮
-// 单次上游请求超时：上游吊住若没超时会把整个 Edge 运行时拖到墙钟上限被杀，patchState 都跑不到。
-const REQUEST_TIMEOUT_MS = 40_000
+const MAX_TOOL_ITERS = 5              // 工具循环最多几轮（中转慢，压一压免得墙钟爆）
+// 单次上游请求超时：中转的「特价Claude 0.8x」延迟很高——实测单次能到 1m52s。原来 40s
+// 就 abort，等于把它写随笔那一步的慢调用亲手掐死（trace 里显示成"上游没接住"）。放宽到
+// 130s 容忍它慢；MAX_TOOL_ITERS 压到 5，最坏也控制在 Edge 墙钟上限内。
+const REQUEST_TIMEOUT_MS = 130_000
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -93,6 +95,12 @@ const fmtDate = (iso?: string | null): string => {
 
 // A 社原生 /v1/messages 单发。tools 传 null = 不带工具（收尾问心情）。
 // 返回助手回复的 content 块数组（含 text / tool_use），失败返回 null。
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+// 中转(treegpt)会【偶发把请求"没接住"】——连接被丢/5xx/429 瞬时错误。实测就是
+// 它探索到一半那一轮被丢、循环当场断掉、随笔没写成(trace 里的 "上游没接住")。
+// 所以单次失败别当真：重试至多 3 次、短退避(1s/2s)。抽风一般 fail-fast，重试很快，
+// 不会把 Edge 墙钟拖爆。4xx(除 429)是请求本身的问题，重试没用，直接放弃。
 const callAnthropic = async (
   route: Route,
   system: string,
@@ -102,47 +110,56 @@ const callAnthropic = async (
   // 可选：强制它调某个工具（收尾时逼它调 finish 交心情，比"求它自觉调"稳）。
   toolChoice?: Record<string, unknown>,
 ): Promise<AnthropicBlock[] | null> => {
-  const ac = new AbortController()
-  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS)
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'anthropic-version': '2023-06-01',
-    }
-    if (route.authStyle === 'bearer') headers['Authorization'] = `Bearer ${route.key}`
-    else headers['x-api-key'] = route.key
-
-    const body: Record<string, unknown> = {
-      model: route.model,
-      system,
-      messages,
-      max_tokens: maxTokens,
-      temperature: 0.8,
-    }
-    if (tools) {
-      body.tools = tools
-      body.tool_choice = toolChoice ?? { type: 'auto' }
-    }
-
-    const r = await fetch(route.url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: ac.signal,
-    })
-    if (!r.ok) {
-      console.warn(`[wake] ${route.label} 失败 ${r.status} ${(await r.text().catch(() => '')).slice(0, 300)}`)
-      return null
-    }
-    const data = await r.json()
-    const content = data?.content
-    return Array.isArray(content) ? (content as AnthropicBlock[]) : null
-  } catch (e) {
-    console.warn(`[wake] ${route.label} 异常 ${String(e).slice(0, 200)}`)
-    return null
-  } finally {
-    clearTimeout(timer)
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'anthropic-version': '2023-06-01',
   }
+  if (route.authStyle === 'bearer') headers['Authorization'] = `Bearer ${route.key}`
+  else headers['x-api-key'] = route.key
+  const body: Record<string, unknown> = {
+    model: route.model,
+    system,
+    messages,
+    max_tokens: maxTokens,
+    temperature: 0.8,
+  }
+  if (tools) {
+    body.tools = tools
+    body.tool_choice = toolChoice ?? { type: 'auto' }
+  }
+  const payload = JSON.stringify(body)
+
+  const ATTEMPTS = 3
+  for (let a = 0; a < ATTEMPTS; a++) {
+    const last = a === ATTEMPTS - 1
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS)
+    try {
+      const r = await fetch(route.url, { method: 'POST', headers, body: payload, signal: ac.signal })
+      if (!r.ok) {
+        console.warn(`[wake] ${route.label} 失败 ${r.status} (试${a + 1}/${ATTEMPTS}) ${(await r.text().catch(() => '')).slice(0, 200)}`)
+        // 5xx/429 = 上游瞬时抽风，值得重试；其余 4xx 是请求本身的问题，重试无用。
+        if (!last && (r.status >= 500 || r.status === 429)) { await sleep(1000 * (a + 1)); continue }
+        return null
+      }
+      const data = await r.json()
+      const content = data?.content
+      if (Array.isArray(content)) return content as AnthropicBlock[]
+      // 200 但 content 不是数组（异常/空回）——也当抽风重试一次。
+      if (!last) { await sleep(1000 * (a + 1)); continue }
+      return null
+    } catch (e) {
+      // 区分两种失败：①我们自己的超时 abort（说明这次是慢，不是丢）——别重试，
+      // 再等一次又是 130s、白烧墙钟预算；②连接被丢/瞬时网络错（fail-fast）——值得重试。
+      const wasTimeout = ac.signal.aborted
+      console.warn(`[wake] ${route.label} 异常 (试${a + 1}/${ATTEMPTS}${wasTimeout ? ' 超时' : ''}) ${String(e).slice(0, 160)}`)
+      if (!last && !wasTimeout) { await sleep(1000 * (a + 1)); continue }
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  return null
 }
 
 const textOf = (blocks: AnthropicBlock[] | null): string =>
