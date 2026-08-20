@@ -1105,8 +1105,21 @@ export const fetchAnthropicAsOpenAi = async (
     // 只有 APK 的 OkHttp(StreamHttpPlugin)真发得出。x-app:cli 补齐 CC 指纹。
     // ⚠️ 个别池会因此反向注入 CC 人设(探针 4 可测),故默认关、由用户在干净池上开。
     if (getRelayCcHeaders()) {
+      // 伪装成 Claude Code CLI。关键:【删掉浏览器直连头】——真 CC 从不发
+      // anthropic-dangerous-direct-browser-access,留着它等于一边用 claude-cli 的
+      // UA 喊「我是 CC」、一边喊「我是浏览器」,逆向号池的 CC 识别据此判否、不给持久
+      // 缓存(2026-08-20 实测:探针只发 UA+x-app、不带这个头就命中 12 分钟;真机因为
+      // 多发了这个头,开了开关照样冷写)。再补上 CC 的 @anthropic-ai/sdk 指纹
+      // (x-stainless-*),尽量像真 CLI。
+      delete headers['anthropic-dangerous-direct-browser-access']
       headers['User-Agent'] = CC_USER_AGENT
       headers['x-app'] = 'cli'
+      headers['x-stainless-lang'] = 'js'
+      headers['x-stainless-runtime'] = 'node'
+      headers['x-stainless-runtime-version'] = 'v22.14.0'
+      headers['x-stainless-os'] = 'Linux'
+      headers['x-stainless-arch'] = 'x64'
+      headers['x-stainless-retry-count'] = '0'
     }
   }
   const relayHost = hostOfEndpoint(endpoint)
