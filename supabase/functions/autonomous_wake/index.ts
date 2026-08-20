@@ -455,12 +455,14 @@ Deno.serve(async (req: Request) => {
     { role: 'user', content: firstUser },
   ]
 
+  const trace: string[] = [] // 逐轮诊断：每轮模型吐了啥（text / tool_use:名字），排查"到底调没调 write_essay"
   let nudgedToWrite = false
   for (let i = 0; i < MAX_TOOL_ITERS && !finished; i++) {
     const content = await callAnthropic(route, sys, messages, tools, 1500)
-    if (!content) break
+    if (!content) { trace.push(`i${i}:NULL(上游没接住)`); break }
     // 把助手这轮的完整 content（text + tool_use）原样回填历史
     messages.push({ role: 'assistant', content })
+    trace.push(`i${i}:` + (content.map((b) => b.type === 'tool_use' ? `tool:${b.name}` : b.type).join(',') || 'empty'))
     const toolUses = content.filter((b) => b.type === 'tool_use')
     if (toolUses.length === 0) {
       // 它只吐了文字、没调工具。这个自省人设很容易把大段心里话【直接写成文字】
@@ -498,6 +500,7 @@ Deno.serve(async (req: Request) => {
       content: '好了，现在必须调用 finish：交出你此刻真实的心情（短一点、像随口说的）+ 你想过几小时再醒来（1–8）。',
     })
     const content = await callAnthropic(route, sys, messages, tools, 400, { type: 'tool', name: 'finish' })
+    trace.push('forced-finish:' + ((content ?? []).map((b) => b.type === 'tool_use' ? `tool:${b.name}` : b.type).join(',') || 'NULL'))
     const tu = (content ?? []).find((b) => b.type === 'tool_use' && b.name === 'finish')
     if (tu) {
       const input = (tu.input && typeof tu.input === 'object') ? tu.input as Record<string, unknown> : {}
@@ -558,5 +561,6 @@ Deno.serve(async (req: Request) => {
     next_wake_at: nextWake.toISOString(),
     model,
     provider: route.label,
+    trace, // 逐轮诊断（临时）：每轮模型吐了 text 还是 tool_use、调了哪个工具
   })
 })
