@@ -23,6 +23,8 @@
 
 **做法**（`apiProvider.ts` `getRelayCcHeaders` 开关默认关 + `CC_USER_AGENT` / `anthropic.ts` 原生 x-api-key 路径加 `User-Agent` + `x-app:cli` / 设置页开关「模拟 Claude Code 请求头」）。**两个硬约束**：① **仅 APK 生效**——`User-Agent` 是浏览器 fetch 禁止头，网页版设了被静默丢；安卓走 `StreamHttpPlugin` 的 OkHttp（`reqBuilder.header` 能真发出去），无需改 Java。② **默认关、按池子拨**：脏池会注入 CC 人设，探针 4 确认干净（回「无设定」）+ 命中改善再开。CC 真身走 OAuth，我们纯补头 + API key，个别池可能光补头不够。细节全在 `docs/caching.md §0.5/§0.6`。
 
+**⚠️ 半成品坑（同日晚，「开了开关还是冷写」，用户点醒）**：第一版只加了 `User-Agent`，**没删原有的 `anthropic-dangerous-direct-browser-access: true`**——UA 喊「我是 CC」、这个头喊「我是浏览器」，自相矛盾 → 真机开了开关照样冷写（服务端探针从没发这个浏览器头，所以探针命中、真机不中）。**定位法（用户教的，别再瞎烧探针）：直接 diff「命中的探针发了啥」vs「真机发了啥」**，差异只有浏览器头 + scope beta 两样，删掉对齐即可。**顺带推翻一个错判**：一度以为日志「来源 Claude sdk / Claude Code」决定给不给缓存——但命中探针日志**也**是 `Claude SDK`，证明那标签不是开关。**修**（`anthropic.ts` CC 模式内）：`delete` 浏览器头 + 撤 scope（头+body），严格对齐命中探针头集。**验收通过**：装新包 + 开开关后，除「装新包第一发」「压缩触发那发」两种结构性冷写外，其余轮稳定命中。scope 在 CC 关时保留（只对直连官方 API 有用）、CC 开时撤，代码天然如此。
+
 **顺带（同次）设置页大扫除**：① **「模型库」并入「模型 & API」板块**（原来是独立折叠块），删重复 section + 未用的 `modelSectionExpanded`；中转专属项（渠道自愈/模拟CC头）移到模型库下方按 provider 门控。② **各处 `settings-hint` 冗长文案全砍短**（自用，不赘述）。均需新 APK。
 
 ## 🐢 自主唤醒「只出心情、不写随笔」真相：不是模型偷懒，是中转延迟撞 Supabase 150s 墙（2026-08-20，用户「小机这几次醒来都只写心情」）
