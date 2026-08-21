@@ -4,6 +4,14 @@
 
 ---
 
+## 🫀 心情卡漏填治根：把空卡骨架搬到贴身提醒里（2026-08-21，用户「调整位置让小机每次都看到」）
+
+**背景**：模型偶尔不吐 `<<MOOD>>` 卡 → 面板停摆。原本已有两处放置:完整格式在 system 末尾（离输出几万字、易忘）、一句短提醒追加在每条 user 消息末尾（`MOOD_OUTPUT_REMINDER`，离输出最近）。但短提醒只喊「别漏」、没带格式，敏感轮 + 思考链「想到拒绝」时懒得回翻就漏。
+
+**治根**：把【空卡骨架本身】(`<<MOOD>>\n贪：\n嗔：…\n<<END>>`) 并进那行贴身提醒——触发 + 格式都贴在输出点旁，模型照填不用回翻。仍是固定串、每条 user 一致 → 不破缓存（`parseMoodMarker` 只解析助手输出，这段在 user 输入里不会被误当已填）。`moodSystem.ts`，需新 APK。
+
+**顺带发现（治标未做，留档）**：漏卡时的补发请求（`App.tsx` ~4817）本以为「复用热缓存几乎免费」，实则改了 `temperature`/`max_tokens`/删 `thinking` → 请求形状变 → 读不到热缓存、**冷写整段 ~45k**。若治根后仍漏得多，再把补发改轻量（只发「刚那句 + 补卡」、别重发全史，冷写从 45k 降到 ~1k）。
+
 ## 🔑 号池轮转吃不到缓存的真凶：CC 请求头（User-Agent）+ 设置页精简（2026-08-20，用户「号池轮询怎么办」）
 
 **起因**：群里 ariakitty 缓存教程说加 `cache_control.scope:'global'` + `anthropic-beta: prompt-caching-scope-2026-01-05` 能治「中转号池随机换 key → 缓存读不到」。查证：这头是**真·Anthropic beta、Claude Code v2.1.23 起自带**，官方直连认、Vertex 拒（litellm #19984）。先照做上线（`anthropic.ts` `stampCacheScope` + 独立 per-host 自愈 `CACHE_SCOPE_OPTOUT_KEY`，被拒自动剥掉、保住 1h）。
