@@ -630,6 +630,27 @@ ${JSON.stringify(mergeInput)}`,
           fallbackAdds.push(r.content)
         }
       }
+      // 记忆情绪权重（借鉴 wanwan「海马体」，用现成的贪嗔痴念喂）：给这批新记忆盖上
+      // 当下的情绪强度 arousal(0..1,驱动召回加权) + 正负 valence(-1..1,存着备用)。
+      // 提取在活跃聊天后不久触发，存的 mood 足够新，不再重做客户端衰减。读不到就中性 0。
+      let emoArousal = 0
+      let emoValence = 0
+      try {
+        const { data: moodRow } = await supabase
+          .from('mood_state').select('tan,chen,chi,nian').eq('user_id', user.id).maybeSingle()
+        if (moodRow) {
+          const tan = Number(moodRow.tan) || 0
+          const chen = Number(moodRow.chen) || 0
+          const chi = Number(moodRow.chi) || 0
+          const nian = Number(moodRow.nian) || 0
+          // 激活强度：取「热」情绪(嗔/贪/念/痴超基线50)的峰值。
+          emoArousal = Math.max(0, Math.min(1, Math.max(chen, tan, nian, Math.max(chi - 50, 0)) / 100))
+          // 正负：嗔(火气)负，贪/痴/念(想要/着迷/思念)偏正。
+          emoValence = Math.max(-1, Math.min(1, (tan * 0.4 + (chi - 50) * 0.6 + nian * 0.2 - chen) / 100))
+        }
+      } catch {
+        // 读 mood 失败不影响提取，用中性 0
+      }
       const toInsert = [...acceptedItems, ...fallbackAdds]
       if (toInsert.length > 0) {
         const { error: memInsertError } = await supabase.from('memories').insert(
@@ -638,6 +659,8 @@ ${JSON.stringify(mergeInput)}`,
             category: '自动提取',
             tags: ['auto'],
             source: 'auto',
+            arousal: emoArousal,
+            valence: emoValence,
           })),
         )
         if (memInsertError) {
