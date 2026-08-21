@@ -4815,25 +4815,30 @@ TOOL_SEARCH_HANDOFF,
                 // 这轮心跳。抠不到才真丢。整段 fire-and-forget，不阻塞回复展示。
                 console.warn('[mood] 本轮没抠到情绪块', { tail: assistantContent.slice(-80) })
                 if (lastSentBody && !controller.signal.aborted) {
+                  // 轻量补发（2026-08-21，用户 + 小机诊断）：以前是 `...lastSentBody` +
+                  // 全 baseMessages(~45k)，且改了 temperature/max_tokens/删 thinking →
+                  // 请求形状变、读不到刚才那份热缓存 → 整段【冷写 ~45k】（注释吹的"几乎
+                  // 免费"是错的）。改成只发【极简 system(仅心情规则) + 最后一轮 user + 刚
+                  // 那条回复 + 补卡 nudge】，不带全史、不带工具 → 冷写只 ~1-2k，真·几分钱。
+                  // 心情是"这一轮把我怎么了"的增量，最后一轮上下文足够，不需要整段历史。
+                  const lastUserForMood = [...baseMessages].reverse().find((m) => m.role === 'user')
                   const moodRetryBody: Record<string, unknown> = {
-                    ...lastSentBody,
-                    messages: applyClaudeCaching(
-                      [
-                        ...baseMessages,
-                        { role: 'assistant', content: replyForMoodRetry },
-                        { role: 'user', content: MOOD_RETRY_NUDGE },
-                      ] as typeof baseMessages,
-                      effectiveModel,
-                    ),
+                    model: effectiveModel,
+                    messages: [
+                      { role: 'system', content: buildMoodRulesSection() },
+                      ...(lastUserForMood ? [lastUserForMood] : []),
+                      { role: 'assistant', content: replyForMoodRetry },
+                      { role: 'user', content: MOOD_RETRY_NUDGE },
+                    ],
                     stream: false,
                     tool_choice: 'none',
-                    // 非思考：思考链在敏感轮次会「想到拒绝」（朋友实测）。删掉 reasoning
-                    // → 适配层就不发 thinking。低温更稳（Opus4.7+ 会自动丢弃 temperature，
-                    // 无害；老模型/非 Claude 生效）。max_tokens 只需放下一张小卡。
+                    // 非思考：思考链在敏感轮次会「想到拒绝」（朋友实测）。不带 reasoning
+                    // → 适配层就不发 thinking。低温更稳。max_tokens 只需放下一张小卡。
                     temperature: 0.4,
                     max_tokens: 1024,
                   }
-                  delete moodRetryBody.reasoning
+                  // 保留 user 字段做节点亲和（一次性请求，主要为一致性，无害）。
+                  if (typeof lastSentBody.user === 'string') moodRetryBody.user = lastSentBody.user
                   void (async () => {
                     try {
                       const resp = await fetchOpenRouter('/chat/completions', {
