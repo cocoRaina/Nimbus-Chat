@@ -52,12 +52,6 @@ export type DecorativeWidget =
       size?: '1x1' | '2x1'
     }
 
-export type AppIconConfig =
-  | {
-      type: 'emoji'
-      emoji: string
-    }
-
 // One screenful of widgets. The home screen is now a horizontally
 // paginated stack — `pages[0]` is the primary page (must contain the
 // core checkin widget), and additional pages can hold whatever the
@@ -77,7 +71,6 @@ export type HomeSettingsState = {
   showEmptySlots?: boolean
   iconTileBgColor?: string
   iconTileBgOpacity?: number
-  appIconConfigs?: Record<string, AppIconConfig>
   backgroundImageKey?: string
 }
 
@@ -338,27 +331,6 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
       (p, idx) => idx === 0 || p.widgets.length > 0 || p.widgetOrder.length > 0,
     )
 
-    const normalizedIconConfigs =
-      parsed.appIconConfigs && typeof parsed.appIconConfigs === 'object'
-        ? Object.entries(parsed.appIconConfigs).reduce<Record<string, AppIconConfig>>(
-            (accumulator, [iconId, config]) => {
-              if (
-                config &&
-                typeof config === 'object' &&
-                (config as AppIconConfig).type === 'emoji' &&
-                typeof (config as AppIconConfig).emoji === 'string'
-              ) {
-                accumulator[iconId] = {
-                  type: 'emoji',
-                  emoji: (config as AppIconConfig).emoji,
-                }
-              }
-              return accumulator
-            },
-            {},
-          )
-        : undefined
-
     return {
       iconOrder: Array.isArray(parsed.iconOrder) ? (parsed.iconOrder as string[]) : [],
       pages: normalizedPages,
@@ -370,7 +342,6 @@ const parseHomeSettings = (raw: string | null): HomeSettingsState | null => {
       showEmptySlots: parsed.showEmptySlots,
       iconTileBgColor: parsed.iconTileBgColor,
       iconTileBgOpacity: parsed.iconTileBgOpacity,
-      appIconConfigs: normalizedIconConfigs,
       backgroundImageKey: typeof parsed.backgroundImageKey === 'string' ? parsed.backgroundImageKey : undefined,
     }
   } catch (error) {

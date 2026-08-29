@@ -15,7 +15,6 @@ import {
   removeImageData,
   saveHomeSettings,
   saveImageDataUrl,
-  type AppIconConfig,
 } from "../storage/homeLayout";
 import { createTodayCheckin, fetchRecentCheckins } from "../storage/supabaseSync";
 import { supabase } from "../supabase/client";
@@ -223,8 +222,6 @@ type HomePageProps = {
   mode?: "default" | "settings";
 };
 
-type AppIconState = Record<string, AppIconConfig>;
-
 const DEFAULT_ICON_ORDER = [
   "chat", "checkin", "memory", "snacks", "usage", "health", "settings", "export",
 ];
@@ -280,8 +277,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
   const [togetherSince, setTogetherSince] = useState<string | null>(null);
   const [checkedDates, setCheckedDates] = useState<Set<string>>(new Set());
   const [checkinBusy, setCheckinBusy] = useState(false);
-  const [appIconConfigs, setAppIconConfigs] = useState<AppIconState>({});
-  const [editingIconId, setEditingIconId] = useState(DEFAULT_ICON_ORDER[0]);
   const [backgroundImageKey, setBackgroundImageKey] = useState<string | undefined>(undefined);
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | undefined>(undefined);
   const bgFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -318,24 +313,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       { emoji: "⚙️", label: "Settings", route: "/settings" },
     ],
     [],
-  );
-
-  const appIcons = useMemo(() => [
-    { id: "chat",     defaultEmoji: "💬", label: "聊天",   action: onOpenChat },
-    { id: "checkin",  defaultEmoji: "✅", label: "打卡",   route: "/checkin" },
-    { id: "memory",   defaultEmoji: "🧠", label: "记忆库", route: "/memory-vault" },
-    { id: "snacks",   defaultEmoji: "🍪", label: "mimi",   route: "/snacks" },
-    { id: "usage",    defaultEmoji: "📊", label: "检测中心", route: "/usage" },
-    { id: "health",   defaultEmoji: "🫀", label: "健康",   route: "/health-sync" },
-    { id: "settings", defaultEmoji: "⚙️", label: "设置",   route: "/settings" },
-    { id: "export",   defaultEmoji: "📦", label: "导出",   route: "/export" },
-  ], [onOpenChat]);
-
-  const defaultAppIconConfigs = useMemo<AppIconState>(
-    () => Object.fromEntries(
-      appIcons.map((icon) => [icon.id, { type: "emoji" as const, emoji: icon.defaultEmoji }])
-    ),
-    [appIcons],
   );
 
   const togetherElapsed = useMemo(() => {
@@ -421,25 +398,13 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
     hasLoadedPrefsRef.current = true;
     const cached = loadHomeSettings();
     if (!cached) {
-      setAppIconConfigs(defaultAppIconConfigs);
       setPrefsReady(true);
       return;
     }
     setTogetherSince(cached.togetherSince ?? null);
-    const nextIconConfigs = Object.fromEntries(
-      Object.entries({ ...defaultAppIconConfigs, ...(cached.appIconConfigs ?? {}) }).map(
-        ([id, config]) => [
-          id,
-          config?.type === "emoji"
-            ? { type: "emoji" as const, emoji: config.emoji }
-            : defaultAppIconConfigs[id],
-        ],
-      ),
-    ) as AppIconState;
-    setAppIconConfigs(nextIconConfigs);
     setBackgroundImageKey(cached.backgroundImageKey);
     setPrefsReady(true);
-  }, [defaultAppIconConfigs]);
+  }, []);
 
   useEffect(() => {
     if (!backgroundImageKey) { setBackgroundImageUrl(undefined); return; }
@@ -454,19 +419,9 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       iconOrder: DEFAULT_ICON_ORDER,
       pages: [{ widgetOrder: [], widgets: [] }],
       togetherSince,
-      appIconConfigs,
       backgroundImageKey,
     });
-  }, [appIconConfigs, backgroundImageKey, togetherSince, prefsReady]);
-
-  const handleEmojiChange = (iconId: string, emoji: string) => {
-    setAppIconConfigs((current) => ({ ...current, [iconId]: { type: "emoji", emoji } }));
-  };
-
-  const handleResetAppIcon = (iconId: string) => {
-    const fallback = defaultAppIconConfigs[iconId] as { type: "emoji"; emoji: string };
-    setAppIconConfigs((prev) => ({ ...prev, [iconId]: fallback }));
-  };
+  }, [backgroundImageKey, togetherSince, prefsReady]);
 
   const handleBgImageSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -553,40 +508,6 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                   hidden
                   onChange={(event) => void handleBgImageSelected(event)}
                 />
-              </section>
-
-              <section className="glass-card home-settings-card">
-                <h2 className="home-settings-title ui-title">图标 Emoji</h2>
-                <label>
-                  应用
-                  <select
-                    value={editingIconId}
-                    onChange={(event) => setEditingIconId(event.target.value)}
-                  >
-                    {appIcons.map((icon) => (
-                      <option key={icon.id} value={icon.id}>{icon.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Emoji
-                  <input
-                    type="text"
-                    value={
-                      appIconConfigs[editingIconId]?.type === "emoji"
-                        ? appIconConfigs[editingIconId].emoji
-                        : ""
-                    }
-                    onChange={(event) => handleEmojiChange(editingIconId, event.target.value)}
-                    placeholder="输入 emoji"
-                    maxLength={4}
-                  />
-                </label>
-                <div className="background-controls">
-                  <button type="button" className="ghost" onClick={() => handleResetAppIcon(editingIconId)}>
-                    恢复默认
-                  </button>
-                </div>
               </section>
 
               <section className="glass-card home-settings-card">
