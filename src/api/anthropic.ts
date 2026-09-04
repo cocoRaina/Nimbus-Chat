@@ -1162,21 +1162,23 @@ export const fetchAnthropicAsOpenAi = async (
   }
   const relayHost = hostOfEndpoint(endpoint)
   let effectiveBody = anthropicBody
-  // 中转路径一律 5m,1h 只留给 OpenRouter(治「1h 不能排在 5m 后」mix 400 的根)。
+  // 乐观发 1h,撞了才自愈降 5m——保住「号池乖时吃 1h」(用户明确要 1h)。
   //
-  // 第一版只在「没发 extended-cache-ttl 票」时剥 1h,漏了更狠的一种:**发了票也照撞**。
-  // 做自研服务端缓存的中转(camel/kiro 类)会自己往 system 前缀盖一个 5m cache_control
-  // 标记——它就夹在我们的 tools(1h) 断点和 messages(1h) 断点中间,渲染序 tools→system→
-  // messages 于是变成 1h → 5m → 1h,后面那个 messages 的 1h「排在 5m 后」→ Anthropic
-  // 400(报的正是 content.0,即我们第一条 message 的断点)。这个 5m 是**中转注进去的、
-  // 客户端拦不住**,只要我们还在中转上发 1h,就永远可能和它注的 5m 撞。
-  //
-  // 根治:**x-api-key 中转路径统一发 5m(剥掉所有 ttl),不再发 1h**——没有 1h,就不
-  // 存在「1h 排在 5m 后」。5m 不是没缓存:连续聊天(间隔<5min)每发都刷新 TTL、一直热,
-  // 照常省钱;1h 的额外收益只在「静默>5min 的长间隔」,而那点收益远不值这一整套
-  // beta 票 + 自愈 + 撞 mix 的代价。1h 只保留给 OpenRouter 的 bearer 透传:它是
-  // 一方 GA、不注标记、不会撞。等于把「1h-on-中转」这套复杂度整个退休。
-  if (authStyle !== 'bearer') {
+  // 曾试过「中转一律 5m」根除 mix,但那把 1h 一刀切了。用户的 MAX 逆向号池**之前能
+  // 稳吃 1h**,只是昨天号池自己变了、开始漏一个 5m 标记(逆向层把请求裹进真 Claude
+  // Code 转发,CC 自己往前缀盖的 5m 漏了进来),夹在我们 tools(1h)/messages(1h) 中间 →
+  // 「1h 排在 5m 后」400。这 5m 是号池注的、拦不住;但它**不是每个节点每天都漏**,
+  // 号池一恢复 1h 就该自动回来。所以策略是乐观:
+  //   1. 照发 1h(+ extended-cache-ttl 票)——号池不漏 5m 时,一方 GA 兑现 1h。
+  //   2. 头/体一致:没发出这张票时(beta 停发名单 / CC 模式)把 1h 剥成 5m,别留
+  //      「无票背书的 1h」给旧上游不均匀降级(那是另一种 mix 来源)。
+  //   3. 真撞了 mix,下面的 ttl-fallback 会剥成 5m + 记住该 host 24h、次日再探 1h
+  //      ——号池恢复即自动吃回 1h,持续漏则每天一次瞬时 mix(不计费)后转 5m。
+  // 想彻底不闪只有两条:换到不漏标记的号池/账号(能拿回稳定 1h),或把默认切成 5m。
+  const extendedTtlSent =
+    authStyle === 'bearer' ||
+    (headers['anthropic-beta']?.includes('extended-cache-ttl') ?? false)
+  if (!extendedTtlSent || readHostOptOuts(CACHE_TTL_OPTOUT_KEY)[relayHost]) {
     effectiveBody = stripCacheTtl(effectiveBody)
   }
   // Stamp scope:'global' onto existing cache markers when the scope beta is live
