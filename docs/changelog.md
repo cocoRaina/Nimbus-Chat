@@ -4,6 +4,25 @@
 
 ---
 
+## 🔧 沈暮新工具：升级搜索 + 读网页 + 读/搜代码（2026-09-04）
+
+**动机**：沈暮的 `web_search` 只有 Tavily basic（短摘要、无正文），搜索体验太简陋；同时希望沈暮能读仓库代码辅助 debug——用户手机上看沈暮的诊断，再开电脑用 DS 版 Claude Code 执行修复。
+
+**改动**：
+
+| 工具 | Edge Function | 说明 |
+|------|-------------|------|
+| `web_search`（升级） | `web_search` | `search_depth: basic → advanced`，`include_answer: true`——返回 AI 生成的摘要 + 更优质的搜索结果 |
+| `web_fetch`（新增） | `web_fetch` | 给 URL 读正文，Tavily Extract API，截断 8000 字符，沈暮可以搜完再点进去读 |
+| `read_repo_file`（新增） | `repo_read` | GitHub API 读仓库文件，带行号，支持 start_line/end_line 范围读取（单次 300 行），目录自动列出内容 |
+| `search_repo_code`（新增） | `repo_search` | GitHub Code Search API 搜代码，返回匹配文件和上下文片段 |
+
+**前置**：GitHub 读代码需要在 Supabase Edge Function Secrets 中配置 `GITHUB_PAT`（GitHub Fine-grained Personal Access Token，只给 nimbus-chat 仓库 read-only 权限）。
+
+**部署**：4 个 Edge Function 全部已部署（web_search v15、web_fetch v1、repo_read v1、repo_search v1）。前端改动需新 APK。
+
+---
+
 ## 🔓 1h 缓存新打法：对齐当前真 Claude Code 的头（2026-09-04，号池群主「老版本 1h 设置有问题、新打法不一样」）
 
 **背景**：用户 MAX 逆向号池群主发话——CC 分组**支持 1h**，但**老版本的 1h 缓存设置坏了、打法变了**。用户让我扒真 CC 到底发什么头。

@@ -135,6 +135,9 @@ import {
   TOOL_SEARCH_MEMORY,
   TOOL_SEARCH_HANDOFF,
   TOOL_WEB_SEARCH,
+  TOOL_WEB_FETCH,
+  TOOL_READ_REPO_FILE,
+  TOOL_SEARCH_REPO_CODE,
   TOOL_ADD_MEMORY,
   TOOL_WRITE_DIARY,
   TOOL_WRITE_LETTER,
@@ -2897,6 +2900,9 @@ const App = () => {
                 TOOL_SEARCH_CHAT_HISTORY,
 TOOL_SEARCH_HANDOFF,
                 TOOL_WEB_SEARCH,
+                TOOL_WEB_FETCH,
+                TOOL_READ_REPO_FILE,
+                TOOL_SEARCH_REPO_CODE,
                 TOOL_ADD_MEMORY,
                 TOOL_MANAGE_MEMORY,
                 TOOL_LIST_MEMORIES,
@@ -3377,6 +3383,49 @@ TOOL_SEARCH_HANDOFF,
                         query: args.query,
                         max_results: args.max_results,
                       },
+                    })
+                    resultText = error
+                      ? JSON.stringify({ error: error.message ?? String(error) })
+                      : JSON.stringify(data ?? {})
+                  } else if (tc.function.name === 'web_fetch' && supabase) {
+                    let args: { url?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 web_fetch 参数失败', jsonError)
+                    }
+                    const urlLabel = (args.url ?? '').slice(0, 50)
+                    setToolStatus(`🌐 正在读取网页：${urlLabel}…`)
+                    const { data, error } = await supabase.functions.invoke('web_fetch', {
+                      body: { url: args.url },
+                    })
+                    resultText = error
+                      ? JSON.stringify({ error: error.message ?? String(error) })
+                      : JSON.stringify(data ?? {})
+                  } else if (tc.function.name === 'read_repo_file' && supabase) {
+                    let args: { path?: string; start_line?: number; end_line?: number } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 read_repo_file 参数失败', jsonError)
+                    }
+                    setToolStatus(`📄 正在读取代码：${(args.path ?? '').slice(0, 40)}…`)
+                    const { data, error } = await supabase.functions.invoke('repo_read', {
+                      body: { path: args.path, start_line: args.start_line, end_line: args.end_line },
+                    })
+                    resultText = error
+                      ? JSON.stringify({ error: error.message ?? String(error) })
+                      : JSON.stringify(data ?? {})
+                  } else if (tc.function.name === 'search_repo_code' && supabase) {
+                    let args: { query?: string } = {}
+                    try {
+                      args = JSON.parse(tc.function.arguments || '{}') as typeof args
+                    } catch (jsonError) {
+                      console.warn('解析 search_repo_code 参数失败', jsonError)
+                    }
+                    setToolStatus(`🔍 正在搜索代码：${(args.query ?? '').slice(0, 30)}…`)
+                    const { data, error } = await supabase.functions.invoke('repo_search', {
+                      body: { query: args.query },
                     })
                     resultText = error
                       ? JSON.stringify({ error: error.message ?? String(error) })

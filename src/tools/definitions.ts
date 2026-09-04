@@ -138,7 +138,8 @@ export const TOOL_WEB_SEARCH = {
     name: 'web_search',
     description:
       'Use freely. Search the internet for fresh information: news, current events, post-cutoff topics, facts you are ' +
-      'unsure about, live weather (e.g. query 「天津 天气」). Returns web results with title/URL/snippet. ' +
+      'unsure about, live weather (e.g. query 「天津 天气」). Returns an AI-generated answer plus web results with ' +
+      'title/URL/snippet. For full page content, follow up with web_fetch(url). ' +
       "NOT for recalling the user's private history — that's search_memory.",
     parameters: {
       type: 'object',
@@ -150,6 +151,77 @@ export const TOOL_WEB_SEARCH = {
         max_results: {
           type: 'integer',
           description: 'Number of results, 1-10, default 5',
+        },
+      },
+      required: ['query'],
+    },
+  },
+}
+
+export const TOOL_WEB_FETCH = {
+  type: 'function' as const,
+  function: {
+    name: 'web_fetch',
+    description:
+      'Fetch and read the full text content of a web page. Use after web_search when you want to read an article, ' +
+      'blog post, documentation, or any page in detail. Returns the extracted main content (up to ~8000 chars). ' +
+      'NOT for private data or APIs — just public web pages.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'Full URL of the page to read, e.g. https://example.com/article',
+        },
+      },
+      required: ['url'],
+    },
+  },
+}
+
+export const TOOL_READ_REPO_FILE = {
+  type: 'function' as const,
+  function: {
+    name: 'read_repo_file',
+    description:
+      'Read a file from the Nimbus-Chat GitHub repository. Use when debugging, checking current code, or ' +
+      'answering questions about how something is implemented. Returns file content with line numbers. ' +
+      'For large files, use start_line/end_line to read a specific range.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'File path relative to repo root, e.g. "src/api/anthropic.ts" or "docs/caching.md"',
+        },
+        start_line: {
+          type: 'integer',
+          description: 'Optional: first line to return (1-based). Omit to start from beginning.',
+        },
+        end_line: {
+          type: 'integer',
+          description: 'Optional: last line to return (1-based). Omit to read to end (max 300 lines per call).',
+        },
+      },
+      required: ['path'],
+    },
+  },
+}
+
+export const TOOL_SEARCH_REPO_CODE = {
+  type: 'function' as const,
+  function: {
+    name: 'search_repo_code',
+    description:
+      'Search for code patterns in the Nimbus-Chat GitHub repository. Use to find where something is defined, ' +
+      'which files reference a variable/function, or locate relevant code sections. Returns matching file paths ' +
+      'and line snippets.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query — a keyword, function name, variable, or short phrase to find in code',
         },
       },
       required: ['query'],
