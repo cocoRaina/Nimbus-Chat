@@ -30,6 +30,11 @@
 - run-time：beta 回退摘头那一发同步 `stripCacheTtl`，别再造出同款 mix（幂等）。
 - OpenRouter bearer 路径 1h 是 GA、不受影响；只有「发不出 beta 票」的中转被统一压到 5m（它们本来也只能吃 5m）。App 层 `applyClaudeCaching` 的过时注释（说 relay 用 5m、代码却写 1h）一并订正为「一律乐观打 1h，降级点在传输层」。
 
+**⚠️ 上面这版没修净（当天下午，用户装了新包还在弹）**：只堵了「没发 beta 票」那种。但**这家中转是「发了票也照撞」**——做自研缓存的中转(camel/kiro)会**自己往 system 前缀盖一个 5m 标记**，夹在我们 tools(1h) 和 messages(1h) 断点中间 → 渲染序 tools→system→messages 变成 1h→5m→1h → 后面 messages 的 1h「排在 5m 后」→ 400（报 content.0 = 第一条 message 断点）。这 5m 是**中转注的、客户端拦不住**，只要还在中转发 1h 就永远可能撞。
+
+**真·根治**（`anthropic.ts`）：**x-api-key 中转路径一律 `stripCacheTtl` 剥成 5m，1h 只留给 OpenRouter bearer**（它不注标记、不会撞）。没有 1h 就不存在「1h 排在 5m 后」，与中转自注的 5m 天然一致。5m ≠ 没缓存：连续聊天（<5min）每发刷新 TTL 照常热；1h 那点「长间隔」收益远不值一整套 beta+续命 ping+自愈+撞 mix 的代价——整个「1h-on-中转」复杂度就此退休。
+- **本想连 `extended-cache-ttl` beta 票一起撤**（body 已不发 1h，看着是废票）——查 §CC 血泪记(2026-07-23)发现它**双重身份**：还是号池「给持久缓存」的信号，撤了会丢缓存。**保留**（承重墙，别拆）。这正是「精简这层很危险」的活例：看着是废料的其实在承重。
+
 ## 🧠 记忆情绪权重：情绪浓的记忆更容易被想起（2026-08-21，借鉴 wanwan「轻量海马体」）
 
 **灵感**：看 `wanonewan/wanwan` 的 memory.js，它召回评分是 `重要度 × 访问频率^0.3 × 时间衰减 × (1+arousal)` + 情绪分。Nimbus 已有 importance-类(access_count/last_accessed/衰减) + 向量+关键词 RRF，但**没有情绪权重**——而我们有现成的**贪嗔痴念**可以喂。
