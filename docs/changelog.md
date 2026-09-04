@@ -4,6 +4,17 @@
 
 ---
 
+## 🧠 思考格式 400 自愈：`type enabled is not supported, use adaptive`（2026-09-04，用户真机撞 400 + 空回还计费）
+
+**症状**：中转报 `400 thinking format not supported: type enabled is not supported by the upstream; use type adaptive with output_config.effort, or disable thinking`——而且发 enabled 会得到一个**空回但照样计费**的响应（A 社文档明写的坑）。
+
+**根因**：`anthropic.ts` 按**模型名的版本号**选 enabled/adaptive（≥4.7 用 adaptive，budget_tokens 被 4.7+ 移除、会 400）。但**中转会把老名字接到新上游**——你从中转模型广场复制的 id（如 `claude-opus-4-6`）在它后端实际是更新的模型，版本号判低了 → 发了 enabled → 被拒。跟缓存 mix 一样：**不能信模型名**。
+
+**修法**（`anthropic.ts`，同缓存自愈同款架构，纯前端需新 APK）：新增 per-host 自愈 `THINKING_ADAPTIVE_OPTOUT_KEY`（24h TTL，同 beta/ttl/scope 那套）。
+- **反应式**：撞到「thinking … adaptive」400 且我们确实发了 enabled → `forceAdaptiveThinking` 把 `{type:'enabled',budget_tokens}` 改写成 `{type:'adaptive'}` + `output_config.effort:'xhigh'`、把 max_tokens 抬到 ≥9216（防 adaptive 想多了截断回复）→ 记住 host、重试。
+- **主动式**：该 host 记过后，之后直接发 adaptive、不再撞 400。
+- 设置页「渠道自愈」多一行 `思考已改用 adaptive(上游不认 enabled)`；判据是错误里同时含 thinking + adaptive（跟 thinking 回放的 signature 自愈区分开）。
+
 ## 🩹 缓存 mix 400 治根：`ttl:'1h' must not come after ttl:'5m'`（2026-09-04，用户真机撞 400 + 缓存打不中）
 
 **症状**：中转聊天间歇 `400 ...cache_control.ttl: a ttl='1h' cache_control block must not come after a ttl='5m' cache_control block`，且缓存打不中。

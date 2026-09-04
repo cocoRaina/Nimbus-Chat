@@ -133,6 +133,7 @@ const SettingsPage = ({
   const selfHealSummary = useMemo(() => {
     const parts: string[] = []
     for (const h of selfHealHosts.thinking) parts.push(`${h} 已停用原生思考回传(改发文字)`)
+    for (const h of selfHealHosts.thinkingAdaptive) parts.push(`${h} 思考已改用 adaptive(上游不认 enabled)`)
     for (const h of selfHealHosts.beta) parts.push(`${h} 已停发 1h 缓存 beta 头`)
     for (const h of selfHealHosts.ttl) parts.push(`${h} 缓存 TTL 已降级 5 分钟`)
     for (const h of selfHealHosts.scope) parts.push(`${h} 已停用 global 缓存 scope`)

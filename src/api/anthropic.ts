@@ -931,6 +931,17 @@ const hostOfEndpoint = (endpoint: string): string => {
 // requires those, and their signatures are seconds old).
 const THINKING_REPLAY_OPTOUT_KEY = 'nimbus_thinking_replay_optout_v1'
 
+// Hosts whose upstream rejects manual extended thinking (`thinking.type:'enabled'`
+// + budget_tokens) and demand adaptive thinking instead ("thinking format not
+// supported: type enabled is not supported by the upstream; use type adaptive").
+// We choose enabled-vs-adaptive from the model NAME's version (>=4.7 → adaptive),
+// but relays remap an older-named model (the id copied from their model plaza)
+// onto a NEWER upstream that removed budget_tokens — so the name-based guess sends
+// enabled and 400s (worse: enabled there yields an empty billed reply). Same cure
+// as the cache self-heals: on that 400, rewrite thinking to adaptive+effort, retry,
+// and remember the host so later requests skip straight to adaptive.
+const THINKING_ADAPTIVE_OPTOUT_KEY = 'nimbus_thinking_adaptive_optout_v1'
+
 // Exposed so App.tsx can render frozen thinking as PLAIN TEXT instead of
 // native blocks for hosts that rejected native replay — continuity survives
 // as text (no signature involved) while the native path stays disabled.
@@ -947,11 +958,13 @@ export const getRelaySelfHealHosts = (): {
   ttl: string[]
   scope: string[]
   thinking: string[]
+  thinkingAdaptive: string[]
 } => ({
   beta: Object.keys(readHostOptOuts(CACHE_BETA_OPTOUT_KEY)),
   ttl: Object.keys(readHostOptOuts(CACHE_TTL_OPTOUT_KEY)),
   scope: Object.keys(readHostOptOuts(CACHE_SCOPE_OPTOUT_KEY)),
   thinking: Object.keys(readHostOptOuts(THINKING_REPLAY_OPTOUT_KEY)),
+  thinkingAdaptive: Object.keys(readHostOptOuts(THINKING_ADAPTIVE_OPTOUT_KEY)),
 })
 export const clearRelaySelfHealRecords = (): void => {
   if (typeof window === 'undefined') return
@@ -960,6 +973,7 @@ export const clearRelaySelfHealRecords = (): void => {
     window.localStorage.removeItem(CACHE_TTL_OPTOUT_KEY)
     window.localStorage.removeItem(CACHE_SCOPE_OPTOUT_KEY)
     window.localStorage.removeItem(THINKING_REPLAY_OPTOUT_KEY)
+    window.localStorage.removeItem(THINKING_ADAPTIVE_OPTOUT_KEY)
   } catch {
     // ignore storage errors
   }
@@ -994,6 +1008,26 @@ const stripCacheTtl = (body: AnthropicRequest): AnthropicRequest => {
     if (Array.isArray(m.content)) {
       ;(m.content as Array<{ cache_control?: { type: string; ttl?: string } }>).forEach(strip)
     }
+  }
+  return clone
+}
+
+// Rewrite a manual-thinking request (`thinking.type:'enabled'` + budget_tokens)
+// into adaptive thinking + effort, for upstreams that rejected the enabled shape.
+// Mirrors convertOpenAiRequestToAnthropic's adaptiveOnly branch: xhigh keeps a
+// live thinking chain each reply (high alone can skip on easy inputs), and the
+// reply gets the same headroom the native adaptive path uses (the enabled path
+// may have sized max_tokens as low as budget+1024, which truncates adaptive).
+// No-op when thinking is already adaptive or absent. Deep-clones; never mutates.
+const forceAdaptiveThinking = (body: AnthropicRequest): AnthropicRequest => {
+  const clone = JSON.parse(JSON.stringify(body)) as AnthropicRequest
+  if (clone.thinking && 'budget_tokens' in clone.thinking) {
+    clone.thinking = { type: 'adaptive' }
+    clone.output_config = { effort: 'xhigh' }
+    if (typeof clone.max_tokens !== 'number' || clone.max_tokens < 9216) {
+      clone.max_tokens = 9216
+    }
+    // sampling params were already dropped when thinking was enabled.
   }
   return clone
 }
@@ -1153,6 +1187,10 @@ export const fetchAnthropicAsOpenAi = async (
   if (readHostOptOuts(THINKING_REPLAY_OPTOUT_KEY)[relayHost]) {
     effectiveBody = stripReplayedThinking(effectiveBody)
   }
+  // 该 host 曾拒绝 enabled 思考 → 直接发 adaptive,别再撞一次 400。
+  if (readHostOptOuts(THINKING_ADAPTIVE_OPTOUT_KEY)[relayHost]) {
+    effectiveBody = forceAdaptiveThinking(effectiveBody)
+  }
   let bodyJson = JSON.stringify(effectiveBody)
 
   const sendOnce = async (hdrs: Record<string, string>): Promise<Response> => {
@@ -1287,6 +1325,32 @@ export const fetchAnthropicAsOpenAi = async (
       console.warn('中转拒绝 cache_control ttl:1h,已按渠道降级 5m 并重试', relayHost)
       rememberHostOptOut(CACHE_TTL_OPTOUT_KEY, relayHost)
       effectiveBody = stripCacheTtl(effectiveBody)
+      bodyJson = JSON.stringify(effectiveBody)
+      response = await sendOnce(headers)
+    }
+  }
+
+  // Thinking-format fallback: a 400 saying the upstream doesn't support
+  // thinking.type 'enabled' and wants 'adaptive' ("thinking format not
+  // supported: type enabled is not supported by the upstream; use type
+  // adaptive"). The relay remapped an older-named model onto a newer upstream
+  // that removed manual budget_tokens; our name-based enabled/adaptive guess
+  // was wrong. Only fires when we actually sent enabled thinking (else the
+  // rewrite is a no-op and the 400 is something else). Rewrite to adaptive +
+  // effort, remember the host, retry once. Distinct from the replay fallback
+  // below (that one is about historical thinking-block signatures, which
+  // mention 'signature', not 'adaptive').
+  if (response.status === 400 && effectiveBody.thinking && 'budget_tokens' in effectiveBody.thinking) {
+    let errText = ''
+    try {
+      errText = await response.clone().text()
+    } catch {
+      // body unreadable — retry anyway (enabled thinking is the likely culprit)
+    }
+    if (/thinking/i.test(errText) && /adaptive/i.test(errText)) {
+      console.warn('中转上游不支持 enabled 思考,已按渠道改用 adaptive 并重试', relayHost)
+      rememberHostOptOut(THINKING_ADAPTIVE_OPTOUT_KEY, relayHost)
+      effectiveBody = forceAdaptiveThinking(effectiveBody)
       bodyJson = JSON.stringify(effectiveBody)
       response = await sendOnce(headers)
     }
