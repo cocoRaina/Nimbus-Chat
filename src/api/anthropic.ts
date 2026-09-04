@@ -1128,7 +1128,21 @@ export const fetchAnthropicAsOpenAi = async (
   }
   const relayHost = hostOfEndpoint(endpoint)
   let effectiveBody = anthropicBody
-  if (readHostOptOuts(CACHE_TTL_OPTOUT_KEY)[relayHost]) {
+  // Body/header TTL consistency (治「1h 不能排在 5m 后」的 mix 400 根)。
+  // body 里的 cache_control.ttl:'1h' 只有两种情况会被兑现：① 目的地是 Anthropic
+  // 原生 GA——OpenRouter 的 bearer 透传算这一档;② x-api-key 中转路径**发了**
+  // extended-cache-ttl beta 头。反过来:x-api-key 路径上**没发**这张票时(该 host
+  // 曾因 Bedrock「invalid beta flag」进了 beta 停发名单 / CC 模式 / 不打点),
+  // 中转会把 body 的 1h 代理给一个既不认得、也不统一拒绝它的旧上游——部分层被降
+  // 成默认 5m、我们的 messages 标记却还挂着 1h,Anthropic 于是 400「a ttl='1h'
+  // block must not come after a ttl='5m' block」。所以:**只要这张票没发出去,就把
+  // body 的 ttl 一并剥成 5m**,让整包统一 5m、mix 从源头不成立(这些 host 本来也
+  // 只能吃到 5m)。之前只在 CACHE_TTL_OPTOUT 命中时剥,漏了「beta 停发但 ttl 未记」
+  // 这个中间窗口——正是它导致间歇 mix 400 + 缓存打不中。
+  const extendedTtlSent =
+    authStyle === 'bearer' ||
+    (headers['anthropic-beta']?.includes('extended-cache-ttl') ?? false)
+  if (!extendedTtlSent || readHostOptOuts(CACHE_TTL_OPTOUT_KEY)[relayHost]) {
     effectiveBody = stripCacheTtl(effectiveBody)
   }
   // Stamp scope:'global' onto existing cache markers when the scope beta is live
@@ -1246,6 +1260,11 @@ export const fetchAnthropicAsOpenAi = async (
     }
     const blamedBeta = /beta/i.test(errText)
     delete headers['anthropic-beta']
+    // 摘了 extended-cache-ttl 头,body 的 1h 就没了背书——同 §build-time 那段:留着
+    // 1h 让旧上游不均匀降级,正是「1h 排在 5m 后」mix 的来源。所以摘头这一发也把
+    // body 剥成 5m,保持头/体一致(若上面已 strip 过则幂等无害)。
+    effectiveBody = stripCacheTtl(effectiveBody)
+    bodyJson = JSON.stringify(effectiveBody)
     const retried = await sendOnce(headers)
     if (retried.ok || blamedBeta) {
       console.warn('中转拒绝 extended-cache-ttl beta header,已按渠道停发', relayHost)

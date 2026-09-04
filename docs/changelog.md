@@ -4,6 +4,21 @@
 
 ---
 
+## 🩹 缓存 mix 400 治根：`ttl:'1h' must not come after ttl:'5m'`（2026-09-04，用户真机撞 400 + 缓存打不中）
+
+**症状**：中转聊天间歇 `400 ...cache_control.ttl: a ttl='1h' cache_control block must not come after a ttl='5m' cache_control block`，且缓存打不中。
+
+**排查**：我们的聊天请求体**永远是统一 1h**（App 层所有断点 + `anthropic.ts` 的 BP0 工具断点都 `ttl:'1h'`，全项目唯一的 5m 裸标记只在用量页探针、跟聊天不搭）。所以这个 mix**不是发出去时就有的，是中转把 1h 不均匀降级拆坏的**：
+1. 首发 body 全 1h + `extended-cache-ttl` beta 头；
+2. 旧上游/Bedrock 不认这张票 → 400 → 自愈**摘掉 beta 头重发，但 body 还揣着 1h**；
+3. 中转把「没有 beta 票背书的 1h」代理给旧上游 → 部分层降成默认 5m、我们的 messages 标记还是 1h → Anthropic 报「1h 排在 5m 后」。
+4. 之后只要某 host 进了「beta 停发」名单、却没进「ttl 剥离」名单（beta 那发失败但降级那发碰巧没报错时就这样），每一发都揣着无背书的 1h → **随节点漂移间歇性拆坏 + 缓存降级**。
+
+**治根**（`anthropic.ts`，纯前端，需新 APK）：**头/体 TTL 必须一致——只要没发出 `extended-cache-ttl` 这张票，就把 body 的 1h 一并剥成 5m**。
+- build-time：`extendedTtlSent = authStyle==='bearer'(OR GA 透传) || anthropic-beta 含 extended-cache-ttl`；不成立就 `stripCacheTtl`。补上了旧代码只在 `CACHE_TTL_OPTOUT` 命中才剥、漏掉的「beta 停发但 ttl 未记」中间窗口。
+- run-time：beta 回退摘头那一发同步 `stripCacheTtl`，别再造出同款 mix（幂等）。
+- OpenRouter bearer 路径 1h 是 GA、不受影响；只有「发不出 beta 票」的中转被统一压到 5m（它们本来也只能吃 5m）。App 层 `applyClaudeCaching` 的过时注释（说 relay 用 5m、代码却写 1h）一并订正为「一律乐观打 1h，降级点在传输层」。
+
 ## 🧠 记忆情绪权重：情绪浓的记忆更容易被想起（2026-08-21，借鉴 wanwan「轻量海马体」）
 
 **灵感**：看 `wanonewan/wanwan` 的 memory.js，它召回评分是 `重要度 × 访问频率^0.3 × 时间衰减 × (1+arousal)` + 情绪分。Nimbus 已有 importance-类(access_count/last_accessed/衰减) + 向量+关键词 RRF，但**没有情绪权重**——而我们有现成的**贪嗔痴念**可以喂。

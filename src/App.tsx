@@ -465,13 +465,13 @@ const applyClaudeCaching = (
   // requestHasCacheMarkers=false 在 anthropic.ts 里自动跳过——把缓存全交给中转
   // 自己。实测(2026-07-23 cache_probe)零断点时 kiro 自研缓存照样满命中且无幽灵。
   if (getRelayNoBreakpoints()) return messages
-  // TTL differs by upstream: OpenRouter honors the 1h extended cache (kept
-  // warm by the ~55min keepalive ping); 金瓜瓜-style relays cap at 5m（1h） and
-  // can reject ttl:'1h', so there we use the plain 5m ephemeral marker.
-  const marker: CacheControlMarker =
-    cacheProvider === 'openrouter'
-      ? { type: 'ephemeral', ttl: '1h' }
-      : { type: 'ephemeral', ttl: '1h' }
+  // App 层一律乐观地打 1h：TTL 的「能不能兑现」交给传输层(anthropic.ts)按目的地
+  // 决定——OpenRouter bearer 透传 1h 是 GA、直接生效;x-api-key 中转要发得出
+  // extended-cache-ttl beta 票才算 1h,发不出(某些旧上游/Bedrock 拒票)时传输层会
+  // 把 body 的 ttl 剥成 5m,保证「头有票才有 1h」头体一致,否则会撞 Anthropic 的
+  // 「1h 不能排在 5m 后」mix 400。所以这里两档都给 1h,别在这层按 provider 分叉
+  // (分叉过、又都写成 1h,只剩个误导注释;真正的降级点在 anthropic.ts)。
+  const marker: CacheControlMarker = { type: 'ephemeral', ttl: '1h' }
   // BP1: the FIRST system message (the foundational character + tool
   // schema layer). Marking it gives Anthropic a stable last-resort
   // anchor that survives every higher-level miss — including the
