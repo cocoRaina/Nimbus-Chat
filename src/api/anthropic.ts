@@ -1139,23 +1139,24 @@ export const fetchAnthropicAsOpenAi = async (
     // 只有 APK 的 OkHttp(StreamHttpPlugin)真发得出。x-app:cli 补齐 CC 指纹。
     // ⚠️ 个别池会因此反向注入 CC 人设(探针 4 可测),故默认关、由用户在干净池上开。
     if (getRelayCcHeaders()) {
-      // 严格对齐【已实测命中 12 分钟】的探针头集,一个不多一个不少:
-      //   x-api-key + anthropic-version + anthropic-beta:extended-cache-ttl
-      //   + User-Agent: claude-cli/... + x-app: cli
-      // 相对真机原有头,CC 模式要【去掉两样探针没发的】:
-      //   ① anthropic-dangerous-direct-browser-access —— 真 CC 从不发,留着=一边
-      //      喊「我是 CC」一边喊「我是浏览器」,号池 CC 识别判否(日志记成 Claude sdk
-      //      而非 Claude Code)、不给持久缓存,就是「开了开关还冷写」的根。
-      //   ② prompt-caching-scope beta + body 的 scope:'global' —— 探针没发也命中,
-      //      且 scope 在这号池本就无效;CC 模式下头+body 一起撤,别引入探针没有的变量。
+      // 对齐【当前】真 Claude Code 的缓存签名(2026-09 实扒它发的 anthropic-beta)。
+      // ⚠️ 旧版这里对齐的是「2026-08-20 命中探针」的头集(发 extended-cache-ttl 票、
+      // 删 prompt-caching-scope),但真 CC 后来变了、号池也随之升级——这套旧对齐就成了
+      // 群主说的「老版本 1h 设置有问题」的根。今天扒到真 CC 现在发的 anthropic-beta 是
+      //   claude-code-…,oauth-…,context-…,interleaved-thinking-…,context-management-…,
+      //   prompt-caching-scope-2026-01-05,effort-…
+      // ——【没有 extended-cache-ttl】(1h 已 GA,靠 body 的 ttl:'1h' 兑现,那张票是老路子)、
+      // 【有 prompt-caching-scope】。所以翻正,让我们的缓存签名跟真 CC 一致:
+      //   ① 仍去掉 anthropic-dangerous-direct-browser-access(真 CC 走 OAuth、从不发这个)
+      //   ② 【删 extended-cache-ttl 票】(真 CC 不发;body 的 ttl:'1h' 走 GA 路径)
+      //   ③ 【留 prompt-caching-scope + scope:'global'】(真 CC 发,scopeActive 保持 true)
       delete headers['anthropic-dangerous-direct-browser-access']
       headers['User-Agent'] = CC_USER_AGENT
       headers['x-app'] = 'cli'
-      scopeActive = false // body 不再 stamp scope:'global'(见下方 stampCacheScope 门控)
       const keptBetas = (headers['anthropic-beta'] ?? '')
         .split(',')
         .map((b) => b.trim())
-        .filter((b) => b && b !== 'prompt-caching-scope-2026-01-05')
+        .filter((b) => b && b !== 'extended-cache-ttl-2025-04-11')
       if (keptBetas.length > 0) headers['anthropic-beta'] = keptBetas.join(',')
       else delete headers['anthropic-beta']
     }
@@ -1175,10 +1176,12 @@ export const fetchAnthropicAsOpenAi = async (
   //   3. 真撞了 mix,下面的 ttl-fallback 会剥成 5m + 记住该 host 24h、次日再探 1h
   //      ——号池恢复即自动吃回 1h,持续漏则每天一次瞬时 mix(不计费)后转 5m。
   // 想彻底不闪只有两条:换到不漏标记的号池/账号(能拿回稳定 1h),或把默认切成 5m。
-  const extendedTtlSent =
-    authStyle === 'bearer' ||
-    (headers['anthropic-beta']?.includes('extended-cache-ttl') ?? false)
-  if (!extendedTtlSent || readHostOptOuts(CACHE_TTL_OPTOUT_KEY)[relayHost]) {
+  // 1h 已 GA:body 的 ttl:'1h' 本身就够兑现 1h,不再依赖 extended-cache-ttl beta 票
+  // (真 CC 也不发那张票、照样 1h)。所以【不因「没发票」就把 1h 剥成 5m】——那是
+  // pre-GA 的旧假设,恰好会把 CC 模式(现已不发票)想要的 1h 又剥掉。只保留 per-host
+  // 自愈:某上游确实拒 ttl:'1h'(真·老 upstream)撞 400 时,下面的 ttl-fallback 会剥
+  // 5m 并记住该 host,次日再探。
+  if (readHostOptOuts(CACHE_TTL_OPTOUT_KEY)[relayHost]) {
     effectiveBody = stripCacheTtl(effectiveBody)
   }
   // Stamp scope:'global' onto existing cache markers when the scope beta is live

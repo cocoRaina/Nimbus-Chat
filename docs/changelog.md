@@ -4,6 +4,22 @@
 
 ---
 
+## 🔓 1h 缓存新打法：对齐当前真 Claude Code 的头（2026-09-04，号池群主「老版本 1h 设置有问题、新打法不一样」）
+
+**背景**：用户 MAX 逆向号池群主发话——CC 分组**支持 1h**，但**老版本的 1h 缓存设置坏了、打法变了**。用户让我扒真 CC 到底发什么头。
+
+**扒到的（WebSearch 真 CC 请求头 + A 社官方缓存参考）**：
+- 真 Claude Code 现在的 `anthropic-beta` 里 **没有 `extended-cache-ttl-2025-04-11`**，但**有 `prompt-caching-scope-2026-01-05`**（+ claude-code/oauth/context-management/effort 等）。
+- **1h 已 GA**：body 里的 `cache_control.ttl:'1h'` 本身就够兑现 1h，那张 `extended-cache-ttl` 票是 pre-GA 老路子。
+- 时间线佐证：2026-03 A 社「1h 静默降 5m」是已知事件（claude-code#46829），号池随之升级，**旧客户端还发老票 → 就成了「老版本 1h 设置有问题」**。
+
+**发现我们 CC 模式恰好反着来**：旧版（2026-08-20 按「命中探针」调的）**发 `extended-cache-ttl` 票、还删 `prompt-caching-scope`**——跟当前真 CC 正好相反。号池升级后这套旧对齐就失效了。
+
+**修法**（`anthropic.ts`，纯前端，需新 APK，翻正 CC 缓存签名对齐当前真 CC）：
+- CC 模式：**删 `extended-cache-ttl` 票**（真 CC 不发）、**留 `prompt-caching-scope` + `scope:'global'`**（真 CC 发，`scopeActive` 保持 true）；仍去掉浏览器直连头。body 继续发 `ttl:'1h'` 走 GA。
+- 删掉旧的「没发 extended-cache-ttl 票就把 1h 剥成 5m」逻辑（pre-GA 假设，恰会把 CC 模式想要的 1h 又剥掉）；只保留 per-host `ttl-fallback` 自愈（真·老 upstream 拒 ttl:1h 时才降 5m 记 24h）。
+- ⚠️ 这是**基于真 CC 头 + GA 文档 + 群主情报的推断**，号池是移动靶，**要真机装新包实测**：装上开 CC 头发一发，看用量页「真实缓存命中」是不是 1h 档、还撞不撞 mix。
+
 ## 🧠 思考格式 400 自愈：`type enabled is not supported, use adaptive`（2026-09-04，用户真机撞 400 + 空回还计费）
 
 **症状**：中转报 `400 thinking format not supported: type enabled is not supported by the upstream; use type adaptive with output_config.effort, or disable thinking`——而且发 enabled 会得到一个**空回但照样计费**的响应（A 社文档明写的坑）。
