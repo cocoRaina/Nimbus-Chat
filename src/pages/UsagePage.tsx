@@ -182,6 +182,7 @@ type ChannelSignals = {
   realCacheHit: boolean | null
   cacheCreate: number
   cacheRead: number
+  cacheFieldPresent: boolean
   modelMatch: boolean
   canaryOk: boolean
   returnedModel: string | null
@@ -221,21 +222,26 @@ const guessChannel = (s: ChannelSignals): CheckResult => {
     return { label: '🔍 渠道猜测', status: 'pass', detail: `✅ 像【官方/官转级·真 passthrough】——${reasons.join('；')}。缓存真省钱，保活值得开。${hasAmazon ? '' : hasAnthropicHdr ? '' : '（无明显官方头，可能是认 cache_control 的优质中转）'}` }
   }
 
-  // Cache didn't really hit.
+  // Cache didn't really hit — three sub-states.
   if (s.cacheCreate > 0 && !s.realCacheHit) {
     reasons.push('写了缓存却读不回（多上游打散 / 模拟缓存）')
-  } else {
-    reasons.push('两次都没有缓存读写（OpenAI 兼容层 / 缓存被剥离）')
+    if (hasOpenAiHdr) reasons.push('带 openai-* 头')
+    return { label: '🔍 渠道猜测', status: 'warn', detail: `🌀 像【多上游打散 / 模拟缓存】——${reasons.join('；')}。原生 prompt cache 多半失效，长对话省不到钱，保活也别开。` }
   }
+  if (s.cacheFieldPresent) {
+    reasons.push('缓存字段存在但写=0 读=0（中转可能剥离了 cache_control 请求标记）')
+    return { label: '🔍 渠道猜测', status: 'warn', detail: `🔸 走原生格式但【缓存未生效】——${reasons.join('；')}。中转可能没转发 cache_control，或上游未启用缓存。可以问渠道商是否支持 prompt cache。` }
+  }
+  reasons.push('两次都无缓存字段（OpenAI 兼容层 / 元数据被剥离）')
   if (hasOpenAiHdr) reasons.push('带 openai-* 头')
-  return { label: '🔍 渠道猜测', status: 'warn', detail: `🌀 像【OpenAI 兼容 / 模拟缓存 / 多上游打散】——${reasons.join('；')}。原生 prompt cache 多半失效，长对话省不到钱，保活也别开。` }
+  return { label: '🔍 渠道猜测', status: 'warn', detail: `🌀 像【OpenAI 兼容层】——${reasons.join('；')}。缓存不可观测，长对话省不到钱，保活也别开。` }
 }
 
 async function runApiChecks(model: string, signal: AbortSignal): Promise<CheckResult[]> {
   const results: CheckResult[] = []
   const isClaude = /claude|anthropic/i.test(model)
   const sig: ChannelSignals = {
-    realCacheHit: null, cacheCreate: 0, cacheRead: 0,
+    realCacheHit: null, cacheCreate: 0, cacheRead: 0, cacheFieldPresent: false,
     modelMatch: true, canaryOk: true, returnedModel: null,
     headers: {}, injectedCoding: null,
   }
@@ -311,6 +317,7 @@ async function runApiChecks(model: string, signal: AbortSignal): Promise<CheckRe
       const anyField = ns.anyField || (st?.anyField ?? false)
       sig.cacheCreate = bestCreate
       sig.cacheRead = bestRead
+      sig.cacheFieldPresent = anyField
       sig.realCacheHit = bestRead > 0
 
       const modeNote = st
