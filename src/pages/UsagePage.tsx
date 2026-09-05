@@ -129,6 +129,34 @@ const parseCacheFields = (usage: OpenAiUsage | undefined) => ({
   cacheRead: usage?.cache_read_input_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0,
 })
 
+// Extract usage from an SSE stream's final chunk. OpenAI-compat streams
+// carry usage in the last `data:` line before `[DONE]` (when the relay
+// forwards it). Returns the same shape as the non-stream JSON response.
+const extractStreamUsage = async (res: Response): Promise<OpenAiUsage | undefined> => {
+  const reader = res.body?.getReader()
+  if (!reader) return undefined
+  const decoder = new TextDecoder()
+  let usage: OpenAiUsage | undefined
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (payload === '[DONE]') continue
+      try {
+        const chunk = JSON.parse(payload) as { usage?: OpenAiUsage }
+        if (chunk.usage) usage = chunk.usage
+      } catch { /* partial / non-json line */ }
+    }
+  }
+  return usage
+}
+
 // A long, deterministic English filler so the cached system block exceeds
 // Anthropic's ~1024-token minimum AND is byte-identical across the two probe
 // calls (so the 2nd call can actually READ the cache the 1st wrote).
@@ -234,49 +262,69 @@ async function runApiChecks(model: string, signal: AbortSignal): Promise<CheckRe
     return results
   }
 
-  // ── Check 2: 真实缓存命中（发两次同前缀，看第二次读不读得到）──────────────
+  // ── Check 2: 真实缓存命中（非流式 + 流式双探针）──────────────────────────
   if (!isClaude) {
     results.push({ label: '真实缓存命中', status: 'skip', detail: '非 Claude 模型，无 prompt cache，跳过' })
   } else {
-    try {
+    // Helper: run one write+read probe pair, return { create, bestRead, anyField }
+    const runProbe = async (stream: boolean) => {
       const cacheBody = {
-        model, stream: false, max_tokens: 8,
+        model, stream, max_tokens: 8,
+        ...(stream ? { stream_options: { include_usage: true } } : {}),
         messages: [
           { role: 'system', content: [{ type: 'text', text: CACHE_FILLER, cache_control: { type: 'ephemeral' } }] },
           { role: 'user', content: '回复"ok"' },
         ],
-        // OpenAI `user` field → mapped to Anthropic metadata.user_id by the
-        // adapter, pinning both probe calls to the same upstream so the 2nd
-        // can read the cache the 1st wrote (see api/anthropic.ts).
         user: 'nimbus-diag-probe',
       }
+      const getUsage = async (r: Response): Promise<OpenAiUsage | undefined> => {
+        if (!r.ok) return undefined
+        if (stream) return extractStreamUsage(r)
+        return ((await r.json()) as { usage?: OpenAiUsage }).usage
+      }
       const r1 = await fetchOpenRouter('/chat/completions', { signal, body: cacheBody as Record<string, unknown> })
-      const j1 = r1.ok ? ((await r1.json()) as { usage?: OpenAiUsage }) : undefined
-      const c1 = parseCacheFields(j1?.usage)
-      // Read it back up to 2 times — a single sticky-routing fluke (landing on a
-      // different upstream once) would otherwise read as a false "打散". Stop
-      // early on the first real hit; only call "打散" if BOTH retries miss.
+      const u1 = await getUsage(r1)
+      const c1 = parseCacheFields(u1)
       let bestRead = 0
       let anyField = c1.hasField
       for (let attempt = 0; attempt < 2; attempt++) {
         const rr = await fetchOpenRouter('/chat/completions', { signal, body: cacheBody as Record<string, unknown> })
-        const jj = rr.ok ? ((await rr.json()) as { usage?: OpenAiUsage }) : undefined
-        const cc = parseCacheFields(jj?.usage)
+        const ur = await getUsage(rr)
+        const cc = parseCacheFields(ur)
         anyField = anyField || cc.hasField
         bestRead = Math.max(bestRead, cc.cacheRead)
         if (cc.cacheRead > 0) break
       }
-      sig.cacheCreate = c1.cacheCreate
+      return { create: c1.cacheCreate, bestRead, anyField }
+    }
+
+    try {
+      // Non-stream probe first (cheaper, easier to parse)
+      const ns = await runProbe(false)
+      // Stream probe — real chat uses stream:true, some relays cache
+      // differently per path
+      let st: { create: number; bestRead: number; anyField: boolean } | null = null
+      try { st = await runProbe(true) } catch { /* stream probe is best-effort */ }
+
+      const bestCreate = Math.max(ns.create, st?.create ?? 0)
+      const bestRead = Math.max(ns.bestRead, st?.bestRead ?? 0)
+      const anyField = ns.anyField || (st?.anyField ?? false)
+      sig.cacheCreate = bestCreate
       sig.cacheRead = bestRead
       sig.realCacheHit = bestRead > 0
+
+      const modeNote = st
+        ? `（非流式${ns.bestRead > 0 ? '✓' : '✗'} / 流式${st.bestRead > 0 ? '✓' : '✗'}）`
+        : '（仅非流式）'
+
       if (bestRead > 0) {
-        results.push({ label: '真实缓存命中', status: 'pass', detail: `✅ 真命中：读到缓存 ${bestRead} tokens（按 0.1× 计费，省 ~90%）。原生 prompt cache 正常工作。` })
-      } else if (c1.cacheCreate > 0) {
-        results.push({ label: '真实缓存命中', status: 'warn', detail: `⚠️ 写了缓存（${c1.cacheCreate}）但连试 2 次都没读到——多上游打散 / 模拟缓存。长对话省不到钱。` })
+        results.push({ label: '真实缓存命中', status: 'pass', detail: `✅ 真命中：读到缓存 ${bestRead} tokens（按 0.1× 计费，省 ~90%）${modeNote}。原生 prompt cache 正常工作。` })
+      } else if (bestCreate > 0) {
+        results.push({ label: '真实缓存命中', status: 'warn', detail: `⚠️ 写了缓存（${bestCreate}）但连试都没读到${modeNote}——多上游打散 / 模拟缓存。长对话省不到钱。` })
       } else if (!anyField) {
-        results.push({ label: '真实缓存命中', status: 'warn', detail: '⚠️ 两次都无缓存字段——走了 OpenAI 兼容层 / 元数据被剥离，原生缓存失效。' })
+        results.push({ label: '真实缓存命中', status: 'warn', detail: `⚠️ 返回中无任何缓存字段${modeNote}——走了 OpenAI 兼容层 / 元数据被剥离，缓存不可观测。（不代表上游一定没缓存，但无法确认）` })
       } else {
-        results.push({ label: '真实缓存命中', status: 'warn', detail: '⚠️ 两次都没命中（写=0 读=0）。可能前缀太短或上游不缓存。' })
+        results.push({ label: '真实缓存命中', status: 'warn', detail: `⚠️ 缓存字段存在但写=0 读=0${modeNote}——上游可能不支持缓存或前缀未达最低门槛。` })
       }
     } catch (e: unknown) {
       if ((e as { name?: string }).name === 'AbortError') return results

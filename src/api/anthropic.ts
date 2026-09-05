@@ -360,6 +360,11 @@ export const convertOpenAiRequestToAnthropic = async (
     description: t.function.description,
     input_schema: (t.function.parameters as Record<string, unknown>) ?? { type: 'object', properties: {} },
   }))
+  // Stable sort by name so the tools array is byte-identical across calls
+  // even if the caller supplies tools in a different order (external MCP
+  // tools, for instance, have no guaranteed ordering). Without this the
+  // cache prefix changes every time the order shuffles → cold write.
+  tools?.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 
   // BP0: mark the LAST tool definition. Anthropic's cache invalidation is
   // three-tiered (tools → system → messages): editing the system prompt
