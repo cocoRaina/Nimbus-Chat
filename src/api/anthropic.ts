@@ -1176,6 +1176,9 @@ export const fetchAnthropicAsOpenAi = async (
       if (keptBetas.length > 0) headers['anthropic-beta'] = keptBetas.join(',')
       else delete headers['anthropic-beta']
     }
+    if (anthropicBody.metadata?.user_id) {
+      headers['x-session-id'] = anthropicBody.metadata.user_id
+    }
   }
   const relayHost = hostOfEndpoint(endpoint)
   let effectiveBody = anthropicBody
