@@ -942,6 +942,12 @@ const THINKING_REPLAY_OPTOUT_KEY = 'nimbus_thinking_replay_optout_v1'
 // and remember the host so later requests skip straight to adaptive.
 const THINKING_ADAPTIVE_OPTOUT_KEY = 'nimbus_thinking_adaptive_optout_v1'
 
+// Hosts whose upstream rejects sampling parameters (temperature / top_p) even
+// when thinking is OFF. Anthropic is deprecating these for newer models; relays
+// that remap old model names to new upstreams may 400 on them. Same self-heal
+// pattern: strip, retry, remember host 24h.
+const SAMPLING_PARAMS_OPTOUT_KEY = 'nimbus_sampling_params_optout_v1'
+
 // Exposed so App.tsx can render frozen thinking as PLAIN TEXT instead of
 // native blocks for hosts that rejected native replay — continuity survives
 // as text (no signature involved) while the native path stays disabled.
@@ -959,12 +965,14 @@ export const getRelaySelfHealHosts = (): {
   scope: string[]
   thinking: string[]
   thinkingAdaptive: string[]
+  samplingParams: string[]
 } => ({
   beta: Object.keys(readHostOptOuts(CACHE_BETA_OPTOUT_KEY)),
   ttl: Object.keys(readHostOptOuts(CACHE_TTL_OPTOUT_KEY)),
   scope: Object.keys(readHostOptOuts(CACHE_SCOPE_OPTOUT_KEY)),
   thinking: Object.keys(readHostOptOuts(THINKING_REPLAY_OPTOUT_KEY)),
   thinkingAdaptive: Object.keys(readHostOptOuts(THINKING_ADAPTIVE_OPTOUT_KEY)),
+  samplingParams: Object.keys(readHostOptOuts(SAMPLING_PARAMS_OPTOUT_KEY)),
 })
 export const clearRelaySelfHealRecords = (): void => {
   if (typeof window === 'undefined') return
@@ -974,6 +982,7 @@ export const clearRelaySelfHealRecords = (): void => {
     window.localStorage.removeItem(CACHE_SCOPE_OPTOUT_KEY)
     window.localStorage.removeItem(THINKING_REPLAY_OPTOUT_KEY)
     window.localStorage.removeItem(THINKING_ADAPTIVE_OPTOUT_KEY)
+    window.localStorage.removeItem(SAMPLING_PARAMS_OPTOUT_KEY)
   } catch {
     // ignore storage errors
   }
@@ -1053,6 +1062,13 @@ const applyCacheScope = (body: AnthropicRequest, on: boolean): AnthropicRequest 
 }
 const stampCacheScope = (body: AnthropicRequest): AnthropicRequest => applyCacheScope(body, true)
 const stripCacheScope = (body: AnthropicRequest): AnthropicRequest => applyCacheScope(body, false)
+
+const stripSamplingParams = (body: AnthropicRequest): AnthropicRequest => {
+  const clone = JSON.parse(JSON.stringify(body)) as AnthropicRequest
+  delete clone.temperature
+  delete clone.top_p
+  return clone
+}
 
 export const fetchAnthropicAsOpenAi = async (
   baseUrl: string,
@@ -1195,6 +1211,9 @@ export const fetchAnthropicAsOpenAi = async (
   // 该 host 曾拒绝 enabled 思考 → 直接发 adaptive,别再撞一次 400。
   if (readHostOptOuts(THINKING_ADAPTIVE_OPTOUT_KEY)[relayHost]) {
     effectiveBody = forceAdaptiveThinking(effectiveBody)
+  }
+  if (readHostOptOuts(SAMPLING_PARAMS_OPTOUT_KEY)[relayHost]) {
+    effectiveBody = stripSamplingParams(effectiveBody)
   }
   let bodyJson = JSON.stringify(effectiveBody)
 
@@ -1383,6 +1402,26 @@ export const fetchAnthropicAsOpenAi = async (
       console.warn('中转拒绝历史 thinking 块,已按渠道停用思考链回传并重试', relayHost)
       rememberHostOptOut(THINKING_REPLAY_OPTOUT_KEY, relayHost)
       effectiveBody = stripped
+      bodyJson = JSON.stringify(effectiveBody)
+      response = await sendOnce(headers)
+    }
+  }
+
+  // Sampling-params fallback: upstream rejects temperature / top_p (Anthropic
+  // is deprecating these for newer models; relays that remap old model names
+  // onto new upstreams will 400). Only fires when the request actually carries
+  // temperature or top_p — otherwise the 400 is something else.
+  if (response.status === 400 && (effectiveBody.temperature != null || effectiveBody.top_p != null)) {
+    let errText = ''
+    try {
+      errText = await response.clone().text()
+    } catch {
+      // body unreadable
+    }
+    if (/temperature|top_p|sampling/i.test(errText)) {
+      console.warn('中转上游拒绝 temperature/top_p,已按渠道剥除并重试', relayHost)
+      rememberHostOptOut(SAMPLING_PARAMS_OPTOUT_KEY, relayHost)
+      effectiveBody = stripSamplingParams(effectiveBody)
       bodyJson = JSON.stringify(effectiveBody)
       response = await sendOnce(headers)
     }
