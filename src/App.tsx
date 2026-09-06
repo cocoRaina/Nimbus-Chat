@@ -945,7 +945,7 @@ const App = () => {
       }
       return next
     })
-  }, [user, scheduleKeepalive])
+  }, [user])
   // Tracks when we last successfully fired a keepalive ping (timer-driven
   // or pre-warm). prewarmKeepaliveIfStale uses this to decide whether to
   // pre-warm on chat-page entry — avoids hammering when the timer has
