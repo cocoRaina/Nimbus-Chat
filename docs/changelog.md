@@ -4,17 +4,17 @@
 
 ---
 
-## 🐛 有工具时跳过 global scope（2026-09-06）
+## 🗑️ 彻底移除 global scope（2026-09-06）
 
-**症状**：MAX 逆向连续两个 400：
-1. `scope: "global" is only valid when every preceding block is also globally scoped`（工具没有 scope → system 的 scope 违规）
-2. 试图给所有工具加 scope → `A maximum of 4 blocks with cache_control may be provided. Found 42.`（42 个工具全加断点直接炸）
+**背景**：`scope:'global'`（`prompt-caching-scope-2026-01-05` beta）原本想跨 workspace/key 共享缓存。但发现两个致命问题：
+1. 有工具时结构上不可能（排序违规或超 4 断点限制→400）
+2. 无工具时也没用——实测 1h TTL 靠 `metadata.user_id` 就够稳定命中
 
-**根因**：Anthropic 渲染顺序 tools→system→messages，scope:'global' 要求前面所有内容也是 global。但给所有工具加 scope 超 4 断点限制，只加 BP0 又违反排序规则——**有工具时 scope 结构上不可能**。
+之前缓存「一会有一会没有」的真凶就是 scope 反复触发 400 被自愈剥掉的不确定状态。
 
-**修法**：`stampCacheScope` 检测到 `tools` 数组非空时**直接跳过**，不在任何 block 上打 scope。有工具的请求（=几乎所有真实聊天）走 workspace 级缓存（1h TTL 正常工作）；无工具的请求（如探针）继续享受 global scope。
+**删除内容**：`stampCacheScope` / `stripCacheScope` / `applyCacheScope` 函数、`ScopedCacheHolder` 类型、`CACHE_SCOPE_OPTOUT_KEY` 自愈记录、`prompt-caching-scope` beta 头推送、scope 400 自愈分支、设置页 scope 降级显示行、类型定义中的 `scope` 字段。
 
-**影响**：纯前端改动，需新 APK 生效。消除了之前「scope 400 → 自愈剥 scope → 首次请求白挨一个 400」的开销。实测无 scope 时 1h TTL 缓存命中率已经很好。
+**影响**：纯前端改动，需新 APK 生效。用户不再会因 scope 白挨 400。缓存只靠 `ephemeral` + `ttl:'1h'` + `metadata.user_id`，干净可靠。
 
 ---
 

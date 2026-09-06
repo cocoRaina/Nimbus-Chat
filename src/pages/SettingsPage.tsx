@@ -137,7 +137,6 @@ const SettingsPage = ({
     for (const h of selfHealHosts.samplingParams) parts.push(`${h} 已剥除 temperature/top_p(上游已弃用)`)
     for (const h of selfHealHosts.beta) parts.push(`${h} 已停发 1h 缓存 beta 头`)
     for (const h of selfHealHosts.ttl) parts.push(`${h} 缓存 TTL 已降级 5 分钟`)
-    for (const h of selfHealHosts.scope) parts.push(`${h} 已停用 global 缓存 scope`)
     return parts
   }, [selfHealHosts])
   const handleResetSelfHeal = useCallback(() => {

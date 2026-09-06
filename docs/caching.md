@@ -24,29 +24,9 @@
 
 ---
 
-## 0.5 号池轮转吃不到缓存的解药:global scope(2026-08-20 上线)
+## ~~0.5 号池轮转:global scope~~ → 已移除(2026-09-06)
 
-**症状**:中转「聚合分组/号池」类渠道,明明每发 system 一模一样,`cache_read_input_tokens` 却总是 0 或忽高忽低——就是用户在 treegpt 日志里看到的「一会能吃一会吃不到」。
-
-**根因**:Anthropic 缓存**默认按 workspace 隔离**。聚合分组每次请求从号池里随机抽一把上游 key,这些 key 分属不同账号/workspace;上一发写进去的缓存,下一发换把 key 就读不到。**命中率 ≈ 1 ÷ 号池大小**——这跟 §198 记的「节点亲和偶尔飘、随机全量冷写」是同一个病根。
-
-**解药(来自社区教程 ariakitty cache-guide,已实测 4/4 命中)**:让缓存条目**不绑 workspace/key**,号池随便换都读得到。两样,缺一不可:
-1. 请求头再带一张 beta 票:`anthropic-beta: prompt-caching-scope-2026-01-05`(和我们原来发的 `extended-cache-ttl-2025-04-11` 逗号并列,互不影响)。
-2. 每个 `cache_control` 里加 `"scope": "global"`(与 `ttl` 正交——1h/5m 都能用,scope 只管跨 key 共享、不改存活时长)。
-
-**实现**(`src/api/anthropic.ts`,纯前端、走 x-api-key 原生路径,OR bearer 路径不加):
-- `stampCacheScope()` 在临发前把 `scope:'global'` 盖到每个 cache 断点上。**⚠️ 有工具时跳过(2026-09-06 定案)**:Anthropic 渲染顺序 tools→system→messages,`scope:'global'` 要求前面所有内容也是 global;给所有工具加 scope 超 4 断点限制(42 工具→400),只加 BP0 又违反排序规则——**有工具时 scope 结构上不可能**,所以 `stampCacheScope` 检测到 tools 非空直接跳过。实测无 scope 时 1h TTL 缓存命中率已经很好(同 workspace 的 key 天然共享)。
-- 走**独立的 per-host 自愈**(`CACHE_SCOPE_OPTOUT_KEY`,24h TTL,同 beta/ttl 那套):渠道若不认这张新票 → 400 提到 "scope" → 只摘掉 scope 那张票 + 剥掉 body 里的 scope 字段重试,**保住 extended-ttl(1h 不受牵连)**,并记下该 host。设置页「渠道自愈记录」会列出 `已停用 global 缓存 scope`。
-- 「不打点」开关(`getRelayNoBreakpoints`)照旧一票否决:开了就连 scope 一起不发。
-
-**溯源(2026-08-20 查证,别再当"来路不明的偏方"）**:`prompt-caching-scope-2026-01-05` 是**真·Anthropic 官方 beta**,而且**是 Claude Code 自己发的头**——CC **v2.1.23** 起自动带上(v2.1.22 还没有)。所以它天生就是给「CC/订阅型客户端跨会话复用缓存」设计的,跟号池换 key 是同一类场景。**平台支持有别**(litellm #19984 实锤):
-- ✅ **官方 Anthropic 直连 API:接受**
-- ❌ **Vertex(Google Cloud):拒**,报 `Unexpected value(s) "prompt-caching-scope-2026-01-05" for the "anthropic-beta" header`
-- AWS Bedrock:未证实(存疑,官方文档说 Bedrock/Vertex 本就用「组织级隔离」)
-
-**对我们的渠道意味着**:主力那种 **MAX/CC 逆向号池打的是官方直连 API** → 这头是**原生环境、被接受**,还让 Nimbus 更像真 CC(逆向池按「像不像 CC」判亲和,附赠减少空回/降智)。**万一切到 Vertex 档会 400** → 自愈自动剥掉、退回现状。**能不能真抬升命中率的唯一变量**:池子是「单订阅/组织下多 key」(global 让它们共享=有效)还是「多个独立账户拼盘」(跨账户共享不了、也不该共享=够不着)——发探针对比 `cache_read` 可锤死。
-
-> ⚠️ 风险:老上游/不透传的中转可能 400——但上面的自愈会自动退回现状,不会把整条路搞挂。装新包后可在设置页看有没有渠道被记进「停用 global scope」;真机若某渠道命中率没改善,可能是它把这张 beta 票吞了(判断法同 §226:同代码换官方直连测,能中就是中转吞头)或该池是多账户拼盘。
+`scope:'global'`（`prompt-caching-scope-2026-01-05` beta）原本想跨 workspace/key 共享缓存,但实测发现**结构上不可行**:Anthropic 渲染顺序 tools→system→messages,`scope:'global'` 要求前面所有内容也是 global——有工具时(所有真实对话)要么超 4 断点限制(42 工具→400),要么违反排序规则。而且**不用 scope,靠 `metadata.user_id` + `cache_control: ephemeral` + 1h TTL 就能稳定命中缓存**。之前缓存「一会有一会没有」的真凶就是 scope 触发 400 被自愈剥掉后的不确定状态。整套 scope 逻辑（beta 头、body stamp、per-host 自愈）已全部删除。
 
 ---
 
