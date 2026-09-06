@@ -4,6 +4,18 @@
 
 ---
 
+## 🐛 修复 global scope 在有工具时 400（2026-09-06）
+
+**症状**：MAX 逆向报 `cache_control.scope: "global" is only valid when every preceding block is also globally scoped`。探针（无工具）正常命中缓存，真实聊天（有工具）400。
+
+**根因**：Anthropic 渲染顺序是 tools → system → messages。`stampCacheScope` 只给**已有 `cache_control` 的 block** 加 `scope: 'global'`（只有最后一个工具 BP0 有），其余工具没有 → 被视为"更窄的 scope" → system 上的 `scope: 'global'` 违反前缀规则。
+
+**修法**：`stampCacheScope` 现在给**所有工具**加 `cache_control: { type: 'ephemeral', scope: 'global' }`（不只是 BP0）。`stripCacheScope`（自愈回退）会把这些 scope-only 的 `cache_control` 整个删掉（通过 `!ttl` 判断是不是 BP0），不留孤儿断点。
+
+**影响**：纯前端改动，需新 APK 生效。有工具的请求（=几乎所有真实聊天）不再触发 scope 400，global scope 真正生效。
+
+---
+
 ## 🔧 缓存命中率优化：工具排序 + 双探针（2026-09-05）
 
 **改动**：

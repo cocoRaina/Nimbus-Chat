@@ -35,7 +35,7 @@
 2. 每个 `cache_control` 里加 `"scope": "global"`(与 `ttl` 正交——1h/5m 都能用,scope 只管跨 key 共享、不改存活时长)。
 
 **实现**(`src/api/anthropic.ts`,纯前端、走 x-api-key 原生路径,OR bearer 路径不加):
-- `stampCacheScope()` 在临发前把 `scope:'global'` 盖到**已存在**的每个 cache 断点上(没断点的体保持逐字节不变)。
+- `stampCacheScope()` 在临发前把 `scope:'global'` 盖到每个 cache 断点上。**⚠️ 工具特殊处理(2026-09-06 修)**:Anthropic 渲染顺序是 tools→system→messages,`scope:'global'` 要求**所有前置内容**也是 global——所以必须给**每个工具**加 `cache_control:{type:'ephemeral',scope:'global'}`,不只是已有 BP0 的那个;否则无 `cache_control` 的工具被视为"更窄的 scope"、system 上的 global 就 400。`stripCacheScope` 回退时通过 `!ttl` 识别 scope-only 的 `cache_control` 并整个删掉,不留孤儿断点。
 - 走**独立的 per-host 自愈**(`CACHE_SCOPE_OPTOUT_KEY`,24h TTL,同 beta/ttl 那套):渠道若不认这张新票 → 400 提到 "scope" → 只摘掉 scope 那张票 + 剥掉 body 里的 scope 字段重试,**保住 extended-ttl(1h 不受牵连)**,并记下该 host。设置页「渠道自愈记录」会列出 `已停用 global 缓存 scope`。
 - 「不打点」开关(`getRelayNoBreakpoints`)照旧一票否决:开了就连 scope 一起不发。
 

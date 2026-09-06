@@ -1051,6 +1051,13 @@ type ScopedCacheHolder = { cache_control?: { type: string; ttl?: string; scope?:
 // stamp: only touches blocks that ALREADY carry a cache_control (adds the
 // field), so non-cached bodies stay byte-identical. strip: removes it for the
 // self-heal retry. Both deep-clone so the caller's body is never mutated.
+//
+// Tools are special: Anthropic renders tools BEFORE system blocks, and
+// scope:'global' requires ALL preceding content to be globally scoped.
+// So when stamping, EVERY tool must get cache_control with scope:'global'
+// (not just the last one that already has BP0). When stripping, scope-only
+// cache_control (added by us, no ttl) is removed entirely so we don't
+// leave orphan breakpoints.
 const applyCacheScope = (body: AnthropicRequest, on: boolean): AnthropicRequest => {
   const clone = JSON.parse(JSON.stringify(body)) as AnthropicRequest
   const apply = (b: ScopedCacheHolder | undefined) => {
@@ -1058,8 +1065,22 @@ const applyCacheScope = (body: AnthropicRequest, on: boolean): AnthropicRequest 
     if (on) b.cache_control.scope = 'global'
     else if (b.cache_control.scope) delete b.cache_control.scope
   }
+  if (Array.isArray(clone.tools)) {
+    for (const tool of clone.tools as ScopedCacheHolder[]) {
+      if (on) {
+        if (tool.cache_control) {
+          tool.cache_control.scope = 'global'
+        } else {
+          tool.cache_control = { type: 'ephemeral', scope: 'global' }
+        }
+      } else {
+        if (tool.cache_control?.scope) delete tool.cache_control.scope
+        // Remove cache_control that was added solely for scope (no ttl = not BP0)
+        if (tool.cache_control && !tool.cache_control.ttl) delete tool.cache_control
+      }
+    }
+  }
   if (Array.isArray(clone.system)) (clone.system as ScopedCacheHolder[]).forEach(apply)
-  ;(clone.tools as ScopedCacheHolder[] | undefined)?.forEach(apply)
   for (const m of clone.messages) {
     if (Array.isArray(m.content)) (m.content as ScopedCacheHolder[]).forEach(apply)
   }
