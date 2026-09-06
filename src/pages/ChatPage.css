@@ -1878,6 +1878,22 @@
   background: transparent !important;
   padding: 0 !important;
   box-shadow: none !important;
+  border: none !important;
+  max-width: max-content;
+}
+.bubble.is-sticker .reasoning-panel {
+  margin-bottom: 4px;
+  padding: 4px 8px;
+  background: var(--bubble-in-bg);
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(42, 61, 82, 0.08);
+}
+.bubble.is-sticker .message-flow {
+  margin-bottom: 4px;
+  padding: 4px 8px;
+  background: var(--bubble-in-bg);
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(42, 61, 82, 0.08);
 }
 .sticker-missing {
   color: var(--ab-accent);
