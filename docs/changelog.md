@@ -4,15 +4,17 @@
 
 ---
 
-## 🐛 修复 global scope 在有工具时 400（2026-09-06）
+## 🐛 有工具时跳过 global scope（2026-09-06）
 
-**症状**：MAX 逆向报 `cache_control.scope: "global" is only valid when every preceding block is also globally scoped`。探针（无工具）正常命中缓存，真实聊天（有工具）400。
+**症状**：MAX 逆向连续两个 400：
+1. `scope: "global" is only valid when every preceding block is also globally scoped`（工具没有 scope → system 的 scope 违规）
+2. 试图给所有工具加 scope → `A maximum of 4 blocks with cache_control may be provided. Found 42.`（42 个工具全加断点直接炸）
 
-**根因**：Anthropic 渲染顺序是 tools → system → messages。`stampCacheScope` 只给**已有 `cache_control` 的 block** 加 `scope: 'global'`（只有最后一个工具 BP0 有），其余工具没有 → 被视为"更窄的 scope" → system 上的 `scope: 'global'` 违反前缀规则。
+**根因**：Anthropic 渲染顺序 tools→system→messages，scope:'global' 要求前面所有内容也是 global。但给所有工具加 scope 超 4 断点限制，只加 BP0 又违反排序规则——**有工具时 scope 结构上不可能**。
 
-**修法**：`stampCacheScope` 现在给**所有工具**加 `cache_control: { type: 'ephemeral', scope: 'global' }`（不只是 BP0）。`stripCacheScope`（自愈回退）会把这些 scope-only 的 `cache_control` 整个删掉（通过 `!ttl` 判断是不是 BP0），不留孤儿断点。
+**修法**：`stampCacheScope` 检测到 `tools` 数组非空时**直接跳过**，不在任何 block 上打 scope。有工具的请求（=几乎所有真实聊天）走 workspace 级缓存（1h TTL 正常工作）；无工具的请求（如探针）继续享受 global scope。
 
-**影响**：纯前端改动，需新 APK 生效。有工具的请求（=几乎所有真实聊天）不再触发 scope 400，global scope 真正生效。
+**影响**：纯前端改动，需新 APK 生效。消除了之前「scope 400 → 自愈剥 scope → 首次请求白挨一个 400」的开销。实测无 scope 时 1h TTL 缓存命中率已经很好。
 
 ---
 
