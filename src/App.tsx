@@ -905,10 +905,47 @@ const App = () => {
           void supabase.from('cache_keepalive_state').delete().eq('user_id', user.id)
             .then(({ error }) => { if (error) console.warn('停用保活：删除服务端快照失败', error) })
         }
+      } else if (keepaliveBodyRef.current) {
+        // Turning ON with a cached body from the last chat: immediately start
+        // the client timer and upsert the server snapshot so the cron can pick
+        // it up. Without this, turning on keepalive between chats left a dead
+        // zone — no timer, no snapshot — until the next chat completed.
+        keepaliveEnabledRef.current = true // ref won't update until render
+        scheduleKeepalive()
+        if (supabase && user) {
+          const activeProvider = getActiveProvider()
+          const cfg = getProviderConfig(activeProvider)
+          if (cfg.apiKey && cfg.baseUrl) {
+            const isOR = activeProvider === 'openrouter'
+            const authStyle = isOR ? 'bearer' : 'x-api-key'
+            void (async () => {
+              try {
+                const anthropicBody = await convertOpenAiRequestToAnthropic(
+                  keepaliveBodyRef.current as Parameters<typeof convertOpenAiRequestToAnthropic>[0],
+                  { keepModelSlug: isOR },
+                )
+                const { error } = await supabase
+                  .from('cache_keepalive_state')
+                  .upsert({
+                    user_id: user.id,
+                    body: anthropicBody as unknown as Record<string, unknown>,
+                    openrouter_key: cfg.apiKey,
+                    provider: activeProvider,
+                    base_url: cfg.baseUrl,
+                    auth_style: authStyle,
+                    last_chat_at: new Date().toISOString(),
+                  })
+                if (error) console.warn('开启保活：上传快照失败', error)
+              } catch (err) {
+                console.warn('开启保活：快照转换/上传异常', err)
+              }
+            })()
+          }
+        }
       }
       return next
     })
-  }, [user])
+  }, [user, scheduleKeepalive])
   // Tracks when we last successfully fired a keepalive ping (timer-driven
   // or pre-warm). prewarmKeepaliveIfStale uses this to decide whether to
   // pre-warm on chat-page entry — avoids hammering when the timer has
