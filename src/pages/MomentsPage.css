@@ -459,7 +459,7 @@
   box-shadow: 0 2px 8px rgba(88, 104, 120, 0.1);
 }
 
-/* ── 每日心情 tab ─────────────────────────────────────────────── */
+/* ── 碎碎念 tab（小纸条风格） ────────────────────────────────── */
 .mood-tab {
   width: 100%;
   max-width: 640px;
@@ -467,53 +467,21 @@
   flex-direction: column;
   gap: 0.9rem;
   margin-top: 0.6rem;
+  padding: 0 0.3rem;
 }
-.mood-today {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.6rem;
-  align-items: start;
-}
-.mood-card {
+
+/* ── Wren 心情编辑器 ─────────────────────────────────────────── */
+.mood-editor {
   border-radius: 18px;
   padding: 0.85rem 0.9rem;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
 }
-.mood-card-who {
+.mood-editor-label {
   font-size: 0.78rem;
   font-weight: 700;
   color: var(--ab-strong);
-}
-.mood-card-emoji { font-size: 1.9rem; line-height: 1; }
-.mood-card-text {
-  font-size: 0.85rem;
-  line-height: 1.5;
-  color: var(--ab-deep);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.mood-emoji-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-}
-.mood-emoji-pick {
-  border: none;
-  background: transparent;
-  font-size: 1.15rem;
-  line-height: 1;
-  padding: 3px;
-  border-radius: 8px;
-  cursor: pointer;
-  opacity: 0.55;
-  transition: opacity 0.12s, background 0.12s, transform 0.12s;
-}
-.mood-emoji-pick.is-on {
-  opacity: 1;
-  background: rgba(152, 181, 216, 0.25);
-  transform: scale(1.12);
 }
 .mood-input {
   width: 100%;
@@ -531,51 +499,139 @@
 .mood-input:focus { border-color: var(--ab-accent); }
 .mood-save { align-self: flex-start; }
 
-.mood-history {
+/* ── Wren 历史心情（紧凑列表） ───────────────────────────────── */
+.mood-user-history {
   display: flex;
   flex-direction: column;
+  gap: 0.2rem;
+  padding: 0 0.15rem;
+}
+.mood-user-row {
+  display: flex;
+  align-items: baseline;
   gap: 0.5rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px dashed var(--hairline);
 }
-.mood-history-head {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--ab-accent);
-  letter-spacing: 0.04em;
-  padding: 0.2rem 0.2rem 0;
-}
-/* 一天一组：日期 + 沈暮一行 + 我一行（各占整行，文字可换行不截断） */
-.mood-day {
-  border-radius: 14px;
-  padding: 0.55rem 0.8rem 0.6rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-.mood-day-date {
+.mood-user-date {
   font-size: 0.68rem;
   font-weight: 700;
   color: var(--ab-muted);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.03em;
-}
-.mood-line {
-  display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
-}
-.mood-line-emoji { font-size: 1rem; flex-shrink: 0; align-self: center; }
-.mood-line-who {
-  font-size: 0.66rem;
-  font-weight: 600;
-  color: var(--ab-muted);
   flex-shrink: 0;
-  width: 3.2rem;
+  width: 2.8rem;
+  font-variant-numeric: tabular-nums;
 }
-.mood-line-text {
+.mood-user-text {
   flex: 1;
   font-size: 0.82rem;
   line-height: 1.45;
   color: var(--ab-deep);
   word-break: break-word;
 }
-.mood-line--ai .mood-line-who { color: var(--ab-strong); }
+
+/* ── 碎碎念 section header ───────────────────────────────────── */
+.note-section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ab-strong);
+  padding: 0.35rem 0.15rem 0;
+  letter-spacing: 0.02em;
+}
+.note-section-icon {
+  font-size: 0.92rem;
+  line-height: 1;
+}
+
+/* ── 小纸条瀑布墙 ───────────────────────────────────────────── */
+.note-wall {
+  columns: 2;
+  column-gap: 0.65rem;
+  padding: 0.3rem 0;
+}
+
+/* ── 单张小纸条 ─────────────────────────────────────────────── */
+.note-card {
+  break-inside: avoid;
+  position: relative;
+  margin-bottom: 0.65rem;
+  padding: 1.3rem 0.75rem 0.65rem;
+  border-radius: 4px;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.06),
+    0 4px 12px rgba(88, 104, 120, 0.07);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+.note-card:active {
+  transform: scale(0.97);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* 纸条顶部小胶带 */
+.note-tape {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 10px;
+  border-radius: 2px;
+  background: rgba(152, 181, 216, 0.45);
+  opacity: 0.8;
+}
+
+.note-text {
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--ab-deep);
+  word-break: break-word;
+  white-space: pre-wrap;
+  margin: 0;
+}
+.note-time {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.62rem;
+  color: var(--ab-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 纸条色系（5 种浅蓝循环，对齐 Angel Blue 系统色） ─────── */
+.note-tint-0 { background: #F0F6FF; } /* 冰蓝 */
+.note-tint-1 { background: #E8F1FA; } /* 雾蓝 */
+.note-tint-2 { background: #EEF3FC; } /* 霜蓝 */
+.note-tint-3 { background: #F4F8FE; } /* 近白蓝 */
+.note-tint-4 { background: #E5EEF8; } /* 浅灰蓝 */
+
+/* ── 纸条微旋转（6 个角度循环，让瀑布流不死板） ──────────────── */
+.note-rot-0 { transform: rotate(-1.2deg); }
+.note-rot-1 { transform: rotate( 0.8deg); }
+.note-rot-2 { transform: rotate(-0.5deg); }
+.note-rot-3 { transform: rotate( 1.5deg); }
+.note-rot-4 { transform: rotate(-0.9deg); }
+.note-rot-5 { transform: rotate( 0.3deg); }
+
+/* ── 深色模式 ────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  .mood-input {
+    background: rgba(30, 40, 52, 0.85);
+    border-color: rgba(100, 120, 150, 0.4);
+    color: #d8dde4;
+  }
+  .mood-user-row { border-bottom-color: rgba(100, 120, 150, 0.2); }
+  .note-tint-0 { background: #1e2530; }
+  .note-tint-1 { background: #1c2335; }
+  .note-tint-2 { background: #202838; }
+  .note-tint-3 { background: #222a3a; }
+  .note-tint-4 { background: #1a2230; }
+  .note-text { color: #d0d4da; }
+  .note-tape { background: rgba(100, 130, 170, 0.4); }
+  .note-card {
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.2),
+      0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+}
