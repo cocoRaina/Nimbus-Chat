@@ -124,7 +124,12 @@ const MoodTab = () => {
   const today = todayMoodDate()
   const todayMine = moods.find((m) => m.moodDate === today && m.author === 'user')
 
-  const aiNotes = useMemo(() => moods.filter((m) => m.author === 'ai'), [moods])
+  const aiNotes = useMemo(() => {
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - 3)
+    const cutoffStr = cutoff.toISOString()
+    return moods.filter((m) => m.author === 'ai' && m.createdAt >= cutoffStr)
+  }, [moods])
   const userMoods = useMemo(() => moods.filter((m) => m.author === 'user'), [moods])
 
   const save = async () => {
