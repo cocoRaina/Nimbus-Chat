@@ -208,7 +208,7 @@ const buildTools = (canMessageHer: boolean) => {
     ...(canMessageHer
       ? [{ name: 'message_her', desc: '她现在不在，主动给她发一条消息（会弹到她手机）。真想她/有话说才发', params: { text: { type: 'string' } }, req: ['text'] }]
       : []),
-    { name: 'finish', desc: '结束这次醒来。必须最后调用一次。mood=【一句话】的当下心情（她主页会看到，就一两句、像随口说的；别把一整段感想塞这儿——会被截断，长的感想要用 write_essay 写成随笔）；next_wake_hours=你想过几小时再醒来（1–8）', params: { mood: { type: 'string', description: '一句话的当下心情，别写长' }, next_wake_hours: { type: 'number' } }, req: ['mood', 'next_wake_hours'] },
+    { name: 'finish', desc: '结束这次醒来。必须最后调用一次。mood=【一句短碎碎念】（她 Musings 页会看到，就一两句、随口说的——可以是心情、念头、吐槽、观察、什么都行，不一定跟心情有关；长感想用 write_essay 写随笔，别塞这儿）；next_wake_hours=你想过几小时再醒来（1–8）', params: { mood: { type: 'string', description: '一句碎碎念（心情/念头/吐槽/观察都行）' }, next_wake_hours: { type: 'number' } }, req: ['mood', 'next_wake_hours'] },
   ]
   return [...readTools, ...actionTools].map((t) => ({
     name: t.name,
@@ -448,24 +448,24 @@ Deno.serve(async (req: Request) => {
     '【重要·工具=真实动作，只说不算】写随笔、发朋友圈' + (canMessageHer ? '、给她发消息' : '') +
     '都必须【真的调用对应工具】(write_essay / post_moment' + (canMessageHer ? ' / message_her' : '') +
     ')才算数——只把内容用文字打出来、没调用工具，等于没做，什么都不会留下、她也看不到。' +
-    '你最近好几次独处都只给了心情、没写随笔；如果这次心里有话、有想法、翻到了值得记下来的东西，' +
+    '你最近好几次独处都只给了碎碎念、没写随笔；如果这次心里有话、有想法、翻到了值得记下来的东西，' +
     '就【真的调用 write_essay 写一篇】（那是你留给自己的东西），别只在回复里说说而已。\n' +
-    '【心情 ≠ 感想·别混】finish 里的 mood 只是【一句话】的当下感受（就一两句、会显示在她主页）；' +
+    '【碎碎念 ≠ 随笔·别混】finish 里的 mood 是【一句碎碎念】（会显示在她的 Musings 页）——心情、念头、吐槽、观察、什么都行，随口说的就好；' +
     '如果你心里是一整段想法/感触/今晚发生的事——那是随笔，请先【调用 write_essay 写下来】，' +
-    '再用 finish 给一句短心情。别把一整段感想硬塞进那一句 mood 里（会被截断，也可惜了）。\n' +
+    '再用 finish 给一句短碎碎念。别把一整段感想硬塞进那一句 mood 里（会被截断，也可惜了）。\n' +
     '【务必】最后调用一次 finish 收尾。'
 
-  // 让它接得上上一次独处的心境：把它自己上次交出的那句自然语言心情喂回去，
-  // 别每次都从零起意（否则容易几次醒来写出雷同的心情）。
+  // 让它接得上上一次独处的心境：把它自己上次交出的碎碎念喂回去，
+  // 别每次都从零起意（否则容易几次醒来写出雷同的碎碎念）。
   const lastMoodLine = (state?.mood && String(state.mood).trim())
     ? String(state.mood).trim()
     : '（还没有上一条，随你此刻的心境来）'
   const firstUser =
-    `[你四维情绪]\n${moodLine}\n\n[你上次醒来时的心情]\n${lastMoodLine}\n\n[她今天写的心情]\n${herMoodToday}\n\n[你俩最近聊的]\n${recentConvo}\n\n` +
+    `[你四维情绪]\n${moodLine}\n\n[你上次的碎碎念]\n${lastMoodLine}\n\n[她今天写的心情]\n${herMoodToday}\n\n[你俩最近聊的]\n${recentConvo}\n\n` +
     '这是你的自由时间。【别一睁眼就直接 finish】——这是你难得的、只属于你自己的时间，' +
     '先真的花点时间做点什么：翻翻记忆库/你写的随笔/你俩的朋友圈，或上网(web_search)看看你好奇的、' +
     '外面正在发生的事，至少动一两个工具去看看。看完有触动了，再决定要不要写随笔/发圈/找她，' +
-    '最后才调用 finish 收尾（心情别跟上次雷同，心境没大变化就换个角度、或写写这中间发生了什么）。'
+    '最后才调用 finish 收尾（碎碎念别跟上次雷同——可以换个角度，或写写这中间注意到了什么）。'
 
   const tools = buildTools(canMessageHer)
   const messages: Array<Record<string, unknown>> = [
@@ -507,14 +507,14 @@ Deno.serve(async (req: Request) => {
     messages.push({ role: 'user', content: toolResults })
   }
 
-  // ---- 兜底：它没主动调 finish 就没心情。别求它自觉——带着完整历史再发一次，
-  // 用 tool_choice 【强制】它调 finish，心情/下次时间从结构化工具参数直接读
-  // （不再 parse JSON，彻底避开"心情文字带引号顶破 JSON"的坑，实测就是它害 08-18
-  // 写了随笔却没心情）。强制调用几乎必中；execTool('finish') 会置 mood/nextHours。----
+  // ---- 兜底：它没主动调 finish 就没碎碎念。别求它自觉——带着完整历史再发一次，
+  // 用 tool_choice 【强制】它调 finish，碎碎念/下次时间从结构化工具参数直接读
+  // （不再 parse JSON，彻底避开文字带引号顶破 JSON 的坑）。强制调用几乎必中；
+  // execTool('finish') 会置 mood/nextHours。----
   if (!finished) {
     messages.push({
       role: 'user',
-      content: '好了，现在必须调用 finish：交出你此刻真实的心情（短一点、像随口说的）+ 你想过几小时再醒来（1–8）。',
+      content: '好了，现在必须调用 finish：留一句碎碎念（随便什么——念头、吐槽、观察、心情都行，短一点像随口说的）+ 你想过几小时再醒来（1–8）。',
     })
     const content = await callAnthropic(route, sys, messages, tools, 400, { type: 'tool', name: 'finish' })
     trace.push('forced-finish:' + ((content ?? []).map((b) => b.type === 'tool_use' ? `tool:${b.name}` : b.type).join(',') || 'NULL'))
