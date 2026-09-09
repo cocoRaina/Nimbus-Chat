@@ -144,12 +144,12 @@ const MoodTab = () => {
 
   return (
     <div className="mood-tab">
-      {/* Wren 今天心情编辑 */}
+      {/* Wren 今天碎碎念 */}
       <div className="mood-editor glass-card">
-        <div className="mood-editor-label">Wren · 今天心情</div>
+        <div className="mood-editor-label">Wren · 今天</div>
         <textarea
           className="mood-input"
-          placeholder="今天心情怎么样..."
+          placeholder="写点什么..."
           value={draftText}
           maxLength={200}
           rows={2}
@@ -161,11 +161,11 @@ const MoodTab = () => {
           onClick={() => void save()}
           disabled={saving || !draftText.trim()}
         >
-          {saving ? '...' : todayMine ? '更新今天' : '记下今天'}
+          {saving ? '...' : todayMine ? '更新' : '记下来'}
         </button>
       </div>
 
-      {/* Wren 历史心情（简短列表） */}
+      {/* Wren 历史碎碎念 */}
       {userMoods.length > 0 && (
         <div className="mood-user-history">
           {userMoods.slice(0, 7).map((m) => (
