@@ -86,8 +86,7 @@ function ShenmuTodayCard() {
   );
 }
 
-// 天气(复用现成定位/和风天气,沈暮读的同一份) + 沈暮心情(取它自主唤醒时写的
-// last_note——目前它唯一一处自己写的自由文本;以后想要专门的「心情」字段再单开)。
+// 天气 + 沈暮碎碎念（autonomous_state.mood，自主唤醒时写的）。
 function WeatherMoodDuo() {
   const navigate = useNavigate();
   const [wx, setWx] = useState<WeatherSnapshot | null>(() => peekCachedWeather());
@@ -104,8 +103,7 @@ function WeatherMoodDuo() {
       .maybeSingle()
       .then(({ data }) => {
         const row = data as { mood?: string; last_note?: string; day_key?: string } | null;
-        // 只显示「今天」的心情（day_key===今天），别把昨天的当今日心情——
-        // 和 Moments 心情表格保持同一口径。
+        // 只显示今天的碎碎念（day_key===今天）。
         const fresh = row?.day_key === todayKey;
         const text = fresh ? (row?.mood?.trim() || row?.last_note?.trim() || "") : "";
         if (text) setMood(text);
@@ -133,11 +131,11 @@ function WeatherMoodDuo() {
         className="home-card2 home-card2--tap glass-card"
         onClick={() => navigate("/snacks?view=mood")}
       >
-        <div className="home-card2-label">今日心情</div>
+        <div className="home-card2-label">碎碎念</div>
         <div className="home-card2-main">
           <span className="home-card2-text home-card2-text--mood">{mood || "安静待着"}</span>
         </div>
-        <div className="home-card2-sub">点一下看沈暮心情 ›</div>
+        <div className="home-card2-sub">点一下看沈暮碎碎念 ›</div>
       </button>
     </div>
   );
@@ -635,7 +633,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
                 </button>
               </section>
 
-              {/* 天气 + 沈暮心情 两张小卡 */}
+              {/* 天气 + 碎碎念 两张小卡 */}
               <WeatherMoodDuo />
 
               {/* 沈暮今天动态（打卡下方） */}

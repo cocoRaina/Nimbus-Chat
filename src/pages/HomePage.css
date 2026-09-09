@@ -709,7 +709,7 @@
 }
 .home-topbar-menu:hover { color: var(--ab-ink); }
 
-/* ── 天气 + 沈暮心情 两张小卡 ──────────────────────────────── */
+/* ── 天气 + 碎碎念 两张小卡 ──────────────────────────────── */
 .home-duo {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -928,7 +928,7 @@
   .home-mini-v { color: #e2ddf4; }
 }
 
-/* 沈暮心情小卡改成可点按钮：抹掉 button 默认样式，和天气卡长一样，加个可点反馈 */
+/* 碎碎念小卡改成可点按钮 */
 .home-mini--tap {
   font-family: inherit;
   text-align: left;
@@ -940,7 +940,7 @@
 }
 .home-mini--tap:active { transform: scale(0.98); }
 
-/* ── 今日天气 / 今日心情 双大卡（仿参考 UI：标签 + 图标+内容 + 副标题） ── */
+/* ── 今日天气 / 碎碎念 双大卡 ── */
 .home-card2 {
   padding: 0.85rem 0.95rem 0.8rem;
   display: flex;
