@@ -694,7 +694,7 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
             className={`moments-tab${view === 'mood' ? ' is-active' : ''}`}
             onClick={() => setView('mood')}
           >
-            碎碎念
+            Musings
           </button>
         </div>
       ) : null}

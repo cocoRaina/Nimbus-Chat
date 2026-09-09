@@ -599,12 +599,12 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── 纸条色系（5 种柔色循环） ────────────────────────────────── */
-.note-tint-0 { background: #FFF8F0; } /* 暖杏 */
-.note-tint-1 { background: #F0F6FF; } /* 冰蓝 */
-.note-tint-2 { background: #F5F0FF; } /* 薰衣草 */
-.note-tint-3 { background: #F0FFF5; } /* 薄荷 */
-.note-tint-4 { background: #FFF5F5; } /* 玫瑰 */
+/* ── 纸条色系（5 种浅蓝循环，对齐 Angel Blue 系统色） ─────── */
+.note-tint-0 { background: #F0F6FF; } /* 冰蓝 */
+.note-tint-1 { background: #E8F1FA; } /* 雾蓝 */
+.note-tint-2 { background: #EEF3FC; } /* 霜蓝 */
+.note-tint-3 { background: #F4F8FE; } /* 近白蓝 */
+.note-tint-4 { background: #E5EEF8; } /* 浅灰蓝 */
 
 /* ── 纸条微旋转（6 个角度循环，让瀑布流不死板） ──────────────── */
 .note-rot-0 { transform: rotate(-1.2deg); }
@@ -622,11 +622,11 @@
     color: #d8dde4;
   }
   .mood-user-row { border-bottom-color: rgba(100, 120, 150, 0.2); }
-  .note-tint-0 { background: #2a2520; }
-  .note-tint-1 { background: #1e2530; }
-  .note-tint-2 { background: #252030; }
-  .note-tint-3 { background: #1e2a22; }
-  .note-tint-4 { background: #2a2020; }
+  .note-tint-0 { background: #1e2530; }
+  .note-tint-1 { background: #1c2335; }
+  .note-tint-2 { background: #202838; }
+  .note-tint-3 { background: #222a3a; }
+  .note-tint-4 { background: #1a2230; }
   .note-text { color: #d0d4da; }
   .note-tape { background: rgba(100, 130, 170, 0.4); }
   .note-card {
