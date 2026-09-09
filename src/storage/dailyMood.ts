@@ -1,7 +1,7 @@
 import { supabase } from '../supabase/client'
 
-// 每日心情：你(user)和小克(ai)每天各一条。ai 那条由 autonomous_wake 写；
-// user 那条你在 Moments 的「心情」tab 里写。
+// 每日心情：Wren(user) 每天一条（upsert）；小克(ai) 追加多条（碎碎念）。
+// ai 那条由 autonomous_wake 写；user 那条在 Moments 的「碎碎念」tab 里写。
 
 export type MoodAuthor = 'user' | 'ai'
 
@@ -32,18 +32,17 @@ const map = (r: DailyMoodRow): DailyMood => ({
   createdAt: r.created_at,
 })
 
-// 本地日期 YYYY-MM-DD（按北京时区，和 wake / 首页保持一致）。
 export const todayMoodDate = (): string =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
 
-// 拉最近 N 天的两条心情（两人合起来最多 2N 条）。
-export const fetchDailyMoods = async (days = 30): Promise<DailyMood[]> => {
+// 拉 AI 碎碎念（可能一天多条）+ 用户心情（每天一条）。
+export const fetchDailyMoods = async (limit = 100): Promise<DailyMood[]> => {
   if (!supabase) return []
   const { data, error } = await supabase
     .from('daily_moods')
     .select('id, mood_date, author, emoji, text, created_at')
-    .order('mood_date', { ascending: false })
-    .limit(days * 2)
+    .order('created_at', { ascending: false })
+    .limit(limit)
   if (error) {
     console.warn('加载每日心情失败', error)
     return []
@@ -51,7 +50,7 @@ export const fetchDailyMoods = async (days = 30): Promise<DailyMood[]> => {
   return (data ?? []).map((r) => map(r as DailyMoodRow))
 }
 
-// 写/更新「我」今天的心情（每人每天一条，upsert）。纯文字，想加 emoji 自己打进去。
+// 写/更新 Wren 今天的心情（每人每天一条，upsert on partial unique index）。
 export const upsertMyMood = async (text: string): Promise<DailyMood | null> => {
   if (!supabase) return null
   const { data: userData } = await supabase.auth.getUser()

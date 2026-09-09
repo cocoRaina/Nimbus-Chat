@@ -77,12 +77,24 @@ const formatTime = (iso: string) =>
 const createPendingId = () =>
   `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-// ── 每日心情 tab ──────────────────────────────────────────────────
-// 你(user)和小克(ai)每天各一条。小克那条它自主唤醒时自己写；你这条在这里写。
-const fmtMoodDate = (d: string): string => {
-  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  return m ? `${m[2]}/${m[3]}` : d
+// ── 碎碎念 tab ──────────────────────────────────────────────────
+// AI 碎碎念（小纸条风格）：每次唤醒追加一条，不覆盖。
+// 用户心情仍是每天一条 upsert，编辑框放在顶部。
+const fmtNoteTime = (iso: string): string => {
+  const d = new Date(iso)
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mi = String(d.getMinutes()).padStart(2, '0')
+  return `${mm}/${dd} ${hh}:${mi}`
 }
+
+const NOTE_TINTS = [
+  'note-tint-0', 'note-tint-1', 'note-tint-2', 'note-tint-3', 'note-tint-4',
+]
+const NOTE_ROTATIONS = [
+  'note-rot-0', 'note-rot-1', 'note-rot-2', 'note-rot-3', 'note-rot-4', 'note-rot-5',
+]
 
 const MoodTab = () => {
   const [moods, setMoods] = useState<DailyMood[]>([])
@@ -91,10 +103,8 @@ const MoodTab = () => {
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
-    const rows = await fetchDailyMoods(30)
+    const rows = await fetchDailyMoods(100)
     const today = todayMoodDate()
-    // 兜底：沈暮今天的心情若还没进 daily_moods（旧唤醒/尚未跑新代码），从
-    // autonomous_state.mood 取来当今天那条，保证和首页「今日心情」卡一致。
     if (supabase && !rows.some((m) => m.moodDate === today && m.author === 'ai')) {
       const { data } = await supabase
         .from('autonomous_state').select('mood, day_key').eq('id', 1).maybeSingle()
@@ -114,16 +124,8 @@ const MoodTab = () => {
   const today = todayMoodDate()
   const todayMine = moods.find((m) => m.moodDate === today && m.author === 'user')
 
-  // 按天分组（含今天），每天：沈暮一行 + 我一行。都是纯文字。
-  const days = useMemo(() => {
-    const byDate = new Map<string, { ai?: DailyMood; user?: DailyMood }>()
-    for (const m of moods) {
-      const e = byDate.get(m.moodDate) ?? {}
-      e[m.author] = m
-      byDate.set(m.moodDate, e)
-    }
-    return [...byDate.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
-  }, [moods])
+  const aiNotes = useMemo(() => moods.filter((m) => m.author === 'ai'), [moods])
+  const userMoods = useMemo(() => moods.filter((m) => m.author === 'user'), [moods])
 
   const save = async () => {
     if (saving || !draftText.trim()) return
@@ -133,16 +135,16 @@ const MoodTab = () => {
     setSaving(false)
   }
 
-  if (loading) return <p className="moments-loading">Loading…</p>
+  if (loading) return <p className="moments-loading">Loading...</p>
 
   return (
     <div className="mood-tab">
-      {/* 今天心情（Wren，纯文字，想加 emoji 自己打进去） */}
-      <div className="mood-card glass-card mood-editor">
-        <div className="mood-card-who">Wren · 今天心情</div>
+      {/* Wren 今天心情编辑 */}
+      <div className="mood-editor glass-card">
+        <div className="mood-editor-label">Wren · 今天心情</div>
         <textarea
           className="mood-input"
-          placeholder="今天心情怎么样…（想加 emoji 自己打进去）"
+          placeholder="今天心情怎么样..."
           value={draftText}
           maxLength={200}
           rows={2}
@@ -154,33 +156,48 @@ const MoodTab = () => {
           onClick={() => void save()}
           disabled={saving || !draftText.trim()}
         >
-          {saving ? '…' : todayMine ? '更新今天' : '记下今天'}
+          {saving ? '...' : todayMine ? '更新今天' : '记下今天'}
         </button>
       </div>
 
-      {/* 心情表格（含今天） */}
-      {days.length > 0 ? (
-        <div className="mood-history">
-          {days.map(([date, pair]) => (
-            <div key={date} className="mood-day glass-card">
-              <div className="mood-day-date">{date === today ? '今天' : fmtMoodDate(date)}</div>
-              {pair.ai ? (
-                <div className="mood-line mood-line--ai">
-                  <span className="mood-line-who">Claude</span>
-                  <span className="mood-line-text">{pair.ai.text || '—'}</span>
-                </div>
-              ) : null}
-              {pair.user ? (
-                <div className="mood-line mood-line--me">
-                  <span className="mood-line-who">Wren</span>
-                  <span className="mood-line-text">{pair.user.text || '—'}</span>
-                </div>
-              ) : null}
+      {/* Wren 历史心情（简短列表） */}
+      {userMoods.length > 0 && (
+        <div className="mood-user-history">
+          {userMoods.slice(0, 7).map((m) => (
+            <div key={m.id} className="mood-user-row">
+              <span className="mood-user-date">
+                {m.moodDate === today ? '今天' : m.moodDate.slice(5).replace('-', '/')}
+              </span>
+              <span className="mood-user-text">{m.text || '—'}</span>
             </div>
           ))}
         </div>
-      ) : (
-        <p className="moments-empty">还没有心情记录——今天先记一条吧。</p>
+      )}
+
+      {/* 碎碎念（AI 小纸条瀑布流） */}
+      {aiNotes.length > 0 && (
+        <>
+          <div className="note-section-head">
+            <span className="note-section-icon">&#9998;</span>
+            <span>小机的碎碎念</span>
+          </div>
+          <div className="note-wall">
+            {aiNotes.map((note, i) => (
+              <div
+                key={note.id}
+                className={`note-card ${NOTE_TINTS[i % NOTE_TINTS.length]} ${NOTE_ROTATIONS[(i * 3 + note.id) % NOTE_ROTATIONS.length]}`}
+              >
+                <div className="note-tape" />
+                <p className="note-text">{note.text}</p>
+                <span className="note-time">{fmtNoteTime(note.createdAt)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {aiNotes.length === 0 && userMoods.length === 0 && (
+        <p className="moments-empty">还没有碎碎念——小机下次唤醒时会写第一条。</p>
       )}
     </div>
   )
@@ -677,7 +694,7 @@ const MomentsPage = ({ user, snackAiConfig, syzygyAiConfig }: MomentsPageProps) 
             className={`moments-tab${view === 'mood' ? ' is-active' : ''}`}
             onClick={() => setView('mood')}
           >
-            Mood
+            碎碎念
           </button>
         </div>
       ) : null}

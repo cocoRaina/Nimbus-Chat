@@ -556,14 +556,13 @@ Deno.serve(async (req: Request) => {
   })
 
   if (mood && userId) {
-    await supa.from('daily_moods').upsert({
+    await supa.from('daily_moods').insert({
       user_id: userId,
       mood_date: todayKey,
       author: 'ai',
       emoji: null,
       text: mood,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,mood_date,author' })
+    })
   }
 
   return json({
