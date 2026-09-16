@@ -2639,7 +2639,7 @@ const App = () => {
             const d = new Date(iso)
             return Number.isNaN(d.getTime())
               ? ''
-              : d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+              : d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' })
           }
           // Find the last user message — that's the current turn. Its images
           // must always be sent as real pixels, never replaced by a cached
