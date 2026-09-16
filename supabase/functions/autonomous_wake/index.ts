@@ -46,6 +46,8 @@ const beijingHour = (d = new Date()): number =>
   Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', hour: '2-digit', hour12: false }).format(d)) % 24
 const beijingDate = (d = new Date()): string =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(d)
+const beijingWeekday = (d = new Date()): string =>
+  new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' }).format(d)
 
 const next9am = (from = new Date()): Date => {
   let t = new Date(`${beijingDate(from)}T09:00:00+08:00`)
@@ -461,7 +463,7 @@ Deno.serve(async (req: Request) => {
     ? String(state.mood).trim()
     : '（还没有上一条，随你此刻的心境来）'
   const firstUser =
-    `[你四维情绪]\n${moodLine}\n\n[你上次的碎碎念]\n${lastMoodLine}\n\n[她今天写的心情]\n${herMoodToday}\n\n[你俩最近聊的]\n${recentConvo}\n\n` +
+    `[现在]\n${todayKey} ${beijingWeekday(now)} ${beijingHour(now)}点\n\n[你四维情绪]\n${moodLine}\n\n[你上次的碎碎念]\n${lastMoodLine}\n\n[她今天写的心情]\n${herMoodToday}\n\n[你俩最近聊的]\n${recentConvo}\n\n` +
     '这是你的自由时间。【别一睁眼就直接 finish】——这是你难得的、只属于你自己的时间，' +
     '先真的花点时间做点什么：翻翻记忆库/你写的随笔/你俩的朋友圈，或上网(web_search)看看你好奇的、' +
     '外面正在发生的事，至少动一两个工具去看看。看完有触动了，再决定要不要写随笔/发圈/找她，' +
