@@ -2637,9 +2637,10 @@ const App = () => {
           // that would change the prefix on every send.
           const formatStamp = (iso: string) => {
             const d = new Date(iso)
-            return Number.isNaN(d.getTime())
-              ? ''
-              : d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' })
+            if (Number.isNaN(d.getTime())) return ''
+            const dt = d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+            const wd = d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' })
+            return `${dt} ${wd}`
           }
           // Find the last user message — that's the current turn. Its images
           // must always be sent as real pixels, never replaced by a cached
