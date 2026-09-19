@@ -1,6 +1,6 @@
 .console-page {
   min-height: 100dvh;
-  background: var(--ab-bg, #f4f2f7);
+  background: transparent;
   color: var(--ab-text, #2e2b3a);
   padding-bottom: 32px;
 }
@@ -626,7 +626,7 @@
 /* ── Dark mode ────────────────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
   .console-page:not([data-theme="light"]) {
-    background: var(--ab-bg, #16142a);
+    background: transparent;
   }
   .console-page:not([data-theme="light"]) .console-tile,
   .console-page:not([data-theme="light"]) .console-card,
