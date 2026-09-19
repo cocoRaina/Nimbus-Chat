@@ -820,16 +820,15 @@
   transform: translateX(-50%);
   width: min(420px, 100%);
   z-index: 30;
-  height: calc(66px + env(safe-area-inset-bottom));
-  padding: 8px 12px env(safe-area-inset-bottom);
+  height: calc(56px + env(safe-area-inset-bottom));
+  padding: 6px 12px env(safe-area-inset-bottom);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-around;
-  background: rgba(255, 255, 255, 0.72);
-  border-top: 1px solid rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.82);
+  border-top: 1px solid var(--hairline);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
-  box-shadow: 0 -4px 22px rgba(88, 104, 120, 0.1);
 }
 .home-tab {
   display: flex;
@@ -843,30 +842,27 @@
   font-family: inherit;
   color: var(--ab-muted);
   padding: 4px 0 0;
+  -webkit-tap-highlight-color: transparent;
 }
-.home-tab-ico { font-size: 1.15rem; line-height: 1; }
-.home-tab-lab { font-size: 0.6rem; font-weight: 600; font-style: italic; letter-spacing: 0.02em; }
+.home-tab-svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.home-tab-lab {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
 .home-tab.is-active { color: var(--ab-strong); }
-.home-tab--fab { position: relative; }
-.home-tab-fab {
-  position: absolute;
-  top: -22px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 1.45rem;
-  background: linear-gradient(150deg, #b7a0d6, #8ea0dd);
-  box-shadow: 0 8px 18px rgba(120, 110, 190, 0.42), inset 0 0 0 3px rgba(255, 255, 255, 0.7);
-}
-.home-tab-lab--fab { margin-top: 34px; color: var(--ab-strong); }
 
 /* content 底部留白，别被浮栏盖住（只正常模式有浮栏） */
 .home-page:not(.home-page--settings):not(.home-page--edit) .home-layout {
-  padding-bottom: calc(90px + env(safe-area-inset-bottom));
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
 }
 
 /* ── Other 抽屉 ────────────────────────────────────────────── */
@@ -920,7 +916,7 @@
 .home-other-arrow { color: var(--ab-muted); font-size: 1.05rem; }
 
 @media (prefers-color-scheme: dark) {
-  .home-tabbar { background: rgba(30, 34, 52, 0.72); border-top-color: rgba(255, 255, 255, 0.12); }
+  .home-tabbar { background: rgba(20, 24, 38, 0.82); border-top-color: rgba(255, 255, 255, 0.08); }
   .home-other-sheet { background: rgba(26, 30, 46, 0.97); }
   .home-dates-head { color: #b3aecc; }
   .home-dates-name { color: #e2ddf4; }

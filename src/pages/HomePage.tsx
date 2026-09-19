@@ -671,19 +671,24 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
             <>
               <nav className="home-tabbar" aria-label="导航">
                 <button type="button" className="home-tab is-active" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
-                  <span className="home-tab-ico">🏠</span><span className="home-tab-lab">Home</span>
+                  <svg className="home-tab-svg" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                  <span className="home-tab-lab">Home</span>
                 </button>
                 <button type="button" className="home-tab" onClick={() => navigate("/memory-vault")}>
-                  <span className="home-tab-ico">🧠</span><span className="home-tab-lab">Memory</span>
+                  <svg className="home-tab-svg" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="13" y2="11"/></svg>
+                  <span className="home-tab-lab">Memory</span>
                 </button>
-                <button type="button" className="home-tab home-tab--fab" onClick={onOpenChat} aria-label="聊天">
-                  <span className="home-tab-fab">💗</span><span className="home-tab-lab home-tab-lab--fab">Chat</span>
+                <button type="button" className="home-tab" onClick={onOpenChat} aria-label="聊天">
+                  <svg className="home-tab-svg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                  <span className="home-tab-lab">Chat</span>
                 </button>
                 <button type="button" className="home-tab" onClick={() => navigate("/health-sync")}>
-                  <span className="home-tab-ico">🫀</span><span className="home-tab-lab">Health</span>
+                  <svg className="home-tab-svg" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+                  <span className="home-tab-lab">Health</span>
                 </button>
                 <button type="button" className="home-tab" onClick={() => setOtherOpen(true)}>
-                  <span className="home-tab-ico">⋯</span><span className="home-tab-lab">Other</span>
+                  <svg className="home-tab-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+                  <span className="home-tab-lab">Other</span>
                 </button>
               </nav>
 
