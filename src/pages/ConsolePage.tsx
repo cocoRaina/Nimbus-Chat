@@ -31,6 +31,8 @@ type PendingOp = {
   created: string
 }
 
+type GitCommit = { hash: string; message: string; date: string; author: string }
+
 const levelTag = (level: string) => {
   if (level === 'green') return 'READ'
   if (level === 'yellow') return 'WRITE'
@@ -60,6 +62,16 @@ const fmtTime = (iso: string) => {
   } catch { return iso }
 }
 
+type TabId = 'status' | 'logs' | 'approvals' | 'db' | 'git'
+
+const NAV: { key: TabId; icon: string; label: string }[] = [
+  { key: 'status', icon: '📊', label: 'Status' },
+  { key: 'logs', icon: '📋', label: 'Logs' },
+  { key: 'approvals', icon: '🔐', label: 'Approvals' },
+  { key: 'db', icon: '🗄', label: 'Database' },
+  { key: 'git', icon: '🔀', label: 'Git' },
+]
+
 export default function ConsolePage() {
   const navigate = useNavigate()
   const [status, setStatus] = useState<SystemStatus | null>(null)
@@ -67,9 +79,26 @@ export default function ConsolePage() {
   const [pending, setPending] = useState<PendingOp[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<'status' | 'logs' | 'approvals'>('status')
+  const [tab, setTab] = useState<TabId>('status')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  const [sqlInput, setSqlInput] = useState('')
+  const [sqlResult, setSqlResult] = useState<any>(null)
+  const [sqlError, setSqlError] = useState('')
+  const [sqlRunning, setSqlRunning] = useState(false)
+
+  const [gitStatus, setGitStatus] = useState('')
+  const [gitLog, setGitLog] = useState<GitCommit[]>([])
+  const [gitLoading, setGitLoading] = useState(false)
 
   const configured = isVpsConfigured()
+
+  const activeNav = NAV.find((n) => n.key === tab) ?? NAV[0]
+
+  const pick = (key: TabId) => {
+    setTab(key)
+    setDrawerOpen(false)
+  }
 
   const fetchAll = useCallback(async () => {
     if (!configured) return
@@ -83,14 +112,14 @@ export default function ConsolePage() {
       ])
       if (!sRes.ok) {
         const txt = await sRes.text().catch(() => '')
-        setError(`状态接口 ${sRes.status}: ${txt.slice(0, 120) || sRes.statusText}`)
+        setError(`API ${sRes.status}: ${txt.slice(0, 120) || sRes.statusText}`)
         return
       }
       setStatus(await sRes.json())
       if (lRes.ok) setLogs((await lRes.json()).reverse())
       if (pRes.ok) setPending(await pRes.json())
     } catch (e: any) {
-      setError(e.message || '连接失败')
+      setError(e.message || 'Connection failed')
     } finally {
       setLoading(false)
     }
@@ -103,6 +132,14 @@ export default function ConsolePage() {
     const iv = setInterval(fetchAll, 30_000)
     return () => clearInterval(iv)
   }, [configured, fetchAll])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (drawerOpen) { setDrawerOpen(false); e.preventDefault() }
+    }
+    window.addEventListener('nimbus:backbutton', handler)
+    return () => window.removeEventListener('nimbus:backbutton', handler)
+  }, [drawerOpen])
 
   const handleApprove = async (id: string) => {
     try {
@@ -118,22 +155,71 @@ export default function ConsolePage() {
     try {
       await vfetch('/api/ops/reject', {
         method: 'POST',
-        body: JSON.stringify({ id, reason: '用户拒绝' }),
+        body: JSON.stringify({ id, reason: 'user rejected' }),
       })
       fetchAll()
     } catch {}
   }
 
+  const runSql = async () => {
+    if (!sqlInput.trim()) return
+    setSqlRunning(true)
+    setSqlError('')
+    setSqlResult(null)
+    try {
+      const res = await vfetch('/api/db/query', {
+        method: 'POST',
+        body: JSON.stringify({ sql: sqlInput.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setSqlError(data.error || `Error ${res.status}`)
+      } else if (data.pending) {
+        setSqlError('Sent to approval queue (red-level operation)')
+      } else {
+        setSqlResult(data)
+      }
+    } catch (e: any) {
+      setSqlError(e.message || 'Query failed')
+    } finally {
+      setSqlRunning(false)
+    }
+  }
+
+  const fetchGit = async () => {
+    setGitLoading(true)
+    try {
+      const [sRes, lRes] = await Promise.all([
+        vfetch('/api/git/status'),
+        vfetch('/api/git/log'),
+      ])
+      if (sRes.ok) {
+        const d = await sRes.json()
+        setGitStatus(d.output || d.status || JSON.stringify(d))
+      }
+      if (lRes.ok) {
+        const d = await lRes.json()
+        setGitLog(Array.isArray(d) ? d : d.commits || [])
+      }
+    } catch {}
+    setGitLoading(false)
+  }
+
+  useEffect(() => {
+    if (tab === 'git' && configured) fetchGit()
+  }, [tab, configured])
+
   if (!configured) {
     return (
       <div className="console-page">
-        <header className="console-header">
-          <button type="button" className="console-back" onClick={() => navigate(-1)}>←</button>
-          <h1 className="console-title">Console</h1>
+        <header className="page-header-bar">
+          <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>‹</button>
+          <h1 className="ui-title">Console</h1>
+          <span className="page-header-spacer" aria-hidden="true" />
         </header>
         <div className="console-empty">
           <p>VPS Not Configured</p>
-          <p className="console-empty-sub">Go to Settings → VPS to set URL and API Key</p>
+          <p className="console-empty-sub">Go to Settings &rarr; VPS to set URL and API Key</p>
           <button type="button" className="console-btn" onClick={() => navigate('/settings')}>Settings</button>
         </div>
       </div>
@@ -142,25 +228,49 @@ export default function ConsolePage() {
 
   return (
     <div className="console-page">
-      <header className="console-header">
-        <button type="button" className="console-back" onClick={() => navigate(-1)}>←</button>
-        <h1 className="console-title">Console</h1>
-        <button type="button" className="console-refresh" onClick={fetchAll} disabled={loading}>
-          {loading ? '…' : '↻'}
-        </button>
+      <header className="page-header-bar">
+        <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>‹</button>
+        <h1 className="ui-title">{activeNav.label}</h1>
+        <div className="console-header-actions">
+          <button type="button" className="console-refresh" onClick={fetchAll} disabled={loading}>
+            {loading ? '…' : '↻'}
+          </button>
+          <button
+            type="button"
+            className="console-menu-btn"
+            aria-label="Switch section"
+            onClick={() => setDrawerOpen((v) => !v)}
+          >
+            ☰
+          </button>
+        </div>
       </header>
 
-      {error && <div className="console-error">{error}</div>}
-
-      <nav className="console-tabs">
-        <button type="button" className={`console-tab ${tab === 'status' ? 'is-active' : ''}`} onClick={() => setTab('status')}>Status</button>
-        <button type="button" className={`console-tab ${tab === 'logs' ? 'is-active' : ''}`} onClick={() => setTab('logs')}>
-          Logs
-        </button>
-        <button type="button" className={`console-tab ${tab === 'approvals' ? 'is-active' : ''}`} onClick={() => setTab('approvals')}>
-          Approvals{pending.length > 0 && <span className="console-badge">{pending.length}</span>}
-        </button>
+      {/* Drawer sidebar */}
+      <div
+        className={`console-scrim ${drawerOpen ? 'open' : ''}`}
+        onClick={() => setDrawerOpen(false)}
+        aria-hidden="true"
+      />
+      <nav className={`console-drawer ${drawerOpen ? 'open' : ''}`} aria-label="Console sections">
+        <div className="console-drawer-head">CONSOLE</div>
+        {NAV.map((n) => (
+          <button
+            key={n.key}
+            type="button"
+            className={`console-drawer-item ${tab === n.key ? 'active' : ''}`}
+            onClick={() => pick(n.key)}
+          >
+            <span className="console-drawer-ic" aria-hidden="true">{n.icon}</span>
+            {n.label}
+            {n.key === 'approvals' && pending.length > 0 && (
+              <span className="console-badge">{pending.length}</span>
+            )}
+          </button>
+        ))}
       </nav>
+
+      {error && <div className="console-error">{error}</div>}
 
       {tab === 'status' && status && (
         <div className="console-section">
@@ -228,8 +338,8 @@ export default function ConsolePage() {
               </div>
               <p className="console-approval-detail">{op.detail}</p>
               <div className="console-approval-status">
-                <span>小机 {op.approvals.wren ? '✅' : '⏳'}</span>
-                <span>你 {op.approvals.user ? '✅' : '⏳'}</span>
+                <span>Wren {op.approvals.wren ? '✅' : '⏳'}</span>
+                <span>You {op.approvals.user ? '✅' : '⏳'}</span>
               </div>
               {!op.approvals.user && (
                 <div className="console-approval-actions">
@@ -239,6 +349,89 @@ export default function ConsolePage() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {tab === 'db' && (
+        <div className="console-section">
+          <div className="console-card">
+            <h3 className="console-card-title">SQL Query</h3>
+            <textarea
+              className="console-sql-input"
+              rows={4}
+              placeholder="SELECT * FROM messages LIMIT 10;"
+              value={sqlInput}
+              onChange={(e) => setSqlInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runSql() }}
+            />
+            <div className="console-sql-actions">
+              <button type="button" className="console-btn" onClick={runSql} disabled={sqlRunning}>
+                {sqlRunning ? 'Running…' : 'Execute'}
+              </button>
+              <span className="console-sql-hint">Ctrl+Enter to run</span>
+            </div>
+          </div>
+
+          {sqlError && <div className="console-error">{sqlError}</div>}
+
+          {sqlResult && (
+            <div className="console-card">
+              <h3 className="console-card-title">
+                Result ({Array.isArray(sqlResult.rows) ? sqlResult.rows.length : '?'} rows)
+              </h3>
+              <div className="console-table-wrap">
+                {Array.isArray(sqlResult.rows) && sqlResult.rows.length > 0 ? (
+                  <table className="console-table">
+                    <thead>
+                      <tr>
+                        {Object.keys(sqlResult.rows[0]).map((k) => (
+                          <th key={k}>{k}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sqlResult.rows.map((row: any, i: number) => (
+                        <tr key={i}>
+                          {Object.values(row).map((v: any, j: number) => (
+                            <td key={j}>{v === null ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v)}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="console-empty-sub">No rows returned</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'git' && (
+        <div className="console-section">
+          <div className="console-card">
+            <div className="console-card-header-row">
+              <h3 className="console-card-title">Git Status</h3>
+              <button type="button" className="console-refresh-sm" onClick={fetchGit} disabled={gitLoading}>
+                {gitLoading ? '…' : '↻'}
+              </button>
+            </div>
+            <pre className="console-pre">{gitStatus || 'Loading…'}</pre>
+          </div>
+
+          {gitLog.length > 0 && (
+            <div className="console-card">
+              <h3 className="console-card-title">Recent Commits</h3>
+              {gitLog.slice(0, 20).map((c) => (
+                <div key={c.hash} className="console-commit-row">
+                  <code className="console-commit-hash">{c.hash?.slice(0, 7)}</code>
+                  <span className="console-commit-msg">{c.message}</span>
+                  <span className="console-log-time">{c.date}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

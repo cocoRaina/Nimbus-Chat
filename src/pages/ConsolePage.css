@@ -5,30 +5,11 @@
   padding-bottom: 32px;
 }
 
-.console-header {
+/* ── Header actions (refresh + menu) ─────────────────────────── */
+.console-header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px;
-  position: sticky;
-  top: env(safe-area-inset-top, 0px);
-  z-index: 10;
-  background: inherit;
-}
-.console-back {
-  background: none;
-  border: none;
-  font-size: 1.3rem;
-  cursor: pointer;
-  color: var(--ab-strong, #6c5ce7);
-  padding: 4px 8px;
-}
-.console-title {
-  font-family: var(--font-display, sans-serif);
-  font-size: 1.25rem;
-  font-weight: 700;
-  flex: 1;
-  margin: 0;
+  gap: 2px;
 }
 .console-refresh {
   background: none;
@@ -38,7 +19,86 @@
   color: var(--ab-muted, #9b96b0);
   padding: 4px 8px;
 }
+.console-menu-btn {
+  border: none;
+  background: transparent;
+  color: var(--ab-strong, #6c5ce7);
+  font-size: 1.35rem;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+}
 
+/* ── Drawer sidebar ──────────────────────────────────────────── */
+.console-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(42, 61, 82, 0.32);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.console-scrim.open { opacity: 1; pointer-events: auto; }
+
+.console-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 41;
+  width: 224px;
+  max-width: 74vw;
+  background: #fff;
+  box-shadow: 6px 0 26px rgba(42, 61, 82, 0.2);
+  padding: max(22px, env(safe-area-inset-top)) 0 10px;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(-102%);
+  transition: transform 0.25s ease;
+}
+.console-drawer.open { transform: translateX(0); }
+
+.console-drawer-head {
+  font-size: 0.72rem;
+  letter-spacing: 0.5px;
+  color: var(--ab-strong, #6c5ce7);
+  padding: 0 22px 12px;
+  font-weight: 700;
+}
+
+.console-drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border: none;
+  background: none;
+  padding: 14px 22px;
+  font-size: 1rem;
+  color: var(--ab-text, #2e2b3a);
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  font-family: inherit;
+}
+.console-drawer-item.active {
+  color: var(--ab-strong, #6c5ce7);
+  font-weight: 600;
+  background: linear-gradient(90deg, rgba(108, 92, 231, 0.12), transparent);
+}
+.console-drawer-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ab-strong, #6c5ce7);
+}
+.console-drawer-ic { font-size: 1.15rem; width: 22px; text-align: center; }
+
+/* ── Error ────────────────────────────────────────────────────── */
 .console-error {
   margin: 0 16px 12px;
   padding: 10px 14px;
@@ -46,49 +106,6 @@
   border-radius: 8px;
   color: #c0392b;
   font-size: 0.85rem;
-}
-
-/* ── Tabs ──────────────────────────────────────────────────────── */
-.console-tabs {
-  display: flex;
-  gap: 0;
-  margin: 0 16px 16px;
-  background: var(--ab-surface, rgba(255,255,255,0.7));
-  border-radius: 10px;
-  padding: 3px;
-}
-.console-tab {
-  flex: 1;
-  padding: 8px 0;
-  border: none;
-  background: transparent;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--ab-muted, #9b96b0);
-  cursor: pointer;
-  font-family: inherit;
-  position: relative;
-}
-.console-tab.is-active {
-  background: #fff;
-  color: var(--ab-strong, #6c5ce7);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-}
-.console-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: #e74c3c;
-  color: #fff;
-  font-size: 0.7rem;
-  font-weight: 700;
-  margin-left: 4px;
-  vertical-align: middle;
 }
 
 /* ── Section ──────────────────────────────────────────────────── */
@@ -129,7 +146,7 @@
   opacity: 0.55;
 }
 
-/* ── Service card ─────────────────────────────────────────────── */
+/* ── Card ─────────────────────────────────────────────────────── */
 .console-card {
   background: var(--ab-surface, rgba(255,255,255,0.85));
   border-radius: 12px;
@@ -144,6 +161,15 @@
   letter-spacing: 0.06em;
   color: var(--ab-strong, #5a4bd1);
 }
+.console-card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.console-card-header-row .console-card-title { margin-bottom: 0; }
+
+/* ── Service rows ─────────────────────────────────────────────── */
 .console-svc-row {
   display: flex;
   align-items: center;
@@ -233,6 +259,22 @@
   gap: 8px;
 }
 
+/* ── Badge ────────────────────────────────────────────────────── */
+.console-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #e74c3c;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  margin-left: auto;
+}
+
 /* ── Buttons ──────────────────────────────────────────────────── */
 .console-btn {
   padding: 8px 20px;
@@ -247,6 +289,105 @@
 }
 .console-btn--approve { background: #27ae60; }
 .console-btn--reject { background: #e74c3c; }
+
+/* ── SQL / DB tab ─────────────────────────────────────────────── */
+.console-sql-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--hairline, rgba(0,0,0,0.1));
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.82rem;
+  resize: vertical;
+  background: var(--ab-bg, #f4f2f7);
+  color: var(--ab-text, #2e2b3a);
+}
+.console-sql-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.console-sql-hint {
+  font-size: 0.72rem;
+  color: var(--ab-muted, #9b96b0);
+}
+.console-table-wrap {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+.console-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.console-table th,
+.console-table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.06));
+  white-space: nowrap;
+}
+.console-table th {
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ab-strong, #5a4bd1);
+  position: sticky;
+  top: 0;
+  background: var(--ab-surface, rgba(255,255,255,0.85));
+}
+.console-table td {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Git tab ──────────────────────────────────────────────────── */
+.console-pre {
+  margin: 0;
+  padding: 10px;
+  background: var(--ab-bg, #f4f2f7);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+.console-refresh-sm {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  color: var(--ab-muted, #9b96b0);
+  padding: 2px 6px;
+}
+.console-commit-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.06));
+  flex-wrap: wrap;
+}
+.console-commit-hash {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.78rem;
+  color: var(--ab-strong, #5a4bd1);
+  flex-shrink: 0;
+}
+.console-commit-msg {
+  font-size: 0.82rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── Empty state ──────────────────────────────────────────────── */
 .console-empty {
@@ -266,17 +407,27 @@
   .console-page:not([data-theme="light"]) .console-approval-card {
     background: rgba(255,255,255,0.06);
   }
-  .console-page:not([data-theme="light"]) .console-tabs {
-    background: rgba(255,255,255,0.06);
-  }
-  .console-page:not([data-theme="light"]) .console-tab.is-active {
-    background: rgba(255,255,255,0.12);
-    box-shadow: none;
-  }
   .console-page:not([data-theme="light"]) .console-error {
     background: rgba(192,57,43,0.15);
   }
   .console-page:not([data-theme="light"]) .console-tag--green { background: rgba(46,125,50,0.18); }
   .console-page:not([data-theme="light"]) .console-tag--yellow { background: rgba(245,127,23,0.18); }
   .console-page:not([data-theme="light"]) .console-tag--red { background: rgba(198,40,40,0.18); }
+  .console-page:not([data-theme="light"]) .console-drawer {
+    background: #1e1c32;
+    box-shadow: 6px 0 26px rgba(0, 0, 0, 0.5);
+  }
+  .console-page:not([data-theme="light"]) .console-drawer-item.active {
+    background: linear-gradient(90deg, rgba(108, 92, 231, 0.18), transparent);
+  }
+  .console-page:not([data-theme="light"]) .console-sql-input {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.1);
+  }
+  .console-page:not([data-theme="light"]) .console-pre {
+    background: rgba(255,255,255,0.06);
+  }
+  .console-page:not([data-theme="light"]) .console-table th {
+    background: rgba(255,255,255,0.06);
+  }
 }
