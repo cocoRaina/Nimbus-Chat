@@ -105,6 +105,7 @@ const ExportPage = lazy(() => import('./pages/ExportPage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
 const HomeLayoutSettingsPage = lazy(() => import('./pages/HomeLayoutSettingsPage'))
 const UsagePage = lazy(() => import('./pages/UsagePage'))
+const ConsolePage = lazy(() => import('./pages/ConsolePage'))
 import {
   resolveSnackSystemOverlay,
   resolveSyzygyPostPrompt,
@@ -6042,6 +6043,14 @@ TOOL_SEARCH_HANDOFF,
           }
         />
 
+        <Route
+          path="/console"
+          element={
+            <RequireAuth ready={authReady} user={user} configured={supabaseConfigured}>
+              <ConsolePage />
+            </RequireAuth>
+          }
+        />
         <Route
           path="/memory-vault"
           element={
