@@ -512,6 +512,48 @@ app.post('/api/mcp/toggle', authenticate, (req, res) => {
   res.json(srv)
 })
 
+// ══ Code Sandbox ══════════════════════════════════════════════════════
+app.post('/api/sandbox/run', authenticate, (req, res) => {
+  const { language, code, timeout_seconds } = req.body
+  if (!language || !code) return res.status(400).json({ ok: false, error: 'language and code required' })
+  if (!['python', 'javascript'].includes(language)) {
+    return res.status(400).json({ ok: false, error: 'only python and javascript supported' })
+  }
+  const timeout = Math.min(120, Math.max(5, timeout_seconds || 30))
+  const start = Date.now()
+  try {
+    let cmd
+    if (language === 'python') {
+      cmd = `python3 -c ${JSON.stringify(code)}`
+    } else {
+      cmd = `node -e ${JSON.stringify(code)}`
+    }
+    const stdout = execSync(cmd, {
+      timeout: timeout * 1000,
+      maxBuffer: 1024 * 1024,
+      encoding: 'utf8',
+      cwd: '/tmp',
+      env: { ...process.env, HOME: '/tmp' },
+    })
+    logOp({ action: 'sandbox_run', level: 'yellow', detail: `${language}: ${code.slice(0, 80)}`, result: 'ok' })
+    res.json({ ok: true, stdout: stdout.slice(0, 50000), stderr: '', exit_code: 0, duration_ms: Date.now() - start })
+  } catch (err) {
+    const duration_ms = Date.now() - start
+    if (err.killed || err.signal === 'SIGTERM') {
+      logOp({ action: 'sandbox_run', level: 'yellow', detail: `${language}: timeout`, result: 'timeout' })
+      return res.json({ ok: true, stdout: err.stdout?.slice(0, 50000) || '', stderr: 'execution timed out', exit_code: 124, duration_ms })
+    }
+    logOp({ action: 'sandbox_run', level: 'yellow', detail: `${language}: ${code.slice(0, 80)}`, result: 'error' })
+    res.json({
+      ok: true,
+      stdout: (err.stdout || '').slice(0, 50000),
+      stderr: (err.stderr || err.message || '').slice(0, 50000),
+      exit_code: err.status || 1,
+      duration_ms,
+    })
+  }
+})
+
 // ════════════════════════════════════════════════════════════════════════
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`Nimbus API running on port ${PORT}`)
