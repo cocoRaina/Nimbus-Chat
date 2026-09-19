@@ -512,33 +512,109 @@ app.post('/api/mcp/toggle', authenticate, (req, res) => {
   res.json(srv)
 })
 
-// ══ Shell exec ═══════════════════════════════════════════════════════
+// ══ Shell Exec ═══════════════════════════════════════════════════════
 app.post('/api/exec', authenticate, (req, res) => {
-  const { command, timeout_seconds } = req.body
-  if (!command) return res.status(400).json({ error: 'Missing command' })
-  const timeout = Math.min(60, Math.max(5, timeout_seconds || 30))
+  const { command, timeout_ms } = req.body
+  if (!command) return res.status(400).json({ ok: false, error: 'Missing command' })
+  const timeout = Math.min(120000, Math.max(3000, timeout_ms || 30000))
   const start = Date.now()
   try {
     const stdout = execSync(command, {
-      timeout: timeout * 1000,
-      maxBuffer: 1024 * 1024,
+      timeout,
+      maxBuffer: 2 * 1024 * 1024,
       encoding: 'utf8',
       cwd: REPO_DIR,
+      shell: '/bin/bash',
     })
     logOp({ action: 'exec', level: 'yellow', detail: command.slice(0, 120), result: 'ok' })
-    res.json({ ok: true, stdout: stdout.slice(0, 50000), exit_code: 0, duration_ms: Date.now() - start })
+    res.json({ ok: true, stdout: stdout.slice(0, 50000), stderr: '', exit_code: 0, duration_ms: Date.now() - start })
   } catch (err) {
-    logOp({ action: 'exec', level: 'yellow', detail: command.slice(0, 120), result: err.status || 'error' })
+    const duration_ms = Date.now() - start
+    logOp({ action: 'exec', level: 'yellow', detail: command.slice(0, 120), result: err.killed ? 'timeout' : 'error' })
     res.json({
-      ok: err.killed ? false : true,
+      ok: true,
       stdout: (err.stdout || '').slice(0, 50000),
       stderr: (err.stderr || err.message || '').slice(0, 50000),
-      exit_code: err.status || 1,
-      duration_ms: Date.now() - start,
+      exit_code: err.killed ? 124 : (err.status || 1),
+      duration_ms,
     })
   }
 })
 
+// ══ Async Exec（后台长任务）═══════════════════════════════════════════
+const asyncTasks = new Map()
+
+app.post('/api/exec/async', authenticate, (req, res) => {
+  const { command, timeout_ms } = req.body
+  if (!command) return res.status(400).json({ ok: false, error: 'Missing command' })
+  const timeout = Math.min(600000, Math.max(5000, timeout_ms || 300000))
+
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+  const task = {
+    id,
+    command,
+    status: 'running',
+    stdout: '',
+    stderr: '',
+    exit_code: null,
+    started: new Date().toISOString(),
+    finished: null,
+  }
+  asyncTasks.set(id, task)
+
+  const child = exec(command, {
+    maxBuffer: 4 * 1024 * 1024,
+    cwd: REPO_DIR,
+    shell: '/bin/bash',
+    timeout,
+  })
+  task._child = child
+
+  child.stdout?.on('data', (d) => { task.stdout += d; if (task.stdout.length > 200000) task.stdout = task.stdout.slice(-100000) })
+  child.stderr?.on('data', (d) => { task.stderr += d; if (task.stderr.length > 200000) task.stderr = task.stderr.slice(-100000) })
+  child.on('close', (code, signal) => {
+    task.status = signal === 'SIGTERM' || signal === 'SIGKILL' ? 'killed' : code === 0 ? 'done' : 'error'
+    task.exit_code = code
+    task.finished = new Date().toISOString()
+    delete task._child
+    logOp({ action: 'exec_async', level: 'yellow', detail: `[${id}] ${command.slice(0, 80)} → ${task.status}` })
+    setTimeout(() => asyncTasks.delete(id), 30 * 60 * 1000)
+  })
+
+  logOp({ action: 'exec_async', level: 'yellow', detail: `[${id}] started: ${command.slice(0, 80)}` })
+  res.json({ ok: true, id, message: '后台任务已启动' })
+})
+
+app.get('/api/exec/status/:id', authenticate, (req, res) => {
+  const task = asyncTasks.get(req.params.id)
+  if (!task) return res.status(404).json({ error: 'Task not found or expired' })
+  const { _child, ...safe } = task
+  safe.stdout_tail = safe.stdout.slice(-8000)
+  safe.stderr_tail = safe.stderr.slice(-4000)
+  delete safe.stdout
+  delete safe.stderr
+  res.json(safe)
+})
+
+app.post('/api/exec/kill/:id', authenticate, (req, res) => {
+  const task = asyncTasks.get(req.params.id)
+  if (!task) return res.status(404).json({ error: 'Task not found' })
+  if (task.status !== 'running') return res.json({ ok: true, message: `Already ${task.status}` })
+  task._child?.kill('SIGTERM')
+  setTimeout(() => { if (task.status === 'running') task._child?.kill('SIGKILL') }, 5000)
+  res.json({ ok: true, message: '终止信号已发送' })
+})
+
+app.get('/api/exec/list', authenticate, (_req, res) => {
+  const list = []
+  for (const [, task] of asyncTasks) {
+    const { _child, stdout, stderr, ...safe } = task
+    safe.stdout_len = stdout.length
+    safe.stderr_len = stderr.length
+    list.push(safe)
+  }
+  res.json(list)
+})
 // ══ Code Sandbox ══════════════════════════════════════════════════════
 app.post('/api/sandbox/run', authenticate, (req, res) => {
   const { language, code, timeout_seconds } = req.body
