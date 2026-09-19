@@ -111,20 +111,22 @@
 }
 .console-tile-label {
   font-size: 0.72rem;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ab-muted, #9b96b0);
+  letter-spacing: 0.06em;
+  color: var(--ab-text, #2e2b3a);
+  opacity: 0.6;
 }
 .console-tile-value {
   font-size: 1.4rem;
-  font-weight: 700;
-  color: var(--ab-strong, #6c5ce7);
+  font-weight: 800;
+  color: var(--ab-strong, #5a4bd1);
   font-variant-numeric: tabular-nums;
 }
 .console-tile-sub {
   font-size: 0.75rem;
-  color: var(--ab-muted, #9b96b0);
+  color: var(--ab-text, #2e2b3a);
+  opacity: 0.55;
 }
 
 /* ── Service card ─────────────────────────────────────────────── */
@@ -139,8 +141,8 @@
   font-size: 0.82rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ab-muted, #9b96b0);
+  letter-spacing: 0.06em;
+  color: var(--ab-strong, #5a4bd1);
 }
 .console-svc-row {
   display: flex;
@@ -156,8 +158,8 @@
 }
 .console-dot--on { background: #27ae60; }
 .console-dot--off { background: #e74c3c; }
-.console-svc-name { font-weight: 600; font-size: 0.88rem; flex: 1; }
-.console-svc-meta { font-size: 0.75rem; color: var(--ab-muted, #9b96b0); font-variant-numeric: tabular-nums; }
+.console-svc-name { font-weight: 700; font-size: 0.88rem; flex: 1; color: var(--ab-text, #2e2b3a); }
+.console-svc-meta { font-size: 0.75rem; color: var(--ab-text, #2e2b3a); opacity: 0.6; font-variant-numeric: tabular-nums; }
 
 /* ── Tags ─────────────────────────────────────────────────────── */
 .console-tag {
