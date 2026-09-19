@@ -65,22 +65,15 @@ const fmtUptime = (s: number) => {
   return `${m}m`
 }
 
-const fmtBytes = (b: number) => {
-  if (b > 1e9) return (b / 1e9).toFixed(1) + ' GB'
-  if (b > 1e6) return (b / 1e6).toFixed(0) + ' MB'
-  return (b / 1e3).toFixed(0) + ' KB'
-}
-
 const fmtTime = (iso: string) => {
   try {
     return new Date(iso).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
   } catch { return iso }
 }
 
-type TabId = 'status' | 'logs' | 'approvals' | 'db' | 'git' | 'browser' | 'mcp'
+type TabId = 'logs' | 'approvals' | 'db' | 'git' | 'browser' | 'mcp'
 
 const NAV: { key: TabId; icon: string; label: string }[] = [
-  { key: 'status', icon: '📊', label: 'Status' },
   { key: 'logs', icon: '📋', label: 'Logs' },
   { key: 'approvals', icon: '🔐', label: 'Approvals' },
   { key: 'db', icon: '🗄', label: 'Database' },
@@ -96,7 +89,7 @@ export default function ConsolePage() {
   const [pending, setPending] = useState<PendingOp[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<TabId>('status')
+  const [tab, setTab] = useState<TabId>('logs')
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   const [sqlInput, setSqlInput] = useState('')
@@ -307,6 +300,25 @@ export default function ConsolePage() {
     } catch {}
   }
 
+  const actionCat = (action: string) => {
+    if (/git/i.test(action)) return 'GIT'
+    if (/db|sql|query/i.test(action)) return 'DB'
+    if (/browser|fetch/i.test(action)) return 'WEB'
+    if (/file/i.test(action)) return 'FILE'
+    if (/mcp/i.test(action)) return 'MCP'
+    if (/approv|reject/i.test(action)) return 'AUTH'
+    return 'SYS'
+  }
+
+  const catCls = (cat: string) => `console-cat console-cat--${cat.toLowerCase()}`
+
+  const todayStr = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' })
+  const todayLogs = logs.filter(l => {
+    try { return new Date(l.time).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' }) === todayStr } catch { return false }
+  })
+  const okCount = todayLogs.filter(l => !l.error).length
+  const failCount = todayLogs.filter(l => !!l.error).length
+
   if (!configured) {
     return (
       <div className="console-page">
@@ -370,61 +382,56 @@ export default function ConsolePage() {
 
       {error && <div className="console-error">{error}</div>}
 
-      {tab === 'status' && status && (
+      {tab === 'logs' && (
         <div className="console-section">
-          <div className="console-tiles">
-            <div className="console-tile">
-              <span className="console-tile-label">CPU</span>
-              <span className="console-tile-value">{status.cpu.cores} Cores</span>
-              <span className="console-tile-sub">Load {status.cpu.loadAvg[0]?.toFixed(2)}</span>
+          {/* Compact system status bar */}
+          {status && (
+            <div className="console-status-bar">
+              <span className="console-dot console-dot--on" />
+              <span className="console-status-label">Online</span>
+              <span className="console-status-host">{status.os.hostname}</span>
+              <span className="console-status-metrics">
+                CPU {status.cpu.loadAvg[0]?.toFixed(1)} · Mem {status.memory.usedPercent} · Disk {status.disk.usePercent} · Up {fmtUptime(status.os.uptime)}
+              </span>
             </div>
-            <div className="console-tile">
-              <span className="console-tile-label">Memory</span>
-              <span className="console-tile-value">{status.memory.usedPercent}</span>
-              <span className="console-tile-sub">{fmtBytes(status.memory.free)} free</span>
+          )}
+
+          {/* Summary tiles */}
+          <div className="console-summary">
+            <div className="console-summary-tile">
+              <span className="console-summary-val">{todayLogs.length}</span>
+              <span className="console-summary-lbl">Today</span>
             </div>
-            <div className="console-tile">
-              <span className="console-tile-label">Disk</span>
-              <span className="console-tile-value">{status.disk.usePercent || '—'}</span>
-              <span className="console-tile-sub">{status.disk.available || '—'} avail</span>
+            <div className="console-summary-tile console-summary--ok">
+              <span className="console-summary-val">{okCount}</span>
+              <span className="console-summary-lbl">Success</span>
             </div>
-            <div className="console-tile">
-              <span className="console-tile-label">Uptime</span>
-              <span className="console-tile-value">{fmtUptime(status.os.uptime)}</span>
-              <span className="console-tile-sub">{status.os.hostname}</span>
+            <div className="console-summary-tile console-summary--fail">
+              <span className="console-summary-val">{failCount}</span>
+              <span className="console-summary-lbl">Failed</span>
             </div>
           </div>
 
-          {status.services.length > 0 && (
-            <div className="console-card">
-              <h3 className="console-card-title">Services</h3>
-              {status.services.map((svc) => (
-                <div key={svc.name} className="console-svc-row">
-                  <span className={`console-dot ${svc.status === 'online' ? 'console-dot--on' : 'console-dot--off'}`} />
-                  <span className="console-svc-name">{svc.name}</span>
-                  <span className="console-svc-meta">CPU {svc.cpu}% · {fmtBytes(svc.memory || 0)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === 'logs' && (
-        <div className="console-section">
+          {/* Log cards */}
           {logs.length === 0 && <p className="console-empty-sub">No logs yet</p>}
-          {logs.length > 0 && (
-            <div className="console-card console-logs-list">
-              {logs.map((log) => (
-                <div key={log.id} className="console-log-row">
+          {logs.map((log) => {
+            const cat = actionCat(log.action)
+            return (
+              <div key={log.id} className="console-log-card">
+                <div className="console-log-card-head">
+                  <span className={catCls(cat)}>{cat}</span>
                   <span className={levelClass(log.level)}>{levelTag(log.level)}</span>
-                  <span className="console-log-action">{log.action}</span>
-                  {log.detail && <span className="console-log-detail">{log.detail.slice(0, 80)}</span>}
-                  <span className="console-log-time">{fmtTime(log.time)}</span>
+                  <span className={`console-sbadge ${log.error ? 'console-sbadge--fail' : 'console-sbadge--ok'}`}>
+                    {log.error ? 'Failed' : 'OK'}
+                  </span>
+                  <span className="console-log-card-time">{fmtTime(log.time)}</span>
                 </div>
-              ))}
-            </div>
-          )}
+                <p className="console-log-card-action">{log.action}</p>
+                {log.detail && <pre className="console-log-card-code">{log.detail}</pre>}
+                {log.error && <p className="console-log-card-err">{log.error}</p>}
+              </div>
+            )
+          })}
         </div>
       )}
 

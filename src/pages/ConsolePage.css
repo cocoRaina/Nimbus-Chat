@@ -16,7 +16,7 @@
   border: none;
   font-size: 1.2rem;
   cursor: pointer;
-  color: var(--ab-muted, #9b96b0);
+  color: var(--ab-text-secondary, #5c5775);
   padding: 4px 8px;
 }
 .console-menu-btn {
@@ -131,8 +131,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--ab-text, #2e2b3a);
-  opacity: 0.6;
+  color: var(--ab-text-secondary, #5c5775);
 }
 .console-tile-value {
   font-size: 1.4rem;
@@ -142,8 +141,7 @@
 }
 .console-tile-sub {
   font-size: 0.75rem;
-  color: var(--ab-text, #2e2b3a);
-  opacity: 0.55;
+  color: var(--ab-text-secondary, #5c5775);
 }
 
 /* ── Card ─────────────────────────────────────────────────────── */
@@ -185,7 +183,7 @@
 .console-dot--on { background: #27ae60; }
 .console-dot--off { background: #e74c3c; }
 .console-svc-name { font-weight: 700; font-size: 0.88rem; flex: 1; color: var(--ab-text, #2e2b3a); }
-.console-svc-meta { font-size: 0.75rem; color: var(--ab-text, #2e2b3a); opacity: 0.6; font-variant-numeric: tabular-nums; }
+.console-svc-meta { font-size: 0.75rem; color: var(--ab-text-secondary, #5c5775); font-variant-numeric: tabular-nums; }
 
 /* ── Tags ─────────────────────────────────────────────────────── */
 .console-tag {
@@ -201,31 +199,149 @@
 .console-tag--yellow { background: #fff8e1; color: #f57f17; }
 .console-tag--red { background: #ffebee; color: #c62828; }
 
-/* ── Log rows ─────────────────────────────────────────────────── */
-.console-logs-list {
-  background: #fff;
-}
-.console-log-row {
+/* ── System status bar ────────────────────────────────────────── */
+.console-status-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.06));
+  padding: 10px 14px;
+  background: var(--ab-surface, rgba(255,255,255,0.85));
+  border-radius: 12px;
+  margin-bottom: 12px;
   flex-wrap: wrap;
 }
-.console-log-action { font-weight: 600; font-size: 0.85rem; }
-.console-log-detail {
+.console-status-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #27ae60;
+}
+.console-status-host {
   font-size: 0.78rem;
-  color: var(--ab-muted, #9b96b0);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--ab-text, #2e2b3a);
+  background: rgba(108, 92, 231, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.console-status-metrics {
+  font-size: 0.75rem;
+  color: var(--ab-text-secondary, #5c5775);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+/* ── Summary tiles ────────────────────────────────────────────── */
+.console-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.console-summary-tile {
+  background: var(--ab-surface, rgba(255,255,255,0.85));
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border-left: 3px solid var(--ab-strong, #6c5ce7);
+}
+.console-summary--ok { border-left-color: #27ae60; }
+.console-summary--fail { border-left-color: #e74c3c; }
+.console-summary-val {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--ab-text, #2e2b3a);
+  font-variant-numeric: tabular-nums;
+}
+.console-summary-lbl {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ab-text-secondary, #5c5775);
+}
+
+/* ── Log cards ────────────────────────────────────────────────── */
+.console-log-card {
+  background: var(--ab-surface, rgba(255,255,255,0.85));
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.console-log-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.console-log-card-time {
+  font-size: 0.72rem;
+  color: var(--ab-text-secondary, #5c5775);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
   white-space: nowrap;
 }
+.console-log-card-action {
+  margin: 0 0 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ab-text, #2e2b3a);
+}
+.console-log-card-code {
+  margin: 0 0 6px;
+  padding: 8px 10px;
+  background: var(--ab-bg, #f4f2f7);
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+  color: var(--ab-text, #2e2b3a);
+}
+.console-log-card-err {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #c0392b;
+  font-weight: 500;
+}
+
+/* ── Category badges ──────────────────────────────────────────── */
+.console-cat {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.console-cat--git { background: #e8f5e9; color: #2e7d32; }
+.console-cat--db { background: #e3f2fd; color: #1565c0; }
+.console-cat--web { background: #fff3e0; color: #e65100; }
+.console-cat--file { background: #f3e5f5; color: #7b1fa2; }
+.console-cat--mcp { background: #ede7f6; color: #4527a0; }
+.console-cat--auth { background: #fce4ec; color: #c62828; }
+.console-cat--sys { background: #eceff1; color: #37474f; }
+
+/* ── Status badges ────────────────────────────────────────────── */
+.console-sbadge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.console-sbadge--ok { background: #e8f5e9; color: #2e7d32; }
+.console-sbadge--fail { background: #ffebee; color: #c62828; }
+
+/* ── Legacy log helpers (kept for other sections) ─────────────── */
 .console-log-time {
   font-size: 0.72rem;
-  color: var(--ab-muted, #9b96b0);
+  color: var(--ab-text-secondary, #5c5775);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -314,7 +430,7 @@
 }
 .console-sql-hint {
   font-size: 0.72rem;
-  color: var(--ab-muted, #9b96b0);
+  color: var(--ab-text-secondary, #5c5775);
 }
 .console-table-wrap {
   overflow-x: auto;
@@ -366,7 +482,7 @@
   border: none;
   font-size: 1rem;
   cursor: pointer;
-  color: var(--ab-muted, #9b96b0);
+  color: var(--ab-text-secondary, #5c5775);
   padding: 2px 6px;
 }
 .console-commit-row {
@@ -395,7 +511,7 @@
 /* ── Browser tab ──────────────────────────────────────────────── */
 .console-card-desc {
   font-size: 0.82rem;
-  color: var(--ab-muted, #9b96b0);
+  color: var(--ab-text-secondary, #5c5775);
   margin: 0 0 12px;
 }
 .console-browser-row {
@@ -415,7 +531,7 @@
 }
 .console-browser-url {
   font-size: 0.75rem;
-  color: var(--ab-muted, #9b96b0);
+  color: var(--ab-text-secondary, #5c5775);
   margin: 0 0 8px;
   word-break: break-all;
 }
@@ -453,7 +569,7 @@
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  color: var(--ab-muted, #9b96b0);
+  color: var(--ab-text-secondary, #5c5775);
 }
 .console-mcp-type.active { color: var(--ab-strong, #6c5ce7); }
 .console-mcp-type input { accent-color: var(--ab-strong, #6c5ce7); }
@@ -480,14 +596,13 @@
 }
 .console-mcp-desc {
   font-size: 0.82rem;
-  color: var(--ab-muted, #9b96b0);
+  color: var(--ab-text-secondary, #5c5775);
   margin: 0 0 4px;
 }
 .console-mcp-detail {
   font-size: 0.78rem;
   font-family: 'SF Mono', 'Fira Code', monospace;
-  color: var(--ab-text, #2e2b3a);
-  opacity: 0.7;
+  color: var(--ab-text-secondary, #5c5775);
   margin: 0 0 10px;
   word-break: break-all;
 }
@@ -506,7 +621,7 @@
   padding: 60px 16px;
 }
 .console-empty p { margin: 0 0 8px; font-size: 1.1rem; font-weight: 600; }
-.console-empty-sub { font-size: 0.85rem; color: var(--ab-muted, #9b96b0); margin: 8px 0 20px; }
+.console-empty-sub { font-size: 0.85rem; color: var(--ab-text-secondary, #5c5775); margin: 8px 0 20px; }
 
 /* ── Dark mode ────────────────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
@@ -518,9 +633,32 @@
   .console-page:not([data-theme="light"]) .console-approval-card {
     background: rgba(255,255,255,0.06);
   }
-  .console-page:not([data-theme="light"]) .console-logs-list {
-    background: #1e1c32;
+  .console-page:not([data-theme="light"]) .console-status-bar,
+  .console-page:not([data-theme="light"]) .console-summary-tile,
+  .console-page:not([data-theme="light"]) .console-log-card {
+    background: rgba(255,255,255,0.06);
   }
+  .console-page:not([data-theme="light"]) .console-status-host {
+    background: rgba(108, 92, 231, 0.22);
+    color: #c8c0e8;
+  }
+  .console-page:not([data-theme="light"]) .console-status-metrics,
+  .console-page:not([data-theme="light"]) .console-summary-lbl,
+  .console-page:not([data-theme="light"]) .console-log-card-time {
+    color: #a09bb8;
+  }
+  .console-page:not([data-theme="light"]) .console-log-card-code {
+    background: rgba(255,255,255,0.06);
+  }
+  .console-page:not([data-theme="light"]) .console-cat--git { background: rgba(46,125,50,0.2); color: #81c784; }
+  .console-page:not([data-theme="light"]) .console-cat--db { background: rgba(21,101,192,0.2); color: #64b5f6; }
+  .console-page:not([data-theme="light"]) .console-cat--web { background: rgba(230,81,0,0.2); color: #ffb74d; }
+  .console-page:not([data-theme="light"]) .console-cat--file { background: rgba(123,31,162,0.2); color: #ce93d8; }
+  .console-page:not([data-theme="light"]) .console-cat--mcp { background: rgba(69,39,160,0.2); color: #b39ddb; }
+  .console-page:not([data-theme="light"]) .console-cat--auth { background: rgba(198,40,40,0.2); color: #ef9a9a; }
+  .console-page:not([data-theme="light"]) .console-cat--sys { background: rgba(55,71,79,0.3); color: #b0bec5; }
+  .console-page:not([data-theme="light"]) .console-sbadge--ok { background: rgba(46,125,50,0.2); color: #81c784; }
+  .console-page:not([data-theme="light"]) .console-sbadge--fail { background: rgba(198,40,40,0.2); color: #ef9a9a; }
   .console-page:not([data-theme="light"]) .console-error {
     background: rgba(192,57,43,0.15);
   }
@@ -551,5 +689,14 @@
   }
   .console-page:not([data-theme="light"]) .console-mcp-type-badge {
     background: rgba(108, 92, 231, 0.22);
+  }
+  .console-page:not([data-theme="light"]) .console-empty-sub,
+  .console-page:not([data-theme="light"]) .console-card-desc,
+  .console-page:not([data-theme="light"]) .console-mcp-desc,
+  .console-page:not([data-theme="light"]) .console-mcp-detail,
+  .console-page:not([data-theme="light"]) .console-browser-url,
+  .console-page:not([data-theme="light"]) .console-sql-hint,
+  .console-page:not([data-theme="light"]) .console-log-time {
+    color: #a09bb8;
   }
 }
