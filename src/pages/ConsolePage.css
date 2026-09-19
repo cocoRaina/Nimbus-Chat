@@ -109,7 +109,7 @@
 }
 
 /* ── Section ──────────────────────────────────────────────────── */
-.console-section { padding: 0 16px; }
+.console-section { padding: 12px 16px 0; }
 
 /* ── Status tiles ─────────────────────────────────────────────── */
 .console-tiles {
