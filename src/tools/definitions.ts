@@ -1138,3 +1138,52 @@ export const TOOL_VPS_GIT_STATUS = {
     },
   },
 }
+
+export const TOOL_VPS_FILE_WRITE = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_file_write',
+    description:
+      'Write a file on the VPS repo. Goes to the approval queue (user must approve in Console). ' +
+      'Path is relative to repo root. Use for config changes, code fixes, etc.',
+    parameters: {
+      type: 'object',
+      properties: {
+        filePath: {
+          type: 'string',
+          description: 'File path relative to repo root (e.g. "vps/index.js")',
+        },
+        content: {
+          type: 'string',
+          description: 'Full file content to write',
+        },
+      },
+      required: ['filePath', 'content'],
+    },
+  },
+}
+
+export const TOOL_VPS_EXEC = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_exec',
+    description:
+      'Execute a shell command on the VPS in the repo directory. For server management: ' +
+      'git pull, pm2 restart, npm install, ls, cat, etc. Max 60s timeout. ' +
+      'Do NOT run destructive commands (rm -rf, drop) without user confirmation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: {
+          type: 'string',
+          description: 'Shell command to run (e.g. "git pull", "pm2 restart nimbus-api")',
+        },
+        timeout_seconds: {
+          type: 'integer',
+          description: 'Timeout in seconds, default 30, max 60',
+        },
+      },
+      required: ['command'],
+    },
+  },
+}
