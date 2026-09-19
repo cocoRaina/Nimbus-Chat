@@ -7,9 +7,11 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "jsonwebtoken": "^9.0.2",
+    "node-cron": "^3.0.3",
     "puppeteer": "^23.0.0"
   }
 }

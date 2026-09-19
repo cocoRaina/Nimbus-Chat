@@ -5,6 +5,8 @@ const { execSync, exec } = require('child_process')
 const os = require('os')
 const fs = require('fs')
 const path = require('path')
+const cron = require('node-cron')
+const { runWake } = require('./autonomousWake')
 
 // ── Load .env (no extra dep — just read it) ──────────────────────────
 try {
@@ -554,7 +556,36 @@ app.post('/api/sandbox/run', authenticate, (req, res) => {
   }
 })
 
+// ══ Autonomous Wake（自主唤醒，从 Supabase Edge Function 搬过来）══════
+app.post('/api/autonomous-wake', authenticate, async (req, res) => {
+  const force = req.body?.force === true
+  try {
+    const result = await runWake({ force })
+    res.json(result)
+  } catch (err) {
+    console.error('[wake] 未捕获异常:', err)
+    res.status(500).json({ ran: false, error: err.message })
+  }
+})
+
+// 定时唤醒：每 10 分钟跑一次（过不过闸由 runWake 内部四道闸决定）
+let wakeRunning = false
+cron.schedule('*/10 * * * *', async () => {
+  if (wakeRunning) { console.log('[wake-cron] 上一轮还没跑完，跳过'); return }
+  wakeRunning = true
+  try {
+    const result = await runWake()
+    if (result.ran) console.log(`[wake-cron] 跑完: ${result.note}`)
+    else console.log(`[wake-cron] 跳过: ${result.skipped || result.error || '?'}`)
+  } catch (err) {
+    console.error('[wake-cron] 异常:', err)
+  } finally {
+    wakeRunning = false
+  }
+})
+
 // ════════════════════════════════════════════════════════════════════════
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`Nimbus API running on port ${PORT}`)
+  console.log('[wake-cron] 定时唤醒已启动 (每 10 分钟)')
 })
