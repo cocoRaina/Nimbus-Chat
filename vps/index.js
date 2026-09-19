@@ -346,6 +346,174 @@ const executeApprovedOp = (op) => {
   savePending()
 }
 
+// ── Headless browser (Puppeteer) ────────────────────────────────────
+let puppeteer
+try { puppeteer = require('puppeteer') } catch {}
+
+app.post('/api/browser/fetch', authenticate, async (req, res) => {
+  if (!puppeteer) return res.status(503).json({ error: 'Puppeteer not installed. Run: cd /home/Nimbus-Chat/vps && npm install puppeteer' })
+
+  const { url, extractText = true, screenshot = false, waitFor, timeout = 15000 } = req.body
+  if (!url) return res.status(400).json({ error: 'Missing url' })
+
+  const parsed = new URL(url)
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return res.status(400).json({ error: 'Only http/https URLs allowed' })
+  }
+
+  let browser
+  try {
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      timeout: 10000,
+    })
+    const page = await browser.newPage()
+    await page.setViewport({ width: 1280, height: 800 })
+    await page.setUserAgent('NimbusBot/1.0')
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: Math.min(timeout, 30000) })
+
+    if (waitFor) {
+      await page.waitForSelector(waitFor, { timeout: 5000 }).catch(() => {})
+    }
+
+    const result = { url: page.url(), title: await page.title() }
+
+    if (extractText) {
+      result.text = await page.evaluate(() => {
+        const sel = ['script', 'style', 'noscript', 'svg', 'img']
+        sel.forEach((s) => document.querySelectorAll(s).forEach((el) => el.remove()))
+        return (document.body?.innerText || '').replace(/\n{3,}/g, '\n\n').trim().slice(0, 12000)
+      })
+    }
+
+    if (screenshot) {
+      const buf = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false })
+      result.screenshot = `data:image/jpeg;base64,${buf.toString('base64')}`
+    }
+
+    logOp({ action: 'browser_fetch', level: 'green', detail: url })
+    res.json(result)
+  } catch (err) {
+    logOp({ action: 'browser_fetch', level: 'green', error: err.message })
+    res.status(500).json({ error: err.message })
+  } finally {
+    if (browser) await browser.close().catch(() => {})
+  }
+})
+
+// ── MCP Server Manager ─────────────────────────────────────────────
+const MCP_CONFIG_PATH = path.join(__dirname, 'mcp-servers.json')
+let mcpConfig = []
+try {
+  if (fs.existsSync(MCP_CONFIG_PATH)) {
+    mcpConfig = JSON.parse(fs.readFileSync(MCP_CONFIG_PATH, 'utf8'))
+  }
+} catch {}
+
+const saveMcpConfig = () => {
+  try { fs.writeFileSync(MCP_CONFIG_PATH, JSON.stringify(mcpConfig, null, 2)) } catch {}
+}
+
+const mcpProcesses = new Map()
+
+app.get('/api/mcp/list', authenticate, (_req, res) => {
+  const list = mcpConfig.map((srv) => ({
+    ...srv,
+    running: mcpProcesses.has(srv.id),
+    pid: mcpProcesses.get(srv.id)?.pid || null,
+  }))
+  res.json(list)
+})
+
+app.post('/api/mcp/add', authenticate, (req, res) => {
+  const { name, type, command, url: srvUrl, args, env, description } = req.body
+  if (!name) return res.status(400).json({ error: 'Missing name' })
+  if (!type || !['stdio', 'sse'].includes(type)) return res.status(400).json({ error: 'type must be stdio or sse' })
+  if (type === 'stdio' && !command) return res.status(400).json({ error: 'stdio type requires command' })
+  if (type === 'sse' && !srvUrl) return res.status(400).json({ error: 'sse type requires url' })
+
+  const srv = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    name,
+    type,
+    command: command || null,
+    url: srvUrl || null,
+    args: args || [],
+    env: env || {},
+    description: description || '',
+    enabled: true,
+    created: new Date().toISOString(),
+  }
+  mcpConfig.push(srv)
+  saveMcpConfig()
+  logOp({ action: 'mcp_add', level: 'yellow', detail: `Added MCP server: ${name}` })
+  res.json(srv)
+})
+
+app.post('/api/mcp/remove', authenticate, (req, res) => {
+  const { id } = req.body
+  if (!id) return res.status(400).json({ error: 'Missing id' })
+
+  const proc = mcpProcesses.get(id)
+  if (proc) {
+    proc.kill('SIGTERM')
+    mcpProcesses.delete(id)
+  }
+
+  const idx = mcpConfig.findIndex((s) => s.id === id)
+  if (idx < 0) return res.status(404).json({ error: 'Server not found' })
+  const removed = mcpConfig.splice(idx, 1)[0]
+  saveMcpConfig()
+  logOp({ action: 'mcp_remove', level: 'yellow', detail: `Removed MCP server: ${removed.name}` })
+  res.json({ removed: removed.name })
+})
+
+app.post('/api/mcp/start', authenticate, (req, res) => {
+  const { id } = req.body
+  const srv = mcpConfig.find((s) => s.id === id)
+  if (!srv) return res.status(404).json({ error: 'Server not found' })
+  if (mcpProcesses.has(id)) return res.json({ status: 'already running', pid: mcpProcesses.get(id).pid })
+
+  if (srv.type === 'sse') {
+    return res.json({ status: 'ok', note: 'SSE servers are remote; no process to start' })
+  }
+
+  try {
+    const cmdParts = srv.command.split(/\s+/)
+    const child = exec([srv.command, ...srv.args].join(' '), {
+      env: { ...process.env, ...srv.env },
+      cwd: __dirname,
+    })
+    mcpProcesses.set(id, child)
+    child.on('exit', () => mcpProcesses.delete(id))
+    logOp({ action: 'mcp_start', level: 'yellow', detail: `Started ${srv.name} (PID ${child.pid})` })
+    res.json({ status: 'started', pid: child.pid })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/mcp/stop', authenticate, (req, res) => {
+  const { id } = req.body
+  const proc = mcpProcesses.get(id)
+  if (!proc) return res.status(404).json({ error: 'Process not running' })
+  proc.kill('SIGTERM')
+  mcpProcesses.delete(id)
+  const srv = mcpConfig.find((s) => s.id === id)
+  logOp({ action: 'mcp_stop', level: 'yellow', detail: `Stopped ${srv?.name || id}` })
+  res.json({ status: 'stopped' })
+})
+
+app.post('/api/mcp/toggle', authenticate, (req, res) => {
+  const { id, enabled } = req.body
+  const srv = mcpConfig.find((s) => s.id === id)
+  if (!srv) return res.status(404).json({ error: 'Server not found' })
+  srv.enabled = !!enabled
+  saveMcpConfig()
+  res.json(srv)
+})
+
 // ════════════════════════════════════════════════════════════════════════
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`Nimbus API running on port ${PORT}`)

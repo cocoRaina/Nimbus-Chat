@@ -389,6 +389,114 @@
   white-space: nowrap;
 }
 
+/* ── Browser tab ──────────────────────────────────────────────── */
+.console-card-desc {
+  font-size: 0.82rem;
+  color: var(--ab-muted, #9b96b0);
+  margin: 0 0 12px;
+}
+.console-browser-row {
+  display: flex;
+  gap: 8px;
+}
+.console-browser-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--hairline, rgba(0,0,0,0.1));
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--ab-bg, #f4f2f7);
+  color: var(--ab-text, #2e2b3a);
+}
+.console-browser-url {
+  font-size: 0.75rem;
+  color: var(--ab-muted, #9b96b0);
+  margin: 0 0 8px;
+  word-break: break-all;
+}
+.console-browser-text {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* ── MCP tab ──────────────────────────────────────────────────── */
+.console-mcp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline, rgba(0,0,0,0.06));
+}
+.console-mcp-input {
+  border: 1px solid var(--hairline, rgba(0,0,0,0.1));
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--ab-bg, #f4f2f7);
+  color: var(--ab-text, #2e2b3a);
+}
+.console-mcp-type-row {
+  display: flex;
+  gap: 12px;
+}
+.console-mcp-type {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--ab-muted, #9b96b0);
+}
+.console-mcp-type.active { color: var(--ab-strong, #6c5ce7); }
+.console-mcp-type input { accent-color: var(--ab-strong, #6c5ce7); }
+.console-mcp-card { }
+.console-mcp-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.console-mcp-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex: 1;
+}
+.console-mcp-type-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(108, 92, 231, 0.12);
+  color: var(--ab-strong, #6c5ce7);
+  letter-spacing: 0.04em;
+}
+.console-mcp-desc {
+  font-size: 0.82rem;
+  color: var(--ab-muted, #9b96b0);
+  margin: 0 0 4px;
+}
+.console-mcp-detail {
+  font-size: 0.78rem;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--ab-text, #2e2b3a);
+  opacity: 0.7;
+  margin: 0 0 10px;
+  word-break: break-all;
+}
+.console-mcp-actions {
+  display: flex;
+  gap: 8px;
+}
+.console-btn--sm {
+  padding: 5px 14px;
+  font-size: 0.78rem;
+}
+
 /* ── Empty state ──────────────────────────────────────────────── */
 .console-empty {
   text-align: center;
@@ -429,5 +537,13 @@
   }
   .console-page:not([data-theme="light"]) .console-table th {
     background: rgba(255,255,255,0.06);
+  }
+  .console-page:not([data-theme="light"]) .console-browser-input,
+  .console-page:not([data-theme="light"]) .console-mcp-input {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.1);
+  }
+  .console-page:not([data-theme="light"]) .console-mcp-type-badge {
+    background: rgba(108, 92, 231, 0.22);
   }
 }

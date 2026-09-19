@@ -33,6 +33,21 @@ type PendingOp = {
 
 type GitCommit = { hash: string; message: string; date: string; author: string }
 
+type McpServer = {
+  id: string
+  name: string
+  type: 'stdio' | 'sse'
+  command: string | null
+  url: string | null
+  args: string[]
+  env: Record<string, string>
+  description: string
+  enabled: boolean
+  running: boolean
+  pid: number | null
+  created: string
+}
+
 const levelTag = (level: string) => {
   if (level === 'green') return 'READ'
   if (level === 'yellow') return 'WRITE'
@@ -62,7 +77,7 @@ const fmtTime = (iso: string) => {
   } catch { return iso }
 }
 
-type TabId = 'status' | 'logs' | 'approvals' | 'db' | 'git'
+type TabId = 'status' | 'logs' | 'approvals' | 'db' | 'git' | 'browser' | 'mcp'
 
 const NAV: { key: TabId; icon: string; label: string }[] = [
   { key: 'status', icon: '📊', label: 'Status' },
@@ -70,6 +85,8 @@ const NAV: { key: TabId; icon: string; label: string }[] = [
   { key: 'approvals', icon: '🔐', label: 'Approvals' },
   { key: 'db', icon: '🗄', label: 'Database' },
   { key: 'git', icon: '🔀', label: 'Git' },
+  { key: 'browser', icon: '🌐', label: 'Browser' },
+  { key: 'mcp', icon: '🔌', label: 'MCP' },
 ]
 
 export default function ConsolePage() {
@@ -90,6 +107,16 @@ export default function ConsolePage() {
   const [gitStatus, setGitStatus] = useState('')
   const [gitLog, setGitLog] = useState<GitCommit[]>([])
   const [gitLoading, setGitLoading] = useState(false)
+
+  const [browserUrl, setBrowserUrl] = useState('')
+  const [browserResult, setBrowserResult] = useState<{ url: string; title: string; text?: string } | null>(null)
+  const [browserLoading, setBrowserLoading] = useState(false)
+  const [browserError, setBrowserError] = useState('')
+
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([])
+  const [mcpLoading, setMcpLoading] = useState(false)
+  const [mcpShowAdd, setMcpShowAdd] = useState(false)
+  const [mcpForm, setMcpForm] = useState({ name: '', type: 'stdio' as 'stdio' | 'sse', command: '', url: '', description: '' })
 
   const configured = isVpsConfigured()
 
@@ -208,6 +235,77 @@ export default function ConsolePage() {
   useEffect(() => {
     if (tab === 'git' && configured) fetchGit()
   }, [tab, configured])
+
+  const fetchBrowser = async () => {
+    if (!browserUrl.trim()) return
+    setBrowserLoading(true)
+    setBrowserError('')
+    setBrowserResult(null)
+    try {
+      const res = await vfetch('/api/browser/fetch', {
+        method: 'POST',
+        body: JSON.stringify({ url: browserUrl.trim(), extractText: true }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setBrowserError(data.error || `Error ${res.status}`)
+      } else {
+        setBrowserResult(data)
+      }
+    } catch (e: any) {
+      setBrowserError(e.message || 'Fetch failed')
+    } finally {
+      setBrowserLoading(false)
+    }
+  }
+
+  const fetchMcpList = async () => {
+    setMcpLoading(true)
+    try {
+      const res = await vfetch('/api/mcp/list')
+      if (res.ok) setMcpServers(await res.json())
+    } catch {}
+    setMcpLoading(false)
+  }
+
+  useEffect(() => {
+    if (tab === 'mcp' && configured) fetchMcpList()
+  }, [tab, configured])
+
+  const addMcpServer = async () => {
+    if (!mcpForm.name.trim()) return
+    try {
+      const res = await vfetch('/api/mcp/add', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: mcpForm.name,
+          type: mcpForm.type,
+          command: mcpForm.type === 'stdio' ? mcpForm.command : undefined,
+          url: mcpForm.type === 'sse' ? mcpForm.url : undefined,
+          description: mcpForm.description,
+        }),
+      })
+      if (res.ok) {
+        setMcpShowAdd(false)
+        setMcpForm({ name: '', type: 'stdio', command: '', url: '', description: '' })
+        fetchMcpList()
+      }
+    } catch {}
+  }
+
+  const removeMcpServer = async (id: string) => {
+    try {
+      await vfetch('/api/mcp/remove', { method: 'POST', body: JSON.stringify({ id }) })
+      fetchMcpList()
+    } catch {}
+  }
+
+  const toggleMcpServer = async (id: string, start: boolean) => {
+    try {
+      await vfetch(`/api/mcp/${start ? 'start' : 'stop'}`, { method: 'POST', body: JSON.stringify({ id }) })
+      fetchMcpList()
+    } catch {}
+  }
 
   if (!configured) {
     return (
@@ -432,6 +530,137 @@ export default function ConsolePage() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {tab === 'browser' && (
+        <div className="console-section">
+          <div className="console-card">
+            <h3 className="console-card-title">Headless Browser</h3>
+            <p className="console-card-desc">Fetch any web page via the VPS headless browser. Wren can also use this as a tool.</p>
+            <div className="console-browser-row">
+              <input
+                className="console-browser-input"
+                type="url"
+                placeholder="https://example.com"
+                value={browserUrl}
+                onChange={(e) => setBrowserUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') fetchBrowser() }}
+              />
+              <button type="button" className="console-btn" onClick={fetchBrowser} disabled={browserLoading}>
+                {browserLoading ? 'Fetching…' : 'Fetch'}
+              </button>
+            </div>
+          </div>
+
+          {browserError && <div className="console-error">{browserError}</div>}
+
+          {browserResult && (
+            <div className="console-card">
+              <h3 className="console-card-title">{browserResult.title || 'Result'}</h3>
+              <p className="console-browser-url">{browserResult.url}</p>
+              {browserResult.text && (
+                <pre className="console-pre console-browser-text">{browserResult.text}</pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'mcp' && (
+        <div className="console-section">
+          <div className="console-card">
+            <div className="console-card-header-row">
+              <h3 className="console-card-title">MCP Servers</h3>
+              <div className="console-header-actions">
+                <button type="button" className="console-refresh-sm" onClick={fetchMcpList} disabled={mcpLoading}>
+                  {mcpLoading ? '…' : '↻'}
+                </button>
+                <button type="button" className="console-btn console-btn--sm" onClick={() => setMcpShowAdd((v) => !v)}>
+                  {mcpShowAdd ? 'Cancel' : '+ Add'}
+                </button>
+              </div>
+            </div>
+
+            {mcpShowAdd && (
+              <div className="console-mcp-form">
+                <input
+                  className="console-mcp-input"
+                  placeholder="Server name"
+                  value={mcpForm.name}
+                  onChange={(e) => setMcpForm((f) => ({ ...f, name: e.target.value }))}
+                />
+                <div className="console-mcp-type-row">
+                  <label className={`console-mcp-type ${mcpForm.type === 'stdio' ? 'active' : ''}`}>
+                    <input type="radio" name="mcp-type" value="stdio" checked={mcpForm.type === 'stdio'} onChange={() => setMcpForm((f) => ({ ...f, type: 'stdio' }))} />
+                    Stdio
+                  </label>
+                  <label className={`console-mcp-type ${mcpForm.type === 'sse' ? 'active' : ''}`}>
+                    <input type="radio" name="mcp-type" value="sse" checked={mcpForm.type === 'sse'} onChange={() => setMcpForm((f) => ({ ...f, type: 'sse' }))} />
+                    SSE
+                  </label>
+                </div>
+                {mcpForm.type === 'stdio' ? (
+                  <input
+                    className="console-mcp-input"
+                    placeholder="Command (e.g. npx -y @mcp/server-fs /home)"
+                    value={mcpForm.command}
+                    onChange={(e) => setMcpForm((f) => ({ ...f, command: e.target.value }))}
+                  />
+                ) : (
+                  <input
+                    className="console-mcp-input"
+                    placeholder="Server URL (e.g. http://localhost:8080/sse)"
+                    value={mcpForm.url}
+                    onChange={(e) => setMcpForm((f) => ({ ...f, url: e.target.value }))}
+                  />
+                )}
+                <input
+                  className="console-mcp-input"
+                  placeholder="Description (optional)"
+                  value={mcpForm.description}
+                  onChange={(e) => setMcpForm((f) => ({ ...f, description: e.target.value }))}
+                />
+                <button type="button" className="console-btn" onClick={addMcpServer}>Add Server</button>
+              </div>
+            )}
+          </div>
+
+          {mcpServers.length === 0 && !mcpShowAdd && (
+            <p className="console-empty-sub">No MCP servers configured</p>
+          )}
+
+          {mcpServers.map((srv) => (
+            <div key={srv.id} className="console-card console-mcp-card">
+              <div className="console-mcp-header">
+                <span className={`console-dot ${srv.running ? 'console-dot--on' : 'console-dot--off'}`} />
+                <span className="console-mcp-name">{srv.name}</span>
+                <span className="console-mcp-type-badge">{srv.type.toUpperCase()}</span>
+              </div>
+              {srv.description && <p className="console-mcp-desc">{srv.description}</p>}
+              <p className="console-mcp-detail">
+                {srv.type === 'stdio' ? srv.command : srv.url}
+              </p>
+              <div className="console-mcp-actions">
+                {srv.type === 'stdio' && (
+                  <button
+                    type="button"
+                    className={`console-btn console-btn--sm ${srv.running ? 'console-btn--reject' : 'console-btn--approve'}`}
+                    onClick={() => toggleMcpServer(srv.id, !srv.running)}
+                  >
+                    {srv.running ? 'Stop' : 'Start'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="console-btn console-btn--sm console-btn--reject"
+                  onClick={() => removeMcpServer(srv.id)}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
