@@ -1169,7 +1169,7 @@ export const TOOL_VPS_EXEC = {
     name: 'vps_exec',
     description:
       'Execute a shell command on the VPS in the repo directory. For server management: ' +
-      'git pull, pm2 restart, npm install, ls, cat, etc. Max 60s timeout. ' +
+      'git pull, pm2 restart, npm install, ls, cat, etc. Max 120s timeout. ' +
       'Do NOT run destructive commands (rm -rf, drop) without user confirmation.',
     parameters: {
       type: 'object',
@@ -1178,12 +1178,75 @@ export const TOOL_VPS_EXEC = {
           type: 'string',
           description: 'Shell command to run (e.g. "git pull", "pm2 restart nimbus-api")',
         },
-        timeout_seconds: {
+        timeout_ms: {
           type: 'integer',
-          description: 'Timeout in seconds, default 30, max 60',
+          description: 'Timeout in milliseconds, default 30000, max 120000',
         },
       },
       required: ['command'],
+    },
+  },
+}
+
+export const TOOL_VPS_EXEC_ASYNC = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_exec_async',
+    description:
+      'Start a long-running shell command on the VPS in the background. Returns a task ID immediately. ' +
+      'Use vps_task_status to check progress, vps_task_kill to stop it. ' +
+      'Good for: npm install, apt install, builds, long git operations, anything over 30s. Max 10min timeout.',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: {
+          type: 'string',
+          description: 'Shell command to run in background',
+        },
+        timeout_ms: {
+          type: 'integer',
+          description: 'Timeout in milliseconds, default 300000 (5min), max 600000 (10min)',
+        },
+      },
+      required: ['command'],
+    },
+  },
+}
+
+export const TOOL_VPS_TASK_STATUS = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_task_status',
+    description:
+      'Check the status of a background task started with vps_exec_async. ' +
+      'Returns status (running/done/error/killed), exit code, and last 8KB of stdout.',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Task ID returned by vps_exec_async',
+        },
+      },
+      required: ['id'],
+    },
+  },
+}
+
+export const TOOL_VPS_TASK_KILL = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_task_kill',
+    description: 'Kill a running background task by ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Task ID to kill',
+        },
+      },
+      required: ['id'],
     },
   },
 }
