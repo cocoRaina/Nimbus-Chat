@@ -178,6 +178,8 @@ import {
   TOOL_VPS_EXEC_SQL,
   TOOL_VPS_FILE_READ,
   TOOL_VPS_GIT_STATUS,
+  TOOL_VPS_FILE_WRITE,
+  TOOL_VPS_EXEC,
 } from './tools/definitions'
 import { saveToy } from './storage/toybox'
 import { extractArtifactCode } from './utils/artifact'
@@ -2962,7 +2964,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_RUN_CODE,
                 ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES, TOOL_SAVE_TOY, TOOL_WRITE_ESSAY, TOOL_READ_ESSAYS, TOOL_SET_ESSAY_LOCK, TOOL_SEARCH_4O_ARCHIVE] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
-                ...(isVpsConfigured() ? [TOOL_VPS_BROWSE, TOOL_VPS_STATUS, TOOL_VPS_EXEC_SQL, TOOL_VPS_FILE_READ, TOOL_VPS_GIT_STATUS] : []),
+                ...(isVpsConfigured() ? [TOOL_VPS_BROWSE, TOOL_VPS_STATUS, TOOL_VPS_EXEC_SQL, TOOL_VPS_FILE_READ, TOOL_VPS_GIT_STATUS, TOOL_VPS_FILE_WRITE, TOOL_VPS_EXEC] : []),
               ]
               requestBody.tool_choice = 'auto'
             }
@@ -4774,6 +4776,22 @@ TOOL_SEARCH_HANDOFF,
                     setToolStatus('🔀 Git status…')
                     const res = await vfetch('/api/git/status')
                     resultText = JSON.stringify(res.ok ? await res.json() : { error: `Error ${res.status}` })
+                  } else if (tc.function.name === 'vps_file_write' && isVpsConfigured()) {
+                    setToolStatus('📝 Writing file…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/file/write', {
+                      method: 'POST',
+                      body: JSON.stringify({ filePath: args.filePath, content: args.content }),
+                    })
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_exec' && isVpsConfigured()) {
+                    setToolStatus('⚙️ Running command…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/exec', {
+                      method: 'POST',
+                      body: JSON.stringify({ command: args.command, timeout_seconds: args.timeout_seconds }),
+                    })
+                    resultText = JSON.stringify(await res.json())
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })
                   }
