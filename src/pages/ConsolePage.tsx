@@ -81,7 +81,12 @@ export default function ConsolePage() {
         vfetch('/api/logs?limit=100'),
         vfetch('/api/ops/pending'),
       ])
-      if (sRes.ok) setStatus(await sRes.json())
+      if (!sRes.ok) {
+        const txt = await sRes.text().catch(() => '')
+        setError(`状态接口 ${sRes.status}: ${txt.slice(0, 120) || sRes.statusText}`)
+        return
+      }
+      setStatus(await sRes.json())
       if (lRes.ok) setLogs((await lRes.json()).reverse())
       if (pRes.ok) setPending(await pRes.json())
     } catch (e: any) {
