@@ -5,8 +5,6 @@ const { execSync, exec } = require('child_process')
 const os = require('os')
 const fs = require('fs')
 const path = require('path')
-const cron = require('node-cron')
-const { runWake } = require('./autonomousWake')
 
 // ── Load .env (no extra dep — just read it) ──────────────────────────
 try {
@@ -514,6 +512,33 @@ app.post('/api/mcp/toggle', authenticate, (req, res) => {
   res.json(srv)
 })
 
+// ══ Shell exec ═══════════════════════════════════════════════════════
+app.post('/api/exec', authenticate, (req, res) => {
+  const { command, timeout_seconds } = req.body
+  if (!command) return res.status(400).json({ error: 'Missing command' })
+  const timeout = Math.min(60, Math.max(5, timeout_seconds || 30))
+  const start = Date.now()
+  try {
+    const stdout = execSync(command, {
+      timeout: timeout * 1000,
+      maxBuffer: 1024 * 1024,
+      encoding: 'utf8',
+      cwd: REPO_DIR,
+    })
+    logOp({ action: 'exec', level: 'yellow', detail: command.slice(0, 120), result: 'ok' })
+    res.json({ ok: true, stdout: stdout.slice(0, 50000), exit_code: 0, duration_ms: Date.now() - start })
+  } catch (err) {
+    logOp({ action: 'exec', level: 'yellow', detail: command.slice(0, 120), result: err.status || 'error' })
+    res.json({
+      ok: err.killed ? false : true,
+      stdout: (err.stdout || '').slice(0, 50000),
+      stderr: (err.stderr || err.message || '').slice(0, 50000),
+      exit_code: err.status || 1,
+      duration_ms: Date.now() - start,
+    })
+  }
+})
+
 // ══ Code Sandbox ══════════════════════════════════════════════════════
 app.post('/api/sandbox/run', authenticate, (req, res) => {
   const { language, code, timeout_seconds } = req.body
@@ -556,36 +581,7 @@ app.post('/api/sandbox/run', authenticate, (req, res) => {
   }
 })
 
-// ══ Autonomous Wake（自主唤醒，从 Supabase Edge Function 搬过来）══════
-app.post('/api/autonomous-wake', authenticate, async (req, res) => {
-  const force = req.body?.force === true
-  try {
-    const result = await runWake({ force })
-    res.json(result)
-  } catch (err) {
-    console.error('[wake] 未捕获异常:', err)
-    res.status(500).json({ ran: false, error: err.message })
-  }
-})
-
-// 定时唤醒：每 10 分钟跑一次（过不过闸由 runWake 内部四道闸决定）
-let wakeRunning = false
-cron.schedule('*/10 * * * *', async () => {
-  if (wakeRunning) { console.log('[wake-cron] 上一轮还没跑完，跳过'); return }
-  wakeRunning = true
-  try {
-    const result = await runWake()
-    if (result.ran) console.log(`[wake-cron] 跑完: ${result.note}`)
-    else console.log(`[wake-cron] 跳过: ${result.skipped || result.error || '?'}`)
-  } catch (err) {
-    console.error('[wake-cron] 异常:', err)
-  } finally {
-    wakeRunning = false
-  }
-})
-
 // ════════════════════════════════════════════════════════════════════════
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`Nimbus API running on port ${PORT}`)
-  console.log('[wake-cron] 定时唤醒已启动 (每 10 分钟)')
 })
