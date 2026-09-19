@@ -61,6 +61,7 @@ import {
   resolveSyzygyPostPrompt,
   resolveSyzygyReplyPrompt,
 } from '../constants/aiOverlays'
+import { getVpsUrl, saveVpsUrl, getVpsApiKey, saveVpsApiKey } from '../storage/vpsConfig'
 import './SettingsPage.css'
 
 type OpenRouterModel = {
@@ -210,6 +211,10 @@ const SettingsPage = ({
   const [showUnsavedPromptDialog, setShowUnsavedPromptDialog] = useState(false)
   const [memoryExtractSectionExpanded, setMemoryExtractSectionExpanded] = useState(false)
   // 自主唤醒（服务端 autonomous_state：enabled / wake_provider / max_wakes_per_day）
+  const [vpsSectionExpanded, setVpsSectionExpanded] = useState(false)
+  const [vpsUrl, setVpsUrl] = useState(() => getVpsUrl())
+  const [vpsApiKey, setVpsApiKey] = useState(() => getVpsApiKey())
+  const [vpsSaved, setVpsSaved] = useState(false)
   const [wakeSectionExpanded, setWakeSectionExpanded] = useState(false)
   const [wakeConfig, setWakeConfig] = useState<AutonomousWakeConfig>(DEFAULT_WAKE_CONFIG)
   const [draftWakeConfig, setDraftWakeConfig] = useState<AutonomousWakeConfig>(DEFAULT_WAKE_CONFIG)
@@ -2276,11 +2281,80 @@ const SettingsPage = ({
         ) : null}
       </section>
 
+        </div>
+
+        <div className="settings-group" role="list">
+      <section className="settings-section" role="listitem">
+        <button
+          type="button"
+          className="collapse-header"
+          onClick={() => setVpsSectionExpanded((current) => !current)}
+          aria-expanded={vpsSectionExpanded}
+        >
+          <span className="section-title">
+            <span className="section-icon" aria-hidden="true">🖥️</span>
+            <h2 className="ui-title">VPS 配置</h2>
+            <p>操作台地址与 API 密钥。仅存本地。</p>
+          </span>
+          <span className="collapse-indicator" aria-hidden="true">›</span>
+        </button>
+        {vpsSectionExpanded ? (
+          <div className="accordion-content">
+            <label htmlFor="vpsUrl">VPS 地址</label>
+            <input
+              id="vpsUrl"
+              type="url"
+              placeholder="https://api.example.com"
+              value={vpsUrl}
+              onChange={(e) => { setVpsUrl(e.target.value); setVpsSaved(false) }}
+            />
+            <span className="settings-hint">Nginx 反代后的 HTTPS 地址，末尾不加 /</span>
+
+            <label htmlFor="vpsApiKey">API Key</label>
+            <input
+              id="vpsApiKey"
+              type="password"
+              placeholder="nimbus-api-key"
+              value={vpsApiKey}
+              onChange={(e) => { setVpsApiKey(e.target.value); setVpsSaved(false) }}
+            />
+
+            <div className="system-prompt-actions">
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  saveVpsUrl(vpsUrl)
+                  saveVpsApiKey(vpsApiKey)
+                  setVpsSaved(true)
+                }}
+              >
+                保存
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  saveVpsUrl('')
+                  saveVpsApiKey('')
+                  setVpsUrl('')
+                  setVpsApiKey('')
+                  setVpsSaved(false)
+                }}
+              >
+                清除
+              </button>
+              {vpsSaved ? <span className="system-prompt-status">已保存</span> : null}
+            </div>
+          </div>
+        ) : null}
+      </section>
+        </div>
+
         <p style={{ textAlign: 'center', opacity: 0.5, fontSize: 12, margin: '24px 0 8px', userSelect: 'text' }}>
           构建 {__BUILD_ID__}
         </p>
 
-        </div>
       </div>
 
       <ConfirmDialog

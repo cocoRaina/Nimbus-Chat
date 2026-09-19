@@ -308,6 +308,7 @@ const HomePage = ({ user, onOpenChat, mode = "default" }: HomePageProps) => {
       { emoji: "✅", label: "Check-in", route: "/checkin" },
       { emoji: "📊", label: "Diagnostics", route: "/usage" },
       { emoji: "📦", label: "Export", route: "/export" },
+      { emoji: "🖥", label: "操作台", route: "/console" },
       { emoji: "⚙️", label: "Settings", route: "/settings" },
     ],
     [],
