@@ -202,6 +202,9 @@
 .console-tag--red { background: #ffebee; color: #c62828; }
 
 /* ── Log rows ─────────────────────────────────────────────────── */
+.console-logs-list {
+  background: #fff;
+}
 .console-log-row {
   display: flex;
   align-items: center;
@@ -514,6 +517,9 @@
   .console-page:not([data-theme="light"]) .console-card,
   .console-page:not([data-theme="light"]) .console-approval-card {
     background: rgba(255,255,255,0.06);
+  }
+  .console-page:not([data-theme="light"]) .console-logs-list {
+    background: #1e1c32;
   }
   .console-page:not([data-theme="light"]) .console-error {
     background: rgba(192,57,43,0.15);
