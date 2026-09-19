@@ -413,14 +413,18 @@ export default function ConsolePage() {
       {tab === 'logs' && (
         <div className="console-section">
           {logs.length === 0 && <p className="console-empty-sub">No logs yet</p>}
-          {logs.map((log) => (
-            <div key={log.id} className="console-log-row">
-              <span className={levelClass(log.level)}>{levelTag(log.level)}</span>
-              <span className="console-log-action">{log.action}</span>
-              {log.detail && <span className="console-log-detail">{log.detail.slice(0, 80)}</span>}
-              <span className="console-log-time">{fmtTime(log.time)}</span>
+          {logs.length > 0 && (
+            <div className="console-card console-logs-list">
+              {logs.map((log) => (
+                <div key={log.id} className="console-log-row">
+                  <span className={levelClass(log.level)}>{levelTag(log.level)}</span>
+                  <span className="console-log-action">{log.action}</span>
+                  {log.detail && <span className="console-log-detail">{log.detail.slice(0, 80)}</span>}
+                  <span className="console-log-time">{fmtTime(log.time)}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
@@ -537,7 +541,7 @@ export default function ConsolePage() {
         <div className="console-section">
           <div className="console-card">
             <h3 className="console-card-title">Headless Browser</h3>
-            <p className="console-card-desc">Fetch any web page via the VPS headless browser. Wren can also use this as a tool.</p>
+            <p className="console-card-desc">Fetch any web page via the VPS headless browser. Also available as a tool for the AI companion.</p>
             <div className="console-browser-row">
               <input
                 className="console-browser-input"

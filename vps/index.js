@@ -141,8 +141,6 @@ app.get('/api/status', authenticate, (_req, res) => {
       .map((p) => ({ name: p.name, status: p.pm2_env?.status, cpu: p.monit?.cpu, memory: p.monit?.memory, uptime: p.pm2_env?.pm_uptime }))
   } catch {}
 
-  logOp({ action: 'status', level: 'green', result: 'ok' })
-
   res.json({
     cpu: { model: cpus[0]?.model, cores: cpus.length, loadAvg: os.loadavg() },
     memory: { total: totalMem, free: freeMem, usedPercent: ((1 - freeMem / totalMem) * 100).toFixed(1) + '%' },

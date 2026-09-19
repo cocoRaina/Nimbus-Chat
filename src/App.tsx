@@ -80,6 +80,7 @@ import {
   updateRemoteSessionReasoningOverride,
   updateRemoteMessageMeta,
 } from './storage/supabaseSync'
+import { vfetch, isVpsConfigured } from './storage/vpsConfig'
 import { hasSupabaseConfig, subscribeSupabaseConfigChange, supabase } from './supabase/client'
 import {
   cancelProactiveNotification,
@@ -172,6 +173,11 @@ import {
   TOOL_SCHEDULE_CALL,
   TOOL_TIDY_IMAGES,
   TOOL_SAVE_TOY,
+  TOOL_VPS_BROWSE,
+  TOOL_VPS_STATUS,
+  TOOL_VPS_EXEC_SQL,
+  TOOL_VPS_FILE_READ,
+  TOOL_VPS_GIT_STATUS,
 } from './tools/definitions'
 import { saveToy } from './storage/toybox'
 import { extractArtifactCode } from './utils/artifact'
@@ -2956,6 +2962,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_RUN_CODE,
                 ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES, TOOL_SAVE_TOY, TOOL_WRITE_ESSAY, TOOL_READ_ESSAYS, TOOL_SET_ESSAY_LOCK, TOOL_SEARCH_4O_ARCHIVE] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
+                ...(isVpsConfigured() ? [TOOL_VPS_BROWSE, TOOL_VPS_STATUS, TOOL_VPS_EXEC_SQL, TOOL_VPS_FILE_READ, TOOL_VPS_GIT_STATUS] : []),
               ]
               requestBody.tool_choice = 'auto'
             }
@@ -4734,6 +4741,39 @@ TOOL_SEARCH_HANDOFF,
                               })
                       }
                     }
+                  } else if (tc.function.name === 'vps_browse' && isVpsConfigured()) {
+                    setToolStatus('🌐 Browsing…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/browser/fetch', {
+                      method: 'POST',
+                      body: JSON.stringify({ url: args.url, extractText: true, waitFor: args.waitFor }),
+                    })
+                    const data = await res.json()
+                    resultText = JSON.stringify(res.ok ? data : { error: data.error || `Error ${res.status}` })
+                  } else if (tc.function.name === 'vps_status' && isVpsConfigured()) {
+                    setToolStatus('📊 Checking VPS…')
+                    const res = await vfetch('/api/status')
+                    resultText = JSON.stringify(res.ok ? await res.json() : { error: `Error ${res.status}` })
+                  } else if (tc.function.name === 'vps_exec_sql' && isVpsConfigured()) {
+                    setToolStatus('🗄 Running SQL…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/db/query', {
+                      method: 'POST',
+                      body: JSON.stringify({ sql: args.sql }),
+                    })
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_file_read' && isVpsConfigured()) {
+                    setToolStatus('📄 Reading file…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/file/read', {
+                      method: 'POST',
+                      body: JSON.stringify({ filePath: args.filePath }),
+                    })
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_git_status' && isVpsConfigured()) {
+                    setToolStatus('🔀 Git status…')
+                    const res = await vfetch('/api/git/status')
+                    resultText = JSON.stringify(res.ok ? await res.json() : { error: `Error ${res.status}` })
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })
                   }

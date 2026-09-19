@@ -1038,3 +1038,103 @@ export const TOOL_SAVE_TOY = {
     },
   },
 }
+
+// ── VPS tools (headless browser + server ops) ──────────────────────
+// These call the user's self-hosted VPS API via vfetch().
+// Credentials never enter the LLM conversation — vfetch adds them at
+// the network layer from localStorage.
+
+export const TOOL_VPS_BROWSE = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_browse',
+    description:
+      'Fetch a web page through the VPS headless browser (Puppeteer). Returns the page title and ' +
+      'extracted text content (up to ~12k chars). Use when you need to read a URL the user shared, ' +
+      'check a live page, or research something that web_search alone cannot answer. ' +
+      'NOT for private/internal APIs — just public web pages.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'Full URL to fetch (https://...)',
+        },
+        waitFor: {
+          type: 'string',
+          description: 'Optional CSS selector to wait for before extracting (for SPAs)',
+        },
+      },
+      required: ['url'],
+    },
+  },
+}
+
+export const TOOL_VPS_STATUS = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_status',
+    description:
+      'Get the VPS server status: CPU, memory, disk, uptime, and running services (pm2). ' +
+      'Call when the user asks about server health or you want to check if services are up.',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+  },
+}
+
+export const TOOL_VPS_EXEC_SQL = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_exec_sql',
+    description:
+      'Execute a SQL query on the Supabase database through the VPS. Read-only queries run immediately; ' +
+      'destructive queries (DELETE/DROP/ALTER/TRUNCATE) go to the approval queue. Sensitive fields in ' +
+      'results are auto-redacted. Use for database inspection, analytics, or maintenance tasks the user asks for.',
+    parameters: {
+      type: 'object',
+      properties: {
+        sql: {
+          type: 'string',
+          description: 'SQL query to execute',
+        },
+      },
+      required: ['sql'],
+    },
+  },
+}
+
+export const TOOL_VPS_FILE_READ = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_file_read',
+    description:
+      'Read a file from the VPS repo directory. Path is relative to the repo root. ' +
+      'Use for inspecting config files, logs, or code on the server.',
+    parameters: {
+      type: 'object',
+      properties: {
+        filePath: {
+          type: 'string',
+          description: 'File path relative to the repo root (e.g. "vps/.env.example", "package.json")',
+        },
+      },
+      required: ['filePath'],
+    },
+  },
+}
+
+export const TOOL_VPS_GIT_STATUS = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_git_status',
+    description:
+      'Get the git status and latest commit info from the VPS repo. Shows current branch, ' +
+      'uncommitted changes, and last commit.',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+  },
+}
