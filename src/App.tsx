@@ -693,7 +693,7 @@ const IMAGE_CAPTION_FAIL_MESSAGE =
 // as a stalled relay and abort — otherwise reader.read() awaits forever and the
 // UI is stuck on "正在输入…". Generous enough that a slow first token / extended
 // thinking / a tool call isn't mistaken for a hang.
-const STREAM_STALL_MS = 45_000
+const STREAM_STALL_MS = 180_000
 
 // 「无真内容」看门狗（2026-08-10，用户「空回 4 分钟被扣 96 万 token」）：有的中转
 // 会一直发心跳 ping / 空事件 / usage 帧 keep 住 socket，却半天不吐真内容——上面那个
@@ -701,7 +701,7 @@ const STREAM_STALL_MS = 45_000
 // 空转好几分钟、被中转按天文数字的输入计费（实测一次 $3.87）。所以另设一条【只认真
 // 内容/推理/思考/工具产出】的时钟：从流开始起，若这么久没有任何真产出就中断。给足
 // 首字慢的中转（kiro 首字常十几~几十秒）+ 扩展思考的余量，但远短于 4 分钟的失血。
-const STREAM_NO_CONTENT_MS = 70_000
+const STREAM_NO_CONTENT_MS = 300_000
 
 // Health snapshot cache for the per-message '[TA 今日状态]' line. Injected on
 // every user message; the Supabase read (and Health Connect force-sync on APK)
