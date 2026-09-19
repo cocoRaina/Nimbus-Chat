@@ -4793,23 +4793,23 @@ TOOL_SEARCH_HANDOFF,
                     })
                     resultText = JSON.stringify(await res.json())
                     } else if (tc.function.name === 'vps_exec_async' && isVpsConfigured()) {
-  setToolStatus('🚀 Starting background task…')
-  const args = JSON.parse(tc.function.arguments || '{}')
-  const res = await vfetch('/api/exec/async', {
-    method: 'POST',
-    body: JSON.stringify({ command: args.command, timeout_ms: args.timeout_ms }),
-  })
-  resultText = JSON.stringify(await res.json())
-} else if (tc.function.name === 'vps_task_status' && isVpsConfigured()) {
-  setToolStatus('📋 Checking task…')
-  const args = JSON.parse(tc.function.arguments || '{}')
-  const res = await vfetch(`/api/exec/status/${encodeURIComponent(args.id)}`)
-  resultText = JSON.stringify(await res.json())
-} else if (tc.function.name === 'vps_task_kill' && isVpsConfigured()) {
-  setToolStatus('🛑 Killing task…')
-  const args = JSON.parse(tc.function.arguments || '{}')
-  const res = await vfetch(`/api/exec/kill/${encodeURIComponent(args.id)}`, { method: 'POST' })
-  resultText = JSON.stringify(await res.json())
+                   setToolStatus('🚀 Starting background task…')
+                   const args = JSON.parse(tc.function.arguments || '{}')
+                   const res = await vfetch('/api/exec/async', {
+                   method: 'POST',
+                   body: JSON.stringify({ command: args.command, timeout_ms: args.timeout_ms }),
+                    })
+                  resultText = JSON.stringify(await res.json())
+                 } else if (tc.function.name === 'vps_task_status' && isVpsConfigured()) {
+                   setToolStatus('📋 Checking task…')
+                   const args = JSON.parse(tc.function.arguments || '{}')
+                   const res = await vfetch(`/api/exec/status/${encodeURIComponent(args.id)}`)
+                   resultText = JSON.stringify(await res.json())
+                 } else if (tc.function.name === 'vps_task_kill' && isVpsConfigured()) {
+                  setToolStatus('🛑 Killing task…')
+                  const args = JSON.parse(tc.function.arguments || '{}')
+                  const res = await vfetch(`/api/exec/kill/${encodeURIComponent(args.id)}`, { method: 'POST' })
+                  resultText = JSON.stringify(await res.json())
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })
                   }
