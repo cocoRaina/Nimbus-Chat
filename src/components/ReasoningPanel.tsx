@@ -17,7 +17,7 @@ const ReasoningPanel = memo(({ reasoning }: ReasoningPanelProps) => {
         aria-label="查看思考链"
         onClick={() => setIsOpen((current) => !current)}
       >
-        <span className="reasoning-panel__caption">{isOpen ? '思考' : '思考中…'}</span>
+        <span className="reasoning-panel__caption">thinking</span>
         <span className="reasoning-panel__chev" aria-hidden="true">›</span>
       </button>
       <div className={`reasoning-panel__content ${isOpen ? 'is-open' : ''}`}>
