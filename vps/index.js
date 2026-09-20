@@ -333,6 +333,12 @@ const executeApprovedOp = (op) => {
         op.result = 'pushed'
         break
       }
+      case 'exec_write':
+      case 'exec_write_async': {
+        // Approved exec: mark as approved so the next call with approval_id passes
+        op.result = 'approved_for_execution'
+        break
+      }
       default:
         op.result = 'unknown action'
     }
@@ -515,9 +521,66 @@ app.post('/api/mcp/toggle', authenticate, (req, res) => {
 })
 
 // ══ Shell Exec ═══════════════════════════════════════════════════════
+
+// Write-command detection: commands that modify files/system state
+const WRITE_CMD_PATTERNS = [
+  /\bsed\s+-i\b/, /\bsed\b.*\bi\b/,
+  /\brm\s/, /\bunlink\s/,
+  /\bmv\s/, /\bcp\s/,
+  /\btee\s/, /\bdd\s/,
+  /\bmkdir\s/, /\brmdir\s/,
+  /\bchmod\s/, /\bchown\s/,
+  /\bln\s/,
+  /\bnpm\s+(install|uninstall|update|ci)\b/,
+  /\bpip\s+install\b/,
+  /\bapt\s+(install|remove|purge)\b/,
+  /\bgit\s+(push|reset|checkout|merge|rebase|commit|add|rm)\b/,
+  /\bpm2\s+(delete|stop|kill)\b/,
+  /\bkill\b/, /\bkillall\b/, /\bpkill\b/,
+  /\bsystemctl\s+(start|stop|restart|enable|disable)\b/,
+  /\bcrontab\b/,
+  /\bcurl\b.*(-X\s*(PUT|POST|DELETE|PATCH)|-d\s)/, // curl with write methods
+]
+const REDIRECT_PATTERN = /[^2]?>(?!&)/ // stdout redirect (not 2>&1)
+const PIPE_WRITE_PATTERN = /\|\s*(tee|dd|xargs\s+(rm|mv|cp))\b/
+
+const isWriteCommand = (cmd) => {
+  const normalized = cmd.trim()
+  if (REDIRECT_PATTERN.test(normalized)) return true
+  if (PIPE_WRITE_PATTERN.test(normalized)) return true
+  return WRITE_CMD_PATTERNS.some((p) => p.test(normalized))
+}
+
 app.post('/api/exec', authenticate, (req, res) => {
-  const { command, timeout_ms } = req.body
+  const { command, timeout_ms, approval_id } = req.body
   if (!command) return res.status(400).json({ ok: false, error: 'Missing command' })
+
+  // If this is a write command, require approval
+  if (isWriteCommand(command) && !approval_id) {
+    const pending = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      action: 'exec_write',
+      level: 'yellow',
+      detail: command.slice(0, 500),
+      payload: { command, timeout_ms },
+      status: 'pending',
+      approvals: { user: false, wren: false },
+      created: new Date().toISOString(),
+    }
+    pendingOps.push(pending)
+    savePending()
+    logOp({ action: 'exec_write', level: 'yellow', status: 'pending_approval', detail: command.slice(0, 120) })
+    return res.json({ ok: false, needs_approval: true, id: pending.id, command: command.slice(0, 500), message: '写操作需要主人批准' })
+  }
+
+  // If approval_id provided, verify it's approved
+  if (approval_id) {
+    const op = pendingOps.find((o) => o.id === approval_id)
+    if (!op) return res.status(400).json({ ok: false, error: '审批记录不存在' })
+    if (op.status !== 'approved') return res.status(403).json({ ok: false, error: `审批状态: ${op.status}，需要主人批准后才能执行` })
+    if (op.payload?.command !== command) return res.status(403).json({ ok: false, error: '命令与审批记录不匹配' })
+  }
+
   const timeout = Math.min(120000, Math.max(3000, timeout_ms || 30000))
   const start = Date.now()
   try {
@@ -547,8 +610,34 @@ app.post('/api/exec', authenticate, (req, res) => {
 const asyncTasks = new Map()
 
 app.post('/api/exec/async', authenticate, (req, res) => {
-  const { command, timeout_ms } = req.body
+  const { command, timeout_ms, approval_id } = req.body
   if (!command) return res.status(400).json({ ok: false, error: 'Missing command' })
+
+  // Write command check (same as sync exec)
+  if (isWriteCommand(command) && !approval_id) {
+    const pending = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      action: 'exec_write_async',
+      level: 'yellow',
+      detail: command.slice(0, 500),
+      payload: { command, timeout_ms },
+      status: 'pending',
+      approvals: { user: false, wren: false },
+      created: new Date().toISOString(),
+    }
+    pendingOps.push(pending)
+    savePending()
+    logOp({ action: 'exec_write_async', level: 'yellow', status: 'pending_approval', detail: command.slice(0, 120) })
+    return res.json({ ok: false, needs_approval: true, id: pending.id, command: command.slice(0, 500), message: '写操作需要主人批准' })
+  }
+
+  if (approval_id) {
+    const op = pendingOps.find((o) => o.id === approval_id)
+    if (!op) return res.status(400).json({ ok: false, error: '审批记录不存在' })
+    if (op.status !== 'approved') return res.status(403).json({ ok: false, error: `审批状态: ${op.status}，需要主人批准后才能执行` })
+    if (op.payload?.command !== command) return res.status(403).json({ ok: false, error: '命令与审批记录不匹配' })
+  }
+
   const timeout = Math.min(600000, Math.max(5000, timeout_ms || 300000))
 
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
