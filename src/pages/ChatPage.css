@@ -2030,3 +2030,17 @@
 .composer-recording-label {
   opacity: 0.75;
 }
+
+/* ── Thinking + tool chain, pulled OUT of the reply bubble ──────────────
+   Rendered as a standalone section above 小机's reply bubble so long agent
+   runs use the full column width and the bubble holds only the words. */
+.message-flow--outer {
+  align-self: stretch;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+.message-flow--outer .tool-calls-section { width: 100%; }

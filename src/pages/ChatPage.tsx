@@ -327,6 +327,62 @@ const MessageRow = memo(function MessageRow({
     <div
       className={`message ${isOut ? 'out' : 'in'} ${groupWithPrevious ? 'group-with-previous' : ''}`}
     >
+      {/* Thinking chain + tool chain — rendered OUTSIDE the reply bubble, as a
+          standalone section above it, so long agent runs get full width and the
+          bubble holds only 小机's actual words. */}
+      {message.role === 'assistant' && (() => {
+        const flow = message.meta?.flow
+        const toolCalls = message.meta?.tool_calls as ToolCallRecord[] | undefined
+        const hasInterleaved = Boolean(flow && flow.length > 0 && toolCalls)
+        const hasTools = Boolean(toolCalls && toolCalls.length > 0)
+        if (!hasInterleaved && !reasoningText && !hasTools) return null
+        if (hasInterleaved && flow && toolCalls) {
+          // Interleaved thinking + tool cards (Claude-app style).
+          type GroupedEvent =
+            | { type: 'thinking'; content: string; key: number }
+            | { type: 'tool_group'; calls: ToolCallRecord[]; key: number }
+          const groupedFlow: GroupedEvent[] = []
+          for (const [ei, event] of flow.entries()) {
+            if (event.type === 'thinking') {
+              groupedFlow.push({ type: 'thinking', content: event.content, key: ei })
+            } else {
+              const tc = toolCalls[event.index]
+              if (!tc) continue
+              const last = groupedFlow[groupedFlow.length - 1]
+              if (last && last.type === 'tool_group' && last.calls[0].name === tc.name) {
+                last.calls.push(tc)
+              } else {
+                groupedFlow.push({ type: 'tool_group', calls: [tc], key: ei })
+              }
+            }
+          }
+          return (
+            <div className="message-flow message-flow--outer">
+              {groupedFlow.map((event) =>
+                event.type === 'thinking' ? (
+                  <ReasoningPanel key={event.key} reasoning={event.content} />
+                ) : (
+                  <div key={event.key} className="tool-calls-section">
+                    <ToolCallGroup calls={event.calls} />
+                  </div>
+                )
+              )}
+            </div>
+          )
+        }
+        return (
+          <div className="message-flow message-flow--outer">
+            {reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
+            {hasTools && toolCalls ? (
+              <div className="tool-calls-section">
+                {groupToolCalls(toolCalls).map((group, gi) => (
+                  <ToolCallGroup key={gi} calls={group} />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )
+      })()}
       {segments.map((seg, chunkIdx) => {
         const isFirst = chunkIdx === 0
         const chunk = seg.text
@@ -341,58 +397,6 @@ const MessageRow = memo(function MessageRow({
             onPointerMove={onCancelLongPress}
             onContextMenu={(event) => onContextMenuOpen(event, message.id)}
           >
-            {isFirst && (() => {
-              const flow = message.meta?.flow
-              const toolCalls = message.meta?.tool_calls as ToolCallRecord[] | undefined
-              if (flow && flow.length > 0 && toolCalls) {
-                // Interleaved thinking + tool cards (Claude-app style).
-                // Group consecutive same-name tool events into one card.
-                type GroupedEvent =
-                  | { type: 'thinking'; content: string; key: number }
-                  | { type: 'tool_group'; calls: ToolCallRecord[]; key: number }
-                const groupedFlow: GroupedEvent[] = []
-                for (const [ei, event] of flow.entries()) {
-                  if (event.type === 'thinking') {
-                    groupedFlow.push({ type: 'thinking', content: event.content, key: ei })
-                  } else {
-                    const tc = toolCalls[event.index]
-                    if (!tc) continue
-                    const last = groupedFlow[groupedFlow.length - 1]
-                    if (last && last.type === 'tool_group' && last.calls[0].name === tc.name) {
-                      last.calls.push(tc)
-                    } else {
-                      groupedFlow.push({ type: 'tool_group', calls: [tc], key: ei })
-                    }
-                  }
-                }
-                return (
-                  <div className="message-flow">
-                    {groupedFlow.map((event) =>
-                      event.type === 'thinking' ? (
-                        <ReasoningPanel key={event.key} reasoning={event.content} />
-                      ) : (
-                        <div key={event.key} className="tool-calls-section">
-                          <ToolCallGroup calls={event.calls} />
-                        </div>
-                      )
-                    )}
-                  </div>
-                )
-              }
-              // Fallback: single reasoning panel + all tool cards (grouped)
-              return (
-                <>
-                  {reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
-                  {toolCalls && toolCalls.length > 0 ? (
-                    <div className="tool-calls-section">
-                      {groupToolCalls(toolCalls).map((group, gi) => (
-                        <ToolCallGroup key={gi} calls={group} />
-                      ))}
-                    </div>
-                  ) : null}
-                </>
-              )
-            })()}
             {isFirst && message.meta?.attachments && message.meta.attachments.length > 0 ? (
               <div className="message-attachments">
                 {message.meta.attachments.map((att, attIdx) =>
