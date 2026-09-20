@@ -179,7 +179,9 @@ import {
   TOOL_VPS_FILE_READ,
   TOOL_VPS_GIT_STATUS,
   TOOL_VPS_FILE_WRITE,
-  TOOL_VPS_EXEC,TOOL_VPS_EXEC_ASYNC, TOOL_VPS_TASK_STATUS, TOOL_VPS_TASK_KILL
+  TOOL_VPS_EXEC,TOOL_VPS_EXEC_ASYNC, TOOL_VPS_TASK_STATUS, TOOL_VPS_TASK_KILL,
+  TOOL_VPS_LLM_CALL, TOOL_VPS_SCHEDULE_CREATE, TOOL_VPS_SCHEDULE_LIST, TOOL_VPS_SCHEDULE_DELETE,
+  TOOL_VPS_NOTIFY, TOOL_VPS_JOURNAL_WRITE, TOOL_VPS_JOURNAL_READ,
 } from './tools/definitions'
 import { saveToy } from './storage/toybox'
 import { extractArtifactCode } from './utils/artifact'
@@ -2964,7 +2966,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_RUN_CODE,
                 ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES, TOOL_SAVE_TOY, TOOL_WRITE_ESSAY, TOOL_READ_ESSAYS, TOOL_SET_ESSAY_LOCK, TOOL_SEARCH_4O_ARCHIVE] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
-                ...(isVpsConfigured() ? [TOOL_VPS_BROWSE, TOOL_VPS_STATUS, TOOL_VPS_EXEC_SQL, TOOL_VPS_FILE_READ, TOOL_VPS_GIT_STATUS, TOOL_VPS_FILE_WRITE, TOOL_VPS_EXEC, TOOL_VPS_EXEC_ASYNC, TOOL_VPS_TASK_STATUS, TOOL_VPS_TASK_KILL] : []),
+                ...(isVpsConfigured() ? [TOOL_VPS_BROWSE, TOOL_VPS_STATUS, TOOL_VPS_EXEC_SQL, TOOL_VPS_FILE_READ, TOOL_VPS_GIT_STATUS, TOOL_VPS_FILE_WRITE, TOOL_VPS_EXEC, TOOL_VPS_EXEC_ASYNC, TOOL_VPS_TASK_STATUS, TOOL_VPS_TASK_KILL, TOOL_VPS_LLM_CALL, TOOL_VPS_SCHEDULE_CREATE, TOOL_VPS_SCHEDULE_LIST, TOOL_VPS_SCHEDULE_DELETE, TOOL_VPS_NOTIFY, TOOL_VPS_JOURNAL_WRITE, TOOL_VPS_JOURNAL_READ] : []),
               ]
               requestBody.tool_choice = 'auto'
             }
@@ -4810,6 +4812,61 @@ TOOL_SEARCH_HANDOFF,
                   const args = JSON.parse(tc.function.arguments || '{}')
                   const res = await vfetch(`/api/exec/kill/${encodeURIComponent(args.id)}`, { method: 'POST' })
                   resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_llm_call' && isVpsConfigured()) {
+                    setToolStatus('🤖 Calling sub-model…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/llm/call', {
+                      method: 'POST',
+                      body: JSON.stringify({ prompt: args.prompt, model: args.model, system: args.system, max_tokens: args.max_tokens, temperature: args.temperature }),
+                    })
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_schedule_create' && isVpsConfigured()) {
+                    setToolStatus('📅 Creating schedule…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/schedule/create', {
+                      method: 'POST',
+                      body: JSON.stringify({ name: args.name, cron: args.cron, task: args.task }),
+                    })
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_schedule_list' && isVpsConfigured()) {
+                    setToolStatus('📋 Listing schedules…')
+                    const res = await vfetch('/api/schedule/list')
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_schedule_delete' && isVpsConfigured()) {
+                    setToolStatus('🗑 Deleting schedule…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/schedule/delete', {
+                      method: 'POST',
+                      body: JSON.stringify({ id: args.id }),
+                    })
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_notify' && isVpsConfigured()) {
+                    setToolStatus('🔔 Sending notification…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/notify/send', {
+                      method: 'POST',
+                      body: JSON.stringify({ title: args.title, body: args.body, priority: args.priority }),
+                    })
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_journal_write' && isVpsConfigured()) {
+                    setToolStatus('📓 Writing journal…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/journal/write', {
+                      method: 'POST',
+                      body: JSON.stringify({ type: args.type, content: args.content, tags: args.tags }),
+                    })
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_journal_read' && isVpsConfigured()) {
+                    setToolStatus('📖 Reading journal…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const params = new URLSearchParams()
+                    if (args.type) params.set('type', args.type)
+                    if (args.tag) params.set('tag', args.tag)
+                    if (args.search) params.set('search', args.search)
+                    if (args.limit) params.set('limit', String(args.limit))
+                    const qs = params.toString()
+                    const res = await vfetch(`/api/journal/read${qs ? '?' + qs : ''}`)
+                    resultText = JSON.stringify(await res.json())
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })
                   }
