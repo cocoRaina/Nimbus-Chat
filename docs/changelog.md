@@ -34,6 +34,10 @@
 
 **注意**：curwe 本体 shell_exec 默认关（`EXEC_ENABLED=0`），要跑命令得在 curwe 侧开。Nimbus 只负责认证转发。验证：`node --check`、`tsc`、`build`，另起桩网关跑了 5/5 代理冒烟（转发工具/调用/鉴权/curwe-down 502）。
 
+**用途厘清（和用户对齐）**：curwe 的意义 = 让小机当"包工头"**在后台调度别的模型/跑 agent 作业**，且有**独立低权限沙箱**（隔离）+ 可**打包持久化工具**。这是它相对 Nimbus 自带工具的独一价值（Nimbus 自己也能跑后台任务，但没隔离、不是"雇别的模型"）。
+
+**job_finished 自动通知**：新增 `POST /api/curwe/event` webhook 接收器——curwe 后台任务结束时回调它，Nimbus 转成 **Web Push 弹到手机**（顺带存进通知队列、脱敏、审计）。用共享 token 鉴权（`CURWE_EVENT_TOKEN`，curwe 回调带 `x-curwe-token`），**未配置时 fail-closed 503**，不做开放端点。curwe 侧把 event hook 指到 `http://127.0.0.1:<PORT>/api/curwe/event`（Docker 部署注意容器内 127.0.0.1≠宿主，用宿主 IP 或 host 网络）。脱敏正则同时加强：现在也能抓**行内**的 `…; TOKEN=xxx`（不只行首），值 ≥6 字符避免误伤散文。冒烟：bad-token→401、good-token→200+落库+脱敏、未配置→503。
+
 ---
 
 ## 🩹 修小机"跑代码总是截断" + 工具卡片支持 agent 工具（2026-09-20）

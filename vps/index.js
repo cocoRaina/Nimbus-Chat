@@ -159,12 +159,15 @@ const redactRow = (row) => {
 // Disable with REDACT_TOOL_OUTPUT=0 (e.g. a trusted single-user box).
 const REDACT_TOOL_OUTPUT = !['0', 'false', 'no'].includes((process.env.REDACT_TOOL_OUTPUT || '1').toLowerCase())
 const SECRET_KEYWORDS = 'API[_-]?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE[_-]?KEY|CREDENTIAL|SERVICE[_-]?ROLE|ANON[_-]?KEY|ACCESS[_-]?KEY|CLIENT[_-]?SECRET|AUTH[_-]?TOKEN'
-const RE_ENV_ASSIGN = new RegExp(`^([ \\t]*(?:export[ \\t]+)?[A-Za-z0-9_.-]*(?:${SECRET_KEYWORDS})[A-Za-z0-9_.-]*[ \\t]*[:=][ \\t]*)(["']?)([^\\r\\n"']{4,})(\\2)`, 'gim')
+// KEY=value / KEY: value anywhere (line start OR mid-line, e.g. "... ; TOKEN=abc"),
+// keyed on a secret-looking name. Leading boundary is a non-identifier char so we
+// don't match inside a larger word. Value ≥6 non-space chars to skip prose.
+const RE_ENV_ASSIGN = new RegExp(`(^|[^A-Za-z0-9_])([A-Za-z0-9_.-]*(?:${SECRET_KEYWORDS})[A-Za-z0-9_.-]*[ \\t]*[:=][ \\t]*)(["']?)([^\\s"']{6,})(\\3)`, 'gim')
 const RE_JSON_SECRET = new RegExp(`("[A-Za-z0-9_.-]*(?:${SECRET_KEYWORDS})[A-Za-z0-9_.-]*"[ \\t]*:[ \\t]*")([^"]{4,})(")`, 'gi')
 const redactText = (input) => {
   if (!REDACT_TOOL_OUTPUT || typeof input !== 'string' || !input) return input
   return input
-    .replace(RE_ENV_ASSIGN, '$1$2***REDACTED***$4')
+    .replace(RE_ENV_ASSIGN, '$1$2$3***REDACTED***$5')
     .replace(RE_JSON_SECRET, '$1***REDACTED***$3')
     .replace(/\bBearer\s+[A-Za-z0-9._~+/-]{8,}=*/g, 'Bearer ***REDACTED***')
     .replace(/\bsk-[A-Za-z0-9_-]{16,}\b/g, 'sk-***REDACTED***')
@@ -1492,6 +1495,54 @@ app.post('/api/push/send', authenticate, (req, res) => {
     logOp({ action: 'push_send', level: 'green', detail: title })
     res.json({ sent: results.length, results })
   })
+})
+
+// ── Curwe job-finished webhook → phone push ──────────────────────────
+// curwe emits a job_finished event when a background (ws_job) task ends.
+// Point curwe's event hook at:  POST {NIMBUS}/api/curwe/event
+//   header  x-curwe-token: <CURWE_EVENT_TOKEN>   (set the same value in vps/.env)
+// We turn it into a Web Push so a finished background job pops to your phone.
+// No Nimbus API key needed (curwe posts server-to-server) — the shared token is
+// the auth, and the endpoint is fail-closed when the token isn't configured.
+const CURWE_EVENT_TOKEN = process.env.CURWE_EVENT_TOKEN || ''
+const pushToDevices = (title, body, tag, data) => {
+  if (!webpush || pushSubscriptions.length === 0) return
+  const payload = JSON.stringify({ title, body: body || '', tag: tag || 'curwe', data: data || null })
+  const expired = []
+  Promise.all(pushSubscriptions.map((sub) =>
+    webpush.sendNotification(sub, payload).catch((err) => {
+      if (err.statusCode === 404 || err.statusCode === 410) expired.push(sub.endpoint)
+    }),
+  )).then(() => {
+    if (expired.length) {
+      pushSubscriptions = pushSubscriptions.filter((s) => !expired.includes(s.endpoint))
+      savePushSubs()
+    }
+  })
+}
+
+app.post('/api/curwe/event', (req, res) => {
+  if (!CURWE_EVENT_TOKEN) return res.status(503).json({ ok: false, error: 'CURWE_EVENT_TOKEN 未配置（在 vps/.env 设一个，并让 curwe 回调时带 x-curwe-token）' })
+  const token = req.headers['x-curwe-token'] || req.query.token
+  if (token !== CURWE_EVENT_TOKEN) return res.status(401).json({ ok: false, error: 'bad token' })
+  const ev = req.body || {}
+  const jobId = String(ev.job_id ?? ev.id ?? '')
+  const status = String(ev.status ?? ev.event ?? 'job_finished')
+  const failed = /fail|error/i.test(status)
+  const summary = String(ev.summary ?? ev.result ?? ev.message ?? '').slice(0, 300)
+  const title = `curwe 后台任务${failed ? '失败' : '完成'}`
+  const body = redactText(`${jobId ? `[${jobId}] ` : ''}${summary || status}`).slice(0, 300)
+  const notif = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    title, body, priority: failed ? 'high' : 'normal',
+    data: { source: 'curwe', job_id: jobId, status }, read: false,
+    created: new Date().toISOString(),
+  }
+  notifications.push(notif)
+  saveNotifications()
+  pushToDevices(title, body, 'curwe-job', notif.data)
+  logOp({ action: 'curwe_event', level: 'green', detail: `${status} ${jobId}`.slice(0, 120) })
+  res.json({ ok: true })
 })
 
 // ── JSON-only fallthrough: unknown route → JSON 404 ──────────────────
