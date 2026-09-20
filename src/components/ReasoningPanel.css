@@ -5,17 +5,28 @@
 .reasoning-panel__toggle {
   border: none;
   background: transparent;
-  color: var(--ab-accent);
-  font-size: 12px;
+  color: var(--ab-accent, #98B5D8);
+  font-size: 12.5px;
+  font-style: italic;
   cursor: pointer;
-  padding: 0;
+  padding: 2px 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .reasoning-panel__toggle:hover {
-  color: var(--ab-ink);
+  color: var(--ab-ink, #586878);
+}
+
+.reasoning-panel__chev {
+  font-style: normal;
+  font-size: 15px;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+.reasoning-panel__toggle.is-open .reasoning-panel__chev {
+  transform: rotate(90deg);
 }
 
 /* ✦ thinking 星标（借鉴 Tidal Echo 的 think-caption，不带两侧分隔线）。 */

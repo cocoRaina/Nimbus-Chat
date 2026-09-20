@@ -181,7 +181,7 @@ const ToolCallCard = memo(function ToolCallCard({
   const badge = resultBadge(result)
 
   return (
-    <div className={nested ? 'tool-call-card tool-call-card--nested' : 'tool-call-card'}>
+    <div className={`tool-call-card ${expanded ? 'is-open' : ''} ${nested ? 'tool-call-card--nested' : ''}`}>
       <button
         type="button"
         className="tool-call-header"
@@ -192,7 +192,7 @@ const ToolCallCard = memo(function ToolCallCard({
         {preview ? <span className="tool-preview">{preview}</span> : null}
         {badge ? <span className={`tool-badge tool-badge--${badge.kind}`}>{badge.text}</span> : null}
         {duration_ms ? <span className="tool-duration">{duration_ms}ms</span> : null}
-        <span className="tool-chevron">{expanded ? '▾' : '▸'}</span>
+        <span className="tool-chevron">›</span>
       </button>
       {expanded ? (
         <div className="tool-call-body">
@@ -224,7 +224,7 @@ const ToolCallGroup = memo(function ToolCallGroup({ calls }: { calls: ToolCallRe
   const totalMs = calls.reduce((s, c) => s + (c.duration_ms ?? 0), 0)
 
   return (
-    <div className="tool-call-card">
+    <div className={`tool-call-card ${expanded ? 'is-open' : ''}`}>
       <button
         type="button"
         className="tool-call-header"
@@ -234,7 +234,7 @@ const ToolCallGroup = memo(function ToolCallGroup({ calls }: { calls: ToolCallRe
         <span className="tool-label">{label}</span>
         <span className="tool-preview tool-count">×{calls.length}</span>
         {totalMs ? <span className="tool-duration">{totalMs}ms</span> : null}
-        <span className="tool-chevron">{expanded ? '▾' : '▸'}</span>
+        <span className="tool-chevron">›</span>
       </button>
       {expanded ? (
         <div className="tool-call-body tool-group-body">

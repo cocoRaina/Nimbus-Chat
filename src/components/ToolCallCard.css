@@ -1,10 +1,17 @@
+/* Collapsed = a quiet folded line (no box), like the thinking line above it.
+   The box only appears once expanded. */
 .tool-call-card {
-  margin: 6px 0;
-  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.35));
+  margin: 1px 0;
+  border: 1px solid transparent;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.55);
+  background: transparent;
   font-size: 13px;
   overflow: hidden;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.tool-call-card.is-open {
+  border-color: var(--hairline, rgba(88, 104, 120, 0.14));
+  background: rgba(88, 104, 120, 0.04);
 }
 
 .tool-call-header {
@@ -12,21 +19,19 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 3px 2px;
   background: none;
   border: none;
   cursor: pointer;
   text-align: left;
   color: var(--text-subtle, var(--ab-accent));
-  font-size: 13px;
+  font-size: 12.5px;
+  font-style: italic;
 }
+.tool-call-card.is-open .tool-call-header { padding: 7px 11px; }
 
-.tool-call-header:active {
-  background: rgba(88, 104, 120, 0.05);
-}
-
-.tool-icon { font-size: 13px; flex-shrink: 0; }
-.tool-label { font-weight: 600; color: var(--text-main, var(--ab-deep)); }
+.tool-icon { font-size: 12.5px; flex-shrink: 0; opacity: 0.85; font-style: normal; }
+.tool-label { font-weight: 600; font-style: normal; color: var(--ab-ink, #586878); }
 
 .tool-preview {
   color: var(--text-subtle, var(--ab-accent));
@@ -61,9 +66,13 @@
 
 .tool-chevron {
   color: var(--text-subtle, var(--ab-accent));
-  font-size: 11px;
+  font-size: 15px;
+  line-height: 1;
   flex-shrink: 0;
+  font-style: normal;
+  transition: transform 0.2s ease;
 }
+.tool-call-card.is-open .tool-chevron { transform: rotate(90deg); }
 
 .tool-call-body {
   padding: 6px 12px 12px;

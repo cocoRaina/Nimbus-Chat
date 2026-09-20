@@ -12,13 +12,13 @@ const ReasoningPanel = memo(({ reasoning }: ReasoningPanelProps) => {
     <div className="reasoning-panel">
       <button
         type="button"
-        className="reasoning-panel__toggle"
+        className={`reasoning-panel__toggle ${isOpen ? 'is-open' : ''}`}
         aria-expanded={isOpen}
         aria-label="查看思考链"
         onClick={() => setIsOpen((current) => !current)}
       >
-        <span className="reasoning-panel__star" aria-hidden="true">✦</span>
-        <span className="reasoning-panel__caption">thinking</span>
+        <span className="reasoning-panel__caption">{isOpen ? '思考' : '思考中…'}</span>
+        <span className="reasoning-panel__chev" aria-hidden="true">›</span>
       </button>
       <div className={`reasoning-panel__content ${isOpen ? 'is-open' : ''}`}>
         <div className="reasoning-panel__body reasoning-content">{reasoning}</div>
