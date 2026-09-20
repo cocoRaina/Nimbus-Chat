@@ -1005,6 +1005,77 @@ app.get('/api/journal/read', authenticate, (req, res) => {
   res.json(filtered.slice(-limit))
 })
 
+// ══ Code Tools (search / find / edit) ═════════════════════════════════
+const REPO_DIR = process.env.REPO_DIR || path.join(__dirname, '..')
+
+app.post('/api/code/search', authenticate, (req, res) => {
+  const { pattern, path: searchPath, glob, context = 2, maxResults = 60 } = req.body
+  if (!pattern) return res.status(400).json({ error: 'Missing pattern' })
+  const dir = searchPath ? path.resolve(REPO_DIR, searchPath) : REPO_DIR
+  if (!dir.startsWith(REPO_DIR)) return res.status(403).json({ error: 'Path outside repo' })
+  const args = ['-rn', `--include=${glob || '*'}`, `-C${context}`, '--color=never', '-m', String(maxResults)]
+  try {
+    const out = execSync(`grep ${args.map(a => `'${a}'`).join(' ')} '${pattern.replace(/'/g, "'\\''")}' '${dir}'`, {
+      timeout: 15000, maxBuffer: 512 * 1024, encoding: 'utf8', cwd: REPO_DIR,
+    })
+    const lines = out.split('\n').slice(0, 500)
+    logOp({ action: 'code_search', level: 'green', detail: `"${pattern}" → ${lines.length} lines` })
+    res.json({ pattern, matches: lines.join('\n') })
+  } catch (err) {
+    if (err.status === 1) return res.json({ pattern, matches: '' })
+    res.status(500).json({ error: err.message?.slice(0, 200) })
+  }
+})
+
+app.post('/api/code/find', authenticate, (req, res) => {
+  const { pattern, searchPath, type } = req.body
+  if (!pattern) return res.status(400).json({ error: 'Missing pattern' })
+  const dir = searchPath ? path.resolve(REPO_DIR, searchPath) : REPO_DIR
+  if (!dir.startsWith(REPO_DIR)) return res.status(403).json({ error: 'Path outside repo' })
+  const typeArg = type === 'dir' ? '-type d' : type === 'file' ? '-type f' : ''
+  try {
+    const out = execSync(
+      `find '${dir}' -name '${pattern.replace(/'/g, "'\\''")}' ${typeArg} -not -path '*/node_modules/*' -not -path '*/.git/*' | head -100`,
+      { timeout: 10000, maxBuffer: 256 * 1024, encoding: 'utf8' },
+    )
+    const files = out.trim().split('\n').filter(Boolean).map(f => f.replace(REPO_DIR + '/', ''))
+    logOp({ action: 'code_find', level: 'green', detail: `"${pattern}" → ${files.length} files` })
+    res.json({ files })
+  } catch (err) {
+    res.status(500).json({ error: err.message?.slice(0, 200) })
+  }
+})
+
+app.post('/api/code/edit', authenticate, (req, res) => {
+  const { filePath, oldString, newString, replaceAll = false } = req.body
+  if (!filePath || typeof oldString !== 'string' || typeof newString !== 'string') {
+    return res.status(400).json({ error: 'Missing filePath, oldString, or newString' })
+  }
+  const full = path.resolve(REPO_DIR, filePath)
+  if (!full.startsWith(REPO_DIR)) return res.status(403).json({ error: 'Path outside repo' })
+  if (!fs.existsSync(full)) return res.status(404).json({ error: 'File not found' })
+
+  let content = fs.readFileSync(full, 'utf8')
+  if (!content.includes(oldString)) {
+    return res.status(400).json({ error: 'oldString not found in file', hint: 'Check whitespace and exact match' })
+  }
+  if (!replaceAll) {
+    const count = content.split(oldString).length - 1
+    if (count > 1) {
+      return res.status(400).json({ error: `oldString found ${count} times — use replaceAll or provide more context to make it unique` })
+    }
+  }
+  if (replaceAll) {
+    content = content.split(oldString).join(newString)
+  } else {
+    const idx = content.indexOf(oldString)
+    content = content.slice(0, idx) + newString + content.slice(idx + oldString.length)
+  }
+  fs.writeFileSync(full, content, 'utf8')
+  logOp({ action: 'code_edit', level: 'yellow', detail: `${filePath}: replaced ${oldString.length}→${newString.length} chars` })
+  res.json({ ok: true, filePath, bytesWritten: Buffer.byteLength(content) })
+})
+
 // ══ Web Push ══════════════════════════════════════════════════════════
 const VAPID_PATH = path.join(__dirname, 'vapid.json')
 const PUSH_SUBS_PATH = path.join(__dirname, 'push_subscriptions.json')

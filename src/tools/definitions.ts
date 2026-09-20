@@ -1444,3 +1444,99 @@ export const TOOL_VPS_JOURNAL_READ = {
     },
   },
 }
+
+// ── Code Tools ─────────────────────────────────────────────────
+
+export const TOOL_VPS_CODE_SEARCH = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_code_search',
+    description:
+      'Search code in the repository by regex pattern (like grep). Returns matching lines with context. ' +
+      'Use this to find where something is defined, how a function is used, or locate relevant code.',
+    parameters: {
+      type: 'object',
+      properties: {
+        pattern: {
+          type: 'string',
+          description: 'Regex pattern to search for (e.g. "functionName", "import.*module")',
+        },
+        path: {
+          type: 'string',
+          description: 'Subdirectory to search in (e.g. "src/pages"). Default: entire repo.',
+        },
+        glob: {
+          type: 'string',
+          description: 'File glob filter (e.g. "*.ts", "*.tsx"). Default: all files.',
+        },
+        context: {
+          type: 'integer',
+          description: 'Lines of context around each match (default 2)',
+        },
+      },
+      required: ['pattern'],
+    },
+  },
+}
+
+export const TOOL_VPS_CODE_FIND = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_code_find',
+    description:
+      'Find files by name pattern in the repository (like find/glob). ' +
+      'Use to locate files before reading or editing them.',
+    parameters: {
+      type: 'object',
+      properties: {
+        pattern: {
+          type: 'string',
+          description: 'File name pattern (e.g. "*.tsx", "ConsolePage*", "index.js")',
+        },
+        searchPath: {
+          type: 'string',
+          description: 'Subdirectory to search in. Default: entire repo.',
+        },
+        type: {
+          type: 'string',
+          enum: ['file', 'dir'],
+          description: 'Match only files or directories',
+        },
+      },
+      required: ['pattern'],
+    },
+  },
+}
+
+export const TOOL_VPS_CODE_EDIT = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_code_edit',
+    description:
+      'Edit a file by replacing an exact string with a new string. Much safer than rewriting the whole file. ' +
+      'The oldString must match exactly (including whitespace). If it appears multiple times, ' +
+      'provide more context to make it unique, or set replaceAll=true.',
+    parameters: {
+      type: 'object',
+      properties: {
+        filePath: {
+          type: 'string',
+          description: 'Path relative to repo root (e.g. "src/pages/ConsolePage.tsx")',
+        },
+        oldString: {
+          type: 'string',
+          description: 'The exact text to find and replace',
+        },
+        newString: {
+          type: 'string',
+          description: 'The replacement text',
+        },
+        replaceAll: {
+          type: 'boolean',
+          description: 'Replace all occurrences (default false)',
+        },
+      },
+      required: ['filePath', 'oldString', 'newString'],
+    },
+  },
+}

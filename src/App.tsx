@@ -182,6 +182,7 @@ import {
   TOOL_VPS_EXEC,TOOL_VPS_EXEC_ASYNC, TOOL_VPS_TASK_STATUS, TOOL_VPS_TASK_KILL,
   TOOL_VPS_LLM_CALL, TOOL_VPS_SCHEDULE_CREATE, TOOL_VPS_SCHEDULE_LIST, TOOL_VPS_SCHEDULE_DELETE,
   TOOL_VPS_NOTIFY, TOOL_VPS_JOURNAL_WRITE, TOOL_VPS_JOURNAL_READ,
+  TOOL_VPS_CODE_SEARCH, TOOL_VPS_CODE_FIND, TOOL_VPS_CODE_EDIT,
 } from './tools/definitions'
 import { saveToy } from './storage/toybox'
 import { extractArtifactCode } from './utils/artifact'
@@ -2966,7 +2967,7 @@ TOOL_SEARCH_HANDOFF,
                 TOOL_RUN_CODE,
                 ...(supabase ? [TOOL_SEARCH_STICKERS, TOOL_POST_MOMENT, TOOL_BROWSE_MOMENTS, TOOL_REPLY_MOMENT, TOOL_SAVE_TO_ALBUM, TOOL_BROWSE_ALBUM, TOOL_LIST_PHOTOS, TOOL_SCHEDULE_CALL, TOOL_TIDY_IMAGES, TOOL_SAVE_TOY, TOOL_WRITE_ESSAY, TOOL_READ_ESSAYS, TOOL_SET_ESSAY_LOCK, TOOL_SEARCH_4O_ARCHIVE] : []),
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
-                ...(isVpsConfigured() ? [TOOL_VPS_BROWSE, TOOL_VPS_STATUS, TOOL_VPS_EXEC_SQL, TOOL_VPS_FILE_READ, TOOL_VPS_GIT_STATUS, TOOL_VPS_FILE_WRITE, TOOL_VPS_EXEC, TOOL_VPS_EXEC_ASYNC, TOOL_VPS_TASK_STATUS, TOOL_VPS_TASK_KILL, TOOL_VPS_LLM_CALL, TOOL_VPS_SCHEDULE_CREATE, TOOL_VPS_SCHEDULE_LIST, TOOL_VPS_SCHEDULE_DELETE, TOOL_VPS_NOTIFY, TOOL_VPS_JOURNAL_WRITE, TOOL_VPS_JOURNAL_READ] : []),
+                ...(isVpsConfigured() ? [TOOL_VPS_BROWSE, TOOL_VPS_STATUS, TOOL_VPS_EXEC_SQL, TOOL_VPS_FILE_READ, TOOL_VPS_GIT_STATUS, TOOL_VPS_FILE_WRITE, TOOL_VPS_EXEC, TOOL_VPS_EXEC_ASYNC, TOOL_VPS_TASK_STATUS, TOOL_VPS_TASK_KILL, TOOL_VPS_LLM_CALL, TOOL_VPS_SCHEDULE_CREATE, TOOL_VPS_SCHEDULE_LIST, TOOL_VPS_SCHEDULE_DELETE, TOOL_VPS_NOTIFY, TOOL_VPS_JOURNAL_WRITE, TOOL_VPS_JOURNAL_READ, TOOL_VPS_CODE_SEARCH, TOOL_VPS_CODE_FIND, TOOL_VPS_CODE_EDIT] : []),
               ]
               requestBody.tool_choice = 'auto'
             }
@@ -4866,6 +4867,30 @@ TOOL_SEARCH_HANDOFF,
                     if (args.limit) params.set('limit', String(args.limit))
                     const qs = params.toString()
                     const res = await vfetch(`/api/journal/read${qs ? '?' + qs : ''}`)
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_code_search' && isVpsConfigured()) {
+                    setToolStatus('🔍 Searching code…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/code/search', {
+                      method: 'POST',
+                      body: JSON.stringify({ pattern: args.pattern, path: args.path, glob: args.glob, context: args.context }),
+                    })
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_code_find' && isVpsConfigured()) {
+                    setToolStatus('📂 Finding files…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/code/find', {
+                      method: 'POST',
+                      body: JSON.stringify({ pattern: args.pattern, searchPath: args.searchPath, type: args.type }),
+                    })
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name === 'vps_code_edit' && isVpsConfigured()) {
+                    setToolStatus('✏️ Editing code…')
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    const res = await vfetch('/api/code/edit', {
+                      method: 'POST',
+                      body: JSON.stringify({ filePath: args.filePath, oldString: args.oldString, newString: args.newString, replaceAll: args.replaceAll }),
+                    })
                     resultText = JSON.stringify(await res.json())
                   } else {
                     resultText = JSON.stringify({ error: `unsupported tool: ${tc.function.name}` })
