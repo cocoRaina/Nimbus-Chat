@@ -441,9 +441,27 @@ const executeApprovedOp = (op) => {
         op.result = 'pushed'
         break
       }
-      case 'exec_write':
+      case 'exec_write': {
+        // Actually RUN the approved command (previously it was only marked
+        // 'approved_for_execution' and never executed → approvals hung).
+        const { command, timeout_ms } = op.payload || {}
+        const timeout = Math.min(120000, Math.max(3000, timeout_ms || 30000))
+        try {
+          const stdout = execSync(command, { timeout, maxBuffer: 2 * 1024 * 1024, encoding: 'utf8', cwd: REPO_DIR, shell: '/bin/bash' })
+          op.result = redactText(stdout.slice(0, 20000)) || '(no output)'
+          op.exit_code = 0
+        } catch (err) {
+          op.result = redactText(((err.stdout || '') + (err.stderr || err.message || '')).slice(0, 20000))
+          op.exit_code = err.killed ? 124 : (err.status || 1)
+        }
+        break
+      }
       case 'exec_write_async': {
-        op.result = 'approved_for_execution'
+        // Launch as a detached background job (survives a restart, non-blocking).
+        const { command } = op.payload || {}
+        const job = spawnDetachedJob(command)
+        op.result = `background job started: ${job.id} (pid ${job.pid})`
+        op.job_id = job.id
         break
       }
       default:
@@ -747,6 +765,33 @@ const reconcileDetached = () => {
 }
 reconcileDetached()
 
+// Spawn a command as a detached background job: own process group, output to a
+// log file, tracked by PID in detached-tasks.json. Survives a service restart.
+// Throws if the log file can't be opened. Used by /api/exec/async (detach:true)
+// and by executeApprovedOp for approved exec_write_async ops.
+const spawnDetachedJob = (command) => {
+  fs.mkdirSync(TASK_LOG_DIR, { recursive: true })
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+  const logFile = path.join(TASK_LOG_DIR, `${id}.log`)
+  const out = fs.openSync(logFile, 'a')
+  const child = spawn('bash', ['-lc', command], {
+    cwd: REPO_DIR,
+    detached: true,
+    stdio: ['ignore', out, out],
+  })
+  child.unref()
+  try { fs.closeSync(out) } catch {}
+  const rec = {
+    id, command, pid: child.pid, logFile,
+    status: 'running', detached: true,
+    started: new Date().toISOString(), finished: null,
+  }
+  detachedTasks.push(rec)
+  saveDetached()
+  logOp({ action: 'exec_async', level: 'yellow', detail: `[${id}] detached (pid ${child.pid}): ${command.slice(0, 80)}` })
+  return rec
+}
+
 app.post('/api/exec/async', authenticate, (req, res) => {
   const { command, timeout_ms, approval_id } = req.body
   if (!command) return res.status(400).json({ ok: false, error: 'Missing command' })
@@ -777,29 +822,12 @@ app.post('/api/exec/async', authenticate, (req, res) => {
 
   // ── Detached mode: fully independent of nimbus-api's lifecycle ──────
   if (req.body.detach) {
-    try { fs.mkdirSync(TASK_LOG_DIR, { recursive: true }) } catch {}
-    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-    const logFile = path.join(TASK_LOG_DIR, `${id}.log`)
-    let out
-    try { out = fs.openSync(logFile, 'a') } catch (err) {
-      return res.status(500).json({ ok: false, error: `无法创建日志文件: ${err.message}` })
+    try {
+      const rec = spawnDetachedJob(command)
+      return res.json({ ok: true, id: rec.id, pid: rec.pid, detached: true, message: '后台任务已启动（脱离主进程，重启后端也不会中断）' })
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: `无法启动后台任务: ${err.message}` })
     }
-    const child = spawn('bash', ['-lc', command], {
-      cwd: REPO_DIR,
-      detached: true,       // own process group — not killed when we restart
-      stdio: ['ignore', out, out],
-    })
-    child.unref()
-    try { fs.closeSync(out) } catch {}
-    const rec = {
-      id, command, pid: child.pid, logFile,
-      status: 'running', detached: true,
-      started: new Date().toISOString(), finished: null,
-    }
-    detachedTasks.push(rec)
-    saveDetached()
-    logOp({ action: 'exec_async', level: 'yellow', detail: `[${id}] detached (pid ${child.pid}): ${command.slice(0, 80)}` })
-    return res.json({ ok: true, id, pid: child.pid, detached: true, message: '后台任务已启动（脱离主进程，重启后端也不会中断）' })
   }
 
   const timeout = Math.min(ASYNC_MAX_MS, Math.max(5000, timeout_ms || 300000))
