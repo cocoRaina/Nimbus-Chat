@@ -335,7 +335,6 @@ const executeApprovedOp = (op) => {
       }
       case 'exec_write':
       case 'exec_write_async': {
-        // Approved exec: mark as approved so the next call with approval_id passes
         op.result = 'approved_for_execution'
         break
       }
@@ -522,7 +521,6 @@ app.post('/api/mcp/toggle', authenticate, (req, res) => {
 
 // ══ Shell Exec ═══════════════════════════════════════════════════════
 
-// Write-command detection: commands that modify files/system state
 const WRITE_CMD_PATTERNS = [
   /\bsed\s+-i\b/, /\bsed\b.*\bi\b/,
   /\brm\s/, /\bunlink\s/,
@@ -539,9 +537,9 @@ const WRITE_CMD_PATTERNS = [
   /\bkill\b/, /\bkillall\b/, /\bpkill\b/,
   /\bsystemctl\s+(start|stop|restart|enable|disable)\b/,
   /\bcrontab\b/,
-  /\bcurl\b.*(-X\s*(PUT|POST|DELETE|PATCH)|-d\s)/, // curl with write methods
+  /\bcurl\b.*(-X\s*(PUT|POST|DELETE|PATCH)|-d\s)/,
 ]
-const REDIRECT_PATTERN = /[^2]?>(?!&)/ // stdout redirect (not 2>&1)
+const REDIRECT_PATTERN = /[^2]?>(?!&)/
 const PIPE_WRITE_PATTERN = /\|\s*(tee|dd|xargs\s+(rm|mv|cp))\b/
 
 const isWriteCommand = (cmd) => {
@@ -555,7 +553,6 @@ app.post('/api/exec', authenticate, (req, res) => {
   const { command, timeout_ms, approval_id } = req.body
   if (!command) return res.status(400).json({ ok: false, error: 'Missing command' })
 
-  // If this is a write command, require approval
   if (isWriteCommand(command) && !approval_id) {
     const pending = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -573,7 +570,6 @@ app.post('/api/exec', authenticate, (req, res) => {
     return res.json({ ok: false, needs_approval: true, id: pending.id, command: command.slice(0, 500), message: '写操作需要主人批准' })
   }
 
-  // If approval_id provided, verify it's approved
   if (approval_id) {
     const op = pendingOps.find((o) => o.id === approval_id)
     if (!op) return res.status(400).json({ ok: false, error: '审批记录不存在' })
@@ -613,7 +609,6 @@ app.post('/api/exec/async', authenticate, (req, res) => {
   const { command, timeout_ms, approval_id } = req.body
   if (!command) return res.status(400).json({ ok: false, error: 'Missing command' })
 
-  // Write command check (same as sync exec)
   if (isWriteCommand(command) && !approval_id) {
     const pending = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -706,6 +701,7 @@ app.get('/api/exec/list', authenticate, (_req, res) => {
   }
   res.json(list)
 })
+
 // ══ Code Sandbox ══════════════════════════════════════════════════════
 app.post('/api/sandbox/run', authenticate, (req, res) => {
   const { language, code, timeout_seconds } = req.body
@@ -773,6 +769,224 @@ cron.schedule('*/10 * * * *', async () => {
   } finally {
     wakeRunning = false
   }
+})
+
+// ══ Sub-model Dispatch ════════════════════════════════════════════════
+app.post('/api/llm/call', authenticate, async (req, res) => {
+  const { prompt, model, system, max_tokens = 2000, temperature = 0.7 } = req.body
+  if (!prompt) return res.status(400).json({ error: 'Missing prompt' })
+
+  const apiKey = process.env.OPENROUTER_API_KEY
+  const baseUrl = process.env.LLM_BASE_URL || 'https://openrouter.ai/api/v1'
+  if (!apiKey) return res.status(500).json({ error: 'No API key configured' })
+
+  const messages = []
+  if (system) messages.push({ role: 'system', content: system })
+  messages.push({ role: 'user', content: prompt })
+
+  try {
+    const resp = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model || 'google/gemini-2.0-flash-001',
+        messages,
+        max_tokens,
+        temperature,
+      }),
+    })
+    const data = await resp.json()
+    if (data.error) {
+      logOp({ action: 'llm_call', level: 'yellow', error: data.error.message })
+      return res.status(502).json({ error: data.error.message })
+    }
+    const reply = data.choices?.[0]?.message?.content || ''
+    const usage = data.usage || {}
+    logOp({ action: 'llm_call', level: 'yellow', detail: `${model || 'default'}: ${prompt.slice(0, 60)}`, tokens: usage.total_tokens })
+    res.json({ ok: true, reply, model: data.model, usage })
+  } catch (err) {
+    logOp({ action: 'llm_call', level: 'yellow', error: err.message })
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ══ Dynamic Scheduling ═══════════════════════════════════════════════
+const SCHEDULES_PATH = path.join(__dirname, 'schedules.json')
+let schedules = []
+try {
+  if (fs.existsSync(SCHEDULES_PATH)) {
+    schedules = JSON.parse(fs.readFileSync(SCHEDULES_PATH, 'utf8'))
+  }
+} catch {}
+
+const saveSchedules = () => {
+  try { fs.writeFileSync(SCHEDULES_PATH, JSON.stringify(schedules, null, 2)) } catch {}
+}
+
+const scheduledJobs = new Map()
+
+const startSchedule = (sched) => {
+  if (scheduledJobs.has(sched.id)) return
+  if (!sched.enabled) return
+  try {
+    const job = cron.schedule(sched.cron, () => {
+      logOp({ action: 'schedule_fire', level: 'green', detail: `[${sched.id}] ${sched.name}: ${sched.task}` })
+      sched.lastFired = new Date().toISOString()
+      sched.fireCount = (sched.fireCount || 0) + 1
+      saveSchedules()
+    })
+    scheduledJobs.set(sched.id, job)
+  } catch {}
+}
+
+schedules.filter((s) => s.enabled).forEach(startSchedule)
+
+app.post('/api/schedule/create', authenticate, (req, res) => {
+  const { name, cron: cronExpr, task, enabled = true } = req.body
+  if (!name || !cronExpr) return res.status(400).json({ error: 'Missing name or cron' })
+  if (!cron.validate(cronExpr)) return res.status(400).json({ error: 'Invalid cron expression' })
+
+  const sched = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    name,
+    cron: cronExpr,
+    task: task || '',
+    enabled,
+    created: new Date().toISOString(),
+    lastFired: null,
+    fireCount: 0,
+  }
+  schedules.push(sched)
+  saveSchedules()
+  if (enabled) startSchedule(sched)
+  logOp({ action: 'schedule_create', level: 'yellow', detail: `${name} (${cronExpr})` })
+  res.json(sched)
+})
+
+app.get('/api/schedule/list', authenticate, (_req, res) => {
+  res.json(schedules.map((s) => ({ ...s, active: scheduledJobs.has(s.id) })))
+})
+
+app.post('/api/schedule/delete', authenticate, (req, res) => {
+  const { id } = req.body
+  const job = scheduledJobs.get(id)
+  if (job) { job.stop(); scheduledJobs.delete(id) }
+  const idx = schedules.findIndex((s) => s.id === id)
+  if (idx < 0) return res.status(404).json({ error: 'Schedule not found' })
+  const removed = schedules.splice(idx, 1)[0]
+  saveSchedules()
+  logOp({ action: 'schedule_delete', level: 'yellow', detail: removed.name })
+  res.json({ removed: removed.name })
+})
+
+app.post('/api/schedule/toggle', authenticate, (req, res) => {
+  const { id, enabled } = req.body
+  const sched = schedules.find((s) => s.id === id)
+  if (!sched) return res.status(404).json({ error: 'Schedule not found' })
+  sched.enabled = !!enabled
+  if (enabled) {
+    startSchedule(sched)
+  } else {
+    const job = scheduledJobs.get(id)
+    if (job) { job.stop(); scheduledJobs.delete(id) }
+  }
+  saveSchedules()
+  res.json(sched)
+})
+
+// ══ Notification Queue ═══════════════════════════════════════════════
+const NOTIF_PATH = path.join(__dirname, 'notifications.json')
+let notifications = []
+try {
+  if (fs.existsSync(NOTIF_PATH)) {
+    notifications = JSON.parse(fs.readFileSync(NOTIF_PATH, 'utf8'))
+  }
+} catch {}
+
+const saveNotifications = () => {
+  try { fs.writeFileSync(NOTIF_PATH, JSON.stringify(notifications.slice(-200), null, 2)) } catch {}
+}
+
+app.post('/api/notify/send', authenticate, (req, res) => {
+  const { title, body, priority = 'normal', data } = req.body
+  if (!title || !body) return res.status(400).json({ error: 'Missing title or body' })
+  const notif = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    title,
+    body,
+    priority,
+    data: data || null,
+    read: false,
+    created: new Date().toISOString(),
+  }
+  notifications.push(notif)
+  saveNotifications()
+  logOp({ action: 'notify_send', level: 'green', detail: title })
+  res.json(notif)
+})
+
+app.get('/api/notify/list', authenticate, (req, res) => {
+  const unreadOnly = req.query.unread === 'true'
+  const limit = Math.min(parseInt(req.query.limit || '50', 10), 200)
+  let filtered = unreadOnly ? notifications.filter((n) => !n.read) : notifications
+  res.json(filtered.slice(-limit))
+})
+
+app.post('/api/notify/ack', authenticate, (req, res) => {
+  const { id, all } = req.body
+  if (all) {
+    notifications.forEach((n) => { n.read = true })
+  } else if (id) {
+    const notif = notifications.find((n) => n.id === id)
+    if (notif) notif.read = true
+  }
+  saveNotifications()
+  res.json({ ok: true })
+})
+
+// ══ Work Journal ═══════════════════════════════════════════════════════
+const JOURNAL_PATH = path.join(__dirname, 'journal.json')
+let journal = []
+try {
+  if (fs.existsSync(JOURNAL_PATH)) {
+    journal = JSON.parse(fs.readFileSync(JOURNAL_PATH, 'utf8'))
+  }
+} catch {}
+
+const saveJournal = () => {
+  try { fs.writeFileSync(JOURNAL_PATH, JSON.stringify(journal.slice(-500), null, 2)) } catch {}
+}
+
+app.post('/api/journal/write', authenticate, (req, res) => {
+  const { type, content, tags } = req.body
+  if (!content) return res.status(400).json({ error: 'Missing content' })
+  const entry = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    type: type || 'note',
+    content,
+    tags: tags || [],
+    created: new Date().toISOString(),
+  }
+  journal.push(entry)
+  saveJournal()
+  logOp({ action: 'journal_write', level: 'green', detail: `[${entry.type}] ${content.slice(0, 60)}` })
+  res.json(entry)
+})
+
+app.get('/api/journal/read', authenticate, (req, res) => {
+  const { type, tag, limit: lim, search } = req.query
+  const limit = Math.min(parseInt(lim || '50', 10), 200)
+  let filtered = journal
+  if (type) filtered = filtered.filter((e) => e.type === type)
+  if (tag) filtered = filtered.filter((e) => e.tags.includes(tag))
+  if (search) {
+    const q = search.toLowerCase()
+    filtered = filtered.filter((e) => e.content.toLowerCase().includes(q))
+  }
+  res.json(filtered.slice(-limit))
 })
 
 // ════════════════════════════════════════════════════════════════════════
