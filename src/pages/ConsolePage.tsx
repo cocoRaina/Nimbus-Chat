@@ -486,7 +486,7 @@ export default function ConsolePage() {
               </div>
               <p className="console-approval-detail">{op.detail}</p>
               <div className="console-approval-status">
-                <span>Wren {op.approvals.wren ? '✅' : '⏳'}</span>
+                <span>Claude {op.approvals.wren ? '✅' : '⏳'}</span>
                 <span>You {op.approvals.user ? '✅' : '⏳'}</span>
               </div>
               {!op.approvals.user && (
