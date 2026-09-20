@@ -425,7 +425,7 @@ export default function ConsolePage() {
   return (
     <div className="console-page">
       <header className="page-header-bar">
-        <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>✕</button>
+        <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>‹</button>
         <h1 className="ui-title">{NAV.find((n) => n.key === tab)?.label ?? '控制台'}</h1>
         <div className="console-header-actions">
           <button type="button" className="console-refresh" onClick={fetchAll} disabled={loading}>
