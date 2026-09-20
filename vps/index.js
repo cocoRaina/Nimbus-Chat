@@ -149,6 +149,28 @@ const redactRow = (row) => {
   return out
 }
 
+// ── Secret redaction for free-form tool output ───────────────────────
+// Tool results (exec stdout, file reads, curwe output, code search) flow into
+// the chat history, get SAVED to Supabase, and get sent to the LLM relay as
+// tool_result blocks. 小机 is the model on that relay, so anything it reads has
+// left the box. Mask secret-looking values BEFORE they leave this backend.
+// Conservative on purpose (secret-named key=value + well-known token shapes)
+// so ordinary output isn't mangled. Defence in depth, not a guarantee.
+// Disable with REDACT_TOOL_OUTPUT=0 (e.g. a trusted single-user box).
+const REDACT_TOOL_OUTPUT = !['0', 'false', 'no'].includes((process.env.REDACT_TOOL_OUTPUT || '1').toLowerCase())
+const SECRET_KEYWORDS = 'API[_-]?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE[_-]?KEY|CREDENTIAL|SERVICE[_-]?ROLE|ANON[_-]?KEY|ACCESS[_-]?KEY|CLIENT[_-]?SECRET|AUTH[_-]?TOKEN'
+const RE_ENV_ASSIGN = new RegExp(`^([ \\t]*(?:export[ \\t]+)?[A-Za-z0-9_.-]*(?:${SECRET_KEYWORDS})[A-Za-z0-9_.-]*[ \\t]*[:=][ \\t]*)(["']?)([^\\r\\n"']{4,})(\\2)`, 'gim')
+const RE_JSON_SECRET = new RegExp(`("[A-Za-z0-9_.-]*(?:${SECRET_KEYWORDS})[A-Za-z0-9_.-]*"[ \\t]*:[ \\t]*")([^"]{4,})(")`, 'gi')
+const redactText = (input) => {
+  if (!REDACT_TOOL_OUTPUT || typeof input !== 'string' || !input) return input
+  return input
+    .replace(RE_ENV_ASSIGN, '$1$2***REDACTED***$4')
+    .replace(RE_JSON_SECRET, '$1***REDACTED***$3')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]{8,}=*/g, 'Bearer ***REDACTED***')
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}\b/g, 'sk-***REDACTED***')
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\b/g, '***REDACTED_JWT***')
+}
+
 // ════════════════════════════════════════════════════════════════════════
 //  ROUTES
 // ════════════════════════════════════════════════════════════════════════
@@ -305,7 +327,7 @@ app.post('/api/file/read', authenticate, (req, res) => {
   try {
     const content = fs.readFileSync(absPath, 'utf8')
     logOp({ action: 'file_read', level: 'green', detail: filePath })
-    res.json({ content, size: content.length })
+    res.json({ content: redactText(content), size: content.length })
   } catch (err) {
     res.status(404).json({ error: err.message })
   }
@@ -672,14 +694,14 @@ app.post('/api/exec', authenticate, (req, res) => {
       shell: '/bin/bash',
     })
     logOp({ action: 'exec', level: 'yellow', detail: command.slice(0, 120), result: 'ok' })
-    res.json({ ok: true, stdout: stdout.slice(0, 50000), stderr: '', exit_code: 0, duration_ms: Date.now() - start })
+    res.json({ ok: true, stdout: redactText(stdout.slice(0, 50000)), stderr: '', exit_code: 0, duration_ms: Date.now() - start })
   } catch (err) {
     const duration_ms = Date.now() - start
     logOp({ action: 'exec', level: 'yellow', detail: command.slice(0, 120), result: err.killed ? 'timeout' : 'error' })
     res.json({
       ok: true,
-      stdout: (err.stdout || '').slice(0, 50000),
-      stderr: (err.stderr || err.message || '').slice(0, 50000),
+      stdout: redactText((err.stdout || '').slice(0, 50000)),
+      stderr: redactText((err.stderr || err.message || '').slice(0, 50000)),
       exit_code: err.killed ? 124 : (err.status || 1),
       duration_ms,
     })
@@ -818,8 +840,8 @@ app.get('/api/exec/status/:id', authenticate, (req, res) => {
   const task = asyncTasks.get(req.params.id)
   if (task) {
     const { _child, ...safe } = task
-    safe.stdout_tail = safe.stdout.slice(-8000)
-    safe.stderr_tail = safe.stderr.slice(-4000)
+    safe.stdout_tail = redactText(safe.stdout.slice(-8000))
+    safe.stderr_tail = redactText(safe.stderr.slice(-4000))
     delete safe.stdout
     delete safe.stderr
     return res.json(safe)
@@ -835,7 +857,7 @@ app.get('/api/exec/status/:id', authenticate, (req, res) => {
     }
     let tail = ''
     try { tail = fs.readFileSync(det.logFile, 'utf8').slice(-8000) } catch {}
-    return res.json({ ...det, running: alive, stdout_tail: tail })
+    return res.json({ ...det, running: alive, stdout_tail: redactText(tail) })
   }
   return res.status(404).json({ error: 'Task not found or expired' })
 })
@@ -921,7 +943,7 @@ app.post('/api/curwe/call', authenticate, async (req, res) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, arguments: toolArgs || {} }),
     }, CURWE_CALL_TIMEOUT_MS)
-    const text = await r.text()
+    const text = redactText(await r.text())
     let data; try { data = JSON.parse(text) } catch { data = { raw: text } }
     res.status(r.ok ? 200 : r.status).json(data)
   } catch (err) {
@@ -1292,7 +1314,7 @@ app.post('/api/code/search', authenticate, (req, res) => {
     })
     const lines = out.split('\n').slice(0, 500)
     logOp({ action: 'code_search', level: 'green', detail: `"${pattern}" → ${lines.length} lines` })
-    res.json({ pattern, matches: lines.join('\n') })
+    res.json({ pattern, matches: redactText(lines.join('\n')) })
   } catch (err) {
     if (err.status === 1) return res.json({ pattern, matches: '' })
     res.status(500).json({ error: err.message?.slice(0, 200) })

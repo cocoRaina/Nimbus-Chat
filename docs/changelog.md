@@ -4,6 +4,16 @@
 
 ---
 
+## 🔒 工具输出脱敏（防密钥泄漏给中转/存库）（2026-09-20）
+
+**背景**：以前只有 `/api/db/query` 结果按字段名脱敏（`redactRow`）。`vps_exec` stdout、`vps_file_read`、`vps_code_search`、curwe 返回全是**原文**——而工具结果会 ① 存进 Supabase `messages.meta`、② 作为 tool_result **发回中转/LLM**（小机就是中转上的模型，等于密钥出境）、③ 显示在工具卡。加了 `EXTRA_WRITE_PATHS`（能读 `/home/curwe/.env`）+ curwe 透传后暴露面更大。
+
+**修法**：加 `redactText()`，在**离开后端前**把自由文本里的密钥打码——命中"密钥名 key=value / JSON `"key":"value"`"（API_KEY/SECRET/TOKEN/PASSWORD/PRIVATE_KEY/SERVICE_ROLE/ANON_KEY/ACCESS_KEY/CLIENT_SECRET/AUTH_TOKEN…）+ 已知令牌格式（`Bearer …`/`sk-…`/JWT `eyJ…`）。保守设计，普通输出（`PORT=3000`、构建日志、计数）不动。接到所有工具出口：`exec` stdout/stderr、异步/detached 日志 tail、`file_read`、`code_search`、`curwe/call`。可用 `REDACT_TOOL_OUTPUT=0` 关（单人可信机）。
+
+**注意**：这只是纵深防御、不是保证；正则漏网的仍可能过。且 `file_read` 读 `.env` 现在也会打码——**改非密钥行不受影响**（`code_edit` 服务端读真文件、只回结果），要改密钥值本来就该由主人给。curwe 本体那套 `sanitize_payload()` 是它当 LLM 网关时用的，不在本路径。
+
+---
+
 ## 🧰 接入 curwe agent 工作台（后台长任务）（2026-09-20）
 
 **背景**：小机想用 curwe 跑后台长任务（curwe = 自托管 agent 工具网关，`ws_job` 不堵塞、日志可 tail、完成推 `job_finished` 事件；自带 `/workspace` 低权限沙箱）。curwe 只暴露 REST（`GET /api/v1/tools` + `POST /api/v1/tools/call`）、**绑 `127.0.0.1:8000`、无内建鉴权**。
