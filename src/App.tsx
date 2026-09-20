@@ -211,15 +211,11 @@ const COMPRESS_FOLD_EXTRACT_MAX = 80
 // 出现的方括号不受影响（只锚定开头）。
 const stripReplayMarkers = (text: string): string => {
   if (!text) return text
-  let out = text
-  // 循环：思考标记注入在工具标记之前，两个可能叠在开头，逐个切。
-  const re = /^\s*\[(?:本轮思考|本轮已调用工具)\][\s\S]*?(?:\n\n|\n|$)/
-  while (re.test(out)) {
-    const next = out.replace(re, '')
-    if (next === out) break
-    out = next
-  }
-  return out.replace(/^\s+/, '')
+  // 模型偶尔把 [本轮思考]/[本轮已调用工具] 连同整段工具轨迹照抄进正文（不一定在
+  // 开头，也可能另起一行出现在中间）。凡是【独占一行】的这类标记，连同它后面
+  // 那段直到空行/结尾一并切掉；行内偶发的方括号不受影响（要求标记在行首）。
+  const re = /(^|\n)[ \t]*\[(?:本轮思考|本轮已调用工具)\][\s\S]*?(?=\n\n|$)/g
+  return text.replace(re, '$1').replace(/^\s+/, '')
 }
 
 type ExtractMessageInput = { role: string; content: string }

@@ -375,11 +375,18 @@ app.get('/api/ops/history', authenticate, (req, res) => {
 // One-click clear of all resolved records (keeps still-pending ones).
 app.post('/api/ops/clear', authenticate, (req, res) => {
   const before = pendingOps.length
-  pendingOps = pendingOps.filter((op) => op.status === 'pending')
+  // Default: clear only resolved. { all: true } wipes EVERYTHING including
+  // stuck pending ops (in-memory too, so the running process won't rewrite
+  // them back to disk — the reason rm-ing the file alone never stuck).
+  if (req.body?.all === true) {
+    pendingOps = []
+  } else {
+    pendingOps = pendingOps.filter((op) => op.status === 'pending')
+  }
   savePending()
   const removed = before - pendingOps.length
-  logOp({ action: 'ops_clear', level: 'green', detail: `cleared ${removed} resolved ops` })
-  res.json({ ok: true, removed })
+  logOp({ action: 'ops_clear', level: 'green', detail: `cleared ${removed} ops${req.body?.all ? ' (all)' : ''}` })
+  res.json({ ok: true, removed, remaining: pendingOps.length })
 })
 
 app.post('/api/ops/approve', authenticate, async (req, res) => {

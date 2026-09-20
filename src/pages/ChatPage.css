@@ -1744,9 +1744,9 @@
   }
 
   .chat-messages {
-    margin: 6px 4px;
+    margin: 6px 2px;
     border-radius: 20px;
-    padding: 6px;
+    padding: 4px;
     gap: 10px;
   }
 
