@@ -9,10 +9,7 @@
   overflow: hidden;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
-.tool-call-card.is-open {
-  border-color: var(--hairline, rgba(88, 104, 120, 0.14));
-  background: rgba(88, 104, 120, 0.04);
-}
+/* No box even when open — the detail is bare text under a thin guide line. */
 
 .tool-call-header {
   display: flex;
@@ -74,12 +71,14 @@
 }
 .tool-call-card.is-open .tool-chevron { transform: rotate(90deg); }
 
+/* Bare detail — no box, just a thin guide line, like the thinking body. */
 .tool-call-body {
-  padding: 6px 12px 12px;
-  border-top: 1px solid var(--glass-border, rgba(0, 0, 0, 0.06));
+  padding: 1px 0 4px 13px;
+  margin-left: 6px;
+  border-left: 1px solid var(--hairline, rgba(88, 104, 120, 0.16));
 }
 
-.tool-section + .tool-section { margin-top: 10px; }
+.tool-section + .tool-section { margin-top: 8px; }
 
 .tool-section-label {
   font-size: 10px;
@@ -87,15 +86,14 @@
   text-transform: uppercase;
   color: var(--text-subtle, var(--ab-accent));
   font-weight: 600;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .tool-call-body pre {
   font-family: ui-monospace, 'SFMono-Regular', monospace;
   font-size: 11px;
-  background: var(--code-bg, rgba(88, 104, 120, 0.06));
-  padding: 8px 10px;
-  border-radius: 6px;
+  color: var(--ab-ink2, #586878);
+  padding: 0;
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
@@ -104,16 +102,36 @@
   overflow-y: auto;
 }
 
-/* Group body: tighter padding, no extra border */
-.tool-group-body {
-  padding: 6px 8px 8px;
+.tool-group-body { padding: 2px 0 2px 0; }
+
+/* Nested cards inside a group: reduced margin, no fill */
+.tool-call-card--nested {
+  margin: 2px 0;
+  background: transparent;
 }
 
-/* Nested cards inside a group: reduced margin + slightly subdued look */
-.tool-call-card--nested {
-  margin: 3px 0;
-  background: rgba(255, 255, 255, 0.35);
+/* ── tools · N master fold ─────────────────────────────────────── */
+.tool-chain__toggle {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 2px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-style: italic;
+  color: var(--ab-accent, #98B5D8);
 }
+.tool-chain__toggle:hover { color: var(--ab-ink, #586878); }
+.tool-chain__label { font-weight: 600; font-style: normal; color: var(--ab-ink2, #586878); }
+.tool-chain__count { font-style: normal; color: var(--ab-sub, #8AA0B6); font-size: 12px; }
+.tool-chain__chev {
+  font-style: normal; font-size: 15px; line-height: 1; color: var(--ab-sub, #8AA0B6);
+  margin-left: 2px; transition: transform 0.2s ease;
+}
+.tool-chain.is-open .tool-chain__chev { transform: rotate(90deg); }
+.tool-chain__list { padding-left: 4px; }
 
 .tool-count {
   font-style: normal !important;

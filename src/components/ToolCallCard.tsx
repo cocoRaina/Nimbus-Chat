@@ -261,6 +261,36 @@ function groupToolCalls(calls: ToolCallRecord[]): ToolCallRecord[][] {
   return groups
 }
 
+// One "tools · N ›" master fold that expands to the quiet list of this turn's
+// tool calls (each still tappable for its detail). Keeps the area above the
+// bubble to a single line until opened.
+const ToolChain = memo(function ToolChain({ calls }: { calls: ToolCallRecord[] }) {
+  const [open, setOpen] = useState(false)
+  if (calls.length === 0) return null
+  const groups = groupToolCalls(calls)
+  return (
+    <div className={`tool-chain ${open ? 'is-open' : ''}`}>
+      <button
+        type="button"
+        className="tool-chain__toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="tool-chain__label">tools</span>
+        <span className="tool-chain__count">· {calls.length}</span>
+        <span className="tool-chain__chev" aria-hidden="true">›</span>
+      </button>
+      {open ? (
+        <div className="tool-chain__list">
+          {groups.map((g, i) => (
+            <ToolCallGroup key={i} calls={g} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+})
+
 export default ToolCallCard
-export { ToolCallGroup, groupToolCalls }
+export { ToolCallGroup, ToolChain, groupToolCalls }
 export type { ToolCallRecord }

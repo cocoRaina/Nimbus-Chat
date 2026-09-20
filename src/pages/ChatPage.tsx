@@ -54,7 +54,7 @@ import {
   setSoundEnabled,
 } from '../storage/chatFeel'
 import ReasoningPanel from '../components/ReasoningPanel'
-import { ToolCallGroup, groupToolCalls } from '../components/ToolCallCard'
+import { ToolChain } from '../components/ToolCallCard'
 import type { ToolCallRecord } from '../components/ToolCallCard'
 import CallOverlay from '../components/CallOverlay'
 import {
@@ -332,54 +332,17 @@ const MessageRow = memo(function MessageRow({
           bubble holds only 小机's actual words. */}
       {message.role === 'assistant' && (() => {
         const flow = message.meta?.flow
-        const toolCalls = message.meta?.tool_calls as ToolCallRecord[] | undefined
-        const hasInterleaved = Boolean(flow && flow.length > 0 && toolCalls)
-        const hasTools = Boolean(toolCalls && toolCalls.length > 0)
-        if (!hasInterleaved && !reasoningText && !hasTools) return null
-        if (hasInterleaved && flow && toolCalls) {
-          // Interleaved thinking + tool cards (Claude-app style).
-          type GroupedEvent =
-            | { type: 'thinking'; content: string; key: number }
-            | { type: 'tool_group'; calls: ToolCallRecord[]; key: number }
-          const groupedFlow: GroupedEvent[] = []
-          for (const [ei, event] of flow.entries()) {
-            if (event.type === 'thinking') {
-              groupedFlow.push({ type: 'thinking', content: event.content, key: ei })
-            } else {
-              const tc = toolCalls[event.index]
-              if (!tc) continue
-              const last = groupedFlow[groupedFlow.length - 1]
-              if (last && last.type === 'tool_group' && last.calls[0].name === tc.name) {
-                last.calls.push(tc)
-              } else {
-                groupedFlow.push({ type: 'tool_group', calls: [tc], key: ei })
-              }
-            }
-          }
-          return (
-            <div className="message-flow message-flow--outer">
-              {groupedFlow.map((event) =>
-                event.type === 'thinking' ? (
-                  <ReasoningPanel key={event.key} reasoning={event.content} />
-                ) : (
-                  <div key={event.key} className="tool-calls-section">
-                    <ToolCallGroup calls={event.calls} />
-                  </div>
-                )
-              )}
-            </div>
-          )
-        }
+        const toolCalls = (message.meta?.tool_calls as ToolCallRecord[] | undefined) ?? []
+        // Aggregate ALL thinking into one "thinking" row, ALL tools into one
+        // "tools" row — two quiet folds above the bubble, nothing else.
+        const thinkingText = (flow && flow.length > 0)
+          ? flow.filter((e) => e.type === 'thinking').map((e) => e.content).join('\n\n').trim()
+          : (reasoningText || '')
+        if (!thinkingText && toolCalls.length === 0) return null
         return (
           <div className="message-flow message-flow--outer">
-            {reasoningText ? <ReasoningPanel reasoning={reasoningText} /> : null}
-            {hasTools && toolCalls ? (
-              <div className="tool-calls-section">
-                {groupToolCalls(toolCalls).map((group, gi) => (
-                  <ToolCallGroup key={gi} calls={group} />
-                ))}
-              </div>
-            ) : null}
+            {thinkingText ? <ReasoningPanel reasoning={thinkingText} /> : null}
+            {toolCalls.length > 0 ? <ToolChain calls={toolCalls} /> : null}
           </div>
         )
       })()}
