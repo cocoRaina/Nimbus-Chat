@@ -70,8 +70,22 @@ const CodeBlock = ({ children, ...rest }: { children?: ReactNode }) => {
   }
   return (
     <div className="md-code">
-      <button type="button" className="md-code-copy" onClick={onCopy} aria-label="复制代码">
-        {copied ? '已复制 ✓' : '复制'}
+      <button
+        type="button"
+        className={`md-code-copy ${copied ? 'is-copied' : ''}`}
+        onClick={onCopy}
+        aria-label={copied ? '已复制' : '复制代码'}
+      >
+        {copied ? (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        ) : (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="11" height="11" rx="2" />
+            <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+          </svg>
+        )}
       </button>
       <pre {...rest}>{children}</pre>
     </div>

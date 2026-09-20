@@ -10,17 +10,20 @@
   top: 6px;
   right: 6px;
   z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   border: 1px solid var(--hairline, rgba(88, 104, 120, 0.18));
   background: var(--ab-surface, rgba(255, 255, 255, 0.85));
-  color: var(--ab-strong-2, #6890BE);
-  font-size: 11px;
-  font-weight: 700;
-  padding: 3px 9px;
+  color: var(--ab-ink2, #586878);
   border-radius: 7px;
   cursor: pointer;
-  opacity: 0.85;
-  font-family: inherit;
+  opacity: 0.7;
   -webkit-tap-highlight-color: transparent;
 }
-.md-code-copy:active { transform: scale(0.96); }
+.md-code-copy:active { transform: scale(0.94); }
 .md-code-copy:hover { opacity: 1; }
+.md-code-copy.is-copied { color: var(--ab-strong-2, #6890BE); opacity: 1; }
