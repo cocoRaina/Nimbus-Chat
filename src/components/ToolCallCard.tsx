@@ -29,6 +29,22 @@ const TOOL_ICONS: Record<string, string> = {
   browse_moments: '👀',
   reply_moment: '💬',
   search_chat_history: '🗂',
+  // ── Agent / VPS tools (小机 的"手") ──
+  vps_status: '🖥',
+  vps_exec: '⚡',
+  vps_exec_async: '🚀',
+  vps_service_restart: '♻️',
+  vps_file_read: '📄',
+  vps_file_write: '💾',
+  vps_code_search: '🔎',
+  vps_code_find: '🗂',
+  vps_code_edit: '✏️',
+  vps_git_status: '🔀',
+  vps_exec_sql: '🗄',
+  vps_browse: '🌐',
+  vps_llm_call: '🤖',
+  vps_task_status: '📋',
+  vps_task_kill: '🛑',
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -52,6 +68,22 @@ const TOOL_LABELS: Record<string, string> = {
   browse_moments: '翻 Moments',
   reply_moment: '回 Moment',
   search_chat_history: '搜聊天原文',
+  // ── Agent / VPS tools ──
+  vps_status: '服务器状态',
+  vps_exec: '执行命令',
+  vps_exec_async: '后台任务',
+  vps_service_restart: '重启服务',
+  vps_file_read: '读文件',
+  vps_file_write: '写文件',
+  vps_code_search: '搜代码',
+  vps_code_find: '找文件',
+  vps_code_edit: '改代码',
+  vps_git_status: 'Git 状态',
+  vps_exec_sql: '数据库查询',
+  vps_browse: '浏览网页',
+  vps_llm_call: '子模型调用',
+  vps_task_status: '任务状态',
+  vps_task_kill: '停止任务',
 }
 
 function extractPreview(name: string, args: Record<string, unknown>): string {
@@ -80,7 +112,43 @@ function extractPreview(name: string, args: Record<string, unknown>): string {
   if (name === 'read_essays') {
     return (typeof args?.topic === 'string' ? args.topic : '') || (typeof args?.query === 'string' ? args.query : '')
   }
+  // Agent / VPS tools: show the command / file / pattern being acted on.
+  if (name === 'vps_exec' || name === 'vps_exec_async') {
+    const c = typeof args?.command === 'string' ? args.command : ''
+    return c.length > 48 ? c.slice(0, 48) + '…' : c
+  }
+  if (name === 'vps_file_read' || name === 'vps_file_write' || name === 'vps_code_edit') {
+    return typeof args?.filePath === 'string' ? args.filePath : ''
+  }
+  if (name === 'vps_code_search' || name === 'vps_code_find') {
+    return typeof args?.pattern === 'string' ? args.pattern : ''
+  }
+  if (name === 'vps_exec_sql') {
+    const s = typeof args?.sql === 'string' ? args.sql : ''
+    return s.length > 48 ? s.slice(0, 48) + '…' : s
+  }
+  if (name === 'vps_browse') {
+    return typeof args?.url === 'string' ? args.url : ''
+  }
+  if (name === 'vps_service_restart') {
+    return typeof args?.name === 'string' ? args.name : 'nimbus-api'
+  }
   return ''
+}
+
+// Compact one-glance outcome badge for agent tools (like Claude Code's ✓/exit).
+function resultBadge(result: unknown): { text: string; kind: 'ok' | 'fail' | 'info' } | null {
+  let r: any = result
+  if (typeof r === 'string') { try { r = JSON.parse(r) } catch { return null } }
+  if (!r || typeof r !== 'object') return null
+  if (r.needs_approval || r.pending) return { text: '待审批', kind: 'info' }
+  if (typeof r.exit_code === 'number') {
+    return r.exit_code === 0 ? { text: '✓ 0', kind: 'ok' } : { text: `✗ ${r.exit_code}`, kind: 'fail' }
+  }
+  if (r.error) return { text: '✗ 出错', kind: 'fail' }
+  if (r.ok === true) return { text: '✓', kind: 'ok' }
+  if (r.ok === false) return { text: '✗', kind: 'fail' }
+  return null
 }
 
 function formatResult(result: unknown): string {
@@ -99,6 +167,7 @@ const ToolCallCard = memo(function ToolCallCard({
 }: ToolCallRecord & { nested?: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const preview = extractPreview(name, (args ?? {}) as Record<string, unknown>)
+  const badge = resultBadge(result)
 
   return (
     <div className={nested ? 'tool-call-card tool-call-card--nested' : 'tool-call-card'}>
@@ -110,6 +179,7 @@ const ToolCallCard = memo(function ToolCallCard({
         <span className="tool-icon">{TOOL_ICONS[name] ?? '🔧'}</span>
         <span className="tool-label">{TOOL_LABELS[name] ?? name}</span>
         {preview ? <span className="tool-preview">{preview}</span> : null}
+        {badge ? <span className={`tool-badge tool-badge--${badge.kind}`}>{badge.text}</span> : null}
         {duration_ms ? <span className="tool-duration">{duration_ms}ms</span> : null}
         <span className="tool-chevron">{expanded ? '▾' : '▸'}</span>
       </button>

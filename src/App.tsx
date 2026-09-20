@@ -2803,7 +2803,12 @@ const App = () => {
             })
           }
           const toolsEnabled = isToolCapableModel(effectiveModel) && Boolean(supabase)
-          const MAX_TOOL_ITERATIONS = 4
+          // Tool-calling rounds. Raised 4→8 for agent/code work (小机 running
+          // code often needs read→edit→run→fix chains > 4 rounds). Ceiling is
+          // ~10: each round appends ~2 blocks (tool_use + tool_result) and
+          // Anthropic's cache walk-up only covers a 20-block window, so 8
+          // rounds = ~16 blocks still reads history cache cleanly.
+          const MAX_TOOL_ITERATIONS = 8
 
           controller = new AbortController()
           streamingControllerRef.current?.abort()
@@ -3020,7 +3025,14 @@ TOOL_SEARCH_HANDOFF,
             // all-iterations-thinking fix above just removed. So cap to
             // budget + 512 when thinking is on.
             if (iteration > 1 && iteration < MAX_TOOL_ITERATIONS) {
-              const outputCap = thinkingActive ? toolThinkingBudget + 512 : 512
+              // Was 512 — fine for "pick a tool" JSON, but FATAL for code tools:
+              // vps_file_write / vps_code_edit carry the whole file/patch INSIDE
+              // the tool-call arguments, so a file over ~512 tokens got cut off
+              // mid-code (the "跑代码总是截断" bug). Raise to a code-safe cap so
+              // the tool_use JSON isn't truncated, while still saving vs full
+              // max_tokens for the common short-tool case.
+              const TOOL_ITER_OUTPUT_CAP = 8192
+              const outputCap = thinkingActive ? toolThinkingBudget + TOOL_ITER_OUTPUT_CAP : TOOL_ITER_OUTPUT_CAP
               requestBody.max_tokens = Math.min(
                 typeof requestBody.max_tokens === 'number' ? requestBody.max_tokens : outputCap,
                 outputCap,

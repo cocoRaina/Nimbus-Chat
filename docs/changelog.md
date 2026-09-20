@@ -4,6 +4,19 @@
 
 ---
 
+## 🩹 修小机"跑代码总是截断" + 工具卡片支持 agent 工具（2026-09-20）
+
+**背景**：小机有了 agent 能力（`vps_exec`/`vps_code_edit`/`vps_file_write` 等，跑在 `vps/index.js`）后，用户反馈"跑代码总是截断"、且聊天里看不清它在干嘛。查 `App.tsx` 工具循环找到两个真凶：
+
+1. **输出 token 被腰斩（主因）**：工具轮（iteration 2..MAX-1）为省钱把 `max_tokens` 压到 **512**（原假设"工具轮只吐一小段选工具 JSON"）。但**写代码类工具把整份文件/补丁塞在 tool-call 参数里**，超过 ~512 token 就被从中间切断 → 代码残缺。把这个上限提到 **8192**（`TOOL_ITER_OUTPUT_CAP`，思考开时再叠 budget），短工具照样省，写代码不再截断。
+2. **工具轮数太少**：`MAX_TOOL_ITERATIONS` 从 **4 → 8**。读→改→跑→修的链常超过 4 轮。天花板约 10（每轮 +2 块，Anthropic 缓存 walk-up 只覆盖 20 块窗口，8 轮=16 块仍能命中历史缓存）。
+
+**工具卡片（`ToolCallCard.tsx`）**：给所有 agent/VPS 工具补了图标 + 中文名 + 预览（`vps_exec` 显示命令、`vps_file_write`/`vps_code_edit` 显示文件路径、`vps_code_search` 显示 pattern…），并加了**结果徽章**（`✓ 0` / `✗ 退出码` / `待审批`）。聊天气泡里本就有「思考+工具卡」交错的 Claude-app 式流（`message-flow`），现在 agent 动作也是一等公民，能一眼看清每步干了啥、成没成。
+
+**影响**：纯前端改动，要新 APK 生效。（真·实时逐帧的 Claude-Code 面板是更大工程，另议。）
+
+---
+
 ## 🔧 审批流程 + VPS 后端优化（2026-09-20）
 
 **背景**：小机接入 curwe（自托管 LLM 网关，部署在 `/home/curwe`）后，主人反馈审批系统几个卡点。逐条修（`vps/index.js` + `ConsolePage.tsx` + 工具定义）：
