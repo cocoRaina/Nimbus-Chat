@@ -1006,7 +1006,6 @@ app.get('/api/journal/read', authenticate, (req, res) => {
 })
 
 // ══ Code Tools (search / find / edit) ═════════════════════════════════
-const REPO_DIR = process.env.REPO_DIR || path.join(__dirname, '..')
 
 app.post('/api/code/search', authenticate, (req, res) => {
   const { pattern, path: searchPath, glob, context = 2, maxResults = 60 } = req.body
