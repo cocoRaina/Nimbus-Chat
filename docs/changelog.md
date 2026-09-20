@@ -4,7 +4,13 @@
 
 ---
 
-## 🔒 工具输出脱敏（防密钥泄漏给中转/存库）（2026-09-20）
+## ✅ 审批改单签（主人一人批准即执行）（2026-09-20）
+
+**背景**：审批原本是"双签"——执行要 `op.approvals.user && op.approvals.wren` 同时为真。但全仓库搜下来 **`wren` 从没有任何地方被设为 true**（前端只发 `approver:'user'`，小机也没有审批工具），所以用户点了 Approve → `user:true` 但 `wren` 永远 false → **op 卡死、永不执行**（等于审批系统一直是坏的）。
+
+**修法**：改成**单签**——`op.approvals.user` 为真即 `approved` 并执行。`wren` 字段保留（向后兼容旧数据），但不再参与门控。`需要双签审批` 文案改成 `需要主人审批`。Console 审批卡去掉 "Claude ⏳" 那行，只显示 `⏳ 待你审批` / `✅ 已批准`。
+
+**影响**：后端立即生效（`pm2 restart`）；前端要新 APK。以后小机发起写操作，你在 Console 点一下 Approve 就真的会执行了。
 
 **背景**：以前只有 `/api/db/query` 结果按字段名脱敏（`redactRow`）。`vps_exec` stdout、`vps_file_read`、`vps_code_search`、curwe 返回全是**原文**——而工具结果会 ① 存进 Supabase `messages.meta`、② 作为 tool_result **发回中转/LLM**（小机就是中转上的模型，等于密钥出境）、③ 显示在工具卡。加了 `EXTRA_WRITE_PATHS`（能读 `/home/curwe/.env`）+ curwe 透传后暴露面更大。
 

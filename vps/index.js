@@ -238,7 +238,7 @@ app.post('/api/db/query', authenticate, async (req, res) => {
       pendingOps.push(pending)
       savePending()
       logOp({ action: 'db_write', level: 'red', status: 'pending_approval', detail: sql.slice(0, 200) })
-      return res.json({ pending: true, id: pending.id, message: '需要双签审批' })
+      return res.json({ pending: true, id: pending.id, message: '需要主人审批' })
     }
   }
 
@@ -389,7 +389,11 @@ app.post('/api/ops/approve', authenticate, (req, res) => {
 
   op.approvals[approver] = true
 
-  if (op.approvals.user && op.approvals.wren) {
+  // Single-approval: 主人 (the user) is the only required signer. (The old
+  // dual-sign `user && wren` gate could never fire — nothing ever set wren=true,
+  // so approved ops got stuck forever. wren is kept in the shape for back-compat
+  // but no longer gates execution.)
+  if (op.approvals.user) {
     op.status = 'approved'
     executeApprovedOp(op)
   }

@@ -561,8 +561,7 @@ export default function ConsolePage() {
               </div>
               <p className="console-approval-detail">{op.detail}</p>
               <div className="console-approval-status">
-                <span>Claude {op.approvals.wren ? '✅' : '⏳'}</span>
-                <span>You {op.approvals.user ? '✅' : '⏳'}</span>
+                <span>{op.approvals.user ? '✅ 已批准' : '⏳ 待你审批'}</span>
               </div>
               {!op.approvals.user && (
                 <div className="console-approval-actions">
