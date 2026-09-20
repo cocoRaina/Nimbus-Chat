@@ -1282,6 +1282,49 @@ export const TOOL_VPS_TASK_KILL = {
   },
 }
 
+// ── Curwe agent workspace (background long tasks) ───────────────────
+
+export const TOOL_CURWE_LIST_TOOLS = {
+  type: 'function' as const,
+  function: {
+    name: 'curwe_list_tools',
+    description:
+      'List the tools available in the curwe agent workspace and their exact argument schemas ' +
+      '(ws_read / ws_write / ws_edit / ws_patch / ws_diff / ws_ls / ws_job / shell_exec). ' +
+      'Call this ONCE before using curwe_tool so you know each tool\'s exact arguments. ' +
+      'Curwe is a sandboxed workspace (its own /workspace) — best for BACKGROUND LONG TASKS via ws_job.',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
+}
+
+export const TOOL_CURWE_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'curwe_tool',
+    description:
+      'Invoke one tool in the curwe agent workspace (sandboxed, runs in curwe\'s own /workspace). ' +
+      'For BACKGROUND LONG TASKS use ws_job — it does NOT block, its logs are tail-able, and it emits ' +
+      'a job_finished event when done (poll its status/logs via ws_job too). Use shell_exec for quick ' +
+      'sync commands. ALWAYS call curwe_list_tools first to get the exact argument schema for the tool ' +
+      'you want, then pass it here as `arguments`.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'curwe tool name, e.g. "ws_job", "shell_exec", "ws_write", "ws_read"',
+        },
+        arguments: {
+          type: 'object',
+          description: 'Arguments object for that curwe tool, matching the schema from curwe_list_tools',
+          additionalProperties: true,
+        },
+      },
+      required: ['name'],
+    },
+  },
+}
+
 // ── Sub-model Dispatch ──────────────────────────────────────────────
 
 export const TOOL_VPS_LLM_CALL = {

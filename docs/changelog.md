@@ -4,6 +4,20 @@
 
 ---
 
+## 🧰 接入 curwe agent 工作台（后台长任务）（2026-09-20）
+
+**背景**：小机想用 curwe 跑后台长任务（curwe = 自托管 agent 工具网关，`ws_job` 不堵塞、日志可 tail、完成推 `job_finished` 事件；自带 `/workspace` 低权限沙箱）。curwe 只暴露 REST（`GET /api/v1/tools` + `POST /api/v1/tools/call`）、**绑 `127.0.0.1:8000`、无内建鉴权**。
+
+**接法**：让小机**只能经 Nimbus 认证后端**够到 curwe（后端做鉴权 + 审计层，curwe 保持只听 localhost）。
+
+- **后端**（`vps/index.js`）：新增 `GET /api/curwe/tools`（透传工具+schema）、`POST /api/curwe/call`（透传单次调用，逐条 `logOp` 审计，带 `CURWE_CALL_TIMEOUT_MS` 超时）。`CURWE_BASE_URL` 默认 `http://127.0.0.1:8000`。curwe 没起时返回**JSON 502**，不挂前端。
+- **工具**：`curwe_list_tools`（发现 curwe 的实时工具+参数）+ `curwe_tool`（按名调用）。**不硬编码 curwe 的参数 schema**——小机先 list 再 call，curwe 改工具也不用改 Nimbus。描述里点明"后台长任务用 ws_job"。
+- 工具卡片补了 curwe 图标/标签/预览（显示内部工具名 + 命令/路径）。
+
+**注意**：curwe 本体 shell_exec 默认关（`EXEC_ENABLED=0`），要跑命令得在 curwe 侧开。Nimbus 只负责认证转发。验证：`node --check`、`tsc`、`build`，另起桩网关跑了 5/5 代理冒烟（转发工具/调用/鉴权/curwe-down 502）。
+
+---
+
 ## 🩹 修小机"跑代码总是截断" + 工具卡片支持 agent 工具（2026-09-20）
 
 **背景**：小机有了 agent 能力（`vps_exec`/`vps_code_edit`/`vps_file_write` 等，跑在 `vps/index.js`）后，用户反馈"跑代码总是截断"、且聊天里看不清它在干嘛。查 `App.tsx` 工具循环找到两个真凶：

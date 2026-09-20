@@ -45,6 +45,8 @@ const TOOL_ICONS: Record<string, string> = {
   vps_llm_call: '🤖',
   vps_task_status: '📋',
   vps_task_kill: '🛑',
+  curwe_list_tools: '🧰',
+  curwe_tool: '🧰',
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -84,6 +86,8 @@ const TOOL_LABELS: Record<string, string> = {
   vps_llm_call: '子模型调用',
   vps_task_status: '任务状态',
   vps_task_kill: '停止任务',
+  curwe_list_tools: 'curwe 工具列表',
+  curwe_tool: 'curwe',
 }
 
 function extractPreview(name: string, args: Record<string, unknown>): string {
@@ -132,6 +136,13 @@ function extractPreview(name: string, args: Record<string, unknown>): string {
   }
   if (name === 'vps_service_restart') {
     return typeof args?.name === 'string' ? args.name : 'nimbus-api'
+  }
+  if (name === 'curwe_tool') {
+    // Show which curwe tool + a hint of its command/path if present.
+    const inner = typeof args?.name === 'string' ? args.name : ''
+    const a = (args?.arguments ?? {}) as Record<string, unknown>
+    const hint = (typeof a.command === 'string' && a.command) || (typeof a.path === 'string' && a.path) || ''
+    return hint ? `${inner}: ${String(hint).slice(0, 40)}` : inner
   }
   return ''
 }

@@ -876,6 +876,61 @@ app.get('/api/exec/list', authenticate, (_req, res) => {
   res.json(list)
 })
 
+// ══ Curwe agent gateway proxy ═════════════════════════════════════════
+// curwe (self-hosted agent-tool gateway: ws_read/ws_write/ws_edit/ws_job/
+// shell_exec, its own /workspace sandbox) runs on localhost with NO built-in
+// auth. So 小机 must reach it ONLY through this authenticated backend — the
+// proxy is the auth + audit layer, curwe stays bound to 127.0.0.1.
+// Great for background LONG tasks: ws_job doesn't block, logs are tail-able,
+// and finishing emits a job_finished event.
+const CURWE_BASE_URL = (process.env.CURWE_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
+const CURWE_CALL_TIMEOUT_MS = parseInt(process.env.CURWE_CALL_TIMEOUT_MS || '120000', 10)
+
+const curweFetch = async (path, init = {}, timeoutMs = 15000) => {
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), timeoutMs)
+  try {
+    return await fetch(`${CURWE_BASE_URL}${path}`, { ...init, signal: ac.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Discover curwe's live tools + argument schemas (so the client never has to
+// hardcode them — 小机 reads these, then calls curwe_tool by name).
+app.get('/api/curwe/tools', authenticate, async (_req, res) => {
+  try {
+    const r = await curweFetch('/api/v1/tools', {}, 15000)
+    const text = await r.text()
+    let data; try { data = JSON.parse(text) } catch { data = { raw: text } }
+    res.status(r.ok ? 200 : r.status).json(data)
+  } catch (err) {
+    res.status(502).json({ ok: false, error: `连不上 curwe (${CURWE_BASE_URL}): ${err.message}` })
+  }
+})
+
+// Invoke one curwe tool. Every call is logged for audit (curwe has no auth of
+// its own). Long jobs should use curwe's ws_job so this call returns fast.
+app.post('/api/curwe/call', authenticate, async (req, res) => {
+  const { name, arguments: toolArgs } = req.body || {}
+  if (!name || typeof name !== 'string') return res.status(400).json({ ok: false, error: 'Missing tool name' })
+  logOp({ action: 'curwe_call', level: 'yellow', detail: `${name} ${JSON.stringify(toolArgs || {}).slice(0, 160)}` })
+  try {
+    const r = await curweFetch('/api/v1/tools/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, arguments: toolArgs || {} }),
+    }, CURWE_CALL_TIMEOUT_MS)
+    const text = await r.text()
+    let data; try { data = JSON.parse(text) } catch { data = { raw: text } }
+    res.status(r.ok ? 200 : r.status).json(data)
+  } catch (err) {
+    const aborted = err.name === 'AbortError'
+    logOp({ action: 'curwe_call', level: 'red', detail: name, error: aborted ? 'timeout' : err.message })
+    res.status(502).json({ ok: false, error: aborted ? `curwe 调用超时（>${CURWE_CALL_TIMEOUT_MS}ms，长任务请用 ws_job）` : `curwe 调用失败: ${err.message}` })
+  }
+})
+
 // ══ Service Restart ═══════════════════════════════════════════════════
 // Restarting the pm2 app that serves THIS request kills the process mid-response,
 // so a plain `pm2 restart` via /api/exec never returns JSON — the reverse proxy
