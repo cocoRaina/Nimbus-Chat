@@ -61,7 +61,8 @@ import {
   resolveSyzygyPostPrompt,
   resolveSyzygyReplyPrompt,
 } from '../constants/aiOverlays'
-import { getVpsUrl, saveVpsUrl, getVpsApiKey, saveVpsApiKey } from '../storage/vpsConfig'
+import { getVpsUrl, saveVpsUrl, getVpsApiKey, saveVpsApiKey, isVpsConfigured } from '../storage/vpsConfig'
+import { isPushSupported, isPushSubscribed, subscribePush, unsubscribePush } from '../storage/webPush'
 import './SettingsPage.css'
 
 type OpenRouterModel = {
@@ -214,6 +215,8 @@ const SettingsPage = ({
   const [vpsUrl, setVpsUrl] = useState(() => getVpsUrl())
   const [vpsApiKey, setVpsApiKey] = useState(() => getVpsApiKey())
   const [vpsSaved, setVpsSaved] = useState(false)
+  const [pushEnabled, setPushEnabled] = useState(() => isPushSubscribed())
+  const [pushBusy, setPushBusy] = useState(false)
   const [wakeSectionExpanded, setWakeSectionExpanded] = useState(false)
   const [wakeConfig, setWakeConfig] = useState<AutonomousWakeConfig>(DEFAULT_WAKE_CONFIG)
   const [draftWakeConfig, setDraftWakeConfig] = useState<AutonomousWakeConfig>(DEFAULT_WAKE_CONFIG)
@@ -2345,6 +2348,37 @@ const SettingsPage = ({
               </button>
               {vpsSaved ? <span className="system-prompt-status">已保存</span> : null}
             </div>
+
+            {isVpsConfigured() && isPushSupported() && (
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--hairline, rgba(0,0,0,0.06))' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={pushEnabled}
+                    disabled={pushBusy}
+                    onChange={async () => {
+                      setPushBusy(true)
+                      try {
+                        if (pushEnabled) {
+                          await unsubscribePush()
+                          setPushEnabled(false)
+                        } else {
+                          const ok = await subscribePush()
+                          setPushEnabled(ok)
+                        }
+                      } finally {
+                        setPushBusy(false)
+                      }
+                    }}
+                    style={{ accentColor: 'var(--ab-strong, #6c5ce7)', width: 18, height: 18 }}
+                  />
+                  <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>
+                    {pushBusy ? '处理中…' : '推送通知'}
+                  </span>
+                </label>
+                <span className="settings-hint">开启后，小机发送通知时会推送到这台设备</span>
+              </div>
+            )}
           </div>
         ) : null}
       </section>

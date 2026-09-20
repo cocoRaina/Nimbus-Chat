@@ -925,6 +925,22 @@ app.post('/api/notify/send', authenticate, (req, res) => {
   notifications.push(notif)
   saveNotifications()
   logOp({ action: 'notify_send', level: 'green', detail: title })
+  // Auto-push to subscribed devices
+  if (webpush && pushSubscriptions.length > 0) {
+    const payload = JSON.stringify({ title, body, tag: 'nimbus-notify' })
+    const expired = []
+    pushSubscriptions.forEach((sub) => {
+      webpush.sendNotification(sub, payload).catch((err) => {
+        if (err.statusCode === 404 || err.statusCode === 410) expired.push(sub.endpoint)
+      })
+    })
+    if (expired.length) {
+      setTimeout(() => {
+        pushSubscriptions = pushSubscriptions.filter((s) => !expired.includes(s.endpoint))
+        savePushSubs()
+      }, 1000)
+    }
+  }
   res.json(notif)
 })
 
@@ -989,8 +1005,100 @@ app.get('/api/journal/read', authenticate, (req, res) => {
   res.json(filtered.slice(-limit))
 })
 
+// ══ Web Push ══════════════════════════════════════════════════════════
+const VAPID_PATH = path.join(__dirname, 'vapid.json')
+const PUSH_SUBS_PATH = path.join(__dirname, 'push_subscriptions.json')
+let vapidKeys = null
+let pushSubscriptions = []
+
+try {
+  if (fs.existsSync(PUSH_SUBS_PATH)) {
+    pushSubscriptions = JSON.parse(fs.readFileSync(PUSH_SUBS_PATH, 'utf8'))
+  }
+} catch {}
+
+const savePushSubs = () => {
+  try { fs.writeFileSync(PUSH_SUBS_PATH, JSON.stringify(pushSubscriptions, null, 2)) } catch {}
+}
+
+const initWebPush = () => {
+  try {
+    const webpush = require('web-push')
+    if (fs.existsSync(VAPID_PATH)) {
+      vapidKeys = JSON.parse(fs.readFileSync(VAPID_PATH, 'utf8'))
+    } else {
+      vapidKeys = webpush.generateVAPIDKeys()
+      fs.writeFileSync(VAPID_PATH, JSON.stringify(vapidKeys, null, 2))
+    }
+    const contact = process.env.VAPID_CONTACT || 'mailto:nimbus@localhost'
+    webpush.setVapidDetails(contact, vapidKeys.publicKey, vapidKeys.privateKey)
+    return webpush
+  } catch (err) {
+    console.log('[web-push] web-push not installed, push disabled:', err.message)
+    return null
+  }
+}
+
+const webpush = initWebPush()
+
+app.get('/api/push/vapid-public-key', authenticate, (_req, res) => {
+  if (!vapidKeys) return res.status(503).json({ error: 'Web Push not configured' })
+  res.json({ publicKey: vapidKeys.publicKey })
+})
+
+app.post('/api/push/subscribe', authenticate, (req, res) => {
+  const { subscription } = req.body
+  if (!subscription || !subscription.endpoint) {
+    return res.status(400).json({ error: 'Missing subscription' })
+  }
+  const exists = pushSubscriptions.some((s) => s.endpoint === subscription.endpoint)
+  if (!exists) {
+    pushSubscriptions.push(subscription)
+    savePushSubs()
+  }
+  logOp({ action: 'push_subscribe', level: 'green', detail: subscription.endpoint.slice(0, 60) })
+  res.json({ ok: true })
+})
+
+app.post('/api/push/unsubscribe', authenticate, (req, res) => {
+  const { endpoint } = req.body
+  pushSubscriptions = pushSubscriptions.filter((s) => s.endpoint !== endpoint)
+  savePushSubs()
+  res.json({ ok: true })
+})
+
+app.post('/api/push/send', authenticate, (req, res) => {
+  if (!webpush) return res.status(503).json({ error: 'web-push not installed' })
+  const { title, body, tag, data } = req.body
+  if (!title) return res.status(400).json({ error: 'Missing title' })
+  const payload = JSON.stringify({ title, body: body || '', tag, data })
+  const results = []
+  const expired = []
+  Promise.all(
+    pushSubscriptions.map((sub) =>
+      webpush.sendNotification(sub, payload).then(
+        () => results.push({ endpoint: sub.endpoint, ok: true }),
+        (err) => {
+          results.push({ endpoint: sub.endpoint, ok: false, status: err.statusCode })
+          if (err.statusCode === 404 || err.statusCode === 410) {
+            expired.push(sub.endpoint)
+          }
+        },
+      ),
+    ),
+  ).then(() => {
+    if (expired.length) {
+      pushSubscriptions = pushSubscriptions.filter((s) => !expired.includes(s.endpoint))
+      savePushSubs()
+    }
+    logOp({ action: 'push_send', level: 'green', detail: title })
+    res.json({ sent: results.length, results })
+  })
+})
+
 // ════════════════════════════════════════════════════════════════════════
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`Nimbus API running on port ${PORT}`)
   console.log('[wake-cron] 定时唤醒已启动 (每 10 分钟)')
+  if (webpush) console.log('[web-push] Push notifications enabled')
 })

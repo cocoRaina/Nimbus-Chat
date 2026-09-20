@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { vfetch, isVpsConfigured } from '../storage/vpsConfig'
+import { getAssistantName } from '../storage/assistantPersona'
 import './ConsolePage.css'
 
 type SystemStatus = {
@@ -71,6 +72,42 @@ const fmtTime = (iso: string) => {
   } catch { return iso }
 }
 
+const fmtTimeShort = (iso: string) => {
+  try {
+    return new Date(iso).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, hour: '2-digit', minute: '2-digit' })
+  } catch { return iso }
+}
+
+const ACTION_LABELS: Record<string, string> = {
+  exec: '执行命令',
+  exec_async: '后台任务',
+  file_read: '读取文件',
+  file_write: '写入文件',
+  git_status: 'Git 状态查询',
+  git_log: 'Git 日志',
+  git_push: 'Git 推送',
+  db_query: '数据库查询',
+  browser_fetch: '浏览网页',
+  llm_call: '子模型调用',
+  schedule_create: '创建定时任务',
+  schedule_fire: '定时触发',
+  schedule_delete: '删除定时任务',
+  journal_write: '写入日记',
+  journal_read: '读取日记',
+  notify_send: '发送通知',
+  approve: '审批通过',
+  reject: '审批拒绝',
+  pending_write: '待审批操作',
+  mcp_add: '添加 MCP 服务',
+  mcp_remove: '移除 MCP 服务',
+  mcp_start: '启动 MCP',
+  mcp_stop: '停止 MCP',
+  mcp_call: 'MCP 调用',
+}
+const actionLabel = (action: string) => ACTION_LABELS[action] || action
+
+type CatId = 'all' | 'GIT' | 'DB' | 'WEB' | 'FILE' | 'MCP' | 'AUTH' | 'SYS'
+
 type TabId = 'logs' | 'approvals' | 'db' | 'git' | 'browser' | 'mcp'
 
 const NAV: { key: TabId; icon: string; label: string }[] = [
@@ -111,9 +148,10 @@ export default function ConsolePage() {
   const [mcpShowAdd, setMcpShowAdd] = useState(false)
   const [mcpForm, setMcpForm] = useState({ name: '', type: 'stdio' as 'stdio' | 'sse', command: '', url: '', description: '' })
 
+  const [catFilter, setCatFilter] = useState<CatId>('all')
   const configured = isVpsConfigured()
+  const assistantName = getAssistantName()
 
-  const activeNav = NAV.find((n) => n.key === tab) ?? NAV[0]
 
   const pick = (key: TabId) => {
     setTab(key)
@@ -310,14 +348,6 @@ export default function ConsolePage() {
     return 'SYS'
   }
 
-  const catCls = (cat: string) => `console-cat console-cat--${cat.toLowerCase()}`
-
-  const todayStr = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' })
-  const todayLogs = logs.filter(l => {
-    try { return new Date(l.time).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' }) === todayStr } catch { return false }
-  })
-  const okCount = todayLogs.filter(l => !l.error).length
-  const failCount = todayLogs.filter(l => !!l.error).length
 
   if (!configured) {
     return (
@@ -339,8 +369,8 @@ export default function ConsolePage() {
   return (
     <div className="console-page">
       <header className="page-header-bar">
-        <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>‹</button>
-        <h1 className="ui-title">{activeNav.label}</h1>
+        <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>✕</button>
+        <h1 className="ui-title">{assistantName}操作台</h1>
         <div className="console-header-actions">
           <button type="button" className="console-refresh" onClick={fetchAll} disabled={loading}>
             {loading ? '…' : '↻'}
@@ -396,39 +426,50 @@ export default function ConsolePage() {
             </div>
           )}
 
-          {/* Summary tiles */}
-          <div className="console-summary">
-            <div className="console-summary-tile">
-              <span className="console-summary-val">{todayLogs.length}</span>
-              <span className="console-summary-lbl">Today</span>
-            </div>
-            <div className="console-summary-tile console-summary--ok">
-              <span className="console-summary-val">{okCount}</span>
-              <span className="console-summary-lbl">Success</span>
-            </div>
-            <div className="console-summary-tile console-summary--fail">
-              <span className="console-summary-val">{failCount}</span>
-              <span className="console-summary-lbl">Failed</span>
-            </div>
+          {/* Section header + filter */}
+          <div className="console-section-header">
+            <h2 className="console-section-title">操作日志</h2>
+            <button
+              type="button"
+              className="console-filter-btn"
+              onClick={() => setCatFilter(catFilter === 'all' ? 'all' : 'all')}
+            >
+              筛选
+            </button>
+          </div>
+
+          {/* Category filter chips */}
+          <div className="console-filter-chips">
+            {(['all', 'GIT', 'DB', 'FILE', 'WEB', 'SYS'] as CatId[]).map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`console-chip ${catFilter === c ? 'console-chip--active' : ''}`}
+                onClick={() => setCatFilter(c)}
+              >
+                {c === 'all' ? '全部' : c}
+              </button>
+            ))}
           </div>
 
           {/* Log cards */}
-          {logs.length === 0 && <p className="console-empty-sub">No logs yet</p>}
-          {logs.map((log) => {
+          {logs.length === 0 && <p className="console-empty-sub">暂无日志</p>}
+          {logs
+            .filter((l) => catFilter === 'all' || actionCat(l.action) === catFilter)
+            .map((log) => {
             const cat = actionCat(log.action)
             return (
-              <div key={log.id} className="console-log-card">
-                <div className="console-log-card-head">
-                  <span className={catCls(cat)}>{cat}</span>
-                  <span className={levelClass(log.level)}>{levelTag(log.level)}</span>
-                  <span className={`console-sbadge ${log.error ? 'console-sbadge--fail' : 'console-sbadge--ok'}`}>
-                    {log.error ? 'Failed' : 'OK'}
+              <div key={log.id} className={`clog-card clog-card--${cat.toLowerCase()}`}>
+                <div className="clog-head">
+                  <span className={`clog-cat clog-cat--${cat.toLowerCase()}`}>{cat}</span>
+                  <span className={`clog-status ${log.error ? 'clog-status--fail' : 'clog-status--ok'}`}>
+                    {log.error ? '失败' : '成功'}
                   </span>
-                  <span className="console-log-card-time">{fmtTime(log.time)}</span>
+                  <span className="clog-time">{fmtTimeShort(log.time)}</span>
                 </div>
-                <p className="console-log-card-action">{log.action}</p>
-                {log.detail && <pre className="console-log-card-code">{log.detail}</pre>}
-                {log.error && <p className="console-log-card-err">{log.error}</p>}
+                <p className="clog-title">{actionLabel(log.action)}</p>
+                {log.detail && <pre className="clog-code">{log.detail}</pre>}
+                {log.error && <p className="clog-err">{log.error}</p>}
               </div>
             )
           })}

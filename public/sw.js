@@ -1,5 +1,5 @@
 // bump SW_VERSION on every deploy that wants to invalidate old client caches
-const SW_VERSION = 'v4-2026-05-21-edit-user-msg'
+const SW_VERSION = 'v5-2026-09-20-web-push'
 const RUNTIME_CACHE = `nimbus-chat-runtime-${SW_VERSION}`
 const NAV_FALLBACK_CACHE = `nimbus-chat-nav-fallback-${SW_VERSION}`
 
@@ -19,6 +19,35 @@ self.addEventListener('activate', (event) => {
         ),
       )
       .then(() => self.clients.claim()),
+  )
+})
+
+// ── Web Push notifications ──────────────────────────────────────
+self.addEventListener('push', (event) => {
+  let data = { title: '沈暮', body: '有新消息' }
+  try {
+    if (event.data) data = event.data.json()
+  } catch {}
+  event.waitUntil(
+    self.registration.showNotification(data.title || '沈暮', {
+      body: data.body || '',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-72.png',
+      tag: data.tag || 'nimbus-push',
+      data: data.data || {},
+    }),
+  )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window' }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) return client.focus()
+      }
+      return self.clients.openWindow('/')
+    }),
   )
 })
 

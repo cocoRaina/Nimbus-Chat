@@ -230,84 +230,148 @@
   margin-left: auto;
 }
 
-/* ── Summary tiles ────────────────────────────────────────────── */
-.console-summary {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-.console-summary-tile {
-  background: var(--ab-surface, rgba(255,255,255,0.85));
-  border-radius: 12px;
-  padding: 14px;
+/* ── Section header (操作日志 + 筛选) ────────────────────────── */
+.console-section-header {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  border-left: 3px solid var(--ab-strong, #6c5ce7);
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
-.console-summary--ok { border-left-color: #27ae60; }
-.console-summary--fail { border-left-color: #e74c3c; }
-.console-summary-val {
-  font-size: 1.6rem;
-  font-weight: 800;
+.console-section-title {
+  font-size: 1.05rem;
+  font-weight: 700;
   color: var(--ab-text, #2e2b3a);
-  font-variant-numeric: tabular-nums;
+  margin: 0;
 }
-.console-summary-lbl {
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+.console-filter-btn {
+  border: none;
+  background: none;
+  font-size: 0.88rem;
   color: var(--ab-text-secondary, #5c5775);
+  cursor: pointer;
+  font-family: inherit;
+  padding: 4px 0;
 }
 
-/* ── Log cards ────────────────────────────────────────────────── */
-.console-log-card {
-  background: var(--ab-surface, rgba(255,255,255,0.85));
-  border-radius: 12px;
-  padding: 14px;
-  margin-bottom: 10px;
+/* ── Filter chips ────────────────────────────────────────────── */
+.console-filter-chips {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
-.console-log-card-head {
+.console-chip {
+  border: 1px solid var(--hairline, rgba(0,0,0,0.1));
+  background: transparent;
+  border-radius: 14px;
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ab-text-secondary, #5c5775);
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.console-chip--active {
+  background: var(--ab-strong, #6c5ce7);
+  color: #fff;
+  border-color: var(--ab-strong, #6c5ce7);
+}
+
+/* ── Redesigned log cards ────────────────────────────────────── */
+.clog-card {
+  background: var(--ab-surface, rgba(255,255,255,0.92));
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(108, 148, 200, 0.18);
+  border-left: 3px solid #5b9bd5;
+}
+.clog-card--git { border-left-color: #5b9bd5; }
+.clog-card--db { border-left-color: #3b82f6; }
+.clog-card--file { border-left-color: #e8725a; }
+.clog-card--web { border-left-color: #f59e0b; }
+.clog-card--mcp { border-left-color: #8b5cf6; }
+.clog-card--auth { border-left-color: #ef4444; }
+.clog-card--sys { border-left-color: #64748b; }
+
+.clog-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-bottom: 8px;
-  flex-wrap: wrap;
 }
-.console-log-card-time {
-  font-size: 0.72rem;
+
+.clog-cat {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.clog-cat--git { background: #dbeafe; color: #1e60a8; }
+.clog-cat--db { background: #dbeafe; color: #1e40af; }
+.clog-cat--file { background: #fde8e4; color: #c2432a; }
+.clog-cat--web { background: #fef3c7; color: #b45309; }
+.clog-cat--mcp { background: #ede9fe; color: #6d28d9; }
+.clog-cat--auth { background: #fee2e2; color: #b91c1c; }
+.clog-cat--sys { background: #f1f5f9; color: #475569; }
+
+.clog-status {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.clog-status--ok {
+  background: #dcfce7;
+  color: #16a34a;
+}
+.clog-status--fail {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.clog-time {
+  font-size: 0.78rem;
   color: var(--ab-text-secondary, #5c5775);
   font-variant-numeric: tabular-nums;
   margin-left: auto;
   white-space: nowrap;
 }
-.console-log-card-action {
-  margin: 0 0 6px;
-  font-size: 0.88rem;
+
+.clog-title {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
   font-weight: 600;
   color: var(--ab-text, #2e2b3a);
+  line-height: 1.4;
 }
-.console-log-card-code {
+
+.clog-code {
   margin: 0 0 6px;
-  padding: 8px 10px;
-  background: var(--ab-bg, #f4f2f7);
-  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--clog-code-bg, #f0f4f8);
+  border-radius: 8px;
   font-size: 0.76rem;
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
   white-space: pre-wrap;
   word-break: break-all;
-  line-height: 1.5;
-  color: var(--ab-text, #2e2b3a);
+  line-height: 1.55;
+  color: var(--ab-text, #3a3a4a);
 }
-.console-log-card-err {
-  margin: 0;
-  font-size: 0.8rem;
-  color: #c0392b;
-  font-weight: 500;
+
+.clog-err {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  color: #dc2626;
+  font-weight: 600;
 }
+
+/* ── Legacy log helpers (kept for approvals etc.) ────────────── */
 
 /* ── Category badges ──────────────────────────────────────────── */
 .console-cat {
@@ -633,9 +697,7 @@
   .console-page:not([data-theme="light"]) .console-approval-card {
     background: rgba(255,255,255,0.06);
   }
-  .console-page:not([data-theme="light"]) .console-status-bar,
-  .console-page:not([data-theme="light"]) .console-summary-tile,
-  .console-page:not([data-theme="light"]) .console-log-card {
+  .console-page:not([data-theme="light"]) .console-status-bar {
     background: rgba(255,255,255,0.06);
   }
   .console-page:not([data-theme="light"]) .console-status-host {
@@ -643,22 +705,37 @@
     color: #c8c0e8;
   }
   .console-page:not([data-theme="light"]) .console-status-metrics,
-  .console-page:not([data-theme="light"]) .console-summary-lbl,
-  .console-page:not([data-theme="light"]) .console-log-card-time {
+  .console-page:not([data-theme="light"]) .clog-time {
     color: #a09bb8;
   }
-  .console-page:not([data-theme="light"]) .console-log-card-code {
+  .console-page:not([data-theme="light"]) .clog-card {
     background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.08);
   }
-  .console-page:not([data-theme="light"]) .console-cat--git { background: rgba(46,125,50,0.2); color: #81c784; }
-  .console-page:not([data-theme="light"]) .console-cat--db { background: rgba(21,101,192,0.2); color: #64b5f6; }
-  .console-page:not([data-theme="light"]) .console-cat--web { background: rgba(230,81,0,0.2); color: #ffb74d; }
-  .console-page:not([data-theme="light"]) .console-cat--file { background: rgba(123,31,162,0.2); color: #ce93d8; }
-  .console-page:not([data-theme="light"]) .console-cat--mcp { background: rgba(69,39,160,0.2); color: #b39ddb; }
-  .console-page:not([data-theme="light"]) .console-cat--auth { background: rgba(198,40,40,0.2); color: #ef9a9a; }
-  .console-page:not([data-theme="light"]) .console-cat--sys { background: rgba(55,71,79,0.3); color: #b0bec5; }
-  .console-page:not([data-theme="light"]) .console-sbadge--ok { background: rgba(46,125,50,0.2); color: #81c784; }
-  .console-page:not([data-theme="light"]) .console-sbadge--fail { background: rgba(198,40,40,0.2); color: #ef9a9a; }
+  .console-page:not([data-theme="light"]) .clog-code {
+    --clog-code-bg: rgba(255,255,255,0.06);
+  }
+  .console-page:not([data-theme="light"]) .clog-title,
+  .console-page:not([data-theme="light"]) .console-section-title {
+    color: #e2dff0;
+  }
+  .console-page:not([data-theme="light"]) .clog-cat--git { background: rgba(59,130,246,0.2); color: #93c5fd; }
+  .console-page:not([data-theme="light"]) .clog-cat--db { background: rgba(59,130,246,0.2); color: #93c5fd; }
+  .console-page:not([data-theme="light"]) .clog-cat--web { background: rgba(245,158,11,0.2); color: #fcd34d; }
+  .console-page:not([data-theme="light"]) .clog-cat--file { background: rgba(232,114,90,0.2); color: #fca5a5; }
+  .console-page:not([data-theme="light"]) .clog-cat--mcp { background: rgba(139,92,246,0.2); color: #c4b5fd; }
+  .console-page:not([data-theme="light"]) .clog-cat--auth { background: rgba(239,68,68,0.2); color: #fca5a5; }
+  .console-page:not([data-theme="light"]) .clog-cat--sys { background: rgba(100,116,139,0.25); color: #cbd5e1; }
+  .console-page:not([data-theme="light"]) .clog-status--ok { background: rgba(22,163,74,0.2); color: #86efac; }
+  .console-page:not([data-theme="light"]) .clog-status--fail { background: rgba(220,38,38,0.2); color: #fca5a5; }
+  .console-page:not([data-theme="light"]) .clog-err { color: #fca5a5; }
+  .console-page:not([data-theme="light"]) .console-chip {
+    border-color: rgba(255,255,255,0.12);
+    color: #a09bb8;
+  }
+  .console-page:not([data-theme="light"]) .console-filter-btn {
+    color: #a09bb8;
+  }
   .console-page:not([data-theme="light"]) .console-error {
     background: rgba(192,57,43,0.15);
   }
