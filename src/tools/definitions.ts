@@ -1250,3 +1250,197 @@ export const TOOL_VPS_TASK_KILL = {
     },
   },
 }
+
+// ── Sub-model Dispatch ──────────────────────────────────────────────
+
+export const TOOL_VPS_LLM_CALL = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_llm_call',
+    description:
+      'Dispatch a task to a cheaper/faster sub-model via OpenRouter. Use for translation, summarization, ' +
+      'data formatting, simple Q&A — anything that doesn\'t need your full reasoning. The sub-model has no ' +
+      'conversation context; give it a self-contained prompt.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: {
+          type: 'string',
+          description: 'The complete prompt to send to the sub-model',
+        },
+        model: {
+          type: 'string',
+          description: 'OpenRouter model ID (default: google/gemini-2.0-flash-001). Use cheap models for simple tasks.',
+        },
+        system: {
+          type: 'string',
+          description: 'Optional system prompt for the sub-model',
+        },
+        max_tokens: {
+          type: 'integer',
+          description: 'Max output tokens (default 2000)',
+        },
+        temperature: {
+          type: 'number',
+          description: 'Sampling temperature 0-2 (default 0.7)',
+        },
+      },
+      required: ['prompt'],
+    },
+  },
+}
+
+// ── Dynamic Scheduling ──────────────────────────────────────────────
+
+export const TOOL_VPS_SCHEDULE_CREATE = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_schedule_create',
+    description:
+      'Create a new scheduled task on VPS. Uses cron expressions (e.g. "0 8 * * *" = every day 8am, ' +
+      '"*/30 * * * *" = every 30 min). Tasks fire events logged for you to act on during wake cycles.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Human-readable name for this schedule',
+        },
+        cron: {
+          type: 'string',
+          description: 'Cron expression (5-field, e.g. "0 8 * * *")',
+        },
+        task: {
+          type: 'string',
+          description: 'Description of what to do when this fires',
+        },
+      },
+      required: ['name', 'cron'],
+    },
+  },
+}
+
+export const TOOL_VPS_SCHEDULE_LIST = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_schedule_list',
+    description: 'List all scheduled tasks on VPS, with their status and last fire time.',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+  },
+}
+
+export const TOOL_VPS_SCHEDULE_DELETE = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_schedule_delete',
+    description: 'Delete a scheduled task by ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Schedule ID to delete',
+        },
+      },
+      required: ['id'],
+    },
+  },
+}
+
+// ── Notification Queue ──────────────────────────────────────────────
+
+export const TOOL_VPS_NOTIFY = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_notify',
+    description:
+      'Send a notification to the owner. Use when you finish a task, discover something important, ' +
+      'or need attention. Notifications queue on VPS and the app polls for them.',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'Short notification title',
+        },
+        body: {
+          type: 'string',
+          description: 'Notification body text',
+        },
+        priority: {
+          type: 'string',
+          enum: ['low', 'normal', 'high'],
+          description: 'Priority level (default: normal)',
+        },
+      },
+      required: ['title', 'body'],
+    },
+  },
+}
+
+// ── Work Journal ────────────────────────────────────────────────────
+
+export const TOOL_VPS_JOURNAL_WRITE = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_journal_write',
+    description:
+      'Write an entry to your work journal on VPS. Use to record what you did, what you learned, ' +
+      'errors you hit, or plans for next time. Persists across restarts so future wake cycles can read it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        type: {
+          type: 'string',
+          enum: ['note', 'task', 'reflection', 'error', 'discovery'],
+          description: 'Entry type (default: note)',
+        },
+        content: {
+          type: 'string',
+          description: 'Journal entry content',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional tags for categorization',
+        },
+      },
+      required: ['content'],
+    },
+  },
+}
+
+export const TOOL_VPS_JOURNAL_READ = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_journal_read',
+    description:
+      'Read your work journal entries from VPS. Filter by type, tag, or search text. ' +
+      'Check this at the start of a wake cycle to remember what you were doing.',
+    parameters: {
+      type: 'object',
+      properties: {
+        type: {
+          type: 'string',
+          enum: ['note', 'task', 'reflection', 'error', 'discovery'],
+          description: 'Filter by entry type',
+        },
+        tag: {
+          type: 'string',
+          description: 'Filter by tag',
+        },
+        search: {
+          type: 'string',
+          description: 'Search text in content',
+        },
+        limit: {
+          type: 'integer',
+          description: 'Max entries to return (default 50)',
+        },
+      },
+    },
+  },
+}
