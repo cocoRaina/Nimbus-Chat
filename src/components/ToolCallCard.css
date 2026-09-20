@@ -53,9 +53,11 @@
   border-radius: 5px;
   flex-shrink: 0;
 }
-.tool-badge--ok { background: rgba(39, 174, 96, 0.15); color: #27ae60; }
-.tool-badge--fail { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }
-.tool-badge--info { background: rgba(243, 156, 18, 0.15); color: #f39c12; }
+/* Ice-blue "天使" palette — success is angel-blue (not a clashing green),
+   waiting is a soft amber, and failure uses the app's single red. */
+.tool-badge--ok { background: rgba(120, 158, 200, 0.16); color: var(--ab-strong-2, #6890BE); }
+.tool-badge--fail { background: rgba(185, 28, 28, 0.10); color: var(--ab-danger, #B91C1C); }
+.tool-badge--info { background: rgba(200, 170, 90, 0.16); color: #9A7B32; }
 
 .tool-chevron {
   color: var(--text-subtle, var(--ab-accent));

@@ -180,8 +180,8 @@
   border-radius: 50%;
   flex-shrink: 0;
 }
-.console-dot--on { background: #27ae60; }
-.console-dot--off { background: #e74c3c; }
+.console-dot--on { background: var(--ab-strong-2, #6890BE); }
+.console-dot--off { background: var(--ab-danger, #B91C1C); }
 .console-svc-name { font-weight: 700; font-size: 0.88rem; flex: 1; color: var(--ab-text, #2e2b3a); }
 .console-svc-meta { font-size: 0.75rem; color: var(--ab-text-secondary, #5c5775); font-variant-numeric: tabular-nums; }
 
@@ -213,7 +213,7 @@
 .console-status-label {
   font-weight: 700;
   font-size: 0.85rem;
-  color: #27ae60;
+  color: var(--ab-strong-2, #6890BE);
 }
 .console-status-host {
   font-size: 0.78rem;
@@ -238,9 +238,10 @@
   margin-bottom: 8px;
 }
 .console-section-title {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--ab-text, #2e2b3a);
+  font-family: var(--font-serif, Georgia, serif);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--ab-deep, #2A3D52);
   margin: 0;
 }
 .console-filter-btn {
@@ -451,7 +452,7 @@
   height: 18px;
   padding: 0 5px;
   border-radius: 9px;
-  background: #e74c3c;
+  background: var(--ab-danger, #B91C1C);
   color: #fff;
   font-size: 0.7rem;
   font-weight: 700;
@@ -470,8 +471,8 @@
   background: var(--ab-strong, #6c5ce7);
   color: #fff;
 }
-.console-btn--approve { background: #27ae60; }
-.console-btn--reject { background: #e74c3c; }
+.console-btn--approve { background: var(--ab-strong-2, #6890BE); }
+.console-btn--reject { background: var(--ab-danger, #B91C1C); }
 
 /* ── SQL / DB tab ─────────────────────────────────────────────── */
 .console-sql-input {
@@ -780,9 +781,9 @@
 
 /* ── Service restart control ─────────────────────────────────── */
 .console-restart-btn {
-  border: 1px solid rgba(231, 76, 60, 0.4);
-  background: rgba(231, 76, 60, 0.08);
-  color: #e74c3c;
+  border: 1px solid var(--hairline, rgba(88,104,120,0.16));
+  background: var(--ab-surface, rgba(255,255,255,0.6));
+  color: var(--ab-strong-2, #6890BE);
   border-radius: 8px;
   padding: 4px 10px;
   font-size: 0.75rem;
@@ -831,9 +832,9 @@
   color: var(--ab-strong, #6c5ce7);
 }
 .console-history-status--executed,
-.console-history-status--approved { background: rgba(39, 174, 96, 0.15); color: #27ae60; }
+.console-history-status--approved { background: rgba(120,158,200,0.16); color: var(--ab-strong-2, #6890BE); }
 .console-history-status--rejected,
-.console-history-status--failed { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }
+.console-history-status--failed { background: rgba(185,28,28,0.10); color: var(--ab-danger, #B91C1C); }
 .console-history-status--expired { background: rgba(149, 165, 166, 0.2); color: #7f8c8d; }
 .console-history-note {
   font-size: 0.76rem;
@@ -853,6 +854,6 @@
 
 /* ── Approval card danger-level accent ───────────────────────── */
 .console-approval-card { border-left: 3px solid transparent; }
-.console-approval-card--green { border-left-color: #27ae60; }
-.console-approval-card--yellow { border-left-color: #f39c12; }
-.console-approval-card--red { border-left-color: #e74c3c; }
+.console-approval-card--green { border-left-color: var(--ab-strong, #789EC8); }
+.console-approval-card--yellow { border-left-color: #9A7B32; }
+.console-approval-card--red { border-left-color: var(--ab-danger, #B91C1C); }

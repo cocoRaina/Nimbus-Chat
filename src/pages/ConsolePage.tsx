@@ -53,9 +53,9 @@ type McpServer = {
 }
 
 const levelTag = (level: string) => {
-  if (level === 'green') return 'READ'
-  if (level === 'yellow') return 'WRITE'
-  return 'DANGER'
+  if (level === 'green') return '读'
+  if (level === 'yellow') return '写'
+  return '危险'
 }
 
 const levelClass = (level: string) => `console-tag console-tag--${level}`
@@ -117,14 +117,18 @@ const actionLabel = (action: string) => ACTION_LABELS[action] || action
 
 type CatId = 'all' | 'GIT' | 'DB' | 'WEB' | 'FILE' | 'MCP' | 'AUTH' | 'SYS'
 
+const CAT_LABELS: Record<CatId, string> = {
+  all: '全部', GIT: 'Git', DB: '数据库', WEB: '网络', FILE: '文件', MCP: 'MCP', AUTH: '审批', SYS: '系统',
+}
+
 type TabId = 'logs' | 'approvals' | 'db' | 'git' | 'browser' | 'mcp'
 
 const NAV: { key: TabId; icon: string; label: string }[] = [
-  { key: 'logs', icon: '📋', label: 'Logs' },
-  { key: 'approvals', icon: '🔐', label: 'Approvals' },
-  { key: 'db', icon: '🗄', label: 'Database' },
+  { key: 'logs', icon: '📋', label: '日志' },
+  { key: 'approvals', icon: '🔐', label: '审批' },
+  { key: 'db', icon: '🗄', label: '数据库' },
   { key: 'git', icon: '🔀', label: 'Git' },
-  { key: 'browser', icon: '🌐', label: 'Browser' },
+  { key: 'browser', icon: '🌐', label: '浏览器' },
   { key: 'mcp', icon: '🔌', label: 'MCP' },
 ]
 
@@ -422,7 +426,7 @@ export default function ConsolePage() {
     <div className="console-page">
       <header className="page-header-bar">
         <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>✕</button>
-        <h1 className="ui-title">Logs</h1>
+        <h1 className="ui-title">{NAV.find((n) => n.key === tab)?.label ?? '控制台'}</h1>
         <div className="console-header-actions">
           <button type="button" className="console-refresh" onClick={fetchAll} disabled={loading}>
             {loading ? '…' : '↻'}
@@ -470,7 +474,7 @@ export default function ConsolePage() {
           {status && (
             <div className="console-status-bar">
               <span className="console-dot console-dot--on" />
-              <span className="console-status-label">Online</span>
+              <span className="console-status-label">在线</span>
               <span className="console-status-host">{status.os.hostname}</span>
               <span className="console-status-metrics">
                 CPU {status.cpu.loadAvg[0]?.toFixed(1)} · Mem {status.memory.usedPercent} · Disk {status.disk.usePercent} · Up {fmtUptime(status.os.uptime)}
@@ -488,16 +492,9 @@ export default function ConsolePage() {
           )}
           {restartMsg && <div className="console-restart-msg">{restartMsg}</div>}
 
-          {/* Section header + filter */}
+          {/* Section header */}
           <div className="console-section-header">
             <h2 className="console-section-title">操作日志</h2>
-            <button
-              type="button"
-              className="console-filter-btn"
-              onClick={() => setCatFilter(catFilter === 'all' ? 'all' : 'all')}
-            >
-              筛选
-            </button>
           </div>
 
           {/* Category filter chips */}
@@ -509,7 +506,7 @@ export default function ConsolePage() {
                 className={`console-chip ${catFilter === c ? 'console-chip--active' : ''}`}
                 onClick={() => setCatFilter(c)}
               >
-                {c === 'all' ? '全部' : c}
+                {CAT_LABELS[c]}
               </button>
             ))}
           </div>
@@ -551,7 +548,7 @@ export default function ConsolePage() {
               {clearing ? '清理中…' : '一键清空已完成'}
             </button>
           </div>
-          {pending.length === 0 && <p className="console-empty-sub">No pending approvals</p>}
+          {pending.length === 0 && <p className="console-empty-sub">暂无待审批</p>}
           {pending.map((op) => (
             <div key={op.id} className={`console-approval-card console-approval-card--${op.level}`}>
               <div className="console-approval-header">
