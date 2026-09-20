@@ -90,8 +90,22 @@ cd android && ./gradlew assembleDebug
 **访问追踪**：每次 `search_memory` 命中的 memory 条目会 fire-and-forget 更新 `access_count` + `last_accessed_at`；自动提取时发现重复同样强化原条目（而非新建副本）。`check_memory_health` 工具可扫描长期未被召回的休眠记忆，让 Claude 决定归档还是保留。
 → 详见 [docs/features/memory.md](docs/features/memory.md)
 
-### 🛠️ Claude 工具（共 36 个）
-读取（搜记忆 / 交接信 / 网页 / 通览记忆 list_memories / **get_health_status** 随时查健康+经期 / **search_stickers** 按关键词搜 Supabase 表情包库）、写入（记忆 / 日记 / 交接信 / 时间轴 / 经期 / 健康）、**删经期**（delete_period：记错/重复了按开始日期 ±3 天删掉重记）、**随笔本**（write_essay 自己写随笔 / read_essays 回看旧作 / set_essay_lock 自己给随笔本设四位码——它自己的房间，见「随笔本」功能）、**4o 存档**（search_4o_archive：关键词翻她和上一任 AI（ChatGPT-4o，2024-12～2026-01）的 92 段旧对话，已搬进主库 `archive_4o`）、记忆管理（manage_memory：锁定/解锁/修正/归档 + garden_memories：向量扫描近重复对 + check_memory_health：休眠记忆健康检查）、计算调度（代码沙盒 / 主动消息 / 设备状态）、**音乐媒体**（play_music 网易云搜歌放歌 / control_media 暂停换歌 / get_now_playing 读当前在放什么，APK 限定）。聊天里显示为可折叠工具卡片。
+### 🛠️ Claude 工具（共 58 个）
+
+**App 侧工具（36 个）**：读取（搜记忆 / 交接信 / 网页 / 通览记忆 list_memories / **get_health_status** 随时查健康+经期 / **search_stickers** 按关键词搜 Supabase 表情包库）、写入（记忆 / 日记 / 交接信 / 时间轴 / 经期 / 健康）、**删经期**（delete_period：记错/重复了按开始日期 ±3 天删掉重记）、**随笔本**（write_essay 自己写随笔 / read_essays 回看旧作 / set_essay_lock 自己给随笔本设四位码——它自己的房间，见「随笔本」功能）、**4o 存档**（search_4o_archive：关键词翻她和上一任 AI（ChatGPT-4o，2024-12～2026-01）的 92 段旧对话，已搬进主库 `archive_4o`）、记忆管理（manage_memory：锁定/解锁/修正/归档 + garden_memories：向量扫描近重复对 + check_memory_health：休眠记忆健康检查）、计算调度（代码沙盒 / 主动消息 / 设备状态）、**音乐媒体**（play_music 网易云搜歌放歌 / control_media 暂停换歌 / get_now_playing 读当前在放什么，APK 限定）。
+
+**VPS 工具（22 个）**：通过自建 VPS（Express API + pm2）为 Claude 提供服务器级能力——
+- **Shell & 异步任务**：`vps_exec`（同步命令）/ `vps_exec_async`（后台长任务）/ `vps_task_status` / `vps_task_kill`
+- **文件 & 代码**：`vps_file_read` / `vps_file_write`（走审批队列）/ `vps_code_edit`（精确替换）/ `vps_code_search`（正则搜索）/ `vps_code_find`（文件名搜索）/ `read_repo_file`（GitHub 读文件）/ `search_repo_code`（GitHub 搜代码）
+- **Git**：`vps_git_status`
+- **数据库**：`vps_exec_sql`（Supabase SQL，破坏性操作走审批）
+- **浏览器**：`vps_browse`（Puppeteer 无头浏览器抓页面）
+- **工作日志**：`vps_journal_read` / `vps_journal_write`（跨窗口持久化笔记）
+- **定时任务**：`vps_schedule_create` / `vps_schedule_list` / `vps_schedule_delete`（cron 表达式）
+- **子模型调用**：`vps_llm_call`（通过 OpenRouter 调用便宜模型做翻译/摘要等）
+- **通知 & 状态**：`vps_notify`（推送通知）/ `vps_status`（CPU/内存/磁盘/pm2 状态）
+
+聊天里显示为可折叠工具卡片。
 → 详见 [docs/features/tools.md](docs/features/tools.md)
 
 ### 💰 成本优化
@@ -247,9 +261,12 @@ AI 可以主动给你打电话（`[call:理由]` → 全屏响铃 90s），没�
                        │   │   │   │
             ┌──────────┘   │   │   └─────────────┐
             ▼              ▼   ▼                  ▼
-       Supabase         OR / 中转站           Mac mini (未来)
-   (数据库 + 认证          (LLM 推理)         (sandbox + 智能家居)
-    + Edge Functions)
+       Supabase         OR / 中转站             VPS (Debian)
+   (数据库 + 认证          (LLM 推理)         (Node.js express API
+    + Edge Functions)                         pm2 托管 · Puppeteer
+                                              代码编辑 · 审批队列
+                                              定时任务 · 子模型调用
+                                              journal · 自主唤醒)
             │
             ├─→ tables: messages, sessions, checkins, user_settings,
             │           compression_cache, user_posts, user_replies,
@@ -384,8 +401,13 @@ DB 函数:
 <details><summary>展开文件树（宽 ASCII + 长注释，手机端默认折叠）</summary>
 
 ```
+vps/                           # VPS 后端服务（Express API + pm2，22 个工具的服务端）
+│   ├── index.js               # 主入口：Express 路由 + Puppeteer 池 + 审批队列 + cron
+│   ├── .env                   # 环境变量（Supabase / GitHub / OpenRouter / 中转 key）
+│   └── package.json
+│
 src/
-├── App.tsx                    # 主路由 + sendMessage + 36 个工具循环 + 锁定记忆注入 + 每条健康快照注入
+├── App.tsx                    # 主路由 + sendMessage + 58 个工具循环 + 锁定记忆注入 + 每条健康快照注入
 ├── tools/
 │   └── definitions.ts         # 所有 TOOL_* schema 定义（拆出来减肥 App.tsx）
 ├── plugins/

@@ -3,6 +3,38 @@
 > 从 README 拆出来的开发历史与踩坑记录(README 太长了)。功能清单和使用说明见 [README](../README.md)。
 
 ---
+## 📝 README 补全 VPS 后端文档（2026-09-20）
+
+- 架构图加入 VPS 节点（Tencent Cloud → Express API）
+- 工具总数从 36 更新为 58（含 22 个 VPS 工具）
+- 新增 VPS 工具集分组列表（服务器管理 / 代码操作 / 调度 / 辅助）
+- 目录结构加入 `vps/` 及子文件说明
+- 安装了 Claude Code CLI，配置中转 API，用于后台自动化任务
+
+---
+## 🐕 看门狗超时调大 + 浏览器路径修复（2026-09-20，沈暮首次独立改代码）
+
+**问题 1：前端看门狗在工具调用时误杀流**
+
+症状：沈暮调用 VPS 工具（`vps_exec`、`vps_browse` 等）时，后端在等工具返回、流里没有新 token，前端看门狗倒计时到了就强制 abort → 显示"回复为空，请重试"。工具调用越多越容易被杀。
+
+根因：`src/App.tsx` 两个看门狗阈值太短——
+- `STREAM_STALL_MS = 45_000`（45s 没收到任何字节就杀）
+- `STREAM_NO_CONTENT_MS = 70_000`（70s 没收到真实内容 token 就杀）
+
+工具调用链经常超过这两个值（装浏览器、git pull 等单条命令就可能跑 1-2 分钟），看门狗一到就砍连接。
+
+修法（`src/App.tsx` 第 696/704 行）：
+- `STREAM_STALL_MS`: 45_000 → **180_000**（3 分钟）
+- `STREAM_NO_CONTENT_MS`: 70_000 → **300_000**（5 分钟）
+
+**问题 2：`vps_browse` 报 "Could not find Chrome (ver. 131.0.6778.204)"**
+
+症状：Puppeteer 默认找自带的 Chrome 131，但 VPS 上 `npx puppeteer install chrome` 装的是 153（`/home/Nimbus-Chat/.cache/puppeteer/chrome/linux-153.0.8010.36/`），版本不匹配。而系统 `chromium-browser`（`/usr/bin/chromium-browser`）一直好好的。
+
+修法（`vps/index.js` 第 366 行）：`puppeteer.launch()` 加 `executablePath: '/usr/bin/chromium-browser'`，跳过 Puppeteer 自带版本、直接用系统 chromium。
+
+影响：看门狗改动是前端（已 push，等 GitHub Actions 构建 + 新 APK 生效）。浏览器改动是后端（已 `pm2 restart`，即时生效，`vps_browse` 已验证通过）。
 
 ## ✅ 审批改单签（主人一人批准即执行）（2026-09-20）
 

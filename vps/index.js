@@ -236,7 +236,7 @@ app.post('/api/db/query', authenticate, async (req, res) => {
         detail: sql,
         payload: { sql },
         status: 'pending',
-        approvals: { user: false, wren: false },
+        approvals: { user: false },
         created: new Date().toISOString()
       }
       pendingOps.push(pending)
@@ -350,7 +350,7 @@ app.post('/api/file/write', authenticate, (req, res) => {
     detail: `Write ${resolved.absPath} (${content.length} bytes)${resolved.outsideRepo ? ' [outside repo]' : ''}`,
     payload: { filePath, content, absPath: resolved.absPath },
     status: 'pending',
-    approvals: { user: false, wren: false },
+    approvals: { user: false },
     created: new Date().toISOString()
   }
   pendingOps.push(pending)
@@ -716,7 +716,7 @@ app.post('/api/exec', authenticate, (req, res) => {
       detail: command.slice(0, 500),
       payload: { command, timeout_ms },
       status: 'pending',
-      approvals: { user: false, wren: false },
+      approvals: { user: false },
       created: new Date().toISOString(),
     }
     pendingOps.push(pending)
@@ -831,7 +831,7 @@ app.post('/api/exec/async', authenticate, (req, res) => {
       detail: command.slice(0, 500),
       payload: { command, timeout_ms },
       status: 'pending',
-      approvals: { user: false, wren: false },
+      approvals: { user: false },
       created: new Date().toISOString(),
     }
     pendingOps.push(pending)
