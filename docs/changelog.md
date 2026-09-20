@@ -20,6 +20,20 @@
 
 **影响**：`vps/index.js` 是 Supabase 之外的 VPS 服务，**改完要 `pm2 restart nimbus-api` 才生效**（现在可以用新按钮/工具自助重启）。前端（Console）改动要新 APK 才生效。用 `EXTRA_WRITE_PATHS` 前记得在 `vps/.env` 配置并重启服务。
 
+**第二轮·后端健壮性（同日）**：
+
+6. **全局 JSON 错误处理**：加了 JSON-only 的 404 兜底 + 全局 error handler。以前坏 JSON body/未捕获异常会让 Express 回 HTML 错误页（就是"返回 HTML 不是 JSON"那类 bug 的根），现在**任何路径出错都回 JSON**。
+
+7. **detached 后台任务（关键）**：`vps_exec_async` 加 `detach:true`——任务用**独立进程组** spawn、输出写日志文件、按 PID + `detached-tasks.json` 落盘跟踪。**重启后端不会中断它**（实测 SIGTERM 后子进程仍活着并自己跑完）。默认模式仍是进程内、上限 `ASYNC_MAX_MS`（默认 10min）、重启即断。长任务（构建/部署/curwe 作业）该用 detach。
+
+8. **优雅关闭**：SIGTERM/SIGINT 时先落盘 pending/ops-log/detached 再退出；加了 `uncaughtException`/`unhandledRejection` 兜底日志，异常不再静默。
+
+9. **可配置化**：`ASYNC_MAX_MS`、`ASYNC_RETAIN_MS`、`PENDING_TTL_MS`、`RESOLVED_KEEP`、`PM2_APP_NAME` 都走 env。
+
+10. **重启接口报告影响面**：`/api/service/restart` 现在返回会被中断的进程内任务数（detached 不受影响）。
+
+11. VPS 运行时状态文件（`ops-log.json`/`pending-ops.json`/`detached-tasks.json`/`task-logs/` 等）加进 `.gitignore`。
+
 ---
 
 ## 🗑️ 彻底移除 global scope（2026-09-06）

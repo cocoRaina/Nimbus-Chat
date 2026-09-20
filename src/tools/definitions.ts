@@ -1219,7 +1219,10 @@ export const TOOL_VPS_EXEC_ASYNC = {
     description:
       'Start a long-running shell command on the VPS in the background. Returns a task ID immediately. ' +
       'Use vps_task_status to check progress, vps_task_kill to stop it. ' +
-      'Good for: npm install, apt install, builds, long git operations, anything over 30s. Max 10min timeout.',
+      'Good for: npm install, apt install, builds, long git operations, anything over 30s. ' +
+      'Default mode is capped at 10min and is killed if the backend restarts. ' +
+      'Set detach:true for jobs that must NOT be interrupted — they run in their own process ' +
+      'group, log to a file, and keep running across a backend restart (poll with vps_task_status).',
     parameters: {
       type: 'object',
       properties: {
@@ -1229,7 +1232,11 @@ export const TOOL_VPS_EXEC_ASYNC = {
         },
         timeout_ms: {
           type: 'integer',
-          description: 'Timeout in milliseconds, default 300000 (5min), max 600000 (10min)',
+          description: 'Timeout in milliseconds, default 300000 (5min), max 600000 (10min). Ignored when detach:true.',
+        },
+        detach: {
+          type: 'boolean',
+          description: 'Run fully detached (survives backend restart, no timeout). Use for builds/deploys/long jobs that must not be interrupted.',
         },
       },
       required: ['command'],

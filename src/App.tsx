@@ -4813,7 +4813,7 @@ TOOL_SEARCH_HANDOFF,
                    const args = JSON.parse(tc.function.arguments || '{}')
                    const res = await vfetch('/api/exec/async', {
                    method: 'POST',
-                   body: JSON.stringify({ command: args.command, timeout_ms: args.timeout_ms }),
+                   body: JSON.stringify({ command: args.command, timeout_ms: args.timeout_ms, detach: args.detach }),
                     })
                   resultText = JSON.stringify(await res.json())
                  } else if (tc.function.name === 'vps_task_status' && isVpsConfigured()) {

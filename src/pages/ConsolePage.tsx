@@ -83,7 +83,13 @@ const fmtTimeShort = (iso: string) => {
 
 const ACTION_LABELS: Record<string, string> = {
   exec: '执行命令',
+  exec_write: '写操作命令',
+  exec_write_async: '后台写操作',
   exec_async: '后台任务',
+  service_restart: '重启服务',
+  ops_clear: '清空已完成',
+  db_write: '数据库写入',
+  error: '错误',
   file_read: '读取文件',
   file_write: '写入文件',
   git_status: 'Git 状态查询',
@@ -547,10 +553,10 @@ export default function ConsolePage() {
           </div>
           {pending.length === 0 && <p className="console-empty-sub">No pending approvals</p>}
           {pending.map((op) => (
-            <div key={op.id} className="console-approval-card">
+            <div key={op.id} className={`console-approval-card console-approval-card--${op.level}`}>
               <div className="console-approval-header">
                 <span className={levelClass(op.level)}>{levelTag(op.level)}</span>
-                <span className="console-approval-action">{op.action}</span>
+                <span className="console-approval-action">{actionLabel(op.action)}</span>
                 <span className="console-log-time">{fmtTime(op.created)}</span>
               </div>
               <p className="console-approval-detail">{op.detail}</p>

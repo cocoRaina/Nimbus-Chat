@@ -687,7 +687,39 @@ app.post('/api/exec', authenticate, (req, res) => {
 })
 
 // ══ Async Exec（后台长任务）═══════════════════════════════════════════
+// Two flavours:
+//  · in-process (default): child of nimbus-api, output streamed to memory,
+//    capped at ASYNC_MAX_MS. Dies if the service restarts/crashes.
+//  · detached (detach:true): spawned with its own session, output to a log
+//    file, tracked by PID on disk. SURVIVES a service restart — use for
+//    long jobs (builds, curwe jobs, anything that must not be interrupted).
+const ASYNC_MAX_MS = parseInt(process.env.ASYNC_MAX_MS || String(10 * 60 * 1000), 10) // 10min
+const ASYNC_RETAIN_MS = parseInt(process.env.ASYNC_RETAIN_MS || String(30 * 60 * 1000), 10) // 30min
 const asyncTasks = new Map()
+
+const TASK_LOG_DIR = path.join(__dirname, 'task-logs')
+const DETACHED_PATH = path.join(__dirname, 'detached-tasks.json')
+let detachedTasks = []
+try {
+  if (fs.existsSync(DETACHED_PATH)) detachedTasks = JSON.parse(fs.readFileSync(DETACHED_PATH, 'utf8'))
+} catch {}
+const saveDetached = () => {
+  try { fs.writeFileSync(DETACHED_PATH, JSON.stringify(detachedTasks.slice(-100), null, 2)) } catch {}
+}
+const pidAlive = (pid) => { try { process.kill(pid, 0); return true } catch { return false } }
+// Reconcile on boot: a detached task whose PID is gone finished while we were down.
+const reconcileDetached = () => {
+  let changed = false
+  for (const t of detachedTasks) {
+    if (t.status === 'running' && !pidAlive(t.pid)) {
+      t.status = 'done'
+      t.finished = t.finished || new Date().toISOString()
+      changed = true
+    }
+  }
+  if (changed) saveDetached()
+}
+reconcileDetached()
 
 app.post('/api/exec/async', authenticate, (req, res) => {
   const { command, timeout_ms, approval_id } = req.body
@@ -717,7 +749,34 @@ app.post('/api/exec/async', authenticate, (req, res) => {
     if (op.payload?.command !== command) return res.status(403).json({ ok: false, error: '命令与审批记录不匹配' })
   }
 
-  const timeout = Math.min(600000, Math.max(5000, timeout_ms || 300000))
+  // ── Detached mode: fully independent of nimbus-api's lifecycle ──────
+  if (req.body.detach) {
+    try { fs.mkdirSync(TASK_LOG_DIR, { recursive: true }) } catch {}
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+    const logFile = path.join(TASK_LOG_DIR, `${id}.log`)
+    let out
+    try { out = fs.openSync(logFile, 'a') } catch (err) {
+      return res.status(500).json({ ok: false, error: `无法创建日志文件: ${err.message}` })
+    }
+    const child = spawn('bash', ['-lc', command], {
+      cwd: REPO_DIR,
+      detached: true,       // own process group — not killed when we restart
+      stdio: ['ignore', out, out],
+    })
+    child.unref()
+    try { fs.closeSync(out) } catch {}
+    const rec = {
+      id, command, pid: child.pid, logFile,
+      status: 'running', detached: true,
+      started: new Date().toISOString(), finished: null,
+    }
+    detachedTasks.push(rec)
+    saveDetached()
+    logOp({ action: 'exec_async', level: 'yellow', detail: `[${id}] detached (pid ${child.pid}): ${command.slice(0, 80)}` })
+    return res.json({ ok: true, id, pid: child.pid, detached: true, message: '后台任务已启动（脱离主进程，重启后端也不会中断）' })
+  }
+
+  const timeout = Math.min(ASYNC_MAX_MS, Math.max(5000, timeout_ms || 300000))
 
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
   const task = {
@@ -748,7 +807,7 @@ app.post('/api/exec/async', authenticate, (req, res) => {
     task.finished = new Date().toISOString()
     delete task._child
     logOp({ action: 'exec_async', level: 'yellow', detail: `[${id}] ${command.slice(0, 80)} → ${task.status}` })
-    setTimeout(() => asyncTasks.delete(id), 30 * 60 * 1000)
+    setTimeout(() => asyncTasks.delete(id), ASYNC_RETAIN_MS)
   })
 
   logOp({ action: 'exec_async', level: 'yellow', detail: `[${id}] started: ${command.slice(0, 80)}` })
@@ -757,22 +816,49 @@ app.post('/api/exec/async', authenticate, (req, res) => {
 
 app.get('/api/exec/status/:id', authenticate, (req, res) => {
   const task = asyncTasks.get(req.params.id)
-  if (!task) return res.status(404).json({ error: 'Task not found or expired' })
-  const { _child, ...safe } = task
-  safe.stdout_tail = safe.stdout.slice(-8000)
-  safe.stderr_tail = safe.stderr.slice(-4000)
-  delete safe.stdout
-  delete safe.stderr
-  res.json(safe)
+  if (task) {
+    const { _child, ...safe } = task
+    safe.stdout_tail = safe.stdout.slice(-8000)
+    safe.stderr_tail = safe.stderr.slice(-4000)
+    delete safe.stdout
+    delete safe.stderr
+    return res.json(safe)
+  }
+  // Detached task: liveness is the PID, output is the log file.
+  const det = detachedTasks.find((t) => t.id === req.params.id)
+  if (det) {
+    const alive = pidAlive(det.pid)
+    if (!alive && det.status === 'running') {
+      det.status = 'done'
+      det.finished = det.finished || new Date().toISOString()
+      saveDetached()
+    }
+    let tail = ''
+    try { tail = fs.readFileSync(det.logFile, 'utf8').slice(-8000) } catch {}
+    return res.json({ ...det, running: alive, stdout_tail: tail })
+  }
+  return res.status(404).json({ error: 'Task not found or expired' })
 })
 
 app.post('/api/exec/kill/:id', authenticate, (req, res) => {
   const task = asyncTasks.get(req.params.id)
-  if (!task) return res.status(404).json({ error: 'Task not found' })
-  if (task.status !== 'running') return res.json({ ok: true, message: `Already ${task.status}` })
-  task._child?.kill('SIGTERM')
-  setTimeout(() => { if (task.status === 'running') task._child?.kill('SIGKILL') }, 5000)
-  res.json({ ok: true, message: '终止信号已发送' })
+  if (task) {
+    if (task.status !== 'running') return res.json({ ok: true, message: `Already ${task.status}` })
+    task._child?.kill('SIGTERM')
+    setTimeout(() => { if (task.status === 'running') task._child?.kill('SIGKILL') }, 5000)
+    return res.json({ ok: true, message: '终止信号已发送' })
+  }
+  const det = detachedTasks.find((t) => t.id === req.params.id)
+  if (det) {
+    if (det.status !== 'running' || !pidAlive(det.pid)) {
+      det.status = 'done'; det.finished = det.finished || new Date().toISOString(); saveDetached()
+      return res.json({ ok: true, message: `Already ${det.status}` })
+    }
+    try { process.kill(det.pid, 'SIGTERM') } catch {}
+    setTimeout(() => { if (pidAlive(det.pid)) { try { process.kill(det.pid, 'SIGKILL') } catch {} } }, 5000)
+    return res.json({ ok: true, message: '终止信号已发送' })
+  }
+  return res.status(404).json({ error: 'Task not found' })
 })
 
 app.get('/api/exec/list', authenticate, (_req, res) => {
@@ -782,6 +868,10 @@ app.get('/api/exec/list', authenticate, (_req, res) => {
     safe.stdout_len = stdout.length
     safe.stderr_len = stderr.length
     list.push(safe)
+  }
+  for (const det of detachedTasks) {
+    if (det.status === 'running' && !pidAlive(det.pid)) { det.status = 'done'; det.finished = det.finished || new Date().toISOString() }
+    list.push({ id: det.id, command: det.command, status: det.status, detached: true, pid: det.pid, started: det.started, finished: det.finished })
   }
   res.json(list)
 })
@@ -799,10 +889,20 @@ app.post('/api/service/restart', authenticate, (req, res) => {
   const appName = rawName.replace(/[^\w.@-]/g, '')
   if (!appName) return res.status(400).json({ ok: false, error: 'Invalid app name' })
 
-  logOp({ action: 'service_restart', level: 'red', status: 'triggered', detail: `pm2 restart ${appName}` })
+  // In-process async tasks die with us; detached ones survive. Warn the caller.
+  let runningInProc = 0
+  for (const [, t] of asyncTasks) if (t.status === 'running') runningInProc++
+
+  logOp({ action: 'service_restart', level: 'red', status: 'triggered', detail: `pm2 restart ${appName}${runningInProc ? ` (中断 ${runningInProc} 个进程内任务)` : ''}` })
 
   // Respond BEFORE restarting so the client actually receives JSON.
-  res.json({ ok: true, message: `正在重启 ${appName}…`, app: appName })
+  res.json({
+    ok: true,
+    message: `正在重启 ${appName}…`,
+    app: appName,
+    interrupted_tasks: runningInProc,
+    warning: runningInProc > 0 ? `有 ${runningInProc} 个进程内后台任务会被中断（detached 任务不受影响）` : undefined,
+  })
 
   // Give the response time to flush, then restart detached + unref'd so it
   // keeps running (and pm2's daemon completes the restart) after we're killed.
@@ -1285,9 +1385,50 @@ app.post('/api/push/send', authenticate, (req, res) => {
   })
 })
 
+// ── JSON-only fallthrough: unknown route → JSON 404 ──────────────────
+app.use((req, res) => {
+  res.status(404).json({ ok: false, error: 'Not found', path: req.path })
+})
+
+// ── Global error handler: ALWAYS JSON, never an HTML stack page ───────
+// (This is the general fix for the "returns HTML not JSON" class of bugs —
+//  malformed JSON bodies, thrown errors in handlers, etc. all reply JSON.)
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err)
+  const msg = err?.type === 'entity.parse.failed' ? 'Invalid JSON body' : (err?.message || 'Internal error')
+  try { logOp({ action: 'error', level: 'red', detail: `${req.method} ${req.path}`, error: String(msg).slice(0, 200) }) } catch {}
+  res.status(err?.status || err?.statusCode || 500).json({ ok: false, error: msg })
+})
+
+// ── Graceful shutdown: flush state before pm2 replaces us ────────────
+let shuttingDown = false
+const shutdown = (sig) => {
+  if (shuttingDown) return
+  shuttingDown = true
+  console.log(`[shutdown] 收到 ${sig}，落盘状态后退出`)
+  try { savePending() } catch {}
+  try { saveOpsLog() } catch {}
+  try { saveDetached() } catch {}
+  // In-process async tasks die with us; detached tasks keep running.
+  setTimeout(() => process.exit(0), 200)
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))
+process.on('uncaughtException', (err) => {
+  console.error('[uncaught]', err)
+  try { logOp({ action: 'error', level: 'red', error: `uncaught: ${String(err?.message || err).slice(0, 200)}` }) } catch {}
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason)
+})
+
 // ════════════════════════════════════════════════════════════════════════
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`Nimbus API running on port ${PORT}`)
   console.log('[wake-cron] 定时唤醒已启动 (每 10 分钟)')
+  if (detachedTasks.some((t) => t.status === 'running')) {
+    console.log(`[async] ${detachedTasks.filter((t) => t.status === 'running').length} 个 detached 任务在重启后仍在运行`)
+  }
   if (webpush) console.log('[web-push] Push notifications enabled')
 })

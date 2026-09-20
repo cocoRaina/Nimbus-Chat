@@ -30,3 +30,15 @@ android/app/google-services.json
 *.sw?
 .claude/worktrees/
 supabase/.temp/
+
+# VPS runtime state (per-deployment, not source)
+vps/ops-log.json
+vps/pending-ops.json
+vps/detached-tasks.json
+vps/schedules.json
+vps/notifications.json
+vps/journal.json
+vps/mcp-servers.json
+vps/vapid.json
+vps/push_subscriptions.json
+vps/task-logs/

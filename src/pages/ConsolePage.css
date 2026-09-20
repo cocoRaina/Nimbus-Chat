@@ -850,3 +850,9 @@
     background: rgba(255,255,255,0.05);
   }
 }
+
+/* ── Approval card danger-level accent ───────────────────────── */
+.console-approval-card { border-left: 3px solid transparent; }
+.console-approval-card--green { border-left-color: #27ae60; }
+.console-approval-card--yellow { border-left-color: #f39c12; }
+.console-approval-card--red { border-left-color: #e74c3c; }
