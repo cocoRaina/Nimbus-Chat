@@ -1,7 +1,8 @@
-import { isValidElement, memo, type ReactNode } from 'react'
+import { isValidElement, memo, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ArtifactFrame from './ArtifactFrame'
+import './MarkdownRenderer.css'
 
 type MarkdownRendererProps = {
   content: string
@@ -31,6 +32,52 @@ const extractHtmlArtifact = (children: ReactNode): string | null => {
   return text
 }
 
+// Pull the plain source text out of a <pre>'s <code> child, for copying.
+const getCodeText = (children: ReactNode): string => {
+  const child = Array.isArray(children) ? children[0] : children
+  if (!isValidElement(child)) return typeof children === 'string' ? children : ''
+  const raw = (child.props as { children?: ReactNode }).children
+  if (typeof raw === 'string') return raw
+  if (Array.isArray(raw)) return raw.filter((p): p is string => typeof p === 'string').join('')
+  return ''
+}
+
+// Copy that works in the Android WebView too (clipboard API can be blocked on
+// non-secure origins → fall back to a hidden textarea + execCommand).
+const copyText = async (text: string): Promise<boolean> => {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true }
+  } catch { /* fall through */ }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch { return false }
+}
+
+// A code block with a copy button (block code only; inline code is untouched).
+const CodeBlock = ({ children, ...rest }: { children?: ReactNode }) => {
+  const [copied, setCopied] = useState(false)
+  const onCopy = async () => {
+    const ok = await copyText(getCodeText(children))
+    if (ok) { setCopied(true); window.setTimeout(() => setCopied(false), 1500) }
+  }
+  return (
+    <div className="md-code">
+      <button type="button" className="md-code-copy" onClick={onCopy} aria-label="复制代码">
+        {copied ? '已复制 ✓' : '复制'}
+      </button>
+      <pre {...rest}>{children}</pre>
+    </div>
+  )
+}
+
 const MarkdownRenderer = memo(
   ({ content, artifactsLive = true }: MarkdownRendererProps) => (
     <ReactMarkdown
@@ -46,7 +93,7 @@ const MarkdownRenderer = memo(
               <div className="artifact-building">🧸 小玩具制作中…写完就能玩</div>
             )
           }
-          return <pre {...rest}>{children}</pre>
+          return <CodeBlock {...rest}>{children}</CodeBlock>
         },
       }}
     >

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { vfetch, isVpsConfigured } from '../storage/vpsConfig'
+import ConfirmDialog from '../components/ConfirmDialog'
 import './ConsolePage.css'
 
 type SystemStatus = {
@@ -140,6 +141,7 @@ export default function ConsolePage() {
   const [history, setHistory] = useState<PendingOp[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [showClearDialog, setShowClearDialog] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const [restartMsg, setRestartMsg] = useState('')
   const [loading, setLoading] = useState(true)
@@ -248,11 +250,11 @@ export default function ConsolePage() {
     if (tab === 'approvals' && configured) fetchHistory()
   }, [tab, configured, fetchHistory])
 
-  const clearCompleted = async () => {
-    if (!window.confirm('清空所有已完成/已拒绝/已过期的审批记录？此操作不可撤销。')) return
+  const doClear = async (all: boolean) => {
+    setShowClearDialog(false)
     setClearing(true)
     try {
-      await vfetch('/api/ops/clear', { method: 'POST', body: JSON.stringify({}) })
+      await vfetch('/api/ops/clear', { method: 'POST', body: JSON.stringify(all ? { all: true } : {}) })
       await Promise.all([fetchHistory(), fetchAll()])
     } catch {} finally {
       setClearing(false)
@@ -542,8 +544,8 @@ export default function ConsolePage() {
             <button
               type="button"
               className="console-filter-btn"
-              onClick={clearCompleted}
-              disabled={clearing || history.length === 0}
+              onClick={() => setShowClearDialog(true)}
+              disabled={clearing || (history.length === 0 && pending.length === 0)}
             >
               {clearing ? '清理中…' : '一键清空已完成'}
             </button>
@@ -810,6 +812,18 @@ export default function ConsolePage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={showClearDialog}
+        title="清理审批记录"
+        description="「清空已完成」只删已批准/拒绝/过期的；「全部清空」连待审批的也一起删。此操作不可撤销。"
+        confirmLabel="清空已完成"
+        neutralLabel="全部清空"
+        cancelLabel="取消"
+        onConfirm={() => doClear(false)}
+        onNeutral={() => doClear(true)}
+        onCancel={() => setShowClearDialog(false)}
+      />
     </div>
   )
 }
