@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { vfetch, isVpsConfigured } from '../storage/vpsConfig'
-import { getAssistantName } from '../storage/assistantPersona'
 import './ConsolePage.css'
 
 type SystemStatus = {
@@ -150,7 +149,6 @@ export default function ConsolePage() {
 
   const [catFilter, setCatFilter] = useState<CatId>('all')
   const configured = isVpsConfigured()
-  const assistantName = getAssistantName()
 
 
   const pick = (key: TabId) => {
@@ -370,7 +368,7 @@ export default function ConsolePage() {
     <div className="console-page">
       <header className="page-header-bar">
         <button type="button" className="page-back-btn" onClick={() => navigate(-1)}>✕</button>
-        <h1 className="ui-title">{assistantName}操作台</h1>
+        <h1 className="ui-title">Logs</h1>
         <div className="console-header-actions">
           <button type="button" className="console-refresh" onClick={fetchAll} disabled={loading}>
             {loading ? '…' : '↻'}
