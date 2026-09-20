@@ -12,7 +12,7 @@
 
 **影响**：后端立即生效（`pm2 restart`）；前端要新 APK。以后小机发起写操作，你在 Console 点一下 Approve 就真的会执行了。
 
-**同时修了"审批后命令不运行、卡住"（小机报的）**：`executeApprovedOp` 里 `exec_write`/`exec_write_async` 以前只写了句 `result='approved_for_execution'`、**根本没跑命令**（而且把状态置成 `executed`，导致旧的"带 approval_id 重调"路径也会被 403 挡掉——何况那条 tool schema 里根本没暴露 approval_id）。现在：`exec_write` 审批后**真的同步执行**并把（脱敏后的）输出写进 `op.result`+`exit_code`；`exec_write_async` 审批后**起一个 detached 后台任务**（`spawnDetachedJob`，扛重启），id 记进 `op.job_id`。抽了 `spawnDetachedJob` 复用（`/api/exec/async` detach 分支也换成它）。跑了 8/8 端到端冒烟（写命令→待审批→单签批准→真执行→有输出→密钥打码→副作用生效；异步→detached）。
+**同时修了"审批后命令不运行、卡住"（小机报的）**：`executeApprovedOp` 里 `exec_write`/`exec_write_async` 以前只写了句 `result='approved_for_execution'`、**根本没跑命令**（而且把状态置成 `executed`，导致旧的"带 approval_id 重调"路径也会被 403 挡掉——何况那条 tool schema 里根本没暴露 approval_id）。现在：`exec_write` 审批后**真的同步执行**并把（脱敏后的）输出写进 `op.result`+`exit_code`；`exec_write_async` 审批后**起一个 detached 后台任务**（`spawnDetachedJob`，扛重启），id 记进 `op.job_id`。抽了 `spawnDetachedJob` 复用（`/api/exec/async` detach 分支也换成它）。**`db_write` 也补上了**（原来批准后是句 `"not yet implemented"`、不执行）：现在审批通过后走 service-role `exec_sql` RPC 真的执行破坏性 SQL（update/delete/drop…），结果脱敏后记进 `op.result`。`executeApprovedOp` 改 async、approve handler `await` 它。跑了 8/8 端到端冒烟（写命令→待审批→单签批准→真执行→有输出→密钥打码→副作用生效；异步→detached）。
 
 **背景**：以前只有 `/api/db/query` 结果按字段名脱敏（`redactRow`）。`vps_exec` stdout、`vps_file_read`、`vps_code_search`、curwe 返回全是**原文**——而工具结果会 ① 存进 Supabase `messages.meta`、② 作为 tool_result **发回中转/LLM**（小机就是中转上的模型，等于密钥出境）、③ 显示在工具卡。加了 `EXTRA_WRITE_PATHS`（能读 `/home/curwe/.env`）+ curwe 透传后暴露面更大。
 

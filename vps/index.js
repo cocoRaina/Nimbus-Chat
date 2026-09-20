@@ -234,6 +234,7 @@ app.post('/api/db/query', authenticate, async (req, res) => {
         action: 'db_write',
         level: 'red',
         detail: sql,
+        payload: { sql },
         status: 'pending',
         approvals: { user: false, wren: false },
         created: new Date().toISOString()
@@ -381,7 +382,7 @@ app.post('/api/ops/clear', authenticate, (req, res) => {
   res.json({ ok: true, removed })
 })
 
-app.post('/api/ops/approve', authenticate, (req, res) => {
+app.post('/api/ops/approve', authenticate, async (req, res) => {
   const { id, approver } = req.body
   if (!id || !approver) return res.status(400).json({ error: 'Missing id or approver' })
   if (!['user', 'wren'].includes(approver)) return res.status(400).json({ error: 'approver must be user or wren' })
@@ -398,7 +399,7 @@ app.post('/api/ops/approve', authenticate, (req, res) => {
   // but no longer gates execution.)
   if (op.approvals.user) {
     op.status = 'approved'
-    executeApprovedOp(op)
+    await executeApprovedOp(op)
   }
 
   prunePending()
@@ -420,7 +421,7 @@ app.post('/api/ops/reject', authenticate, (req, res) => {
 })
 
 // ── Execute approved operation ───────────────────────────────────────
-const executeApprovedOp = (op) => {
+const executeApprovedOp = async (op) => {
   try {
     switch (op.action) {
       case 'file_write': {
@@ -436,7 +437,23 @@ const executeApprovedOp = (op) => {
         break
       }
       case 'db_write': {
-        op.result = 'db execution not yet implemented for approved ops'
+        // Run the approved (destructive) SQL via the same service-role exec_sql
+        // RPC the read path uses. Only reachable after 主人 approval (red gate).
+        const sql = op.payload?.sql || op.detail
+        if (!sql) throw new Error('no sql on op')
+        const resp = await fetch(`${process.env.SUPABASE_URL}/rest/v1/rpc/exec_sql`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          },
+          body: JSON.stringify({ query: sql }),
+        })
+        const text = await resp.text()
+        if (!resp.ok) throw new Error(`db exec ${resp.status}: ${text.slice(0, 200)}`)
+        let data; try { data = JSON.parse(text) } catch { data = text }
+        op.result = redactText(Array.isArray(data) ? `ok (${data.length} rows)` : (typeof data === 'string' ? data.slice(0, 2000) : JSON.stringify(data).slice(0, 2000)))
         break
       }
       case 'git_push': {
