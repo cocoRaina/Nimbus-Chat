@@ -2491,9 +2491,13 @@ const App = () => {
           if (reasoningType) {
             meta.reasoning_type = reasoningType
           }
-          if (!streaming && toolCallRecords.length > 0) {
+          // tool_calls are surfaced LIVE during streaming too so the bubble
+          // shows an unfolding Claude-Code-style step feed (thinking → tool →
+          // result) as it happens, not only after the turn completes. toolDigest
+          // (replay hint for the next turn) stays final-only.
+          if (toolCallRecords.length > 0) {
             meta.tool_calls = toolCallRecords
-            meta.toolDigest = buildToolDigest(toolCallRecords)
+            if (!streaming) meta.toolDigest = buildToolDigest(toolCallRecords)
           }
           // Freeze the final iteration's thinking blocks at save time (like
           // toolDigest) — replayed on later turns so the model sees its own
@@ -2503,7 +2507,7 @@ const App = () => {
             meta.thinkingBlocks = finalThinkingBlocks
             meta.thinkingHost = thinkingOriginHost()
           }
-          if (!streaming && flowEvents.length > 0) {
+          if (flowEvents.length > 0) {
             meta.flow = flowEvents
           }
           return meta
@@ -3314,12 +3318,14 @@ TOOL_SEARCH_HANDOFF,
               toolCallsArr.length > 0 &&
               (finishReason === 'tool_calls' || finishReason === null)
             ) {
-              // Record any thinking from this iteration before the tool calls.
+              // Record any thinking from this iteration before the tool calls,
+              // and push it live so the user sees 小机's reasoning before the
+              // tools start running (Claude-Code-style unfolding feed).
               if (currentIterationReasoning.trim()) {
                 flowEvents.push({ type: 'thinking', content: currentIterationReasoning.trim() })
+                pushStreamingUpdate()
               }
               currentIterationReasoning = ''
-              const toolIndexStart = toolCallRecords.length
 
               // Some relay gateways / Anthropic-on-the-other-side reject
               // assistant messages whose content is an empty string when
@@ -4952,6 +4958,7 @@ TOOL_SEARCH_HANDOFF,
                 let parsedResult: unknown = resultText
                 try { parsedArgs = JSON.parse(tc.function.arguments || '{}') } catch { /* keep {} */ }
                 try { parsedResult = JSON.parse(resultText) } catch { /* keep string */ }
+                const recIndex = toolCallRecords.length
                 toolCallRecords.push({
                   name: tc.function.name,
                   args: parsedArgs,
@@ -4964,6 +4971,11 @@ TOOL_SEARCH_HANDOFF,
                   tool_call_id: tc.id,
                   content: resultText,
                 })
+                // Live: append this step's flow event and push an update so its
+                // card pops into the feed (with ✓/✗ badge) the moment it finishes,
+                // instead of all at once after the iteration.
+                flowEvents.push({ type: 'tool', index: recIndex })
+                pushStreamingUpdate()
               }
               setToolStatus('')
               // Reset both stall clocks: tool execution legitimately produces no
@@ -4971,10 +4983,6 @@ TOOL_SEARCH_HANDOFF,
               // either watchdog. The next model turn gets fresh windows.
               lastChunkAtRef.current = Date.now()
               lastContentAtRef.current = Date.now()
-              // Record tool flow events (after toolCallRecords is populated).
-              for (let i = toolIndexStart; i < toolCallRecords.length; i++) {
-                flowEvents.push({ type: 'tool', index: i })
-              }
               // Loop back for another model turn
               continue
             }

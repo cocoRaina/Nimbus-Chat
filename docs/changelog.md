@@ -13,7 +13,9 @@
 
 **工具卡片（`ToolCallCard.tsx`）**：给所有 agent/VPS 工具补了图标 + 中文名 + 预览（`vps_exec` 显示命令、`vps_file_write`/`vps_code_edit` 显示文件路径、`vps_code_search` 显示 pattern…），并加了**结果徽章**（`✓ 0` / `✗ 退出码` / `待审批`）。聊天气泡里本就有「思考+工具卡」交错的 Claude-app 式流（`message-flow`），现在 agent 动作也是一等公民，能一眼看清每步干了啥、成没成。
 
-**影响**：纯前端改动，要新 APK 生效。（真·实时逐帧的 Claude-Code 面板是更大工程，另议。）
+**影响**：纯前端改动，要新 APK 生效。
+
+**实时逐帧 agent 视图（同日，用户选了"实时滚动"）**：以前"思考+工具卡"交错流只在**回复完**从 `meta` 渲染；执行时只有一行 `toolStatus`。改成**边跑边显**：`buildAssistantMeta(streaming)` 现在也带 `tool_calls`+`flow`；工具循环里每捕获一段思考、每完成一个工具就 `pushStreamingUpdate()`——思考先冒出来，然后工具卡带着 `✓/✗` 徽章一个个弹进 feed，配合底部"⚡ 执行命令…"的实时状态条，像 Claude Code 那样边跑边滚。（把原来"迭代结束后一次性补 flow 事件"改成逐个 push，`toolIndexStart` 批量循环删掉。）
 
 ---
 
