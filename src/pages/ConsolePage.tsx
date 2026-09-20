@@ -29,6 +29,10 @@ type PendingOp = {
   status: string
   approvals: { user: boolean; wren: boolean }
   created: string
+  result?: string
+  error?: string
+  rejectReason?: string
+  expiredAt?: string
 }
 
 type GitCommit = { hash: string; message: string; date: string; author: string }
@@ -123,6 +127,11 @@ export default function ConsolePage() {
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [logs, setLogs] = useState<OpLogEntry[]>([])
   const [pending, setPending] = useState<PendingOp[]>([])
+  const [history, setHistory] = useState<PendingOp[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+  const [clearing, setClearing] = useState(false)
+  const [restarting, setRestarting] = useState(false)
+  const [restartMsg, setRestartMsg] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [tab, setTab] = useState<TabId>('logs')
@@ -215,6 +224,45 @@ export default function ConsolePage() {
       })
       fetchAll()
     } catch {}
+  }
+
+  const fetchHistory = useCallback(async () => {
+    if (!configured) return
+    try {
+      const res = await vfetch('/api/ops/history?limit=50')
+      if (res.ok) setHistory(await res.json())
+    } catch {}
+  }, [configured])
+
+  useEffect(() => {
+    if (tab === 'approvals' && configured) fetchHistory()
+  }, [tab, configured, fetchHistory])
+
+  const clearCompleted = async () => {
+    if (!window.confirm('清空所有已完成/已拒绝/已过期的审批记录？此操作不可撤销。')) return
+    setClearing(true)
+    try {
+      await vfetch('/api/ops/clear', { method: 'POST', body: JSON.stringify({}) })
+      await Promise.all([fetchHistory(), fetchAll()])
+    } catch {} finally {
+      setClearing(false)
+    }
+  }
+
+  const restartService = async () => {
+    if (!window.confirm('重启后端服务 (pm2 restart)？连接会短暂中断，几秒后自动恢复。')) return
+    setRestarting(true)
+    setRestartMsg('')
+    try {
+      const res = await vfetch('/api/service/restart', { method: 'POST', body: JSON.stringify({}) })
+      const data = await res.json().catch(() => ({}))
+      setRestartMsg(data.message || '重启指令已发送')
+    } catch {
+      // The service is being replaced mid-request — a dropped connection is expected.
+      setRestartMsg('重启指令已发送，服务恢复中…')
+    }
+    // Give pm2 a few seconds, then refresh to confirm the service is back.
+    setTimeout(() => { setRestarting(false); fetchAll() }, 6000)
   }
 
   const runSql = async () => {
@@ -421,8 +469,18 @@ export default function ConsolePage() {
               <span className="console-status-metrics">
                 CPU {status.cpu.loadAvg[0]?.toFixed(1)} · Mem {status.memory.usedPercent} · Disk {status.disk.usePercent} · Up {fmtUptime(status.os.uptime)}
               </span>
+              <button
+                type="button"
+                className="console-restart-btn"
+                onClick={restartService}
+                disabled={restarting}
+                title="重启后端服务 (pm2 restart)"
+              >
+                {restarting ? '重启中…' : '↻ 重启服务'}
+              </button>
             </div>
           )}
+          {restartMsg && <div className="console-restart-msg">{restartMsg}</div>}
 
           {/* Section header + filter */}
           <div className="console-section-header">
@@ -476,6 +534,17 @@ export default function ConsolePage() {
 
       {tab === 'approvals' && (
         <div className="console-section">
+          <div className="console-section-header">
+            <h2 className="console-section-title">待审批 {pending.length > 0 && `(${pending.length})`}</h2>
+            <button
+              type="button"
+              className="console-filter-btn"
+              onClick={clearCompleted}
+              disabled={clearing || history.length === 0}
+            >
+              {clearing ? '清理中…' : '一键清空已完成'}
+            </button>
+          </div>
           {pending.length === 0 && <p className="console-empty-sub">No pending approvals</p>}
           {pending.map((op) => (
             <div key={op.id} className="console-approval-card">
@@ -497,6 +566,32 @@ export default function ConsolePage() {
               )}
             </div>
           ))}
+
+          {history.length > 0 && (
+            <div className="console-history">
+              <button
+                type="button"
+                className="console-history-toggle"
+                onClick={() => setShowHistory((v) => !v)}
+              >
+                {showHistory ? '▾' : '▸'} 已完成 / 已处理 ({history.length})
+              </button>
+              {showHistory && history.map((op) => (
+                <div key={op.id} className="console-history-card">
+                  <div className="console-approval-header">
+                    <span className={levelClass(op.level)}>{levelTag(op.level)}</span>
+                    <span className="console-approval-action">{op.action}</span>
+                    <span className={`console-history-status console-history-status--${op.status}`}>{op.status}</span>
+                    <span className="console-log-time">{fmtTime(op.created)}</span>
+                  </div>
+                  <p className="console-approval-detail">{op.detail}</p>
+                  {op.result && <p className="console-history-note">→ {op.result}</p>}
+                  {op.error && <p className="clog-err">{op.error}</p>}
+                  {op.rejectReason && <p className="console-history-note">拒绝原因: {op.rejectReason}</p>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

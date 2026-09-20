@@ -4,6 +4,24 @@
 
 ---
 
+## 🔧 审批流程 + VPS 后端优化（2026-09-20）
+
+**背景**：小机接入 curwe（自托管 LLM 网关，部署在 `/home/curwe`）后，主人反馈审批系统几个卡点。逐条修（`vps/index.js` + `ConsolePage.tsx` + 工具定义）：
+
+1. **`pm2 restart` 返回 HTML 而不是 JSON**（没法自助重启）：根因是重启会杀掉正在处理请求的进程，响应还没发出去就断了 → 反代回退 HTML 502。修法：新增 `POST /api/service/restart`，**先回 JSON 再重启**——`res.json()` 冲刷后 `setTimeout` 300ms，用 `spawn(detached+unref)` 跑 `pm2 restart`，脱离父进程独立执行，父进程被替换也不影响。Console 顶部状态栏加「↻ 重启服务」按钮（带确认），并新增 `vps_service_restart` 工具（小机改完后端代码可自己重启，别再用 `pm2 restart` 走 exec）。app 名可用 `PM2_APP_NAME` 配置，默认 `nimbus-api`。
+
+2. **已完成/过期审批堆一屏**：pending-ops 从不清理，未处理的 pending 永久堆积。加 TTL 自动过期（`PENDING_TTL_MS`，默认 24h，`/api/ops/pending` 读取时把超时 pending 标 `expired`）；resolved 记录只保留最近 `RESOLVED_KEEP`（默认 100）条（approve/reject 时 prune）。
+
+3. **一键清空已完成**：新增 `POST /api/ops/clear`（删除所有非 pending 记录）+ `GET /api/ops/history`（已处理记录，倒序）。Approvals 页加「一键清空已完成」按钮 + 可折叠的「已完成/已处理」历史区。
+
+4. **`isWriteCommand` 误判 `curl localhost`**（复查主人的改法）：她只放行读操作的方向是对的（`curl localhost` GET 不再被拦）。在其基础上补强写侧检测——现在也能识别 `--data*`/`-F`/`--form`/`-T`/`--upload-file`/`--request`，方法名大小写不敏感；纯 GET 仍放行。
+
+5. **`vps_file_write` 只能写仓库内**：新增 `EXTRA_WRITE_PATHS`（`vps/.env` 里逗号分隔的绝对路径白名单，如 `/home/curwe/.env`）。`file/read`、`file/write`、`code/edit` 统一走 `resolveAllowedPath()`：相对路径→仓库根，绝对路径需命中白名单；顺手修了原来 `startsWith(REPO_DIR)` 的前缀碰撞 bug（用 `path.sep` 边界判断）。仓库外写入标 red 级，执行时二次校验白名单（纵深防御）。
+
+**影响**：`vps/index.js` 是 Supabase 之外的 VPS 服务，**改完要 `pm2 restart nimbus-api` 才生效**（现在可以用新按钮/工具自助重启）。前端（Console）改动要新 APK 才生效。用 `EXTRA_WRITE_PATHS` 前记得在 `vps/.env` 配置并重启服务。
+
+---
+
 ## 🗑️ 彻底移除 global scope（2026-09-06）
 
 **背景**：`scope:'global'`（`prompt-caching-scope-2026-01-05` beta）原本想跨 workspace/key 共享缓存。但发现两个致命问题：

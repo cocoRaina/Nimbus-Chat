@@ -1,7 +1,7 @@
 const express = require('express')
 const cors = require('cors')
 const jwt = require('jsonwebtoken')
-const { execSync, exec } = require('child_process')
+const { execSync, exec, spawn } = require('child_process')
 const os = require('os')
 const fs = require('fs')
 const path = require('path')
@@ -62,6 +62,38 @@ try {
 const savePending = () => {
   try { fs.writeFileSync(PENDING_PATH, JSON.stringify(pendingOps, null, 2)) } catch {}
 }
+
+// Pending ops auto-expire so stale un-answered requests don't pile up forever.
+const PENDING_TTL_MS = parseInt(process.env.PENDING_TTL_MS || String(24 * 60 * 60 * 1000), 10) // 24h
+// Cap how many resolved (non-pending) records we keep on disk / in memory.
+const RESOLVED_KEEP = parseInt(process.env.RESOLVED_KEEP || '100', 10)
+
+// Mark long-unanswered pending ops as expired. Returns true if anything changed.
+const expireStalePending = () => {
+  const now = Date.now()
+  let changed = false
+  for (const op of pendingOps) {
+    if (op.status !== 'pending') continue
+    const created = new Date(op.created).getTime()
+    if (Number.isFinite(created) && now - created > PENDING_TTL_MS) {
+      op.status = 'expired'
+      op.expiredAt = new Date().toISOString()
+      changed = true
+    }
+  }
+  return changed
+}
+
+// Keep all still-pending ops, but only the most recent RESOLVED_KEEP resolved ones.
+const prunePending = () => {
+  const pend = pendingOps.filter((o) => o.status === 'pending')
+  const resolved = pendingOps.filter((o) => o.status !== 'pending')
+  if (resolved.length <= RESOLVED_KEEP) return false
+  pendingOps = [...resolved.slice(-RESOLVED_KEEP), ...pend]
+  return true
+}
+
+const isResolvedStatus = (s) => s && s !== 'pending'
 
 // ── Auth middleware ──────────────────────────────────────────────────
 const authenticate = (req, res, next) => {
@@ -211,6 +243,31 @@ app.post('/api/db/query', authenticate, async (req, res) => {
 // ── Git operations ───────────────────────────────────────────────────
 const REPO_DIR = process.env.REPO_DIR || path.join(os.homedir(), 'Nimbus-Chat')
 
+// ── Path resolution + allowlist for out-of-repo file access ──────────
+// By default only files inside REPO_DIR are reachable. Set EXTRA_WRITE_PATHS
+// (comma-separated absolute paths) in vps/.env to allow specific dirs/files
+// outside the repo — e.g. EXTRA_WRITE_PATHS=/home/curwe/.env,/home/curwe/config
+const EXTRA_WRITE_PATHS = (process.env.EXTRA_WRITE_PATHS || '')
+  .split(',')
+  .map((p) => p.trim())
+  .filter(Boolean)
+  .map((p) => path.resolve(p))
+
+// True when `target` is exactly `base` or lives inside `base` (no prefix-collision bug).
+const isWithin = (base, target) => target === base || target.startsWith(base + path.sep)
+
+// Resolve a user-supplied path (relative → repo root, or absolute) and confirm
+// it is allowed. Returns { ok, absPath } or { ok:false, error }.
+const resolveAllowedPath = (inputPath) => {
+  if (!inputPath || typeof inputPath !== 'string') return { ok: false, error: 'Missing filePath' }
+  const absPath = path.isAbsolute(inputPath) ? path.resolve(inputPath) : path.resolve(REPO_DIR, inputPath)
+  if (isWithin(REPO_DIR, absPath)) return { ok: true, absPath, outsideRepo: false }
+  for (const allowed of EXTRA_WRITE_PATHS) {
+    if (absPath === allowed || isWithin(allowed, absPath)) return { ok: true, absPath, outsideRepo: true }
+  }
+  return { ok: false, error: 'Path outside repo (not in EXTRA_WRITE_PATHS allowlist)' }
+}
+
 app.get('/api/git/status', authenticate, (_req, res) => {
   try {
     const status = execSync('git status --short', { cwd: REPO_DIR }).toString()
@@ -242,8 +299,9 @@ app.get('/api/git/log', authenticate, (req, res) => {
 app.post('/api/file/read', authenticate, (req, res) => {
   const { filePath } = req.body
   if (!filePath) return res.status(400).json({ error: 'Missing filePath' })
-  const absPath = path.resolve(REPO_DIR, filePath)
-  if (!absPath.startsWith(REPO_DIR)) return res.status(403).json({ error: 'Path outside repo' })
+  const resolved = resolveAllowedPath(filePath)
+  if (!resolved.ok) return res.status(403).json({ error: resolved.error })
+  const absPath = resolved.absPath
   try {
     const content = fs.readFileSync(absPath, 'utf8')
     logOp({ action: 'file_read', level: 'green', detail: filePath })
@@ -256,15 +314,15 @@ app.post('/api/file/read', authenticate, (req, res) => {
 app.post('/api/file/write', authenticate, (req, res) => {
   const { filePath, content } = req.body
   if (!filePath || content === undefined) return res.status(400).json({ error: 'Missing filePath or content' })
-  const absPath = path.resolve(REPO_DIR, filePath)
-  if (!absPath.startsWith(REPO_DIR)) return res.status(403).json({ error: 'Path outside repo' })
+  const resolved = resolveAllowedPath(filePath)
+  if (!resolved.ok) return res.status(403).json({ error: resolved.error })
 
   const pending = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     action: 'file_write',
-    level: 'yellow',
-    detail: `Write ${filePath} (${content.length} bytes)`,
-    payload: { filePath, content },
+    level: resolved.outsideRepo ? 'red' : 'yellow',
+    detail: `Write ${resolved.absPath} (${content.length} bytes)${resolved.outsideRepo ? ' [outside repo]' : ''}`,
+    payload: { filePath, content, absPath: resolved.absPath },
     status: 'pending',
     approvals: { user: false, wren: false },
     created: new Date().toISOString()
@@ -277,7 +335,25 @@ app.post('/api/file/write', authenticate, (req, res) => {
 
 // ── Pending operations / Approval ────────────────────────────────────
 app.get('/api/ops/pending', authenticate, (_req, res) => {
+  if (expireStalePending()) savePending()
   res.json(pendingOps.filter((op) => op.status === 'pending'))
+})
+
+// Resolved history (executed / rejected / failed / expired), newest first.
+app.get('/api/ops/history', authenticate, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit || '50', 10), 200)
+  const resolved = pendingOps.filter((op) => isResolvedStatus(op.status))
+  res.json(resolved.slice(-limit).reverse())
+})
+
+// One-click clear of all resolved records (keeps still-pending ones).
+app.post('/api/ops/clear', authenticate, (req, res) => {
+  const before = pendingOps.length
+  pendingOps = pendingOps.filter((op) => op.status === 'pending')
+  savePending()
+  const removed = before - pendingOps.length
+  logOp({ action: 'ops_clear', level: 'green', detail: `cleared ${removed} resolved ops` })
+  res.json({ ok: true, removed })
 })
 
 app.post('/api/ops/approve', authenticate, (req, res) => {
@@ -296,6 +372,7 @@ app.post('/api/ops/approve', authenticate, (req, res) => {
     executeApprovedOp(op)
   }
 
+  prunePending()
   savePending()
   logOp({ action: 'approve', level: 'green', detail: `${approver} approved ${id}`, opStatus: op.status })
   res.json(op)
@@ -307,6 +384,7 @@ app.post('/api/ops/reject', authenticate, (req, res) => {
   if (!op) return res.status(404).json({ error: 'Operation not found' })
   op.status = 'rejected'
   op.rejectReason = reason || ''
+  prunePending()
   savePending()
   logOp({ action: 'reject', level: 'green', detail: `rejected ${id}: ${reason}` })
   res.json(op)
@@ -317,11 +395,15 @@ const executeApprovedOp = (op) => {
   try {
     switch (op.action) {
       case 'file_write': {
-        const { filePath, content } = op.payload
-        const absPath = path.resolve(REPO_DIR, filePath)
-        fs.mkdirSync(path.dirname(absPath), { recursive: true })
-        fs.writeFileSync(absPath, content, 'utf8')
-        op.result = 'written'
+        const { filePath, content, absPath: storedAbs } = op.payload
+        // Re-resolve + re-check the allowlist at execution time (defence in depth)
+        const resolved = storedAbs && resolveAllowedPath(storedAbs).ok
+          ? { ok: true, absPath: storedAbs }
+          : resolveAllowedPath(filePath)
+        if (!resolved.ok) throw new Error(resolved.error)
+        fs.mkdirSync(path.dirname(resolved.absPath), { recursive: true })
+        fs.writeFileSync(resolved.absPath, content, 'utf8')
+        op.result = `written: ${resolved.absPath}`
         break
       }
       case 'db_write': {
@@ -537,7 +619,9 @@ const WRITE_CMD_PATTERNS = [
   /\bkill\b/, /\bkillall\b/, /\bpkill\b/,
   /\bsystemctl\s+(start|stop|restart|enable|disable)\b/,
   /\bcrontab\b/,
-  /\bcurl\b.*(-X\s*(PUT|POST|DELETE|PATCH)|-d\s)/,
+  // curl that sends a body / uploads / uses a write method — but NOT plain GETs
+  // like `curl localhost` or `curl https://api/...` (read-only, must stay allowed).
+  /\bcurl\b.*?(-X\s*(PUT|POST|DELETE|PATCH)\b|--request\s+(PUT|POST|DELETE|PATCH)\b|(?:^|\s)(?:-d|--data(?:-\w+)?|-F|--form|-T|--upload-file)(?:[=\s@]))/i,
 ]
 const REDIRECT_PATTERN = /[^2]?>(?!&)/
 const PIPE_WRITE_PATTERN = /\|\s*(tee|dd|xargs\s+(rm|mv|cp))\b/
@@ -700,6 +784,40 @@ app.get('/api/exec/list', authenticate, (_req, res) => {
     list.push(safe)
   }
   res.json(list)
+})
+
+// ══ Service Restart ═══════════════════════════════════════════════════
+// Restarting the pm2 app that serves THIS request kills the process mid-response,
+// so a plain `pm2 restart` via /api/exec never returns JSON — the reverse proxy
+// hands back an HTML 502 instead. Fix: acknowledge with JSON first, flush it, then
+// fire the restart in a DETACHED child that survives this process being replaced.
+const PM2_APP_NAME = process.env.PM2_APP_NAME || 'nimbus-api'
+
+app.post('/api/service/restart', authenticate, (req, res) => {
+  // Sanitize: pm2 app names are simple tokens; strip anything that could inject shell.
+  const rawName = (req.body?.name || PM2_APP_NAME).toString()
+  const appName = rawName.replace(/[^\w.@-]/g, '')
+  if (!appName) return res.status(400).json({ ok: false, error: 'Invalid app name' })
+
+  logOp({ action: 'service_restart', level: 'red', status: 'triggered', detail: `pm2 restart ${appName}` })
+
+  // Respond BEFORE restarting so the client actually receives JSON.
+  res.json({ ok: true, message: `正在重启 ${appName}…`, app: appName })
+
+  // Give the response time to flush, then restart detached + unref'd so it
+  // keeps running (and pm2's daemon completes the restart) after we're killed.
+  setTimeout(() => {
+    try {
+      const child = spawn('bash', ['-lc', `pm2 restart ${appName} --update-env`], {
+        detached: true,
+        stdio: 'ignore',
+        cwd: REPO_DIR,
+      })
+      child.unref()
+    } catch (err) {
+      logOp({ action: 'service_restart', level: 'red', status: 'failed', error: err.message })
+    }
+  }, 300)
 })
 
 // ══ Code Sandbox ══════════════════════════════════════════════════════
@@ -1050,8 +1168,9 @@ app.post('/api/code/edit', authenticate, (req, res) => {
   if (!filePath || typeof oldString !== 'string' || typeof newString !== 'string') {
     return res.status(400).json({ error: 'Missing filePath, oldString, or newString' })
   }
-  const full = path.resolve(REPO_DIR, filePath)
-  if (!full.startsWith(REPO_DIR)) return res.status(403).json({ error: 'Path outside repo' })
+  const resolved = resolveAllowedPath(filePath)
+  if (!resolved.ok) return res.status(403).json({ error: resolved.error })
+  const full = resolved.absPath
   if (!fs.existsSync(full)) return res.status(404).json({ error: 'File not found' })
 
   let content = fs.readFileSync(full, 'utf8')

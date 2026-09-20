@@ -777,3 +777,76 @@
     color: #a09bb8;
   }
 }
+
+/* ── Service restart control ─────────────────────────────────── */
+.console-restart-btn {
+  border: 1px solid rgba(231, 76, 60, 0.4);
+  background: rgba(231, 76, 60, 0.08);
+  color: #e74c3c;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+.console-restart-btn:disabled { opacity: 0.55; cursor: default; }
+.console-restart-msg {
+  font-size: 0.78rem;
+  color: var(--ab-text-secondary, #5c5775);
+  margin: -4px 0 12px;
+  padding: 6px 10px;
+  background: rgba(108, 92, 231, 0.08);
+  border-radius: 8px;
+}
+
+/* ── Approval history (collapsible) ──────────────────────────── */
+.console-history { margin-top: 16px; }
+.console-history-toggle {
+  border: none;
+  background: none;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ab-text-secondary, #5c5775);
+  cursor: pointer;
+  font-family: inherit;
+  padding: 6px 0;
+  width: 100%;
+  text-align: left;
+}
+.console-history-card {
+  background: var(--ab-surface, rgba(255,255,255,0.6));
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  opacity: 0.82;
+}
+.console-history-status {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  background: rgba(108, 92, 231, 0.12);
+  color: var(--ab-strong, #6c5ce7);
+}
+.console-history-status--executed,
+.console-history-status--approved { background: rgba(39, 174, 96, 0.15); color: #27ae60; }
+.console-history-status--rejected,
+.console-history-status--failed { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }
+.console-history-status--expired { background: rgba(149, 165, 166, 0.2); color: #7f8c8d; }
+.console-history-note {
+  font-size: 0.76rem;
+  color: var(--ab-text-secondary, #5c5775);
+  margin: 4px 0 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .console-page:not([data-theme="light"]) .console-restart-msg,
+  .console-page:not([data-theme="light"]) .console-history-note {
+    color: #a09bb8;
+  }
+  .console-page:not([data-theme="light"]) .console-history-card {
+    background: rgba(255,255,255,0.05);
+  }
+}

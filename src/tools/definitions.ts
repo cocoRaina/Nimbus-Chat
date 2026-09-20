@@ -1144,14 +1144,16 @@ export const TOOL_VPS_FILE_WRITE = {
   function: {
     name: 'vps_file_write',
     description:
-      'Write a file on the VPS repo. Goes to the approval queue (user must approve in Console). ' +
-      'Path is relative to repo root. Use for config changes, code fixes, etc.',
+      'Write a file on the VPS. Goes to the approval queue (user must approve in Console). ' +
+      'Path is relative to repo root, OR an absolute path inside a dir allowlisted via ' +
+      'EXTRA_WRITE_PATHS in vps/.env (e.g. /home/curwe/.env). Out-of-repo writes are marked red-level. ' +
+      'Use for config changes, code fixes, etc.',
     parameters: {
       type: 'object',
       properties: {
         filePath: {
           type: 'string',
-          description: 'File path relative to repo root (e.g. "vps/index.js")',
+          description: 'Path relative to repo root (e.g. "vps/index.js"), or an allowlisted absolute path (e.g. "/home/curwe/.env")',
         },
         content: {
           type: 'string',
@@ -1184,6 +1186,28 @@ export const TOOL_VPS_EXEC = {
         },
       },
       required: ['command'],
+    },
+  },
+}
+
+export const TOOL_VPS_SERVICE_RESTART = {
+  type: 'function' as const,
+  function: {
+    name: 'vps_service_restart',
+    description:
+      'Restart the VPS backend service (pm2). Use this INSTEAD of `pm2 restart` via vps_exec — ' +
+      'that kills the process serving the request mid-response and returns HTML/502, not JSON. ' +
+      'This endpoint replies with JSON first, then restarts detached, so it works reliably after ' +
+      'deploying backend code changes. Defaults to the "nimbus-api" app.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'pm2 app name to restart (optional, defaults to nimbus-api)',
+        },
+      },
+      required: [],
     },
   },
 }
