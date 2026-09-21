@@ -4,6 +4,17 @@
 
 ---
 
+## 🔓 放开小机 VPS 权限：读全机 + 只拦危险写（2026-09-21）
+
+**背景**：用户觉得小机权限"少的可怜"、debug 憋屈。放宽两处（A+C）：
+
+- **A. 读放开**：`file_read` / `code_search` / `code_find` 不再限 `REPO_DIR`——新增 `resolveReadPath()`，读任意绝对路径（输出仍走 `redactText` 脱敏）。想收紧回白名单：`READ_STRICT=1`。
+- **C. 常规写免审批**：以前**所有**写命令都要审批；现在只有**真危险**的才拦（`needsExecApproval` + `DANGEROUS_CMD_PATTERNS`：`rm -rf`/`rm /…`/`dd`/`mkfs`/`shutdown`/`kill*`/`systemctl stop`/`pm2 delete|kill`/`chmod -R|777`/`apt remove`/`npm uninstall`/`git push`/`git reset --hard`/`drop`/往系统目录重定向…）。日常写（`mkdir`/`touch`/`cp`/`mv`/`sed -i`/`tee`/`npm|pip|apt install`/`git add|commit`…）直接跑，不再烦你点批准。想全恢复审批：`EXEC_STRICT_APPROVAL=1`。
+
+`file_write`/`code_edit` 仍走仓库+`EXTRA_WRITE_PATHS` 白名单（写比读严），破坏性 SQL 仍审批。都留了 env 开关可回退。
+
+---
+
 ## ✅ 审批改单签（主人一人批准即执行）（2026-09-20）
 
 **背景**：审批原本是"双签"——执行要 `op.approvals.user && op.approvals.wren` 同时为真。但全仓库搜下来 **`wren` 从没有任何地方被设为 true**（前端只发 `approver:'user'`，小机也没有审批工具），所以用户点了 Approve → `user:true` 但 `wren` 永远 false → **op 卡死、永不执行**（等于审批系统一直是坏的）。

@@ -282,8 +282,8 @@ const EXTRA_WRITE_PATHS = (process.env.EXTRA_WRITE_PATHS || '')
 // True when `target` is exactly `base` or lives inside `base` (no prefix-collision bug).
 const isWithin = (base, target) => target === base || target.startsWith(base + path.sep)
 
-// Resolve a user-supplied path (relative → repo root, or absolute) and confirm
-// it is allowed. Returns { ok, absPath } or { ok:false, error }.
+// Resolve a user-supplied path for WRITING — relative → repo root, absolute must
+// be in the repo or the EXTRA_WRITE_PATHS allowlist. Returns { ok, absPath }.
 const resolveAllowedPath = (inputPath) => {
   if (!inputPath || typeof inputPath !== 'string') return { ok: false, error: 'Missing filePath' }
   const absPath = path.isAbsolute(inputPath) ? path.resolve(inputPath) : path.resolve(REPO_DIR, inputPath)
@@ -292,6 +292,17 @@ const resolveAllowedPath = (inputPath) => {
     if (absPath === allowed || isWithin(allowed, absPath)) return { ok: true, absPath, outsideRepo: true }
   }
   return { ok: false, error: 'Path outside repo (not in EXTRA_WRITE_PATHS allowlist)' }
+}
+
+// Resolve a path for READING — free (anywhere on the box) so 小机 can debug
+// without a whitelist. Output is still secret-redacted before it leaves here.
+// Set READ_STRICT=1 in vps/.env to fall back to the write allowlist for reads.
+const READ_STRICT = ['1', 'true', 'yes'].includes((process.env.READ_STRICT || '').toLowerCase())
+const resolveReadPath = (inputPath) => {
+  if (READ_STRICT) return resolveAllowedPath(inputPath)
+  if (!inputPath || typeof inputPath !== 'string') return { ok: false, error: 'Missing filePath' }
+  const absPath = path.isAbsolute(inputPath) ? path.resolve(inputPath) : path.resolve(REPO_DIR, inputPath)
+  return { ok: true, absPath }
 }
 
 app.get('/api/git/status', authenticate, (_req, res) => {
@@ -325,7 +336,7 @@ app.get('/api/git/log', authenticate, (req, res) => {
 app.post('/api/file/read', authenticate, (req, res) => {
   const { filePath } = req.body
   if (!filePath) return res.status(400).json({ error: 'Missing filePath' })
-  const resolved = resolveAllowedPath(filePath)
+  const resolved = resolveReadPath(filePath)
   if (!resolved.ok) return res.status(403).json({ error: resolved.error })
   const absPath = resolved.absPath
   try {
@@ -704,11 +715,39 @@ const isWriteCommand = (cmd) => {
   return WRITE_CMD_PATTERNS.some((p) => p.test(normalized))
 }
 
+// Only the genuinely destructive commands still need 主人 approval. Everyday
+// writes (mkdir/touch/cp/mv/sed -i/tee/npm|pip|apt install/git commit·add…)
+// run freely so 小机 can debug without asking every step. Flip back to gating
+// ALL writes with EXEC_STRICT_APPROVAL=1 in vps/.env.
+const EXEC_STRICT_APPROVAL = ['1', 'true', 'yes'].includes((process.env.EXEC_STRICT_APPROVAL || '').toLowerCase())
+const DANGEROUS_CMD_PATTERNS = [
+  /\brm\s+-\S*[rf]/i,                        // rm with a -r / -f flag (recursive/force)
+  /\brm\s+(?:-\S+\s+)*\//,                   // rm targeting an absolute path
+  /\brmdir\b/, /\bshred\b/, /\btruncate\b/,
+  /\bdd\b/, /\bmkfs\S*/, /\bfdisk\b/, /\bwipefs\b/,
+  /\b(shutdown|reboot|halt|poweroff|init\s+0|init\s+6)\b/,
+  /\b(kill|killall|pkill)\b/,
+  /\bsystemctl\s+(stop|disable|mask)\b/,
+  /\bpm2\s+(delete|kill)\b/,
+  /\bchmod\s+-R\b/, /\bchown\s+-R\b/, /\bchmod\s+0?777\b/,
+  /\b(apt|apt-get|yum|dnf|pacman)\s+(remove|purge|autoremove|-R)\b/,
+  /\bnpm\s+uninstall\b/, /\bpip\s+uninstall\b/,
+  /\bgit\s+(push|reset\s+--hard|clean\s+-\w*f|checkout\s+--?\s*\.|checkout\s+\.)/,
+  /\bgit\s+branch\s+-D\b/,
+  /\bdrop(db)?\b/i, /\bmkswap\b/, /\bcrontab\s+-r\b/,
+  />\s*\/(etc|boot|dev|sys|usr|bin|sbin|lib|var\/lib)\b/,   // redirect into system dirs
+  /\b(mv|cp)\b[^|]*\s\/(etc|boot|usr|bin|sbin|lib)\b/,       // clobber system dirs
+]
+// Whether a command needs approval: strict mode = any write; otherwise = only
+// the dangerous ones above.
+const needsExecApproval = (cmd) =>
+  EXEC_STRICT_APPROVAL ? isWriteCommand(cmd) : DANGEROUS_CMD_PATTERNS.some((p) => p.test(cmd.trim()))
+
 app.post('/api/exec', authenticate, (req, res) => {
   const { command, timeout_ms, approval_id } = req.body
   if (!command) return res.status(400).json({ ok: false, error: 'Missing command' })
 
-  if (isWriteCommand(command) && !approval_id) {
+  if (needsExecApproval(command) && !approval_id) {
     const pending = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       action: 'exec_write',
@@ -823,7 +862,7 @@ app.post('/api/exec/async', authenticate, (req, res) => {
   const { command, timeout_ms, approval_id } = req.body
   if (!command) return res.status(400).json({ ok: false, error: 'Missing command' })
 
-  if (isWriteCommand(command) && !approval_id) {
+  if (needsExecApproval(command) && !approval_id) {
     const pending = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       action: 'exec_write_async',
@@ -1364,8 +1403,9 @@ app.get('/api/journal/read', authenticate, (req, res) => {
 app.post('/api/code/search', authenticate, (req, res) => {
   const { pattern, path: searchPath, glob, context = 2, maxResults = 60 } = req.body
   if (!pattern) return res.status(400).json({ error: 'Missing pattern' })
-  const dir = searchPath ? path.resolve(REPO_DIR, searchPath) : REPO_DIR
-  if (!dir.startsWith(REPO_DIR)) return res.status(403).json({ error: 'Path outside repo' })
+  const rp = searchPath ? resolveReadPath(searchPath) : { ok: true, absPath: REPO_DIR }
+  if (!rp.ok) return res.status(403).json({ error: rp.error })
+  const dir = rp.absPath
   const args = ['-rn', `--include=${glob || '*'}`, `-C${context}`, '--color=never', '-m', String(maxResults)]
   try {
     const out = execSync(`grep ${args.map(a => `'${a}'`).join(' ')} '${pattern.replace(/'/g, "'\\''")}' '${dir}'`, {
@@ -1383,8 +1423,9 @@ app.post('/api/code/search', authenticate, (req, res) => {
 app.post('/api/code/find', authenticate, (req, res) => {
   const { pattern, searchPath, type } = req.body
   if (!pattern) return res.status(400).json({ error: 'Missing pattern' })
-  const dir = searchPath ? path.resolve(REPO_DIR, searchPath) : REPO_DIR
-  if (!dir.startsWith(REPO_DIR)) return res.status(403).json({ error: 'Path outside repo' })
+  const rp = searchPath ? resolveReadPath(searchPath) : { ok: true, absPath: REPO_DIR }
+  if (!rp.ok) return res.status(403).json({ error: rp.error })
+  const dir = rp.absPath
   const typeArg = type === 'dir' ? '-type d' : type === 'file' ? '-type f' : ''
   try {
     const out = execSync(
