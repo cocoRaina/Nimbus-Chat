@@ -218,6 +218,23 @@ const stripReplayMarkers = (text: string): string => {
   return text.replace(re, '$1').replace(/^\s+/, '')
 }
 
+// MCP tools discovered from the VPS backend (each MCP server's tools/list),
+// merged into 小机's tool list. Named mcp__<serverId>__<tool>; calls route back
+// via /api/mcp/call. Cached briefly so the tool loop doesn't refetch each round.
+type McpTool = { type: 'function'; function: { name: string; description: string; parameters: unknown } }
+let mcpToolsCache: { at: number; tools: McpTool[] } = { at: 0, tools: [] }
+const getMcpToolsCached = async (): Promise<McpTool[]> => {
+  if (Date.now() - mcpToolsCache.at < 60_000) return mcpToolsCache.tools
+  try {
+    const res = await vfetch('/api/mcp/tools')
+    if (res.ok) {
+      const data = await res.json()
+      mcpToolsCache = { at: Date.now(), tools: Array.isArray(data?.tools) ? data.tools : [] }
+    }
+  } catch { /* keep stale cache on failure */ }
+  return mcpToolsCache.tools
+}
+
 type ExtractMessageInput = { role: string; content: string }
 
 const buildRecentExtractionMessages = (
@@ -2975,6 +2992,12 @@ TOOL_SEARCH_HANDOFF,
                 ...(Capacitor.getPlatform() !== 'web' ? [TOOL_GET_DEVICE_STATE, TOOL_SCHEDULE_PROACTIVE, TOOL_PLAY_MUSIC, TOOL_CONTROL_MEDIA, TOOL_GET_NOW_PLAYING] : []),
                 ...(isVpsConfigured() ? [TOOL_VPS_BROWSE, TOOL_VPS_STATUS, TOOL_VPS_EXEC_SQL, TOOL_VPS_FILE_READ, TOOL_VPS_GIT_STATUS, TOOL_VPS_FILE_WRITE, TOOL_VPS_EXEC, TOOL_VPS_SERVICE_RESTART, TOOL_VPS_EXEC_ASYNC, TOOL_VPS_TASK_STATUS, TOOL_VPS_TASK_KILL, TOOL_VPS_LLM_CALL, TOOL_VPS_SCHEDULE_CREATE, TOOL_VPS_SCHEDULE_LIST, TOOL_VPS_SCHEDULE_DELETE, TOOL_VPS_NOTIFY, TOOL_VPS_JOURNAL_WRITE, TOOL_VPS_JOURNAL_READ, TOOL_VPS_CODE_SEARCH, TOOL_VPS_CODE_FIND, TOOL_VPS_CODE_EDIT, TOOL_CURWE_LIST_TOOLS, TOOL_CURWE_TOOL] : []),
               ]
+              // Merge in tools from the VPS's configured MCP servers (fetched
+              // live from each server's tools/list, cached ~60s).
+              if (isVpsConfigured()) {
+                const mcpTools = await getMcpToolsCached()
+                if (mcpTools.length) (requestBody.tools as unknown[]).push(...mcpTools)
+              }
               requestBody.tool_choice = 'auto'
             }
             // Keep thinking ON for ALL iterations (not just iteration 1).
@@ -4930,6 +4953,15 @@ TOOL_SEARCH_HANDOFF,
                     const res = await vfetch('/api/curwe/call', {
                       method: 'POST',
                       body: JSON.stringify({ name: args.name, arguments: args.arguments ?? {} }),
+                    })
+                    resultText = JSON.stringify(await res.json())
+                  } else if (tc.function.name.startsWith('mcp__') && isVpsConfigured()) {
+                    // Route an MCP tool call back to its server via the backend.
+                    const args = JSON.parse(tc.function.arguments || '{}')
+                    setToolStatus(`🔌 ${tc.function.name.replace(/^mcp__[^_]+__/, '')}…`)
+                    const res = await vfetch('/api/mcp/call', {
+                      method: 'POST',
+                      body: JSON.stringify({ name: tc.function.name, arguments: args }),
                     })
                     resultText = JSON.stringify(await res.json())
                   } else {

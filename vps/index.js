@@ -608,15 +608,127 @@ const saveMcpConfig = () => {
   try { fs.writeFileSync(MCP_CONFIG_PATH, JSON.stringify(mcpConfig, null, 2)) } catch {}
 }
 
-const mcpProcesses = new Map()
+// ── MCP client layer (talks the actual protocol) ────────────────────
+// The @modelcontextprotocol/sdk is ESM-only, so load it via dynamic import
+// (works from CommonJS). Server still boots if the SDK isn't installed yet.
+let mcpSdkPromise = null
+const loadMcpSdk = () => {
+  if (!mcpSdkPromise) {
+    mcpSdkPromise = (async () => {
+      const [{ Client }, { StdioClientTransport }, { SSEClientTransport }] = await Promise.all([
+        import('@modelcontextprotocol/sdk/client/index.js'),
+        import('@modelcontextprotocol/sdk/client/stdio.js'),
+        import('@modelcontextprotocol/sdk/client/sse.js'),
+      ])
+      return { Client, StdioClientTransport, SSEClientTransport }
+    })().catch((err) => { mcpSdkPromise = null; throw err })
+  }
+  return mcpSdkPromise
+}
+
+const mcpClients = new Map()      // id -> { client, transport }
+const mcpToolsCache = new Map()   // id -> { at, tools }
+const MCP_TOOLS_TTL_MS = 60_000
+
+// Lazily connect (and spawn, for stdio) a server's MCP client.
+const connectMcp = async (srv) => {
+  if (mcpClients.has(srv.id)) return mcpClients.get(srv.id)
+  const { Client, StdioClientTransport, SSEClientTransport } = await loadMcpSdk()
+  let transport
+  if (srv.type === 'sse') {
+    transport = new SSEClientTransport(new URL(srv.url))
+  } else {
+    const parts = (srv.command || '').split(/\s+/).filter(Boolean)
+    transport = new StdioClientTransport({
+      command: parts[0],
+      args: [...parts.slice(1), ...(srv.args || [])],
+      env: { ...process.env, ...(srv.env || {}) },
+      cwd: __dirname,
+    })
+  }
+  const client = new Client({ name: 'nimbus', version: '1.0.0' }, { capabilities: {} })
+  await client.connect(transport)
+  const rec = { client, transport }
+  mcpClients.set(srv.id, rec)
+  return rec
+}
+
+const disconnectMcp = async (id) => {
+  const rec = mcpClients.get(id)
+  mcpClients.delete(id)
+  mcpToolsCache.delete(id)
+  if (rec) { try { await rec.client.close() } catch {} }
+}
+
+// List one server's tools (cached), as OpenAI-format function tools named
+// mcp__<serverId>__<toolName> so the client can route the call back.
+const listMcpTools = async (srv) => {
+  const cached = mcpToolsCache.get(srv.id)
+  if (cached && Date.now() - cached.at < MCP_TOOLS_TTL_MS) return cached.tools
+  const { client } = await connectMcp(srv)
+  const resp = await client.listTools()
+  const tools = (resp?.tools || []).map((t) => ({
+    type: 'function',
+    function: {
+      name: `mcp__${srv.id}__${t.name}`,
+      description: `[${srv.name}] ${t.description || t.name}`.slice(0, 1000),
+      parameters: t.inputSchema && typeof t.inputSchema === 'object'
+        ? t.inputSchema
+        : { type: 'object', properties: {} },
+    },
+  }))
+  mcpToolsCache.set(srv.id, { at: Date.now(), tools })
+  return tools
+}
 
 app.get('/api/mcp/list', authenticate, (_req, res) => {
   const list = mcpConfig.map((srv) => ({
     ...srv,
-    running: mcpProcesses.has(srv.id),
-    pid: mcpProcesses.get(srv.id)?.pid || null,
+    running: mcpClients.has(srv.id),
   }))
   res.json(list)
+})
+
+// Aggregate tools from all enabled servers — the client merges these into
+// 小机's tool list. Servers that fail to connect are skipped (with an errors
+// array) so one bad server doesn't break the whole list.
+app.get('/api/mcp/tools', authenticate, async (_req, res) => {
+  const tools = []
+  const errors = []
+  for (const srv of mcpConfig.filter((s) => s.enabled)) {
+    try {
+      const t = await listMcpTools(srv)
+      tools.push(...t)
+    } catch (err) {
+      errors.push({ server: srv.name, error: String(err?.message || err).slice(0, 200) })
+      disconnectMcp(srv.id).catch(() => {})
+    }
+  }
+  res.json({ tools, errors })
+})
+
+// Route a tool call to its MCP server. Tool name = mcp__<serverId>__<toolName>,
+// or pass { server, tool } explicitly.
+app.post('/api/mcp/call', authenticate, async (req, res) => {
+  let { server, tool, name, arguments: toolArgs } = req.body || {}
+  if (!server && typeof name === 'string' && name.startsWith('mcp__')) {
+    const rest = name.slice(5)
+    const sep = rest.indexOf('__')
+    if (sep > 0) { server = rest.slice(0, sep); tool = rest.slice(sep + 2) }
+  }
+  const srv = mcpConfig.find((s) => s.id === server)
+  if (!srv) return res.status(404).json({ ok: false, error: 'MCP server not found' })
+  if (!tool) return res.status(400).json({ ok: false, error: 'Missing tool name' })
+  logOp({ action: 'mcp_call', level: 'yellow', detail: `${srv.name}/${tool}` })
+  try {
+    const { client } = await connectMcp(srv)
+    const result = await client.callTool({ name: tool, arguments: toolArgs || {} })
+    let safe; try { safe = JSON.parse(redactText(JSON.stringify(result))) } catch { safe = result }
+    res.json({ ok: true, result: safe })
+  } catch (err) {
+    logOp({ action: 'mcp_call', level: 'red', detail: `${srv.name}/${tool}`, error: String(err?.message || err).slice(0, 200) })
+    res.status(502).json({ ok: false, error: String(err?.message || err).slice(0, 300) })
+  }
 })
 
 app.post('/api/mcp/add', authenticate, (req, res) => {
@@ -644,16 +756,10 @@ app.post('/api/mcp/add', authenticate, (req, res) => {
   res.json(srv)
 })
 
-app.post('/api/mcp/remove', authenticate, (req, res) => {
+app.post('/api/mcp/remove', authenticate, async (req, res) => {
   const { id } = req.body
   if (!id) return res.status(400).json({ error: 'Missing id' })
-
-  const proc = mcpProcesses.get(id)
-  if (proc) {
-    proc.kill('SIGTERM')
-    mcpProcesses.delete(id)
-  }
-
+  await disconnectMcp(id)
   const idx = mcpConfig.findIndex((s) => s.id === id)
   if (idx < 0) return res.status(404).json({ error: 'Server not found' })
   const removed = mcpConfig.splice(idx, 1)[0]
@@ -662,48 +768,37 @@ app.post('/api/mcp/remove', authenticate, (req, res) => {
   res.json({ removed: removed.name })
 })
 
-app.post('/api/mcp/start', authenticate, (req, res) => {
+// Start = connect the MCP client (spawns the stdio process / opens the SSE
+// stream) and confirm it responds to tools/list.
+app.post('/api/mcp/start', authenticate, async (req, res) => {
   const { id } = req.body
   const srv = mcpConfig.find((s) => s.id === id)
   if (!srv) return res.status(404).json({ error: 'Server not found' })
-  if (mcpProcesses.has(id)) return res.json({ status: 'already running', pid: mcpProcesses.get(id).pid })
-
-  if (srv.type === 'sse') {
-    return res.json({ status: 'ok', note: 'SSE servers are remote; no process to start' })
-  }
-
   try {
-    const cmdParts = srv.command.split(/\s+/)
-    const child = exec([srv.command, ...srv.args].join(' '), {
-      env: { ...process.env, ...srv.env },
-      cwd: __dirname,
-    })
-    mcpProcesses.set(id, child)
-    child.on('exit', () => mcpProcesses.delete(id))
-    logOp({ action: 'mcp_start', level: 'yellow', detail: `Started ${srv.name} (PID ${child.pid})` })
-    res.json({ status: 'started', pid: child.pid })
+    const tools = await listMcpTools(srv)
+    logOp({ action: 'mcp_start', level: 'yellow', detail: `Connected ${srv.name} (${tools.length} tools)` })
+    res.json({ status: 'connected', tools: tools.length })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    await disconnectMcp(id).catch(() => {})
+    res.status(502).json({ error: String(err?.message || err).slice(0, 300) })
   }
 })
 
-app.post('/api/mcp/stop', authenticate, (req, res) => {
+app.post('/api/mcp/stop', authenticate, async (req, res) => {
   const { id } = req.body
-  const proc = mcpProcesses.get(id)
-  if (!proc) return res.status(404).json({ error: 'Process not running' })
-  proc.kill('SIGTERM')
-  mcpProcesses.delete(id)
+  await disconnectMcp(id)
   const srv = mcpConfig.find((s) => s.id === id)
-  logOp({ action: 'mcp_stop', level: 'yellow', detail: `Stopped ${srv?.name || id}` })
+  logOp({ action: 'mcp_stop', level: 'yellow', detail: `Disconnected ${srv?.name || id}` })
   res.json({ status: 'stopped' })
 })
 
-app.post('/api/mcp/toggle', authenticate, (req, res) => {
+app.post('/api/mcp/toggle', authenticate, async (req, res) => {
   const { id, enabled } = req.body
   const srv = mcpConfig.find((s) => s.id === id)
   if (!srv) return res.status(404).json({ error: 'Server not found' })
   srv.enabled = !!enabled
   saveMcpConfig()
+  if (!srv.enabled) await disconnectMcp(id)   // drop the connection when disabled
   res.json(srv)
 })
 
