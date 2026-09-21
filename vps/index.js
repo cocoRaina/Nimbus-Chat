@@ -305,6 +305,21 @@ const resolveReadPath = (inputPath) => {
   return { ok: true, absPath }
 }
 
+// ── Self-guardrail lock ──────────────────────────────────────────────
+// The files that define 小机's OWN limits. Writing them must ALWAYS go through
+// 主人 approval (or be refused), even in loose mode — otherwise 小机 could edit
+// away its own restrictions and self-escalate. Reading them stays free.
+const PROTECTED_PATHS = [
+  path.join(__dirname, 'index.js'),
+  path.join(__dirname, '.env'),
+  path.join(__dirname, 'autonomousWake.js'),
+]
+const isProtectedPath = (absPath) => PROTECTED_PATHS.some((p) => p === absPath)
+// Best-effort: does a shell command write to a guardrail file? (basename match
+// + a write op, so `cat index.js` is fine but `sed -i …/index.js` is gated.)
+const PROTECTED_BASENAMES = /(?:\bindex\.js\b|\.env\b|\bautonomousWake\.js\b)/
+const touchesProtectedCmd = (cmd) => PROTECTED_BASENAMES.test(cmd)
+
 app.get('/api/git/status', authenticate, (_req, res) => {
   try {
     const status = execSync('git status --short', { cwd: REPO_DIR }).toString()
@@ -740,8 +755,12 @@ const DANGEROUS_CMD_PATTERNS = [
 ]
 // Whether a command needs approval: strict mode = any write; otherwise = only
 // the dangerous ones above.
-const needsExecApproval = (cmd) =>
-  EXEC_STRICT_APPROVAL ? isWriteCommand(cmd) : DANGEROUS_CMD_PATTERNS.some((p) => p.test(cmd.trim()))
+const needsExecApproval = (cmd) => {
+  const c = cmd.trim()
+  // Writing a guardrail file always needs approval, even in loose mode.
+  if (isWriteCommand(c) && touchesProtectedCmd(c)) return true
+  return EXEC_STRICT_APPROVAL ? isWriteCommand(c) : DANGEROUS_CMD_PATTERNS.some((p) => p.test(c))
+}
 
 app.post('/api/exec', authenticate, (req, res) => {
   const { command, timeout_ms, approval_id } = req.body
@@ -1448,6 +1467,7 @@ app.post('/api/code/edit', authenticate, (req, res) => {
   const resolved = resolveAllowedPath(filePath)
   if (!resolved.ok) return res.status(403).json({ error: resolved.error })
   const full = resolved.absPath
+  if (isProtectedPath(full)) return res.status(403).json({ error: '受保护文件（小机的护栏），请用 vps_file_write 修改——那条会走主人审批' })
   if (!fs.existsSync(full)) return res.status(404).json({ error: 'File not found' })
 
   let content = fs.readFileSync(full, 'utf8')
