@@ -4,6 +4,17 @@
 
 ---
 
+## 🔌 MCP server 动态工具接入（2026-09-21）
+
+**背景**：MCP 管理器以前只存配置、`exec` 起进程，从没跟 MCP 讲协议（没 `tools/list`、没路由 `tools/call`）——加了 server 也白搭。补齐：
+
+- **后端**（`vps/index.js`）：用官方 `@modelcontextprotocol/sdk`（ESM，走 `await import()` 懒加载）建 MCP 客户端层。`connectMcp` 懒连接（stdio 自己 spawn / sse 走 URL）；`GET /api/mcp/tools` 聚合所有启用 server 的 `tools/list`，命名成 `mcp__<serverId>__<tool>`、OpenAI 函数格式、缓存 60s，单个 server 挂了只跳过不拖垮整体；`POST /api/mcp/call` 按名路由到对应 server 的 `tools/call`（结果脱敏）。`start/stop/toggle/remove` 改成连接/断开客户端。`mcp-servers.json` 配置不变。
+- **前端**：`getMcpToolsCached()` 拉 `/api/mcp/tools`（缓存 60s）→ 建工具表时合进小机的 tools；执行器里 `mcp__` 前缀的调用路由到 `/api/mcp/call`；工具卡给 MCP 工具加 🔌 图标 + 友好名。
+
+**部署注意**：VPS 上 `cd ~/Nimbus-Chat/vps && npm install`（装新依赖 `@modelcontextprotocol/sdk`）再 `pm2 restart`。前端要新 APK。SDK 没装时后端照常启动、`/api/mcp/tools` 报错但不崩。验证：`node --check`、`tsc`、`build`（MCP server 真连通需在 VPS 上拿真 server 测）。
+
+---
+
 ## 🔓 放开小机 VPS 权限：读全机 + 只拦危险写（2026-09-21）
 
 **背景**：用户觉得小机权限"少的可怜"、debug 憋屈。放宽两处（A+C）：

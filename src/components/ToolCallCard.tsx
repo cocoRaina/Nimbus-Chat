@@ -90,6 +90,12 @@ const TOOL_LABELS: Record<string, string> = {
   curwe_tool: 'curwe',
 }
 
+// MCP tools are named mcp__<serverId>__<tool>; show a plug + the tool name.
+const iconFor = (name: string): string =>
+  name.startsWith('mcp__') ? '🔌' : (TOOL_ICONS[name] ?? '🔧')
+const labelFor = (name: string): string =>
+  TOOL_LABELS[name] ?? (name.startsWith('mcp__') ? name.split('__').slice(2).join('__') || name : name)
+
 function extractPreview(name: string, args: Record<string, unknown>): string {
   if (name === 'search_memory' || name === 'search_handoff' || name === 'web_search' || name === 'search_4o_archive') {
     return typeof args?.query === 'string' ? args.query : ''
@@ -187,8 +193,8 @@ const ToolCallCard = memo(function ToolCallCard({
         className="tool-call-header"
         onClick={() => setExpanded((v) => !v)}
       >
-        <span className="tool-icon">{TOOL_ICONS[name] ?? '🔧'}</span>
-        <span className="tool-label">{TOOL_LABELS[name] ?? name}</span>
+        <span className="tool-icon">{iconFor(name)}</span>
+        <span className="tool-label">{labelFor(name)}</span>
         {preview ? <span className="tool-preview">{preview}</span> : null}
         {badge ? <span className={`tool-badge tool-badge--${badge.kind}`}>{badge.text}</span> : null}
         {duration_ms ? <span className="tool-duration">{duration_ms}ms</span> : null}
@@ -219,8 +225,8 @@ const ToolCallGroup = memo(function ToolCallGroup({ calls }: { calls: ToolCallRe
   }
 
   const { name } = calls[0]
-  const icon = TOOL_ICONS[name] ?? '🔧'
-  const label = TOOL_LABELS[name] ?? name
+  const icon = iconFor(name)
+  const label = labelFor(name)
   const totalMs = calls.reduce((s, c) => s + (c.duration_ms ?? 0), 0)
 
   return (
