@@ -44,7 +44,13 @@ const saveOpsLog = () => {
 }
 
 const logOp = (op) => {
-  const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), time: new Date().toISOString(), ...op }
+  // Redact secrets from anything we persist to ops-log.json (command text,
+  // error output can carry tokens). redactText is defined later but this only
+  // runs at request time, so it's available.
+  const safe = { ...op }
+  if (typeof safe.detail === 'string') safe.detail = redactText(safe.detail)
+  if (typeof safe.error === 'string') safe.error = redactText(safe.error)
+  const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), time: new Date().toISOString(), ...safe }
   opsLog.push(entry)
   saveOpsLog()
   return entry
@@ -172,6 +178,9 @@ const redactText = (input) => {
     .replace(/\bBearer\s+[A-Za-z0-9._~+/-]{8,}=*/g, 'Bearer ***REDACTED***')
     .replace(/\bsk-[A-Za-z0-9_-]{16,}\b/g, 'sk-***REDACTED***')
     .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\b/g, '***REDACTED_JWT***')
+    // GitHub tokens (classic + fine-grained) and AWS access key ids.
+    .replace(/\b(gh[posru]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})\b/g, '***REDACTED_GH_TOKEN***')
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, '***REDACTED_AWS_KEY***')
 }
 
 // ════════════════════════════════════════════════════════════════════════
