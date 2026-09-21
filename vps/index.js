@@ -318,15 +318,15 @@ const resolveReadPath = (inputPath) => {
 // The files that define 小机's OWN limits. Writing them must ALWAYS go through
 // 主人 approval (or be refused), even in loose mode — otherwise 小机 could edit
 // away its own restrictions and self-escalate. Reading them stays free.
+// Only .env stays locked (it holds the real secrets + master switches). 小机
+// may freely edit its own code, including autonomousWake.js, per owner request.
 const PROTECTED_PATHS = [
-  path.join(__dirname, 'index.js'),
   path.join(__dirname, '.env'),
-  path.join(__dirname, 'autonomousWake.js'),
 ]
 const isProtectedPath = (absPath) => PROTECTED_PATHS.some((p) => p === absPath)
-// Best-effort: does a shell command write to a guardrail file? (basename match
-// + a write op, so `cat index.js` is fine but `sed -i …/index.js` is gated.)
-const PROTECTED_BASENAMES = /(?:\bindex\.js\b|\.env\b|\bautonomousWake\.js\b)/
+// Best-effort: does a shell command write to the locked .env? (basename + a
+// write op, so `cat .env` is fine but `sed -i …/.env` / `echo >> .env` gate.)
+const PROTECTED_BASENAMES = /\.env\b/
 const touchesProtectedCmd = (cmd) => PROTECTED_BASENAMES.test(cmd)
 
 app.get('/api/git/status', authenticate, (_req, res) => {
