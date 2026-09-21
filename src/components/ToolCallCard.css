@@ -124,10 +124,12 @@
   color: var(--ab-accent, #98B5D8);
 }
 .tool-chain__toggle:hover { color: var(--ab-ink, #586878); }
-.tool-chain__label { font-weight: 600; font-style: normal; color: var(--ab-ink2, #586878); }
-.tool-chain__count { font-style: normal; color: var(--ab-sub, #8AA0B6); font-size: 12px; }
+/* Match the "thinking" line exactly: italic, accent color, small + spaced
+   (label/count inherit italic + accent from the toggle above). */
+.tool-chain__label { font-size: 11px; letter-spacing: 0.14em; }
+.tool-chain__count { font-size: 11px; letter-spacing: 0.14em; opacity: 0.7; }
 .tool-chain__chev {
-  font-style: normal; font-size: 15px; line-height: 1; color: var(--ab-sub, #8AA0B6);
+  font-style: normal; font-size: 15px; line-height: 1;
   margin-left: 2px; transition: transform 0.2s ease;
 }
 .tool-chain.is-open .tool-chain__chev { transform: rotate(90deg); }

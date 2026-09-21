@@ -44,7 +44,13 @@ const saveOpsLog = () => {
 }
 
 const logOp = (op) => {
-  const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), time: new Date().toISOString(), ...op }
+  // Redact secrets from anything we persist to ops-log.json (command text,
+  // error output can carry tokens). redactText is defined later but this only
+  // runs at request time, so it's available.
+  const safe = { ...op }
+  if (typeof safe.detail === 'string') safe.detail = redactText(safe.detail)
+  if (typeof safe.error === 'string') safe.error = redactText(safe.error)
+  const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), time: new Date().toISOString(), ...safe }
   opsLog.push(entry)
   saveOpsLog()
   return entry
@@ -172,6 +178,9 @@ const redactText = (input) => {
     .replace(/\bBearer\s+[A-Za-z0-9._~+/-]{8,}=*/g, 'Bearer ***REDACTED***')
     .replace(/\bsk-[A-Za-z0-9_-]{16,}\b/g, 'sk-***REDACTED***')
     .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\b/g, '***REDACTED_JWT***')
+    // GitHub tokens (classic + fine-grained) and AWS access key ids.
+    .replace(/\b(gh[posru]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})\b/g, '***REDACTED_GH_TOKEN***')
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, '***REDACTED_AWS_KEY***')
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -282,8 +291,8 @@ const EXTRA_WRITE_PATHS = (process.env.EXTRA_WRITE_PATHS || '')
 // True when `target` is exactly `base` or lives inside `base` (no prefix-collision bug).
 const isWithin = (base, target) => target === base || target.startsWith(base + path.sep)
 
-// Resolve a user-supplied path (relative → repo root, or absolute) and confirm
-// it is allowed. Returns { ok, absPath } or { ok:false, error }.
+// Resolve a user-supplied path for WRITING — relative → repo root, absolute must
+// be in the repo or the EXTRA_WRITE_PATHS allowlist. Returns { ok, absPath }.
 const resolveAllowedPath = (inputPath) => {
   if (!inputPath || typeof inputPath !== 'string') return { ok: false, error: 'Missing filePath' }
   const absPath = path.isAbsolute(inputPath) ? path.resolve(inputPath) : path.resolve(REPO_DIR, inputPath)
@@ -293,6 +302,32 @@ const resolveAllowedPath = (inputPath) => {
   }
   return { ok: false, error: 'Path outside repo (not in EXTRA_WRITE_PATHS allowlist)' }
 }
+
+// Resolve a path for READING — free (anywhere on the box) so 小机 can debug
+// without a whitelist. Output is still secret-redacted before it leaves here.
+// Set READ_STRICT=1 in vps/.env to fall back to the write allowlist for reads.
+const READ_STRICT = ['1', 'true', 'yes'].includes((process.env.READ_STRICT || '').toLowerCase())
+const resolveReadPath = (inputPath) => {
+  if (READ_STRICT) return resolveAllowedPath(inputPath)
+  if (!inputPath || typeof inputPath !== 'string') return { ok: false, error: 'Missing filePath' }
+  const absPath = path.isAbsolute(inputPath) ? path.resolve(inputPath) : path.resolve(REPO_DIR, inputPath)
+  return { ok: true, absPath }
+}
+
+// ── Self-guardrail lock ──────────────────────────────────────────────
+// The files that define 小机's OWN limits. Writing them must ALWAYS go through
+// 主人 approval (or be refused), even in loose mode — otherwise 小机 could edit
+// away its own restrictions and self-escalate. Reading them stays free.
+const PROTECTED_PATHS = [
+  path.join(__dirname, 'index.js'),
+  path.join(__dirname, '.env'),
+  path.join(__dirname, 'autonomousWake.js'),
+]
+const isProtectedPath = (absPath) => PROTECTED_PATHS.some((p) => p === absPath)
+// Best-effort: does a shell command write to a guardrail file? (basename match
+// + a write op, so `cat index.js` is fine but `sed -i …/index.js` is gated.)
+const PROTECTED_BASENAMES = /(?:\bindex\.js\b|\.env\b|\bautonomousWake\.js\b)/
+const touchesProtectedCmd = (cmd) => PROTECTED_BASENAMES.test(cmd)
 
 app.get('/api/git/status', authenticate, (_req, res) => {
   try {
@@ -325,7 +360,7 @@ app.get('/api/git/log', authenticate, (req, res) => {
 app.post('/api/file/read', authenticate, (req, res) => {
   const { filePath } = req.body
   if (!filePath) return res.status(400).json({ error: 'Missing filePath' })
-  const resolved = resolveAllowedPath(filePath)
+  const resolved = resolveReadPath(filePath)
   if (!resolved.ok) return res.status(403).json({ error: resolved.error })
   const absPath = resolved.absPath
   try {
@@ -704,11 +739,43 @@ const isWriteCommand = (cmd) => {
   return WRITE_CMD_PATTERNS.some((p) => p.test(normalized))
 }
 
+// Only the genuinely destructive commands still need 主人 approval. Everyday
+// writes (mkdir/touch/cp/mv/sed -i/tee/npm|pip|apt install/git commit·add…)
+// run freely so 小机 can debug without asking every step. Flip back to gating
+// ALL writes with EXEC_STRICT_APPROVAL=1 in vps/.env.
+const EXEC_STRICT_APPROVAL = ['1', 'true', 'yes'].includes((process.env.EXEC_STRICT_APPROVAL || '').toLowerCase())
+const DANGEROUS_CMD_PATTERNS = [
+  /\brm\s+-\S*[rf]/i,                        // rm with a -r / -f flag (recursive/force)
+  /\brm\s+(?:-\S+\s+)*\//,                   // rm targeting an absolute path
+  /\brmdir\b/, /\bshred\b/, /\btruncate\b/,
+  /\bdd\b/, /\bmkfs\S*/, /\bfdisk\b/, /\bwipefs\b/,
+  /\b(shutdown|reboot|halt|poweroff|init\s+0|init\s+6)\b/,
+  /\b(kill|killall|pkill)\b/,
+  /\bsystemctl\s+(stop|disable|mask)\b/,
+  /\bpm2\s+(delete|kill)\b/,
+  /\bchmod\s+-R\b/, /\bchown\s+-R\b/, /\bchmod\s+0?777\b/,
+  /\b(apt|apt-get|yum|dnf|pacman)\s+(remove|purge|autoremove|-R)\b/,
+  /\bnpm\s+uninstall\b/, /\bpip\s+uninstall\b/,
+  /\bgit\s+(push|reset\s+--hard|clean\s+-\w*f|checkout\s+--?\s*\.|checkout\s+\.)/,
+  /\bgit\s+branch\s+-D\b/,
+  /\bdrop(db)?\b/i, /\bmkswap\b/, /\bcrontab\s+-r\b/,
+  />\s*\/(etc|boot|dev|sys|usr|bin|sbin|lib|var\/lib)\b/,   // redirect into system dirs
+  /\b(mv|cp)\b[^|]*\s\/(etc|boot|usr|bin|sbin|lib)\b/,       // clobber system dirs
+]
+// Whether a command needs approval: strict mode = any write; otherwise = only
+// the dangerous ones above.
+const needsExecApproval = (cmd) => {
+  const c = cmd.trim()
+  // Writing a guardrail file always needs approval, even in loose mode.
+  if (isWriteCommand(c) && touchesProtectedCmd(c)) return true
+  return EXEC_STRICT_APPROVAL ? isWriteCommand(c) : DANGEROUS_CMD_PATTERNS.some((p) => p.test(c))
+}
+
 app.post('/api/exec', authenticate, (req, res) => {
   const { command, timeout_ms, approval_id } = req.body
   if (!command) return res.status(400).json({ ok: false, error: 'Missing command' })
 
-  if (isWriteCommand(command) && !approval_id) {
+  if (needsExecApproval(command) && !approval_id) {
     const pending = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       action: 'exec_write',
@@ -823,7 +890,7 @@ app.post('/api/exec/async', authenticate, (req, res) => {
   const { command, timeout_ms, approval_id } = req.body
   if (!command) return res.status(400).json({ ok: false, error: 'Missing command' })
 
-  if (isWriteCommand(command) && !approval_id) {
+  if (needsExecApproval(command) && !approval_id) {
     const pending = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       action: 'exec_write_async',
@@ -1364,8 +1431,9 @@ app.get('/api/journal/read', authenticate, (req, res) => {
 app.post('/api/code/search', authenticate, (req, res) => {
   const { pattern, path: searchPath, glob, context = 2, maxResults = 60 } = req.body
   if (!pattern) return res.status(400).json({ error: 'Missing pattern' })
-  const dir = searchPath ? path.resolve(REPO_DIR, searchPath) : REPO_DIR
-  if (!dir.startsWith(REPO_DIR)) return res.status(403).json({ error: 'Path outside repo' })
+  const rp = searchPath ? resolveReadPath(searchPath) : { ok: true, absPath: REPO_DIR }
+  if (!rp.ok) return res.status(403).json({ error: rp.error })
+  const dir = rp.absPath
   const args = ['-rn', `--include=${glob || '*'}`, `-C${context}`, '--color=never', '-m', String(maxResults)]
   try {
     const out = execSync(`grep ${args.map(a => `'${a}'`).join(' ')} '${pattern.replace(/'/g, "'\\''")}' '${dir}'`, {
@@ -1383,8 +1451,9 @@ app.post('/api/code/search', authenticate, (req, res) => {
 app.post('/api/code/find', authenticate, (req, res) => {
   const { pattern, searchPath, type } = req.body
   if (!pattern) return res.status(400).json({ error: 'Missing pattern' })
-  const dir = searchPath ? path.resolve(REPO_DIR, searchPath) : REPO_DIR
-  if (!dir.startsWith(REPO_DIR)) return res.status(403).json({ error: 'Path outside repo' })
+  const rp = searchPath ? resolveReadPath(searchPath) : { ok: true, absPath: REPO_DIR }
+  if (!rp.ok) return res.status(403).json({ error: rp.error })
+  const dir = rp.absPath
   const typeArg = type === 'dir' ? '-type d' : type === 'file' ? '-type f' : ''
   try {
     const out = execSync(
@@ -1407,6 +1476,7 @@ app.post('/api/code/edit', authenticate, (req, res) => {
   const resolved = resolveAllowedPath(filePath)
   if (!resolved.ok) return res.status(403).json({ error: resolved.error })
   const full = resolved.absPath
+  if (isProtectedPath(full)) return res.status(403).json({ error: '受保护文件（小机的护栏），请用 vps_file_write 修改——那条会走主人审批' })
   if (!fs.existsSync(full)) return res.status(404).json({ error: 'File not found' })
 
   let content = fs.readFileSync(full, 'utf8')
