@@ -558,6 +558,7 @@ app.post('/api/browser/fetch', authenticate, async (req, res) => {
   try {
     browser = await puppeteer.launch({
       headless: 'new',
+      executablePath: '/usr/bin/chromium-browser',
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
       timeout: 10000,
     })
