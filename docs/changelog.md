@@ -36,6 +36,17 @@
 
 影响：看门狗改动是前端（已 push，等 GitHub Actions 构建 + 新 APK 生效）。浏览器改动是后端（已 `pm2 restart`，即时生效，`vps_browse` 已验证通过）。
 
+## 🗄 补建 exec_sql RPC，修复 vps_exec_sql（2026-09-21）
+
+**背景**：小机诊断 `vps_exec_sql` 报 `fetch failed`——根因是 Supabase（memory 库）里根本没有 `exec_sql` 这个 RPC，`/api/db/query` 打 `/rest/v1/rpc/exec_sql` 拿 404。
+
+- 建 `public.exec_sql(query text)`（`apply_migration` 已作用于远程库，本文件留档 `supabase/migrations/20260921120000_create_exec_sql_rpc.sql`）：`SECURITY DEFINER` + `SET search_path=public`；查询类返回 `json_agg` 行、DML/DDL 返回 `{ok:true}`。
+- **安全加固**（小机原提议漏了）：Supabase 新建 RPC 默认 PUBLIC 可执行 → 拿前端暴露的 anon key 就能跑任意 SQL。这里 `REVOKE ALL FROM public/anon/authenticated`，只 `GRANT EXECUTE TO service_role`，即只有 VPS 后端能调。
+
+**部署注意**：纯数据库端修复，立即生效，不用 `git pull` / 重启 pm2。顺手确认 `vps/.env` 的 `SUPABASE_URL` 结尾不带 `/`（否则拼成 `//rest/v1/…` 偶发 404）。
+
+---
+
 ## 🔌 MCP server 动态工具接入（2026-09-21）
 
 **背景**：MCP 管理器以前只存配置、`exec` 起进程，从没跟 MCP 讲协议（没 `tools/list`、没路由 `tools/call`）——加了 server 也白搭。补齐：
