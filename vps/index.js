@@ -318,15 +318,15 @@ const resolveReadPath = (inputPath) => {
 // The files that define 小机's OWN limits. Writing them must ALWAYS go through
 // 主人 approval (or be refused), even in loose mode — otherwise 小机 could edit
 // away its own restrictions and self-escalate. Reading them stays free.
+// Only .env stays locked (it holds the real secrets + master switches). 小机
+// may freely edit its own code, including autonomousWake.js, per owner request.
 const PROTECTED_PATHS = [
-  path.join(__dirname, 'index.js'),
   path.join(__dirname, '.env'),
-  path.join(__dirname, 'autonomousWake.js'),
 ]
 const isProtectedPath = (absPath) => PROTECTED_PATHS.some((p) => p === absPath)
-// Best-effort: does a shell command write to a guardrail file? (basename match
-// + a write op, so `cat index.js` is fine but `sed -i …/index.js` is gated.)
-const PROTECTED_BASENAMES = /(?:\bindex\.js\b|\.env\b|\bautonomousWake\.js\b)/
+// Best-effort: does a shell command write to the locked .env? (basename + a
+// write op, so `cat .env` is fine but `sed -i …/.env` / `echo >> .env` gate.)
+const PROTECTED_BASENAMES = /\.env\b/
 const touchesProtectedCmd = (cmd) => PROTECTED_BASENAMES.test(cmd)
 
 app.get('/api/git/status', authenticate, (_req, res) => {
@@ -839,6 +839,11 @@ const isWriteCommand = (cmd) => {
 // run freely so 小机 can debug without asking every step. Flip back to gating
 // ALL writes with EXEC_STRICT_APPROVAL=1 in vps/.env.
 const EXEC_STRICT_APPROVAL = ['1', 'true', 'yes'].includes((process.env.EXEC_STRICT_APPROVAL || '').toLowerCase())
+// Full trust: nothing needs approval EXCEPT writes to 小机's own guardrail
+// files. Set EXEC_NO_APPROVAL=1 in vps/.env when you'd rather never tap approve
+// (each approval also costs a re-run/tokens). You own the box; curwe is
+// separate. Overrides strict/danger modes below.
+const EXEC_NO_APPROVAL = ['1', 'true', 'yes'].includes((process.env.EXEC_NO_APPROVAL || '').toLowerCase())
 const DANGEROUS_CMD_PATTERNS = [
   /\brm\s+-\S*[rf]/i,                        // rm with a -r / -f flag (recursive/force)
   /\brm\s+(?:-\S+\s+)*\//,                   // rm targeting an absolute path
@@ -861,9 +866,11 @@ const DANGEROUS_CMD_PATTERNS = [
 // the dangerous ones above.
 const needsExecApproval = (cmd) => {
   const c = cmd.trim()
-  // Writing a guardrail file always needs approval, even in loose mode.
+  // Writing a guardrail file always needs approval, in EVERY mode.
   if (isWriteCommand(c) && touchesProtectedCmd(c)) return true
-  return EXEC_STRICT_APPROVAL ? isWriteCommand(c) : DANGEROUS_CMD_PATTERNS.some((p) => p.test(c))
+  if (EXEC_NO_APPROVAL) return false                     // full trust
+  if (EXEC_STRICT_APPROVAL) return isWriteCommand(c)     // gate all writes
+  return DANGEROUS_CMD_PATTERNS.some((p) => p.test(c))   // default: gate dangerous only
 }
 
 app.post('/api/exec', authenticate, (req, res) => {
