@@ -94,11 +94,25 @@ export const getRemotePacks = (): RemotePackMap => _remotePacks
 
 // ── Unified lookup (local first, then remote) ────────────────────────────────
 
+// Rewrite Supabase direct URLs to go through the VPS reverse proxy so the
+// APK never needs a VPN to load storage assets (images, stickers).
+const proxyStorageUrl = (url: string): string => {
+  try {
+    const viteUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
+    if (!viteUrl || !viteUrl.includes('/supabase-proxy')) return url
+    // url: https://xxx.supabase.co/storage/v1/object/public/...
+    // target: https://api.wrenisbird.top/supabase-proxy/storage/v1/object/public/...
+    return url.replace(/https?:\/\/[^/]+\.supabase\.co/, viteUrl)
+  } catch {
+    return url
+  }
+}
+
 export const findSticker = (name: string): Sticker | null => {
   const local = getStickers().find((x) => x.name === name)
   if (local) return local
   const remote = _remoteByName.get(name)
-  if (remote) return { name, desc: '', dataUrl: remote.url }
+  if (remote) return { name, desc: '', dataUrl: proxyStorageUrl(remote.url) }
   return null
 }
 
