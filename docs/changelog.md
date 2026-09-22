@@ -3,6 +3,21 @@
 > 从 README 拆出来的开发历史与踩坑记录(README 太长了)。功能清单和使用说明见 [README](../README.md)。
 
 ---
+## Supabase 反代 & 表情包修复（2026-09-22）
+
+### 新增：Nginx Supabase 反向代理
+- **问题**：APK 直连美国 Supabase（`mnvajjslsbyfywcztjrg.supabase.co`），国内 DNS 污染导致必须挂梯子才能登录和加载数据。
+- **修法**：VPS（东京）Nginx 新增 `/supabase-proxy/` location，将所有请求透明转发到 Supabase。APK 的 `VITE_SUPABASE_URL` 改为 `https://api.wrenisbird.top/supabase-proxy`（通过 GitHub Secrets 注入），国内直连 VPS 即可，不再需要梯子。
+- 反代配置包含 `proxy_ssl_server_name on` + 正确的 Host 头，WebSocket（Realtime）和 Storage 均可正常转发。
+
+### 修复：表情包面板裂图
+- **症状**：聊天气泡中的表情包能显示，但表情包选择面板里全部裂图。
+- **根因**：Remote sticker 的 `url` 字段存储在 Supabase 数据库中是直连美国地址。`findSticker()` 已做 URL 重写，但面板渲染直接用 `s.url`，未经过重写。
+- **修法**：① `stickers.ts` 新增 `proxyStorageUrl()` 并 export；② `ChatPage.tsx` 面板处 `<img src={s.url}>` 改为 `<img src={proxyStorageUrl(s.url)}>` ；③ `findSticker()` 返回时也经过 `proxyStorageUrl()` 重写。所有 Supabase Storage URL 统一走反代。
+- ⚠️ 前端改动，需重新打 APK 才生效（已打包）。
+
+---
+
 ## 📝 README 补全 VPS 后端文档（2026-09-20）
 
 - 架构图加入 VPS 节点（Tencent Cloud → Express API）
