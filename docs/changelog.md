@@ -3,6 +3,18 @@
 > 从 README 拆出来的开发历史与踩坑记录(README 太长了)。功能清单和使用说明见 [README](../README.md)。
 
 ---
+## 表情包带描述给模型（2026-09-22）
+
+**背景**：小机**看不到图片**，`[sticker:名字]` 对它就是个不透明的名字——它不知道自己发的、或用户发的表情是啥意思，接话/回忆容易脱节。
+
+**修法**：构建给模型的消息时，把 `[sticker:名字]` 改写成 `[表情包「名字」：描述]`（描述取自贴纸库），**界面和存储仍保持原样、照常显示图**，只有出站给模型的那份带描述。用户发的表情同理。改写是确定性的（描述来自稳定的贴纸缓存），不破坏 prompt 缓存。
+
+- `stickers.ts`：remote 贴纸缓存补上 `desc`（原来运行时丢了，`findSticker` 对 remote 一直返回空描述）；新增 `getStickerDescription()` + `describeStickerMarkers()`。
+- `App.tsx`：remote 贴纸加载 `select` 补 `description`；构建 `baseMessages` 的两条分支（带图/纯文）都把 `message.content` 过一遍 `describeStickerMarkers`（user + assistant 都覆盖）。
+
+纯前端，需新 APK。`search_stickers` 工具本就给描述（供挑选）；这次是让**历史里**也带上描述，让它记得发过啥、看懂对方发的啥。验证：`tsc`、`build` 均过。
+
+---
 ## 语音转录 & TTS 搬到 VPS（2026-09-22）
 
 **背景**：`transcribe-voice`（SiliconFlow ASR）和 `tts`（MiniMax）两个 Edge Function 调的都是**国内**服务，但函数跑在**美国 Supabase**——一条语音的音频要横跨太平洋 2~3 次（国内手机 → 美国存储/Edge → 打回国内 SiliconFlow/MiniMax → 返回）。加上 Edge 冷启动，语音发送/播报明显卡。

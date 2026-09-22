@@ -49,8 +49,10 @@ export const deleteSticker = (name: string) => write(getStickers().filter((x) =>
 
 const REMOTE_KEY = 'nimbus_stickers_remote_v1'
 
-const buildMaps = (stickers: Array<{ name: string; url: string; pack: string }>) => {
-  const byName = new Map(stickers.map((s) => [s.name, { url: s.url, pack: s.pack }]))
+type RemoteStickerRow = { name: string; url: string; pack: string; desc?: string }
+
+const buildMaps = (stickers: RemoteStickerRow[]) => {
+  const byName = new Map(stickers.map((s) => [s.name, { url: s.url, pack: s.pack, desc: s.desc ?? '' }]))
   const packs = new Map<string, RemoteStickerEntry[]>()
   for (const s of stickers) {
     const arr = packs.get(s.pack) ?? []
@@ -60,7 +62,7 @@ const buildMaps = (stickers: Array<{ name: string; url: string; pack: string }>)
   return { byName, packs }
 }
 
-const readRemoteCache = (): Array<{ name: string; url: string; pack: string }> => {
+const readRemoteCache = (): RemoteStickerRow[] => {
   if (typeof window === 'undefined') return []
   try {
     const arr = JSON.parse(window.localStorage.getItem(REMOTE_KEY) ?? '[]')
@@ -72,11 +74,11 @@ const readRemoteCache = (): Array<{ name: string; url: string; pack: string }> =
 
 // Seed synchronously from localStorage at module load.
 const _seed = buildMaps(readRemoteCache())
-let _remoteByName: Map<string, { url: string; pack: string }> = _seed.byName
+let _remoteByName: Map<string, { url: string; pack: string; desc: string }> = _seed.byName
 let _remotePacks: RemotePackMap = _seed.packs
 
 export const setRemoteStickerCache = (
-  stickers: Array<{ name: string; url: string; pack: string }>,
+  stickers: RemoteStickerRow[],
 ) => {
   const { byName, packs } = buildMaps(stickers)
   _remoteByName = byName
@@ -112,9 +114,28 @@ export const findSticker = (name: string): Sticker | null => {
   const local = getStickers().find((x) => x.name === name)
   if (local) return local
   const remote = _remoteByName.get(name)
-  if (remote) return { name, desc: '', dataUrl: proxyStorageUrl(remote.url) }
+  if (remote) return { name, desc: remote.desc ?? '', dataUrl: proxyStorageUrl(remote.url) }
   return null
 }
+
+// Description text for a sticker name (local first, then remote); '' if none.
+export const getStickerDescription = (name: string): string => {
+  const local = getStickers().find((x) => x.name === name)
+  if (local?.desc) return local.desc
+  return _remoteByName.get(name)?.desc ?? ''
+}
+
+// Rewrite `[sticker:名字]` markers into a text form the model can understand —
+// it never sees the actual image, so without this a sticker is just an opaque
+// name. Display/storage keep the raw marker; this is only for the outgoing
+// model messages. Deterministic (desc comes from the stable sticker cache), so
+// it stays prompt-cache-safe.
+export const describeStickerMarkers = (text: string): string =>
+  text.replace(/\[sticker:([^\]\n]{1,40})\]/gi, (_, raw: string) => {
+    const name = raw.trim()
+    const desc = getStickerDescription(name)
+    return desc ? `[表情包「${name}」：${desc}]` : `[表情包「${name}」]`
+  })
 
 // ── Static system-prompt section for sticker tool usage ─────────────────────
 // Replaces the old per-sticker name list — AI calls search_stickers instead.

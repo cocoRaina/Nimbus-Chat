@@ -123,6 +123,7 @@ import {
   buildStickerSystemSection,
   setRemoteStickerCache,
   getRemotePacks,
+  describeStickerMarkers,
   type RemotePackMap,
 } from './storage/stickers'
 import { recordUsage } from './storage/usageStats'
@@ -1273,12 +1274,15 @@ const App = () => {
     if (!supabase || !user) return
     const { data } = await supabase
       .from('stickers')
-      .select('name, url, pack')
+      .select('name, url, pack, description')
       .eq('user_id', user.id)
     // Write through even when empty — after deleting the last sticker the
     // cache must not keep showing the stale pack.
     if (data) {
-      setRemoteStickerCache(data as Array<{ name: string; url: string; pack: string }>)
+      setRemoteStickerCache(
+        (data as Array<{ name: string; url: string; pack: string; description: string | null }>)
+          .map((r) => ({ name: r.name, url: r.url, pack: r.pack, desc: r.description ?? '' })),
+      )
       setRemoteStickerPacks(getRemotePacks())
     }
   }, [user])
@@ -2753,7 +2757,7 @@ const App = () => {
               : moodStr
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []
-              const textContent = `${prefix}${message.content}${thinkingOutputReminder}${moodOutputReminder}`
+              const textContent = `${prefix}${describeStickerMarkers(message.content)}${thinkingOutputReminder}${moodOutputReminder}`
               if (textContent.trim().length > 0) {
                 blocks.push({ type: 'text', text: textContent })
               }
@@ -2786,7 +2790,7 @@ const App = () => {
               }
               baseMessages.push({ role: 'user', content: blocks })
             } else {
-              let content = message.role === 'user' ? `${prefix}${message.content}${thinkingOutputReminder}${moodOutputReminder}` : message.content
+              let content = message.role === 'user' ? `${prefix}${describeStickerMarkers(message.content)}${thinkingOutputReminder}${moodOutputReminder}` : describeStickerMarkers(message.content)
               // Assistant turns that ran tools replay with the frozen digest of
               // those calls — real tool blocks never enter persistent history,
               // and without this the model forgets it already searched/saved/
