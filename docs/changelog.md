@@ -3,6 +3,21 @@
 > 从 README 拆出来的开发历史与踩坑记录(README 太长了)。功能清单和使用说明见 [README](../README.md)。
 
 ---
+## 语音转录 & TTS 搬到 VPS（2026-09-22）
+
+**背景**：`transcribe-voice`（SiliconFlow ASR）和 `tts`（MiniMax）两个 Edge Function 调的都是**国内**服务，但函数跑在**美国 Supabase**——一条语音的音频要横跨太平洋 2~3 次（国内手机 → 美国存储/Edge → 打回国内 SiliconFlow/MiniMax → 返回）。加上 Edge 冷启动，语音发送/播报明显卡。
+
+**修法**：搬到东京 VPS（常驻、无冷启、离国内和这俩国内服务都近）。
+
+- **后端**（`vps/index.js`）：新增
+  - `POST /api/transcribe` `{audio_base64, mime}` → `{text, emotion, raw}`：解码音频 → multipart 转发 SiliconFlow SenseVoiceSmall，`parseTranscription` 解析情绪标签（逻辑照搬 Edge）。用 `SILICONFLOW_API_KEY`（**需加进 `vps/.env`**）。
+  - `POST /api/tts` `{provider,text,voice_id,api_key,...}` → `{audio_base64,mime}`：MiniMax（hex→base64）/ ElevenLabs 两分支照搬。**key 前端自带、不落服务端**，所以不用配 `.env`。
+  - `express.json` 上限 2mb→25mb（音频以 base64 进 body）。响应结构与 Edge 完全一致。
+- **前端**：`voiceRecorder.transcribeVoice` 和 `ttsClient.synthesizeSpeech` **优先走 VPS**（`isVpsConfigured()`），VPS 缺失/报错**自动回退** Supabase Edge。转录直接发音频字节、不依赖上传完成 → `ChatPage`/`CallOverlay` 里**上传与转录并行**（`Promise.all`），少等一次 US 存储往返。
+
+**部署注意**：VPS 上 `git pull`；**`vps/.env` 加 `SILICONFLOW_API_KEY=...`**（就是 Supabase secrets 里那个同款）；`pm2 restart nimbus-api --update-env`。前端要新 APK。Edge Function 保留不动（回退用 + web 无 VPS 时用）。验证：`node --check`、`tsc`、`build` 均过。
+
+---
 ## Supabase 反代 & 表情包修复（2026-09-22）
 
 ### 新增：Nginx Supabase 反向代理

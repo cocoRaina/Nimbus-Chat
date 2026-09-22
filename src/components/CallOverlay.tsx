@@ -12,6 +12,7 @@ import {
   stopRingtone,
 } from '../storage/callConfig'
 import { synthesizeSpeech } from '../storage/ttsClient'
+import { isVpsConfigured } from '../storage/vpsConfig'
 import './CallOverlay.css'
 
 // 📞 全屏通话层（callhome）。两个阶段：
@@ -350,15 +351,31 @@ const CallOverlay = ({
     try {
       const { uploadVoiceRecording, transcribeVoice } = await import('../storage/voiceRecorder')
       if (!userId) throw new Error('未登录')
-      const { url } = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)
+      let url: string
       let text = ''
       let emotion: string | null = null
-      try {
-        const t = await transcribeVoice(url)
+      if (isVpsConfigured()) {
+        // VPS 直接用音频字节转写 → 上传/转写并行
+        const [uploaded, t] = await Promise.all([
+          uploadVoiceRecording({ blob, durationMs, mimeType }, userId),
+          transcribeVoice('', { blob, mimeType }).catch((err) => {
+            console.warn('通话转写失败，按语音消息发送', err)
+            return { text: '', emotion: null }
+          }),
+        ])
+        url = uploaded.url
         text = t.text
         emotion = t.emotion
-      } catch (err) {
-        console.warn('通话转写失败，按语音消息发送', err)
+      } else {
+        const uploaded = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)
+        url = uploaded.url
+        try {
+          const t = await transcribeVoice(url)
+          text = t.text
+          emotion = t.emotion
+        } catch (err) {
+          console.warn('通话转写失败，按语音消息发送', err)
+        }
       }
       const tones: string[] = []
       if (soft) tones.push('轻声')

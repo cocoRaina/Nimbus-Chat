@@ -9,6 +9,7 @@ import { Share } from '@capacitor/share'
 import { Clipboard } from '@capacitor/clipboard'
 import { Network } from '@capacitor/network'
 import { getAssistantName, setAssistantName } from '../storage/assistantPersona'
+import { isVpsConfigured } from '../storage/vpsConfig'
 import MoodOverlay from '../components/MoodOverlay'
 import {
   getActiveProvider,
@@ -862,18 +863,33 @@ const ChatPage = ({
         const userId = user?.id
         if (!userId) throw new Error('未登录')
 
-        // 上传（失败直接报错给用户）
-        const { url } = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)
-
         // 转录（失败不阻断发送，降级为空文字）
+        let url: string
         let text = ''
         let emotion: string | null = null
-        try {
-          const t = await transcribeVoice(url)
+        if (isVpsConfigured()) {
+          // VPS 直接用音频字节转录，不依赖上传完成 → 上传/转录并行跑
+          const [uploaded, t] = await Promise.all([
+            uploadVoiceRecording({ blob, durationMs, mimeType }, userId),
+            transcribeVoice('', { blob, mimeType }).catch((e) => {
+              console.warn('语音转录失败，继续发送', e)
+              return { text: '', emotion: null }
+            }),
+          ])
+          url = uploaded.url
           text = t.text
           emotion = t.emotion
-        } catch (transcribeErr) {
-          console.warn('语音转录失败，继续发送', transcribeErr)
+        } else {
+          // 无 VPS：走 Edge，需要上传后的 URL，只能串行
+          const uploaded = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)
+          url = uploaded.url
+          try {
+            const t = await transcribeVoice(url)
+            text = t.text
+            emotion = t.emotion
+          } catch (transcribeErr) {
+            console.warn('语音转录失败，继续发送', transcribeErr)
+          }
         }
 
         await onSendMessage(text || '[语音消息]', {

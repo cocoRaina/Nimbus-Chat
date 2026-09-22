@@ -28,7 +28,7 @@ const app = express()
 const PORT = parseInt(process.env.PORT || '3000', 10)
 
 app.use(cors())
-app.use(express.json({ limit: '2mb' }))
+app.use(express.json({ limit: '25mb' })) // 25mb: voice audio arrives as base64 on /api/transcribe
 
 // ── Operation log (in-memory, persisted to disk) ─────────────────────
 const OPS_LOG_PATH = path.join(__dirname, 'ops-log.json')
@@ -1740,6 +1740,143 @@ app.post('/api/curwe/event', (req, res) => {
   pushToDevices(title, body, 'curwe-job', notif.data)
   logOp({ action: 'curwe_event', level: 'green', detail: `${status} ${jobId}`.slice(0, 120) })
   res.json({ ok: true })
+})
+
+// ══ Voice: transcription + TTS moved off Supabase Edge onto the VPS ═══
+// Both edge functions forwarded to CN-hosted providers (SiliconFlow ASR,
+// MiniMax TTS) from US Supabase — so audio crossed the Pacific 2-3× per
+// request. This Tokyo VPS sits next to those providers and never cold-starts,
+// so proxying here is a real latency win, not just a perceived one.
+// Response shapes are kept identical to the edge functions so the client can
+// fall back to Supabase when the VPS is unreachable.
+
+// POST /api/transcribe  { audio_base64, mime } → { text, emotion, raw }
+// SenseVoice embeds emotion as <|HAPPY|>… tags; strip them, surface the first.
+const VOICE_EMOTION_TAGS = /^(HAPPY|SAD|ANGRY|NEUTRAL|SURPRISED|FEARFUL|DISGUSTED|LAUGHTER|CRY|Unknown_Emo)$/i
+function parseTranscription(text) {
+  let emotion = null
+  let hasSetEmotion = false
+  let cleaned = String(text || '')
+  cleaned = cleaned.replace(/<\|([^|]+)\|>/g, (_, tag) => {
+    if (!hasSetEmotion && VOICE_EMOTION_TAGS.test(tag)) {
+      const upper = tag.toUpperCase()
+      emotion = (upper === 'UNKNOWN_EMO' || upper === 'NEUTRAL') ? null : upper
+      hasSetEmotion = true
+    }
+    return ''
+  })
+  const pipeMatch = /^(HAPPY|SAD|ANGRY|NEUTRAL|SURPRISED|FEARFUL|DISGUSTED|LAUGHTER|CRY)\|/i.exec(cleaned)
+  if (pipeMatch) {
+    if (!emotion) emotion = pipeMatch[1].toUpperCase()
+    cleaned = cleaned.slice(pipeMatch[0].length)
+  }
+  return { cleanText: cleaned.trim(), emotion }
+}
+
+app.post('/api/transcribe', authenticate, async (req, res) => {
+  const sfKey = process.env.SILICONFLOW_API_KEY
+  if (!sfKey) return res.status(500).json({ error: 'SILICONFLOW_API_KEY 未配置（VPS .env）' })
+  const { audio_base64, mime } = req.body || {}
+  if (!audio_base64) return res.status(400).json({ error: 'audio_base64 required' })
+
+  const contentType = typeof mime === 'string' && mime ? mime : 'audio/webm'
+  const ext = contentType.includes('ogg') ? 'ogg'
+    : contentType.includes('mp4') ? 'mp4'
+    : contentType.includes('wav') ? 'wav'
+    : 'webm'
+
+  let buf
+  try {
+    buf = Buffer.from(audio_base64, 'base64')
+    if (!buf.length) throw new Error('empty audio')
+  } catch {
+    return res.status(400).json({ error: 'invalid audio_base64' })
+  }
+
+  try {
+    const form = new FormData()
+    form.append('model', 'FunAudioLLM/SenseVoiceSmall')
+    form.append('file', new Blob([buf], { type: contentType }), `recording.${ext}`)
+    const sfRes = await fetch('https://api.siliconflow.cn/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sfKey}` },
+      body: form,
+    })
+    if (!sfRes.ok) {
+      const errText = await sfRes.text().catch(() => '')
+      logOp({ action: 'transcribe', level: 'yellow', error: `sf ${sfRes.status}` })
+      return res.status(502).json({ error: redactText(`SiliconFlow ${sfRes.status}: ${errText}`.slice(0, 200)) })
+    }
+    const sfData = await sfRes.json().catch(() => ({}))
+    const raw = sfData.text ?? ''
+    const { cleanText, emotion } = parseTranscription(raw)
+    logOp({ action: 'transcribe', level: 'green', detail: `${cleanText.length}字` })
+    res.json({ text: cleanText, emotion, raw })
+  } catch (err) {
+    logOp({ action: 'transcribe', level: 'red', error: String(err?.message || err).slice(0, 200) })
+    res.status(502).json({ error: redactText(String(err?.message || err)) })
+  }
+})
+
+// POST /api/tts  { provider, text, voice_id, api_key, ... } → { audio_base64, mime }
+// Keys are client-supplied (never stored here), same as the edge function.
+app.post('/api/tts', authenticate, async (req, res) => {
+  const p = req.body || {}
+  const text = String(p.text ?? '').trim()
+  const apiKey = String(p.api_key ?? '').trim()
+  const voiceId = String(p.voice_id ?? '').trim()
+  const provider = String(p.provider ?? 'minimax').trim()
+  if (!text) return res.status(400).json({ error: 'text required' })
+  if (!apiKey || !voiceId) return res.status(400).json({ error: 'api_key and voice_id required' })
+
+  try {
+    if (provider === 'elevenlabs') {
+      const model = String(p.model ?? 'eleven_v3').trim()
+      const stability = typeof p.stability === 'number' && p.stability >= 0 && p.stability <= 1 ? p.stability : 0.5
+      const r = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`,
+        {
+          method: 'POST',
+          headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, model_id: model, voice_settings: { stability, similarity_boost: 0.75, use_speaker_boost: true } }),
+        },
+      )
+      if (!r.ok) {
+        const eb = await r.json().catch(() => null)
+        const detail = eb?.detail
+        const msg = typeof detail === 'string' ? detail : (detail?.message ?? '')
+        return res.json({ error: redactText(`ElevenLabs ${r.status}${msg ? ': ' + msg : ''}`) })
+      }
+      const b = Buffer.from(await r.arrayBuffer())
+      return res.json({ audio_base64: b.toString('base64'), mime: 'audio/mp3' })
+    }
+
+    // MiniMax (default): hex audio → base64
+    const groupId = String(p.group_id ?? '').trim()
+    const baseUrl = String(p.base_url ?? 'https://api.minimax.io').trim().replace(/\/+$/, '')
+    const model = String(p.model ?? 'speech-02-turbo').trim()
+    const speed = typeof p.speed === 'number' && p.speed > 0 ? p.speed : 1.0
+    const url = groupId ? `${baseUrl}/v1/t2a_v2?GroupId=${encodeURIComponent(groupId)}` : `${baseUrl}/v1/t2a_v2`
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model, text, stream: false,
+        voice_setting: { voice_id: voiceId, speed, vol: 1.0, pitch: 0 },
+        audio_setting: { sample_rate: 32000, bitrate: 128000, format: 'mp3', channel: 1 },
+      }),
+    })
+    const data = await r.json().catch(() => null)
+    const msg = data?.base_resp?.status_msg ?? ''
+    if (!r.ok || !data) return res.json({ error: redactText(`MiniMax ${r.status}${msg ? ': ' + msg : ''}`) })
+    const hex = data.data?.audio
+    if (!hex) return res.json({ error: redactText(`MiniMax 无音频${msg ? ': ' + msg : ''}`) })
+    const bytes = Buffer.from(hex, 'hex')
+    res.json({ audio_base64: bytes.toString('base64'), mime: 'audio/mp3' })
+  } catch (err) {
+    logOp({ action: 'tts', level: 'red', error: String(err?.message || err).slice(0, 200) })
+    res.json({ error: redactText(String(err?.message || err)) })
+  }
 })
 
 // ── JSON-only fallthrough: unknown route → JSON 404 ──────────────────

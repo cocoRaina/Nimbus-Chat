@@ -1,4 +1,17 @@
 import { supabase } from '../supabase/client'
+import { vfetch, isVpsConfigured } from './vpsConfig'
+
+// Blob → base64 (no data: prefix), for sending audio straight to the VPS.
+const blobToBase64 = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onloadend = () => {
+      const s = String(r.result || '')
+      resolve(s.slice(s.indexOf(',') + 1)) // strip "data:...;base64,"
+    }
+    r.onerror = () => reject(new Error('read audio failed'))
+    r.readAsDataURL(blob)
+  })
 
 export type VoiceRecording = {
   blob: Blob
@@ -31,7 +44,31 @@ export async function uploadVoiceRecording(
   return { url: data.publicUrl, path }
 }
 
-export async function transcribeVoice(voiceUrl: string): Promise<TranscriptionResult> {
+// Transcribe a recording. When a VPS is configured we send the audio bytes
+// straight to the Tokyo VPS (→ SiliconFlow, both in Asia) instead of routing
+// through the US Supabase edge function — much faster, and it doesn't depend on
+// the storage upload finishing. Falls back to the edge function (needs the
+// uploaded voiceUrl) when the VPS is absent or errors.
+export async function transcribeVoice(
+  voiceUrl: string,
+  audio?: { blob: Blob; mimeType: string },
+): Promise<TranscriptionResult> {
+  if (audio && isVpsConfigured()) {
+    try {
+      const audio_base64 = await blobToBase64(audio.blob)
+      const res = await vfetch('/api/transcribe', {
+        method: 'POST',
+        body: JSON.stringify({ audio_base64, mime: audio.mimeType }),
+      })
+      const data = await res.json()
+      if (res.ok && !data.error) {
+        return { text: data.text ?? '', emotion: data.emotion ?? null }
+      }
+      console.warn('VPS 转录失败，回退 Edge', data?.error)
+    } catch (err) {
+      console.warn('VPS 转录异常，回退 Edge', err)
+    }
+  }
   if (!supabase) throw new Error('Supabase not configured')
   const { data, error } = await supabase.functions.invoke('transcribe-voice', {
     body: { voice_url: voiceUrl },
