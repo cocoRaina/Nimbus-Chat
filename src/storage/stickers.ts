@@ -96,7 +96,7 @@ export const getRemotePacks = (): RemotePackMap => _remotePacks
 
 // Rewrite Supabase direct URLs to go through the VPS reverse proxy so the
 // APK never needs a VPN to load storage assets (images, stickers).
-const proxyStorageUrl = (url: string): string => {
+export const proxyStorageUrl = (url: string): string => {
   try {
     const viteUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
     if (!viteUrl || !viteUrl.includes('/supabase-proxy')) return url

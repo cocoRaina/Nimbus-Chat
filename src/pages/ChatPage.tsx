@@ -29,6 +29,7 @@ import {
   upsertSticker,
   deleteSticker,
   fileToStickerDataUrl,
+  proxyStorageUrl,
 } from '../storage/stickers'
 import {
   type PreparedSticker,
@@ -2370,7 +2371,7 @@ const ChatPage = ({
                   {(remoteStickerPacks?.get(activeStickerPack) ?? []).map((s: RemoteStickerEntry) => (
                     <div key={s.name} className="sticker-panel__item">
                       <button type="button" className="sticker-panel__send" onClick={() => handleSendSticker(s.name)} title={s.name}>
-                        <img src={s.url} alt={s.name} loading="lazy" />
+                        <img src={proxyStorageUrl(s.url)} alt={s.name} loading="lazy" />
                       </button>
                       <button type="button" className="sticker-panel__del" aria-label="删除" onClick={() => void handleDeleteRemoteSticker(s)}>×</button>
                     </div>
