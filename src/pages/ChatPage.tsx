@@ -868,17 +868,26 @@ const ChatPage = ({
         let text = ''
         let emotion: string | null = null
         if (isVpsConfigured()) {
-          // VPS 直接用音频字节转录，不依赖上传完成 → 上传/转录并行跑
+          // VPS 直接用音频字节转录，不依赖上传完成 → 上传/转录并行跑。
+          // t === null 表示 VPS 转录失败(抛错)；t 有值(哪怕空文字)= VPS 成功。
           const [uploaded, t] = await Promise.all([
             uploadVoiceRecording({ blob, durationMs, mimeType }, userId),
-            transcribeVoice('', { blob, mimeType }).catch((e) => {
-              console.warn('语音转录失败，继续发送', e)
-              return { text: '', emotion: null }
-            }),
+            transcribeVoice('', { blob, mimeType }).catch(() => null),
           ])
           url = uploaded.url
-          text = t.text
-          emotion = t.emotion
+          if (t) {
+            text = t.text
+            emotion = t.emotion
+          } else {
+            // VPS 挂了(多为没配 SILICONFLOW_API_KEY)→ 用已上传的 URL 兜底走 Edge
+            try {
+              const t2 = await transcribeVoice(url)
+              text = t2.text
+              emotion = t2.emotion
+            } catch (e) {
+              console.warn('语音转录失败(VPS+Edge 都挂)，继续发送', e)
+            }
+          }
         } else {
           // 无 VPS：走 Edge，需要上传后的 URL，只能串行
           const uploaded = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)

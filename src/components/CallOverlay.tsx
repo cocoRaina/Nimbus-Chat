@@ -355,17 +355,26 @@ const CallOverlay = ({
       let text = ''
       let emotion: string | null = null
       if (isVpsConfigured()) {
-        // VPS 直接用音频字节转写 → 上传/转写并行
+        // VPS 直接用音频字节转写 → 上传/转写并行。
+        // t === null = VPS 转写失败；t 有值(哪怕空)= VPS 成功。
         const [uploaded, t] = await Promise.all([
           uploadVoiceRecording({ blob, durationMs, mimeType }, userId),
-          transcribeVoice('', { blob, mimeType }).catch((err) => {
-            console.warn('通话转写失败，按语音消息发送', err)
-            return { text: '', emotion: null }
-          }),
+          transcribeVoice('', { blob, mimeType }).catch(() => null),
         ])
         url = uploaded.url
-        text = t.text
-        emotion = t.emotion
+        if (t) {
+          text = t.text
+          emotion = t.emotion
+        } else {
+          // VPS 挂了 → 用已上传的 URL 兜底走 Edge
+          try {
+            const t2 = await transcribeVoice(url)
+            text = t2.text
+            emotion = t2.emotion
+          } catch (err) {
+            console.warn('通话转写失败(VPS+Edge 都挂)，按语音消息发送', err)
+          }
+        }
       } else {
         const uploaded = await uploadVoiceRecording({ blob, durationMs, mimeType }, userId)
         url = uploaded.url

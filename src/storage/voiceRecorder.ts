@@ -68,6 +68,11 @@ export async function transcribeVoice(
     } catch (err) {
       console.warn('VPS 转录异常，回退 Edge', err)
     }
+    // VPS failed. Only the edge function can help now, and it needs a real
+    // voiceUrl — in the parallel path the caller passes '' (upload still in
+    // flight), so signal failure and let the caller retry with the uploaded
+    // URL instead of hitting the edge with an empty voice_url (→ 400).
+    if (!voiceUrl) throw new Error('VPS transcribe failed; retry via edge with uploaded URL')
   }
   if (!supabase) throw new Error('Supabase not configured')
   const { data, error } = await supabase.functions.invoke('transcribe-voice', {
