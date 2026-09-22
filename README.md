@@ -6,7 +6,7 @@
 
 - 前端：React + Vite → **GitHub Pages PWA** + **Android APK**（Capacitor）
 - 后端：你自己的 **Supabase**（数据库 + Auth + Edge Functions）
-- LLM：**OpenRouter** 主 + **任意中转站** 备，设置页一键切换
+- LLM：**OpenRouter**  + **任意中转站** ，设置页一键切换
 
 > 📦 安装教程（含 Supabase 配置）：[百度网盘](https://pan.baidu.com/s/1xv6jAOLd2fLeOwE8pPdohw?pwd=vyfr) 提取码：`vyfr`
 
