@@ -298,7 +298,7 @@ const CallOverlay = ({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       const { getBestMimeType } = await import('../storage/voiceRecorder')
-      const mr = new MediaRecorder(stream, { mimeType: getBestMimeType() })
+      const mr = new MediaRecorder(stream, { mimeType: getBestMimeType(), audioBitsPerSecond: 16000 })
       recChunksRef.current = []
       mr.ondataavailable = (e) => { if (e.data.size > 0) recChunksRef.current.push(e.data) }
       mediaRecorderRef.current = mr
@@ -531,7 +531,7 @@ const CallOverlay = ({
           setSpeaking(false)
           stopPlayback()
           try {
-            mr = new MediaRecorder(stream, { mimeType })
+            mr = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 16000 })
           } catch { return }
           chunks = []
           mr.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }

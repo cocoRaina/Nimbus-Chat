@@ -789,7 +789,7 @@ const ChatPage = ({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       const { getBestMimeType } = await import('../storage/voiceRecorder')
       const mimeType = getBestMimeType()
-      const mr = new MediaRecorder(stream, { mimeType })
+      const mr = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 16000 })
       recordChunksRef.current = []
       waveformSamplesRef.current = []
       mr.ondataavailable = (e) => { if (e.data.size > 0) recordChunksRef.current.push(e.data) }
