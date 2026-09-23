@@ -3,6 +3,20 @@
 > 从 README 拆出来的开发历史与踩坑记录(README 太长了)。功能清单和使用说明见 [README](../README.md)。
 
 ---
+## 语音消息降码率加速上传（2026-09-23）
+
+**症状**：语音消息发送很慢，用户体验差到不想发语音。
+
+**根因**：`new MediaRecorder(stream, { mimeType })` 未指定 `audioBitsPerSecond`，浏览器默认 128kbps。一段 5 秒语音约 80KB 原始 + base64 膨胀到 ~107KB，手机流量上传到东京 VPS 慢。
+
+**修法**：三处 `new MediaRecorder` 全部加 `audioBitsPerSecond: 16000`（opus 16kbps 对人声识别足够）：
+- `ChatPage.tsx` 第 792 行（按住说话录音）
+- `CallOverlay.tsx` 第 301 行（通话录音）
+- `CallOverlay.tsx` 第 534 行（免提模式录音）
+
+体积从 ~100KB/5s 降到 ~12KB/5s（约 1/8），上传基本秒过。纯前端改动，需新 APK。
+
+---
 ## 新增「纯手写思考链」开关（2026-09-23）
 
 在上一条(opus-5 内置名单)基础上,补一个**用户可控的开关**,不用改代码就能把任意模型切成纯手写思考:
