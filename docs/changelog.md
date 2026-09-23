@@ -3,6 +3,18 @@
 > 从 README 拆出来的开发历史与踩坑记录(README 太长了)。功能清单和使用说明见 [README](../README.md)。
 
 ---
+## 新增「纯手写思考链」开关（2026-09-23）
+
+在上一条(opus-5 内置名单)基础上,补一个**用户可控的开关**,不用改代码就能把任意模型切成纯手写思考:
+
+- **设置 → 生成&思考 → 思考链**：新增「纯手写思考链（不发原生参数）」开关。
+- **开**：任何模型都不发原生 `reasoning` 参数,只靠 `<thinking>` 标签提醒 + 前端解析产生思考链(适合原生思考会 400/卡死的模型/中转)。
+- **关**（默认）：支持的模型走原生思考、手写标签兜底(原行为)。
+- opus-5 系列的**内置名单**仍在,即使此开关关着也强制走手写(双保险)。
+
+实现:`manualThinkingOnly` 存 localStorage(复用 `chatHighReasoningEnabled` 那套 LocalPrefs,零数据库改动);App.tsx 三处思考分支(`thinkingActive` / `effort:'high'` / `nativeReplay`)都加 `!manualThinkingOnly` 门控。纯前端,需新 APK。验证:`tsc`、`build` 均过。
+
+---
 ## opus-5 系列改走手写思考链（2026-09-23）
 
 **症状**：`claude-opus-5-5`（及 `claude-opus-5`）**一开思考就不回复**，必须关掉思考才回。

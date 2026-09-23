@@ -2814,6 +2814,7 @@ const App = () => {
               const nativeReplay =
                 msgIdx === lastThinkingIdx &&
                 reasoningEnabled &&
+                !activeSettings.manualThinkingOnly &&
                 supportsNativeThinking(effectiveModel) &&
                 message.meta?.thinkingHost === currentThinkingHost
                   ? message.meta?.thinkingBlocks ?? null
@@ -3039,7 +3040,10 @@ TOOL_SEARCH_HANDOFF,
             // 深想，2000 足够，缓存也稳。chatHighReasoningEnabled 只保留给非
             // Claude 模型（effort:high），不再影响 Claude。
             const toolThinkingBudget = 2000
-            const thinkingActive = reasoningEnabled && supportsNativeThinking(effectiveModel)
+            const thinkingActive =
+              reasoningEnabled &&
+              !activeSettings.manualThinkingOnly &&
+              supportsNativeThinking(effectiveModel)
             if (thinkingActive) {
               requestBody.reasoning = { max_tokens: toolThinkingBudget }
               const currentMaxTokens =
@@ -3049,6 +3053,7 @@ TOOL_SEARCH_HANDOFF,
               delete requestBody.top_p
             } else if (
               reasoningEnabled &&
+              !activeSettings.manualThinkingOnly &&
               activeSettings.chatHighReasoningEnabled &&
               iteration === 1 &&
               !NO_NATIVE_THINKING.test(effectiveModel)

@@ -122,6 +122,10 @@ export type UserSettings = {
   syzygyReplySystemPrompt: string
   chatReasoningEnabled: boolean
   chatHighReasoningEnabled: boolean
+  /** Force the hand-written <thinking> path only — never send the native
+   *  `reasoning` param. For models/relays that 400/hang on native thinking
+   *  (e.g. opus-5 via some 中转). Stored locally, like chatHighReasoningEnabled. */
+  manualThinkingOnly: boolean
   autoMemoryExtractEnabled: boolean
   memoryExtractModel: string
   /** Which API provider runs memory extraction. Stored locally only,

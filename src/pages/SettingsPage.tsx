@@ -196,6 +196,7 @@ const SettingsPage = ({
   const [draftDefaultModel, setDraftDefaultModel] = useState(defaultModelId)
   const [draftChatReasoning, setDraftChatReasoning] = useState(true)
   const [draftChatHighReasoning, setDraftChatHighReasoning] = useState(false)
+  const [draftManualThinking, setDraftManualThinking] = useState(false)
   const [modelStatus, setModelStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [modelError, setModelError] = useState<string | null>(null)
   const [generationStatus, setGenerationStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -301,6 +302,7 @@ const SettingsPage = ({
       setDraftSummarizerProvider(settings.summarizerProvider)
       setDraftChatReasoning(settings.chatReasoningEnabled)
       setDraftChatHighReasoning(settings.chatHighReasoningEnabled)
+      setDraftManualThinking(settings.manualThinkingOnly)
       setDraftAutoExtractEnabled(settings.autoMemoryExtractEnabled)
       setDraftExtractModel(settings.memoryExtractModel)
       setDraftExtractProvider(settings.memoryExtractProvider)
@@ -541,7 +543,8 @@ const SettingsPage = ({
       (settings.summarizerModel ?? '') !== (draftSummarizerModel ?? '') ||
       settings.summarizerProvider !== draftSummarizerProvider ||
       settings.chatReasoningEnabled !== draftChatReasoning ||
-      settings.chatHighReasoningEnabled !== draftChatHighReasoning
+      settings.chatHighReasoningEnabled !== draftChatHighReasoning ||
+      settings.manualThinkingOnly !== draftManualThinking
     : false
   const hasUnsavedSystemPrompt = settings ? draftSystemPrompt !== settings.systemPrompt : false
   const hasUnsavedSnackOverlay = settings
@@ -693,6 +696,11 @@ const SettingsPage = ({
     setGenerationStatus('idle')
   }
 
+  const handleManualThinkingToggle = (enabled: boolean) => {
+    setDraftManualThinking(enabled)
+    setGenerationStatus('idle')
+  }
+
   const handleCompressionRatioChange = (value: string) => {
     setCompressionRatioInput(value)
     const parsed = Number(value)
@@ -738,6 +746,7 @@ const SettingsPage = ({
       summarizerProvider: draftSummarizerProvider,
       chatReasoningEnabled: draftChatReasoning,
       chatHighReasoningEnabled: draftChatHighReasoning,
+      manualThinkingOnly: draftManualThinking,
     })
     if (!nextSettings) {
       return
@@ -1837,6 +1846,19 @@ const SettingsPage = ({
               </label>
             </div>
             <p className="field-help">仅对非 Claude 的 reasoning 模型（如 GPT-5.x）生效：开启后附加 reasoning: effort=high。Claude 系列不受此开关影响——它每轮固定带思考链，深度思考档已移除（实测会撑大 prompt、破坏缓存）。</p>
+            <div className="field-group">
+              <label htmlFor="manualThinkingOnly">纯手写思考链（不发原生参数）</label>
+              <label className="toggle-control">
+                <input
+                  id="manualThinkingOnly"
+                  type="checkbox"
+                  checked={draftManualThinking}
+                  onChange={(event) => handleManualThinkingToggle(event.target.checked)}
+                />
+                <span>{draftManualThinking ? '已开启' : '已关闭'}</span>
+              </label>
+            </div>
+            <p className="field-help">开启后，任何模型都<strong>不再发送原生 thinking 参数</strong>（reasoning:…），只靠给模型的 &lt;thinking&gt; 标签提醒来产生思考链，前端把标签折进思考面板。适合原生思考会 400/卡死的模型/中转（如某些中转的 opus-5）。关闭则为默认：支持的模型走原生思考、手写标签兜底。注意：opus-5 系列即使关掉此开关也已被内置名单强制走手写。</p>
           </div>
         ) : null}
       </section>

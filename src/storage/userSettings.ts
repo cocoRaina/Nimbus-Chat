@@ -33,6 +33,7 @@ type UserSettingsRow = {
 
 type LocalPrefs = {
   chatHighReasoningEnabled: boolean
+  manualThinkingOnly: boolean
   summarizerProvider: 'openrouter' | 'msuicode'
   memoryExtractProvider: 'openrouter' | 'msuicode'
 }
@@ -68,6 +69,7 @@ const resolveLocalPrefs = (userId: string): LocalPrefs => {
   const stored = loadLocalPrefsMap()[userId]
   return {
     chatHighReasoningEnabled: stored?.chatHighReasoningEnabled ?? false,
+    manualThinkingOnly: stored?.manualThinkingOnly ?? false,
     summarizerProvider: stored?.summarizerProvider === 'msuicode' ? 'msuicode' : 'openrouter',
     memoryExtractProvider: stored?.memoryExtractProvider === 'msuicode' ? 'msuicode' : 'openrouter',
   }
@@ -78,6 +80,7 @@ const applyLocalPrefs = (settings: UserSettings): UserSettings => {
   return {
     ...settings,
     chatHighReasoningEnabled: prefs.chatHighReasoningEnabled,
+    manualThinkingOnly: prefs.manualThinkingOnly,
     summarizerProvider: prefs.summarizerProvider,
     memoryExtractProvider: prefs.memoryExtractProvider,
   }
@@ -102,6 +105,7 @@ export const createDefaultSettings = (userId: string): UserSettings => ({
   syzygyReplySystemPrompt: DEFAULT_SYZYGY_REPLY_PROMPT,
   chatReasoningEnabled: true,
   chatHighReasoningEnabled: false,
+  manualThinkingOnly: false,
   summarizerProvider: 'openrouter',
   autoMemoryExtractEnabled: true,
   memoryExtractModel: 'anthropic/claude-haiku-4-5',
@@ -128,6 +132,7 @@ const mapSettingsRow = (row: UserSettingsRow): UserSettings => {
     syzygyReplySystemPrompt: resolveSyzygyReplyPrompt(row.assistant_reply_system_prompt),
     chatReasoningEnabled: row.chat_reasoning_enabled ?? row.enable_reasoning ?? true,
     chatHighReasoningEnabled: highReasoningPrefs.chatHighReasoningEnabled,
+    manualThinkingOnly: highReasoningPrefs.manualThinkingOnly,
     summarizerProvider: highReasoningPrefs.summarizerProvider,
     autoMemoryExtractEnabled: row.auto_memory_extract_enabled ?? true,
     memoryExtractModel: row.memory_extract_model?.trim() || 'anthropic/claude-haiku-4-5',
@@ -225,6 +230,7 @@ export const updateUserSettings = async (settings: UserSettings): Promise<void> 
   }
   saveLocalPrefs(settings.userId, {
     chatHighReasoningEnabled: settings.chatHighReasoningEnabled,
+    manualThinkingOnly: settings.manualThinkingOnly,
     summarizerProvider: settings.summarizerProvider,
     memoryExtractProvider: settings.memoryExtractProvider,
   })
