@@ -679,6 +679,17 @@ const isToolCapableModel = (model: string) =>
 
 const isClaudeModel = (model: string) => /claude|anthropic/i.test(model)
 
+// Models whose relay route can't take the native thinking param (`reasoning`).
+// opus-5 / opus-5-5 via the current 中转 400s / hangs the whole request when
+// `reasoning` is sent, so the chat only replies with thinking OFF. We skip the
+// native param for these and rely on the hand-written <thinking> tag path
+// (THINKING_OUTPUT_REMINDER + the stream parser) instead — that still gives a
+// folded thinking chain without breaking the reply. Add ids here if a new
+// model shows the same "must turn thinking off to get a reply" symptom.
+const NO_NATIVE_THINKING = /opus-5/i
+const supportsNativeThinking = (model: string) =>
+  isClaudeModel(model) && !NO_NATIVE_THINKING.test(model)
+
 // Which backend "signs" thinking blocks right now. Thinking signatures are
 // only verifiable by the backend family that produced them — camel's AWS
 // Bedrock nodes 400 with "Invalid signature in thinking block" when fed
@@ -2803,7 +2814,7 @@ const App = () => {
               const nativeReplay =
                 msgIdx === lastThinkingIdx &&
                 reasoningEnabled &&
-                isClaudeModel(effectiveModel) &&
+                supportsNativeThinking(effectiveModel) &&
                 message.meta?.thinkingHost === currentThinkingHost
                   ? message.meta?.thinkingBlocks ?? null
                   : null
@@ -3028,7 +3039,7 @@ TOOL_SEARCH_HANDOFF,
             // 深想，2000 足够，缓存也稳。chatHighReasoningEnabled 只保留给非
             // Claude 模型（effort:high），不再影响 Claude。
             const toolThinkingBudget = 2000
-            const thinkingActive = reasoningEnabled && isClaudeModel(effectiveModel)
+            const thinkingActive = reasoningEnabled && supportsNativeThinking(effectiveModel)
             if (thinkingActive) {
               requestBody.reasoning = { max_tokens: toolThinkingBudget }
               const currentMaxTokens =
@@ -3036,7 +3047,14 @@ TOOL_SEARCH_HANDOFF,
               requestBody.max_tokens = Math.max(currentMaxTokens, toolThinkingBudget + 1024)
               delete requestBody.temperature
               delete requestBody.top_p
-            } else if (reasoningEnabled && activeSettings.chatHighReasoningEnabled && iteration === 1) {
+            } else if (
+              reasoningEnabled &&
+              activeSettings.chatHighReasoningEnabled &&
+              iteration === 1 &&
+              !NO_NATIVE_THINKING.test(effectiveModel)
+            ) {
+              // NO_NATIVE_THINKING models get no `reasoning` param at all — not
+              // even effort:'high' — since that's what breaks their reply.
               requestBody.reasoning = { effort: 'high' }
             }
 

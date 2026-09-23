@@ -3,6 +3,17 @@
 > 从 README 拆出来的开发历史与踩坑记录(README 太长了)。功能清单和使用说明见 [README](../README.md)。
 
 ---
+## opus-5 系列改走手写思考链（2026-09-23）
+
+**症状**：`claude-opus-5-5`（及 `claude-opus-5`）**一开思考就不回复**，必须关掉思考才回。
+
+**根因**：模型名带 `claude` → `isClaudeModel` 命中 → 请求里带**原生思考参数** `reasoning:{...}`，但当前中转对 opus-5 系列的原生 thinking 不认,整条请求 400/挂。
+
+**修法**：新增 `NO_NATIVE_THINKING = /opus-5/i` + `supportsNativeThinking()`,让 opus-5 系列**不发任何 `reasoning` 参数**(连 `effort:'high'` 也不发)。手写思考链不受影响——`THINKING_OUTPUT_REMINDER` 只看思考开关,照常注入 `<thinking>` 提醒,流式解析器把标签折进思考面板。于是 opus-5 系列**既能回复、又有思考链**(走手写而非原生)。原生思考块回放(`nativeReplay`)也一并按 `supportsNativeThinking` 收口。
+
+以后哪个新模型出现"必须关思考才回"的同款症状,把它的 id 加进 `NO_NATIVE_THINKING` 即可。纯前端,需新 APK。验证:`tsc`、`build` 均过。
+
+---
 ## 表情包带描述给模型（2026-09-22）
 
 **背景**：小机**看不到图片**，`[sticker:名字]` 对它就是个不透明的名字——它不知道自己发的、或用户发的表情是啥意思，接话/回忆容易脱节。
