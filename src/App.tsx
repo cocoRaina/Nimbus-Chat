@@ -6069,6 +6069,15 @@ TOOL_SEARCH_HANDOFF,
     setUserSettings(nextSettings)
   }, [user])
 
+  // Quick toggle for "manual thinking only" from the in-chat header menu.
+  // It's a global preference (localStorage), like the high-reasoning switch,
+  // so flipping it here saves it and takes effect on the next message.
+  const handleToggleManualThinking = useCallback((value: boolean) => {
+    if (!user) return
+    const base = settingsRef.current ?? createDefaultSettings(user.id)
+    void handleSaveSettings({ ...base, manualThinkingOnly: value, updatedAt: new Date().toISOString() })
+  }, [handleSaveSettings, user])
+
   const handleSaveSnackSystemPrompt = useCallback(async (nextSnackSystemPrompt: string) => {
     if (!user) {
       return
@@ -6218,6 +6227,8 @@ TOOL_SEARCH_HANDOFF,
                 onSelectModel={handleSessionOverrideChange}
                 defaultReasoning={activeSettings.chatReasoningEnabled}
                 highReasoningEnabled={activeSettings.chatHighReasoningEnabled}
+                manualThinkingOnly={activeSettings.manualThinkingOnly}
+                onToggleManualThinking={handleToggleManualThinking}
                 onSelectReasoning={handleSessionReasoningOverrideChange}
                 onArchiveSession={handleSessionArchiveStateChange}
                 onActiveSessionChange={setActiveChatSessionId}
@@ -6447,6 +6458,8 @@ const ChatRoute = ({
   onSelectModel,
   defaultReasoning,
   highReasoningEnabled,
+  manualThinkingOnly,
+  onToggleManualThinking,
   onSelectReasoning,
   onArchiveSession,
   onActiveSessionChange,
@@ -6492,6 +6505,8 @@ const ChatRoute = ({
   onSelectModel: (sessionId: string, model: string | null) => Promise<void>
   defaultReasoning: boolean
   highReasoningEnabled: boolean
+  manualThinkingOnly: boolean
+  onToggleManualThinking: (value: boolean) => void
   onSelectReasoning: (sessionId: string, reasoning: boolean | null) => Promise<void>
   onArchiveSession: (sessionId: string, isArchived: boolean) => Promise<void>
   onActiveSessionChange: (sessionId: string) => void
@@ -6651,6 +6666,8 @@ const ChatRoute = ({
         onSelectModel={(model) => onSelectModel(activeSession.id, model)}
         defaultReasoning={defaultReasoning}
         highReasoningEnabled={highReasoningEnabled}
+        manualThinkingOnly={manualThinkingOnly}
+        onToggleManualThinking={onToggleManualThinking}
         onSelectReasoning={(reasoning) =>
           onSelectReasoning(activeSession.id, reasoning)
         }

@@ -121,6 +121,8 @@ export type ChatPageProps = {
   onSelectModel: (model: string | null) => void
   defaultReasoning: boolean
   highReasoningEnabled: boolean
+  manualThinkingOnly: boolean
+  onToggleManualThinking: (value: boolean) => void
   onSelectReasoning: (reasoning: boolean | null) => void
   onManualCompress: () => Promise<{ ok: boolean; message: string }>
   onClearCompression: () => Promise<{ ok: boolean; message: string }>
@@ -484,6 +486,8 @@ const ChatPage = ({
   onSelectModel,
   defaultReasoning,
   highReasoningEnabled,
+  manualThinkingOnly,
+  onToggleManualThinking,
   onSelectReasoning,
   onManualCompress,
   onClearCompression,
@@ -1912,6 +1916,14 @@ const ChatPage = ({
                   {reasoningInactiveHint ? (
                     <p className="header-menu-warning">⚠️ {reasoningInactiveHint}</p>
                   ) : null}
+                  <label className="header-menu-toggle">
+                    <input
+                      type="checkbox"
+                      checked={manualThinkingOnly}
+                      onChange={(event) => onToggleManualThinking(event.target.checked)}
+                    />
+                    <span>✍️ 纯手写思考（不发原生参数）</span>
+                  </label>
                   <label className="header-menu-select">
                     <span>🤖 模型</span>
                     <select
