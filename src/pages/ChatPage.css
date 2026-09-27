@@ -97,19 +97,23 @@
 .chat-composer.glass-card.composer-docked {
   position: relative;
   pointer-events: auto;
-  margin: 0 8px calc(8px + env(safe-area-inset-bottom));
-  padding: 6px;
-  border-radius: 26px;
+  /* a bottom drawer, not a floating pocket: full width, flush to the bottom
+     edge, only the top corners rounded, shadow cast upward. */
+  margin: 0;
+  padding: 4px 10px calc(6px + env(safe-area-inset-bottom));
+  border-radius: 18px 18px 0 0;
   background: rgba(255, 255, 255, 0.72) !important;
   backdrop-filter: blur(16px) saturate(1.3);
   -webkit-backdrop-filter: blur(16px) saturate(1.3);
-  box-shadow: 0 8px 26px rgba(70, 110, 160, 0.18);
+  box-shadow: 0 -4px 20px rgba(70, 110, 160, 0.12);
 }
 
-/* inside the docked frame: input row + panel are flat (no own box) */
+/* inside the docked drawer: input row + panel are flat (no own box), with a
+   hairline dividing the input from the panel below. */
 .composer-docked .composer-line-row {
   background: transparent;
   border: none;
+  border-bottom: 1px solid rgba(120, 150, 182, 0.14);
   box-shadow: none;
   border-radius: 0;
   backdrop-filter: none;
