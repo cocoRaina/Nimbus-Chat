@@ -2029,6 +2029,16 @@ const ChatPage = ({
       <main
         className="chat-messages glass-panel"
         ref={messagesRef}
+        onClick={() => {
+          // Tap the chat area to dismiss an open panel (WeChat-style). onClick
+          // fires only on a tap, not a scroll drag, so scrolling with the panel
+          // open still works. Long-press message actions use pointer events, so
+          // they're unaffected.
+          if (showStickerTray || openAttachMenu) {
+            setShowStickerTray(false)
+            setOpenAttachMenu(false)
+          }
+        }}
       >
         {hiddenCount > 0 ? (
           <button type="button" className="load-earlier" onClick={handleLoadEarlier}>
