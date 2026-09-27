@@ -1707,6 +1707,9 @@
   min-height: 38px;
   max-height: 140px;
   overflow-y: auto;
+  /* hide the scrollbar — text still scrolls, just no ugly thumb (like WeChat) */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   padding: 8px 14px;
   border-radius: 19px;
   border: 1px solid transparent;
@@ -1720,6 +1723,10 @@
   resize: none;
   outline: none;
   transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.composer-line-input::-webkit-scrollbar {
+  display: none;
 }
 
 .composer-line-input:focus {
