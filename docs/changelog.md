@@ -7,7 +7,8 @@
 
 按用户目标稿(iMessage 干净感)改,**头部不动**:
 
-- **悬浮输入框**(`ChatPage.css`):`.chat-composer` 改成 `position:absolute` 透明覆盖在消息列表底部,`.composer-line-row` 成为半透明毛玻璃圆角胶囊(浮起)。表单 `pointer-events:none`、直接子元素 `auto` → **透明区把触摸落到下面的消息,聊天能从输入框后面划过去**;贴纸/附件面板加实底,展开时当作实心 sheet 盖住后面的消息。消息列表底部 padding 加大给胶囊让位。
+- **悬浮输入框**(`ChatPage.css`):`.chat-composer` 改成 `position:absolute` 透明覆盖在消息列表底部,`.composer-line-row` 成为半透明毛玻璃圆角胶囊(浮起)。表单 `pointer-events:none`、直接子元素 `auto` → **透明区把触摸落到下面的消息,聊天能从输入框后面划过去**。消息列表底部 padding 加大给胶囊让位。
+- **微信式面板双态**:平时输入框悬浮;一开表情/附件面板(`showStickerTray || openAttachMenu`)给根节点加 `.has-panel`、表单加 `.composer-docked` → 输入框**落回实体流内**(`position:relative`)、面板在下方展开、消息区 flex 收缩**整体上移**(不再被浮层盖住)。列表底部 padding 在 `.has-panel` 下收回。
 - **英文占位**:`Say something to Daddy…`。
 - **表情/语音/附件/发送换手绘 SVG**(替掉 emoji `🧷/🔊/⌨️/➕/➤`):笑脸、麦克风、键盘、加号、纸飞机,`currentColor` 描边、各机型一致。
 - **气泡微调**:圆角 18→20,加 iMessage 式尾角(in 左下、out 右下 7px),接收气泡去边框更干净(不硬编码白色 → 不破坏主题)。

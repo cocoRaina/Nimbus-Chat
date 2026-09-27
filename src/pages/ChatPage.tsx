@@ -1836,7 +1836,7 @@ const ChatPage = ({
   }, [openHeaderMenu])
 
   return (
-    <div className={`chat-page ${WALLPAPERS.find((w) => w.id === wallpaper)?.className ?? 'chat-polka-dots'}`}>
+    <div className={`chat-page ${WALLPAPERS.find((w) => w.id === wallpaper)?.className ?? 'chat-polka-dots'}${(showStickerTray || openAttachMenu) ? ' has-panel' : ''}`}>
       <header className="chat-header top-nav app-shell__header">
         <button
           type="button"
@@ -2124,7 +2124,7 @@ const ChatPage = ({
           <span>{toolStatus}</span>
         </div>
       ) : null}
-      <form className="chat-composer glass-card" onSubmit={handleSubmit}>
+      <form className={`chat-composer glass-card${(showStickerTray || openAttachMenu) ? ' composer-docked' : ''}`} onSubmit={handleSubmit}>
         {editingMessageId ? (
           <div className="quote-preview">
             <span className="quote-preview-label">✏️ 编辑中</span>

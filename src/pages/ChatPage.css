@@ -89,6 +89,22 @@
   pointer-events: auto;
 }
 
+/* Panel open (emoji / photo): dock the composer back INTO flow so its panel
+   sits below the input and the message list is pushed UP (WeChat-style),
+   instead of the floating panel overlaying the chat. */
+.chat-composer.glass-card.composer-docked {
+  position: relative;
+  pointer-events: auto;
+  background: rgba(244, 248, 252, 0.98) !important;
+  padding-top: 6px;
+}
+
+/* When docked, the list no longer needs clearance for the floating pill —
+   flex shrinks it and it sits right above the docked composer. */
+.chat-page.has-panel .chat-messages.glass-panel {
+  padding-bottom: 8px;
+}
+
 .chat-messages.glass-panel {
   margin: 0;
   /* bottom padding clears the floating composer pill so the last message
