@@ -108,12 +108,12 @@
   box-shadow: 0 -4px 20px rgba(70, 110, 160, 0.12);
 }
 
-/* inside the docked drawer: input row + panel are flat (no own box), with a
-   hairline dividing the input from the panel below. */
+/* inside the docked drawer: input row + panel are flat (no own box). The panel
+   already carries its own border-top divider, so the input row adds none —
+   otherwise two lines stack up. */
 .composer-docked .composer-line-row {
   background: transparent;
   border: none;
-  border-bottom: 1px solid rgba(120, 150, 182, 0.14);
   box-shadow: none;
   border-radius: 0;
   backdrop-filter: none;
