@@ -2294,6 +2294,9 @@ const ChatPage = ({
                 // 面板让位收起(它们本来就占的是键盘的位置)。
                 setShowStickerTray(false)
                 setOpenAttachMenu(false)
+                // 和开面板一致:键盘弹起后顶到最新消息(键盘有动画,延时再滚一次)。
+                scrollToLatest(false)
+                window.setTimeout(() => scrollToLatest(false), 320)
               }}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing) {
