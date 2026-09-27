@@ -91,12 +91,37 @@
 
 /* Panel open (emoji / photo): dock the composer back INTO flow so its panel
    sits below the input and the message list is pushed UP (WeChat-style),
-   instead of the floating panel overlaying the chat. */
+   instead of the floating panel overlaying the chat. The whole docked block is
+   ONE translucent frame — the input row and the panel share it, flattened, so
+   it doesn't read as two separate boxes. */
 .chat-composer.glass-card.composer-docked {
   position: relative;
   pointer-events: auto;
-  background: rgba(244, 248, 252, 0.98) !important;
-  padding-top: 6px;
+  margin: 0 8px calc(8px + env(safe-area-inset-bottom));
+  padding: 6px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  box-shadow: 0 8px 26px rgba(70, 110, 160, 0.18);
+}
+
+/* inside the docked frame: input row + panel are flat (no own box) */
+.composer-docked .composer-line-row {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.chat-composer.glass-card.composer-docked .sticker-panel,
+.chat-composer.glass-card.composer-docked .attach-panel {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  margin-top: 2px;
 }
 
 /* When docked, the list no longer needs clearance for the floating pill —
