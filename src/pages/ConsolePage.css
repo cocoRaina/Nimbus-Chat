@@ -338,7 +338,8 @@
 
 .clog-time {
   font-size: 0.78rem;
-  color: var(--ab-text-secondary, #5c5775);
+  color: var(--ab-ink, #2b4a6f);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   margin-left: auto;
   white-space: nowrap;

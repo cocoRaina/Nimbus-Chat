@@ -458,6 +458,12 @@ const formatSeparatorTime = (iso: string) => {
   const hhmm = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
   if (sameDay(d, now)) return hhmm
   if (sameDay(d, yesterday)) return `昨天 ${hhmm}`
+  // Within the last week (2-6 days ago): show "星期X HH:MM", like WeChat.
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const dayGap = Math.round((startOfDay(now) - startOfDay(d)) / 86400000)
+  if (dayGap >= 2 && dayGap <= 6) {
+    return `星期${['日', '一', '二', '三', '四', '五', '六'][d.getDay()]} ${hhmm}`
+  }
   // Within the same calendar year: show "M月D日 HH:MM". Otherwise prepend year.
   if (d.getFullYear() === now.getFullYear()) {
     return `${d.getMonth() + 1}月${d.getDate()}日 ${hhmm}`
@@ -2213,7 +2219,11 @@ const ChatPage = ({
             }}
             disabled={recordState !== 'idle'}
           >
-            <span aria-hidden="true">{voiceMode ? '⌨️' : '🔊'}</span>
+            {voiceMode ? (
+              <svg className="ci-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2.5" /><path d="M7 10h.01M11 10h.01M15 10h.01M17.5 10h.01M7 13.5h10" /></svg>
+            ) : (
+              <svg className="ci-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M6 11a6 6 0 0 0 12 0" /><path d="M12 17v3.2M9 20.2h6" /></svg>
+            )}
           </button>
           {/* 中间：按住说话条（语音模式）或文字输入框（文字模式） */}
           {voiceMode ? (
@@ -2262,7 +2272,7 @@ const ChatPage = ({
             <textarea
               ref={composerInputRef}
               className="composer-line-input"
-              placeholder="输入你的消息"
+              placeholder="Say something to Daddy…"
               rows={1}
               value={draft}
               onChange={(event) => {
@@ -2295,7 +2305,7 @@ const ChatPage = ({
               title="表情包"
               onClick={() => { setShowStickerTray((v) => !v); setOpenAttachMenu(false) }}
             >
-              <span aria-hidden="true">🧷</span>
+              <svg className="ci-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8.5 14.5a4 4 0 0 0 7 0" /><circle cx="9" cy="10" r="1.05" fill="currentColor" stroke="none" /><circle cx="15" cy="10" r="1.05" fill="currentColor" stroke="none" /></svg>
             </button>
           )}
           {/* 右侧：AI停止 > 取消录音 > 发送中 > 发送 > 附件 */}
@@ -2328,7 +2338,7 @@ const ChatPage = ({
               aria-label="发送"
               disabled={uploading}
             >
-              <span aria-hidden="true">➤</span>
+              <svg className="ci-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 12l15-7-6.2 15.3-2.6-6.2-6.2-2.1z" /></svg>
             </button>
           ) : !voiceMode ? (
             <button
@@ -2339,7 +2349,7 @@ const ChatPage = ({
               onClick={() => { setOpenAttachMenu((v) => !v); setShowStickerTray(false) }}
               disabled={uploading}
             >
-              <span aria-hidden="true">➕</span>
+              <svg className="ci-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
             </button>
           ) : null}
         </div>

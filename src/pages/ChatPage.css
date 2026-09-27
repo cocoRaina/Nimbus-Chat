@@ -65,24 +65,41 @@
   -webkit-backdrop-filter: none !important;
 }
 
+/* Floating composer: the form itself is transparent and overlays the bottom
+   of the message list, so the chat scrolls BEHIND the input pill. The form is
+   pointer-events:none in its transparent gaps (touches fall through to the
+   messages); its direct children re-enable events so the pill/panels stay
+   tappable. */
 .chat-composer.glass-card {
-  background: #ffffff !important;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 15;
+  background: transparent !important;
   border: none !important;
-  border-top: 1px solid rgba(42, 61, 82, 0.06) !important;
+  border-top: none !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+  pointer-events: none;
+}
+
+.chat-composer.glass-card > * {
+  pointer-events: auto;
 }
 
 .chat-messages.glass-panel {
   margin: 0;
-  padding: 4px 16px calc(16px + env(safe-area-inset-bottom));
+  /* bottom padding clears the floating composer pill so the last message
+     isn't hidden under it */
+  padding: 4px 16px calc(92px + env(safe-area-inset-bottom));
   border-radius: 0;
 }
 
 .chat-composer.glass-card {
   margin: 0;
-  padding: 6px 12px calc(8px + env(safe-area-inset-bottom));
+  padding: 0 10px calc(10px + env(safe-area-inset-bottom));
   border-radius: 0;
 }
 
@@ -1069,13 +1086,23 @@
   max-width: 78%;
   background: var(--bubble-in-bg);
   border: 1px solid var(--bubble-in-border);
-  border-radius: 18px;
-  padding: 9px 13px;
+  border-radius: 20px;
+  padding: 10px 14px;
   position: relative;
   box-shadow: 0 2px 6px rgba(42, 61, 82, 0.06);
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* iMessage-style asymmetric tail corner + cleaner (borderless) incoming */
+.message.in .bubble {
+  border-color: transparent;
+  border-bottom-left-radius: 7px;
+}
+
+.message.out .bubble {
+  border-bottom-right-radius: 7px;
 }
 
 .message .bubble p {
@@ -1499,7 +1526,31 @@
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 8px 4px;
+  padding: 6px 8px;
+  /* the floating pill */
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 26px;
+  box-shadow: 0 8px 26px rgba(70, 110, 160, 0.2);
+}
+
+.composer-icon-btn .ci-svg,
+.composer-send-btn .ci-svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+/* When a panel opens it floats as a solid sheet below the pill, so the chat
+   scrolling behind stays hidden under it. */
+.chat-composer.glass-card .sticker-panel,
+.chat-composer.glass-card .attach-panel {
+  margin-top: 8px;
+  border-radius: 20px;
+  background: rgba(245, 249, 253, 0.98);
+  box-shadow: 0 8px 26px rgba(70, 110, 160, 0.18);
 }
 
 .composer-icon-btn {

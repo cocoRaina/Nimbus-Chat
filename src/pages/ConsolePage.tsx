@@ -76,9 +76,16 @@ const fmtTime = (iso: string) => {
   } catch { return iso }
 }
 
-const fmtTimeShort = (iso: string) => {
+// Log timestamps show the date too (MM-DD HH:MM) so entries spanning days are
+// unambiguous — otherwise 23:27 could be any day.
+const fmtDateTime = (iso: string) => {
   try {
-    return new Date(iso).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, hour: '2-digit', minute: '2-digit' })
+    const parts = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai', hour12: false,
+      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    }).formatToParts(new Date(iso))
+    const g = (t: string) => parts.find((x) => x.type === t)?.value ?? ''
+    return `${g('month')}-${g('day')} ${g('hour')}:${g('minute')}` || iso
   } catch { return iso }
 }
 
@@ -526,7 +533,7 @@ export default function ConsolePage() {
                   <span className={`clog-status ${log.error ? 'clog-status--fail' : 'clog-status--ok'}`}>
                     {log.error ? '失败' : '成功'}
                   </span>
-                  <span className="clog-time">{fmtTimeShort(log.time)}</span>
+                  <span className="clog-time">{fmtDateTime(log.time)}</span>
                 </div>
                 <p className="clog-title">{actionLabel(log.action)}</p>
                 {log.detail && <pre className="clog-code">{log.detail}</pre>}
