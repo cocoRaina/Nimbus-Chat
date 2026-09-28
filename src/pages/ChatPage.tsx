@@ -1855,7 +1855,9 @@ const ChatPage = ({
         ) : null}
         <div className="header-title">
           <h1 className="ui-title">{assistantName}</h1>
-          {awaitingReply ? (
+          {toolStatus ? (
+            <span className="chat-typing-subtitle" aria-live="polite">{toolStatus}</span>
+          ) : awaitingReply ? (
             <span className="chat-typing-subtitle" aria-live="polite">
               正在输入<span className="chat-typing-dots" aria-hidden="true">
                 <i />
@@ -2128,12 +2130,8 @@ const ChatPage = ({
           </button>
         </div>
       </main>
-      {toolStatus ? (
-        <div className="tool-status-bar" aria-live="polite">
-          <span className="tool-status-spinner" aria-hidden="true" />
-          <span>{toolStatus}</span>
-        </div>
-      ) : null}
+      {/* tool status now shows in the header subtitle (same slot as 正在输入),
+          so it never collides with the floating composer */}
       <form className={`chat-composer glass-card${(showStickerTray || openAttachMenu) ? ' composer-docked' : ''}`} onSubmit={handleSubmit}>
         {editingMessageId ? (
           <div className="quote-preview">
