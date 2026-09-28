@@ -1658,10 +1658,19 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 12px 4px;
-  padding: 8px 14px;
-  border-radius: 10px;
-  background: rgba(120, 158, 200, 0.08);
+  /* float as a small pill just above the floating composer */
+  position: absolute;
+  left: 12px;
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  z-index: 14;
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px rgba(70, 110, 160, 0.16);
   color: rgb(30, 64, 175);
   font-size: 13px;
   animation: tool-status-in 0.2s ease-out;
