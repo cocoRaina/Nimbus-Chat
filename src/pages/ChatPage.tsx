@@ -1678,6 +1678,16 @@ const ChatPage = ({
     setComposerHeight(el.offsetHeight)
     return () => ro.disconnect()
   }, [])
+  // When the composer grows (multi-line, photo tray…) the list's bottom padding
+  // grows with it (--composer-h). If we're at the bottom, re-pin to the bottom
+  // so the newest message stays visible ABOVE the taller composer instead of
+  // sliding under it. Runs after the padding is applied (composerHeight dep).
+  useEffect(() => {
+    const c = messagesRef.current
+    if (c && nearBottomRef.current) {
+      c.scrollTop = c.scrollHeight
+    }
+  }, [composerHeight])
   const scrollToLatest = useCallback((smooth: boolean) => {
     const container = messagesRef.current
     if (!container) return
