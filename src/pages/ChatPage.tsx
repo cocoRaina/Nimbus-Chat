@@ -1835,8 +1835,19 @@ const ChatPage = ({
     }
   }, [openHeaderMenu])
 
+  // The composer floats over the chat when it's a single line. The moment it
+  // grows taller than that (a panel, pending photos, uploading, a quote/edit
+  // preview) it must DOCK back into flow so the extra height pushes the message
+  // list up instead of overlaying the last message.
+  const composerDocked =
+    showStickerTray ||
+    openAttachMenu ||
+    pendingAttachments.length > 0 ||
+    uploading ||
+    editingMessageId !== null ||
+    quoted !== null
   return (
-    <div className={`chat-page ${WALLPAPERS.find((w) => w.id === wallpaper)?.className ?? 'chat-polka-dots'}${(showStickerTray || openAttachMenu) ? ' has-panel' : ''}`}>
+    <div className={`chat-page ${WALLPAPERS.find((w) => w.id === wallpaper)?.className ?? 'chat-polka-dots'}${composerDocked ? ' has-panel' : ''}`}>
       <header className="chat-header top-nav app-shell__header">
         <button
           type="button"
@@ -2132,7 +2143,7 @@ const ChatPage = ({
       </main>
       {/* tool status now shows in the header subtitle (same slot as 正在输入),
           so it never collides with the floating composer */}
-      <form className={`chat-composer glass-card${(showStickerTray || openAttachMenu) ? ' composer-docked' : ''}`} onSubmit={handleSubmit}>
+      <form className={`chat-composer glass-card${composerDocked ? ' composer-docked' : ''}`} onSubmit={handleSubmit}>
         {editingMessageId ? (
           <div className="quote-preview">
             <span className="quote-preview-label">✏️ 编辑中</span>
