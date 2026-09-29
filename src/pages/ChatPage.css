@@ -136,9 +136,11 @@
 
 .chat-messages.glass-panel {
   margin: 0;
-  /* bottom padding clears the floating composer pill so the last message
-     isn't hidden under it */
-  padding: 4px 16px calc(92px + env(safe-area-inset-bottom));
+  /* bottom padding tracks the floating composer's real height (set as
+     --composer-h by a ResizeObserver) so the last message always clears it,
+     however tall the composer grows (multi-line, photo tray, quote/edit).
+     --composer-h already includes the composer's safe-area padding. */
+  padding: 4px 16px calc(var(--composer-h, 88px) + 12px);
   border-radius: 0;
 }
 

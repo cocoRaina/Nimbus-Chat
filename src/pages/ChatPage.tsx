@@ -1,6 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type { CSSProperties, FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useNavigate } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
@@ -1275,6 +1275,11 @@ const ChatPage = ({
   }
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const messagesRef = useRef<HTMLElement | null>(null)
+  // Composer height → drives the message list's bottom padding so the floating
+  // composer never overlaps messages, however tall it grows (multi-line, photo
+  // tray, quote/edit). Measured by a ResizeObserver below.
+  const composerFormRef = useRef<HTMLFormElement | null>(null)
+  const [composerHeight, setComposerHeight] = useState(88)
   const lastSessionIdRef = useRef<string | null>(null)
   const lastMessagesLengthRef = useRef(0)
   const headerMenuRef = useRef<HTMLDivElement | null>(null)
@@ -1661,6 +1666,18 @@ const ChatPage = ({
     container.addEventListener('scroll', onScroll, { passive: true })
     return () => container.removeEventListener('scroll', onScroll)
   }, [])
+  // Track the composer's real height so the message list reserves exactly that
+  // much space at the bottom — no overlap when it grows, scroll-behind kept.
+  useEffect(() => {
+    const el = composerFormRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      setComposerHeight(el.offsetHeight)
+    })
+    ro.observe(el)
+    setComposerHeight(el.offsetHeight)
+    return () => ro.disconnect()
+  }, [])
   const scrollToLatest = useCallback((smooth: boolean) => {
     const container = messagesRef.current
     if (!container) return
@@ -1835,19 +1852,17 @@ const ChatPage = ({
     }
   }, [openHeaderMenu])
 
-  // The composer floats over the chat when it's a single line. The moment it
-  // grows taller than that (a panel, pending photos, uploading, a quote/edit
-  // preview) it must DOCK back into flow so the extra height pushes the message
-  // list up instead of overlaying the last message.
-  const composerDocked =
-    showStickerTray ||
-    openAttachMenu ||
-    pendingAttachments.length > 0 ||
-    uploading ||
-    editingMessageId !== null ||
-    quoted !== null
+  // Panels (emoji / attach) dock the composer into flow as a solid bottom
+  // drawer that pushes the chat up. Everything else (multi-line typing, photo
+  // tray, quote/edit preview) keeps the composer FLOATING — the message list's
+  // bottom padding tracks the composer's real height (see the ResizeObserver
+  // below), so the chat always clears it no matter how tall it grows.
+  const composerDocked = showStickerTray || openAttachMenu
   return (
-    <div className={`chat-page ${WALLPAPERS.find((w) => w.id === wallpaper)?.className ?? 'chat-polka-dots'}${composerDocked ? ' has-panel' : ''}`}>
+    <div
+      className={`chat-page ${WALLPAPERS.find((w) => w.id === wallpaper)?.className ?? 'chat-polka-dots'}${composerDocked ? ' has-panel' : ''}`}
+      style={{ '--composer-h': `${composerHeight}px` } as CSSProperties}
+    >
       <header className="chat-header top-nav app-shell__header">
         <button
           type="button"
@@ -2143,7 +2158,7 @@ const ChatPage = ({
       </main>
       {/* tool status now shows in the header subtitle (same slot as 正在输入),
           so it never collides with the floating composer */}
-      <form className={`chat-composer glass-card${composerDocked ? ' composer-docked' : ''}`} onSubmit={handleSubmit}>
+      <form ref={composerFormRef} className={`chat-composer glass-card${composerDocked ? ' composer-docked' : ''}`} onSubmit={handleSubmit}>
         {editingMessageId ? (
           <div className="quote-preview">
             <span className="quote-preview-label">✏️ 编辑中</span>
