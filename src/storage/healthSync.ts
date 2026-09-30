@@ -123,6 +123,24 @@ const isoToLocalDate = (iso: string): string | null => {
   return `${yyyy}-${mm}-${dd}`
 }
 
+// Which day a sleep belongs to — "the night you went to bed", per the
+// user's rule. A session that starts in the early hours (after midnight
+// but before noon) is the previous evening's sleep that simply ran past
+// midnight, so it counts as the day BEFORE. Anything starting from noon
+// onward (an evening bedtime, or an afternoon nap) counts as that same
+// day. This replaces the old "wake-up day" (endDate) bucketing, which
+// pushed a 00:20 bedtime onto the next calendar day.
+const SLEEP_NIGHT_CUTOFF_HOUR = 12 // noon
+const sleepNightDate = (iso: string): string | null => {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  if (d.getHours() < SLEEP_NIGHT_CUTOFF_HOUR) d.setDate(d.getDate() - 1)
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 // Total minutes covered by a set of [startMs, endMs] intervals, counting
 // overlaps ONCE. This is the fix for multi-source sleep double-counting: when
 // a wearable, Huawei Health Sync and the phone each write the same night into
@@ -242,11 +260,12 @@ const dedupeSamples = (samples: HealthSample[]): HealthSample[] => {
 // Aggregates a list of samples into the per-day rows we store. The
 // aggregation rule per type:
 //  - steps:             sum of values bucketed by sample startDate
-//  - sleep:             sum of segment durations (minutes → hours)
-//                       bucketed by *endDate* — "the morning you woke
-//                       up" is the day people associate sleep with.
-//                       Filters out 'awake' / 'inBed' segments so we
-//                       only count actual sleep stages.
+//  - sleep:             union of segment intervals (overlaps counted once,
+//                       minutes → hours) bucketed by the night you went to
+//                       bed (sleepNightDate: a bedtime past midnight counts
+//                       as the previous night; an afternoon nap counts as
+//                       that day). Filters out 'awake' / 'inBed' segments so
+//                       we only count actual sleep stages.
 //  - heartRate:         NOTE: no longer fed here — HR avg/min/max now come
 //                       from the aggregate API (see syncHealthDataToSupabase).
 //                       The case below is kept harmless but unreached.
@@ -307,10 +326,14 @@ const aggregateSamples = (
         break
       }
       case 'sleep': {
-        // Bucket by the session's wake-up day, then collect time intervals so
-        // overlapping segments (same night written by several apps) merge into
-        // one at the end instead of summing to impossible totals.
-        const b = bucket(endDate)
+        // Bucket by the night the user went to bed (session start → sleepNightDate),
+        // NOT the wake-up day, so a bedtime past midnight still counts as the
+        // previous night. Then collect time intervals so overlapping segments
+        // (same night written by several apps) merge into one at the end
+        // instead of summing to impossible totals.
+        const night = sleepNightDate(s.startDate)
+        if (!night) break
+        const b = bucket(night)
         if (s.hasStageData && s.stages && s.stages.length > 0) {
           // Capgo returns one HealthSample per sleep session with all stages
           // nested inside s.stages. Each stage carries its own start/end.
