@@ -123,11 +123,29 @@ const isoToLocalDate = (iso: string): string | null => {
   return `${yyyy}-${mm}-${dd}`
 }
 
-const sampleDurationMinutes = (s: HealthSample): number => {
-  const start = new Date(s.startDate).getTime()
-  const end = new Date(s.endDate).getTime()
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0
-  return (end - start) / 60000
+// Total minutes covered by a set of [startMs, endMs] intervals, counting
+// overlaps ONCE. This is the fix for multi-source sleep double-counting: when
+// a wearable, Huawei Health Sync and the phone each write the same night into
+// Health Connect, their segments overlap in time — summing durations gave
+// impossible totals (e.g. 19.4h). Merging by time collapses the overlap.
+const unionMinutes = (intervals: Array<[number, number]>): number => {
+  const valid = intervals.filter(([s, e]) => Number.isFinite(s) && Number.isFinite(e) && e > s)
+  if (valid.length === 0) return 0
+  valid.sort((a, b) => a[0] - b[0])
+  let total = 0
+  let [curStart, curEnd] = valid[0]
+  for (let i = 1; i < valid.length; i += 1) {
+    const [s, e] = valid[i]
+    if (s <= curEnd) {
+      if (e > curEnd) curEnd = e
+    } else {
+      total += curEnd - curStart
+      curStart = s
+      curEnd = e
+    }
+  }
+  total += curEnd - curStart
+  return total / 60000
 }
 
 // Types read via readSamples (raw record list). Steps AND heart rate are
@@ -242,10 +260,12 @@ const aggregateSamples = (
     string,
     {
       steps: number
-      sleepMinutes: number
-      deepSleepMinutes: number
-      lightSleepMinutes: number
-      remSleepMinutes: number
+      // Sleep is collected as time intervals [startMs, endMs] and merged at the
+      // end (union), so overlapping segments from multiple sources count once.
+      sleepIv: Array<[number, number]>
+      deepIv: Array<[number, number]>
+      lightIv: Array<[number, number]>
+      remIv: Array<[number, number]>
       hrSum: number
       hrCount: number
       hrMax: number | null
@@ -260,10 +280,10 @@ const aggregateSamples = (
     if (!acc[date]) {
       acc[date] = {
         steps: 0,
-        sleepMinutes: 0,
-        deepSleepMinutes: 0,
-        lightSleepMinutes: 0,
-        remSleepMinutes: 0,
+        sleepIv: [],
+        deepIv: [],
+        lightIv: [],
+        remIv: [],
         hrSum: 0,
         hrCount: 0,
         hrMax: null,
@@ -287,28 +307,33 @@ const aggregateSamples = (
         break
       }
       case 'sleep': {
+        // Bucket by the session's wake-up day, then collect time intervals so
+        // overlapping segments (same night written by several apps) merge into
+        // one at the end instead of summing to impossible totals.
         const b = bucket(endDate)
         if (s.hasStageData && s.stages && s.stages.length > 0) {
           // Capgo returns one HealthSample per sleep session with all stages
-          // nested inside s.stages. Iterate those for precise breakdowns.
+          // nested inside s.stages. Each stage carries its own start/end.
           for (const stage of s.stages) {
             if (stage.stage === 'awake' || stage.stage === 'inBed') continue
-            const stageMins = stage.durationMinutes
-            if (stageMins <= 0) continue
-            b.sleepMinutes += stageMins
-            if (stage.stage === 'deep') b.deepSleepMinutes += stageMins
-            else if (stage.stage === 'light') b.lightSleepMinutes += stageMins
-            else if (stage.stage === 'rem') b.remSleepMinutes += stageMins
+            const start = new Date(stage.startDate).getTime()
+            const end = new Date(stage.endDate).getTime()
+            if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue
+            b.sleepIv.push([start, end])
+            if (stage.stage === 'deep') b.deepIv.push([start, end])
+            else if (stage.stage === 'light') b.lightIv.push([start, end])
+            else if (stage.stage === 'rem') b.remIv.push([start, end])
           }
         } else {
-          // No stage data — fall back to session-level duration.
+          // No stage data — fall back to the session interval.
           if (s.sleepState === 'awake' || s.sleepState === 'inBed') break
-          const mins = sampleDurationMinutes(s)
-          if (mins > 0) {
-            b.sleepMinutes += mins
-            if (s.sleepState === 'deep') b.deepSleepMinutes += mins
-            else if (s.sleepState === 'light') b.lightSleepMinutes += mins
-            else if (s.sleepState === 'rem') b.remSleepMinutes += mins
+          const start = new Date(s.startDate).getTime()
+          const end = new Date(s.endDate).getTime()
+          if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+            b.sleepIv.push([start, end])
+            if (s.sleepState === 'deep') b.deepIv.push([start, end])
+            else if (s.sleepState === 'light') b.lightIv.push([start, end])
+            else if (s.sleepState === 'rem') b.remIv.push([start, end])
           }
         }
         break
@@ -342,13 +367,18 @@ const aggregateSamples = (
 
   const out: Record<string, HealthDayAggregate> = {}
   for (const [date, b] of Object.entries(acc)) {
+    // Union the intervals (overlaps counted once) → real total, no double-count.
+    const sleepMinutes = unionMinutes(b.sleepIv)
+    const deepMinutes = unionMinutes(b.deepIv)
+    const lightMinutes = unionMinutes(b.lightIv)
+    const remMinutes = unionMinutes(b.remIv)
     out[date] = {
       date,
       steps: b.steps > 0 ? Math.round(b.steps) : null,
-      sleepHours: b.sleepMinutes > 0 ? Math.round((b.sleepMinutes / 60) * 10) / 10 : null,
-      deepSleepHours: b.deepSleepMinutes > 0 ? Math.round((b.deepSleepMinutes / 60) * 10) / 10 : null,
-      lightSleepHours: b.lightSleepMinutes > 0 ? Math.round((b.lightSleepMinutes / 60) * 10) / 10 : null,
-      remSleepHours: b.remSleepMinutes > 0 ? Math.round((b.remSleepMinutes / 60) * 10) / 10 : null,
+      sleepHours: sleepMinutes > 0 ? Math.round((sleepMinutes / 60) * 10) / 10 : null,
+      deepSleepHours: deepMinutes > 0 ? Math.round((deepMinutes / 60) * 10) / 10 : null,
+      lightSleepHours: lightMinutes > 0 ? Math.round((lightMinutes / 60) * 10) / 10 : null,
+      remSleepHours: remMinutes > 0 ? Math.round((remMinutes / 60) * 10) / 10 : null,
       heartRateAvg: b.hrCount > 0 ? Math.round(b.hrSum / b.hrCount) : null,
       heartRateMax: b.hrMax != null ? Math.round(b.hrMax) : null,
       heartRateMin: b.hrMin != null ? Math.round(b.hrMin) : null,
