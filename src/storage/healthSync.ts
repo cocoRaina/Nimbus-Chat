@@ -126,10 +126,9 @@ const isoToLocalDate = (iso: string): string | null => {
 // Which day a sleep belongs to — "the night you went to bed", per the
 // user's rule. A session that starts in the early hours (after midnight
 // but before noon) is the previous evening's sleep that simply ran past
-// midnight, so it counts as the day BEFORE. Anything starting from noon
-// onward (an evening bedtime, or an afternoon nap) counts as that same
-// day. This replaces the old "wake-up day" (endDate) bucketing, which
-// pushed a 00:20 bedtime onto the next calendar day.
+// midnight, so it counts as the day BEFORE. An evening bedtime counts as
+// that same day. This replaces the old "wake-up day" (endDate) bucketing,
+// which pushed a 00:20 bedtime onto the next calendar day.
 const SLEEP_NIGHT_CUTOFF_HOUR = 12 // noon
 const sleepNightDate = (iso: string): string | null => {
   const d = new Date(iso)
@@ -139,6 +138,22 @@ const sleepNightDate = (iso: string): string | null => {
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
   return `${yyyy}-${mm}-${dd}`
+}
+
+// Only NIGHT sleep counts toward the daily total — the user does not want
+// daytime naps in it. A session whose bedtime falls in the afternoon window
+// [12:00, 18:00) is treated as a nap and skipped entirely. Night sleep is
+// anything starting in the evening (>=18:00) or in the early hours (<12:00,
+// which sleepNightDate attributes to the previous night). Using the START
+// hour (not duration) so a broken-up night — e.g. woke at 3am, back to sleep
+// — is never mistaken for a nap.
+const NAP_WINDOW_START_HOUR = 12 // noon
+const NIGHT_BEDTIME_HOUR = 18 // 6pm — earliest we treat a bedtime as "night"
+const isDaytimeNap = (iso: string): boolean => {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return false
+  const h = d.getHours()
+  return h >= NAP_WINDOW_START_HOUR && h < NIGHT_BEDTIME_HOUR
 }
 
 // Total minutes covered by a set of [startMs, endMs] intervals, counting
@@ -263,9 +278,9 @@ const dedupeSamples = (samples: HealthSample[]): HealthSample[] => {
 //  - sleep:             union of segment intervals (overlaps counted once,
 //                       minutes → hours) bucketed by the night you went to
 //                       bed (sleepNightDate: a bedtime past midnight counts
-//                       as the previous night; an afternoon nap counts as
-//                       that day). Filters out 'awake' / 'inBed' segments so
-//                       we only count actual sleep stages.
+//                       as the previous night). Daytime naps (isDaytimeNap)
+//                       are skipped — night sleep only. Filters out 'awake'
+//                       / 'inBed' segments so we only count actual sleep.
 //  - heartRate:         NOTE: no longer fed here — HR avg/min/max now come
 //                       from the aggregate API (see syncHealthDataToSupabase).
 //                       The case below is kept harmless but unreached.
@@ -326,6 +341,8 @@ const aggregateSamples = (
         break
       }
       case 'sleep': {
+        // Skip daytime naps — only night sleep counts (user's choice).
+        if (isDaytimeNap(s.startDate)) break
         // Bucket by the night the user went to bed (session start → sleepNightDate),
         // NOT the wake-up day, so a bedtime past midnight still counts as the
         // previous night. Then collect time intervals so overlapping segments
