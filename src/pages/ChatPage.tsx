@@ -1892,11 +1892,11 @@ const ChatPage = ({
         <div className="header-title">
           <h1 className="ui-title">{assistantName}</h1>
           {toolStatus ? (
-            // While a tool is running, show a single calm "干活中…" instead of the
+            // While a tool is running, show a single calm "处理中…" instead of the
             // raw per-tool status line. The full breakdown of what ran is available
             // afterward in the "tools" fold above the reply bubble (ToolChain).
             <span className="chat-typing-subtitle" aria-live="polite">
-              干活中<span className="chat-typing-dots" aria-hidden="true">
+              处理中<span className="chat-typing-dots" aria-hidden="true">
                 <i />
                 <i />
                 <i />
