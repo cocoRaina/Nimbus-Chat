@@ -16,8 +16,10 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import android.app.usage.UsageStats;
 import java.util.Calendar;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -166,6 +168,77 @@ public class UsageStatsPlugin extends Plugin {
             if (row[1] != 0L && end > row[1]) {
                 row[0] += end - row[1];
                 row[1] = 0L;
+            }
+        }
+
+        // ── HarmonyOS NEXT compatibility fallback ──
+        // On some OEMs (notably HarmonyOS NEXT), queryEvents() may not emit
+        // FG/BG events for every app, and device-level screen-off events
+        // (type 16/17) may be absent — causing the Launcher to accumulate
+        // all idle time while real apps go unreported.
+        //
+        // Mitigation: also query the daily usage-stats buckets and merge
+        // them in. The bucket approach has a known UTC-alignment issue
+        // (~6h bleed from yesterday on UTC+8), but it catches apps that
+        // events missed entirely. For apps present in BOTH sources we
+        // trust the event-based number (more precise); for apps ONLY in
+        // the bucket source we take the bucket number (better than zero).
+        // We also cap the Launcher's event-based time: if it exceeds the
+        // sum of all OTHER apps by more than 30 min, it's likely inflated
+        // by missing screen-off events, so we replace it with the bucket
+        // value (which tends to be more reasonable on HarmonyOS).
+        List<UsageStats> dailyStats = manager.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY, start, end);
+        if (dailyStats != null) {
+            Map<String, Long> bucketMs = new HashMap<>();
+            for (UsageStats us : dailyStats) {
+                long ft = us.getTotalTimeInForeground();
+                if (ft <= 0) continue;
+                String p = us.getPackageName();
+                if (p == null) continue;
+                Long prev = bucketMs.get(p);
+                bucketMs.put(p, prev != null ? Math.max(prev, ft) : ft);
+            }
+
+            // Merge: add apps that events missed entirely
+            for (Map.Entry<String, Long> be : bucketMs.entrySet()) {
+                String p = be.getKey();
+                long bucketVal = be.getValue();
+                long[] eventRow = stats.get(p);
+                if (eventRow == null || eventRow[0] <= 0) {
+                    // App only in bucket source — use bucket value
+                    stats.put(p, new long[]{bucketVal, 0L});
+                }
+            }
+
+            // Cap inflated Launcher: if its event-based time is > sum of
+            // all others + 30 min, replace with bucket value
+            String launcherPkg = null;
+            for (String p : stats.keySet()) {
+                if (p.contains("launcher") || p.contains("home")) {
+                    launcherPkg = p;
+                    break;
+                }
+            }
+            if (launcherPkg != null) {
+                long[] launcherRow = stats.get(launcherPkg);
+                if (launcherRow != null && launcherRow[0] > 0) {
+                    long othersTotal = 0;
+                    for (Map.Entry<String, long[]> e2 : stats.entrySet()) {
+                        if (!e2.getKey().equals(launcherPkg)) {
+                            othersTotal += e2.getValue()[0];
+                        }
+                    }
+                    if (launcherRow[0] > othersTotal + 30 * 60000L) {
+                        Long bucketLauncher = bucketMs.get(launcherPkg);
+                        if (bucketLauncher != null) {
+                            launcherRow[0] = bucketLauncher;
+                        } else {
+                            // No bucket data either — zero it out
+                            launcherRow[0] = 0;
+                        }
+                    }
+                }
             }
         }
 
