@@ -7,6 +7,9 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothProfile;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.net.ConnectivityManager;
@@ -189,6 +192,34 @@ public class EnvStatePlugin extends Plugin {
                 else if (wired) audio = "wired";
             }
         } catch (Exception ignored) {}
+
+        // --- Fallback: BluetoothAdapter profile state --------------------
+        // HarmonyOS NEXT may not report BT audio devices via AudioDeviceInfo,
+        // so check BluetoothAdapter A2DP profile as a secondary signal.
+        if (!"bluetooth".equals(audio)) {
+            try {
+                BluetoothAdapter bta = BluetoothAdapter.getDefaultAdapter();
+                if (bta != null && bta.isEnabled()) {
+                    int a2dp = bta.getProfileConnectionState(BluetoothProfile.A2DP);
+                    int hfp  = bta.getProfileConnectionState(BluetoothProfile.HEADSET);
+                    if (a2dp == BluetoothProfile.STATE_CONNECTED
+                            || hfp == BluetoothProfile.STATE_CONNECTED) {
+                        audio = "bluetooth";
+                        // Try to get the device name from bonded devices
+                        if (btName == null && hasBluetoothPerm()) {
+                            for (BluetoothDevice dev : bta.getBondedDevices()) {
+                                String n = dev.getName();
+                                if (n != null && !n.trim().isEmpty()) {
+                                    btName = n.trim();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
         ret.put("audio", audio);
         if (btName != null) ret.put("btName", btName);
 
