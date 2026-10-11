@@ -234,7 +234,7 @@ type MessageRowProps = {
   reaction?: string
   // 发送状态（仅最新一条 user 消息）：写云端期间显示转动的小时钟；
   // 落库后不再显示任何标记（✓✓ 已按用户要求移除）。
-  tick?: 'sending'
+  tick?: 'sending' | 'failed'
   onStartLongPress: (event: ReactPointerEvent<HTMLDivElement>, messageId: string) => void
   onCancelLongPress: () => void
   onContextMenuOpen: (event: ReactMouseEvent<HTMLDivElement>, messageId: string) => void
@@ -439,6 +439,10 @@ const MessageRow = memo(function MessageRow({
       {tick === 'sending' ? (
         <span className="msg-tick sending" aria-label="发送中">
           <SendingClock />
+        </span>
+      ) : tick === 'failed' ? (
+        <span className="msg-tick failed" aria-label="发送失败" style={{ color: '#e74c3c', fontSize: '0.7rem', opacity: 0.85 }}>
+          ⚠ 发送失败
         </span>
       ) : null}
     </div>
@@ -2143,7 +2147,9 @@ const ChatPage = ({
                     message.id === lastUserMessageId &&
                     (message.pending || message.id === message.clientId)
                       ? 'sending'
-                      : undefined
+                      : (message.role === 'user' && message.meta?.sendFailed)
+                        ? 'failed'
+                        : undefined
                   }
                   onStartLongPress={startLongPress}
                   onCancelLongPress={cancelLongPress}

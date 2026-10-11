@@ -5665,7 +5665,24 @@ TOOL_SEARCH_HANDOFF,
               updateMessage(messagesRef.current, { ...saved, pending: false }),
             )
           })
-          .catch((err) => console.warn('后台同步用户消息失败', err))
+          .catch((err) => {
+            console.warn('后台同步用户消息失败', err)
+            // Network failed — cancel the batch timer so we don't trigger
+            // sendMessage with a message the server never received.
+            cancelBatchTimer()
+            // Mark the optimistic message as send-failed so the UI can show it.
+            applySnapshot(
+              sessionsRef.current,
+              updateMessage(messagesRef.current, {
+                ...messagesRef.current.find((m) => m.clientId === clientId)!,
+                pending: false,
+                meta: {
+                  ...userMeta,
+                  sendFailed: true,
+                },
+              }),
+            )
+          })
       }
     },
     [applySnapshot, user],
