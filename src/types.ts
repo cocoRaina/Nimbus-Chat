@@ -98,6 +98,10 @@ export type ChatMessage = {
     // signature in thinking block，2026-07-14 换渠道踩坑），重放时只回传
     // 产地与当前渠道一致的块；无戳的老块永不重放。
     thinkingHost?: string
+    /** Marks a user message whose send failed (network error etc.) so the
+     *  UI can show a retry/warning indicator. Set in the catch path of
+     *  sendMessage, cleared when the user edits to retry. */
+    sendFailed?: boolean
   }
   pending?: boolean
 }
