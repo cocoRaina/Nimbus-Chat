@@ -126,7 +126,7 @@ const MoodTab = () => {
 
   const aiNotes = useMemo(() => {
     const cutoff = new Date()
-    cutoff.setDate(cutoff.getDate() - 3)
+    cutoff.setDate(cutoff.getDate() - 7)
     const cutoffStr = cutoff.toISOString()
     return moods.filter((m) => m.author === 'ai' && m.createdAt >= cutoffStr)
   }, [moods])
