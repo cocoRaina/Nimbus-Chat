@@ -134,6 +134,7 @@ export type ChatPageProps = {
   onToggleKeepalive: () => void
   user: User | null
   toolStatus?: string
+  autonomousBusy?: boolean
   remoteStickerPacks?: RemotePackMap
   // Batch sticker import: refresh App's remote pack cache after upload/delete.
   onRefreshStickers?: () => Promise<void>
@@ -505,6 +506,7 @@ const ChatPage = ({
   keepaliveEnabled,
   onToggleKeepalive,
   toolStatus,
+  autonomousBusy,
   remoteStickerPacks,
   onRefreshStickers,
   shareDraft,
@@ -1909,6 +1911,14 @@ const ChatPage = ({
           ) : awaitingReply ? (
             <span className="chat-typing-subtitle" aria-live="polite">
               正在输入<span className="chat-typing-dots" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+            </span>
+          ) : autonomousBusy ? (
+            <span className="chat-typing-subtitle" aria-live="polite">
+              沈暮在忙<span className="chat-typing-dots" aria-hidden="true">
                 <i />
                 <i />
                 <i />
