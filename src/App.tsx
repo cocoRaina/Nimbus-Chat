@@ -6508,6 +6508,7 @@ const ChatRoute = ({
   onToggleKeepalive,
   user,
   toolStatus,
+  autonomousBusy,
   remoteStickerPacks,
   onRefreshStickers,
 }: {
@@ -6555,6 +6556,7 @@ const ChatRoute = ({
   onToggleKeepalive: () => void
   user: User | null
   toolStatus: string
+  autonomousBusy?: boolean
   remoteStickerPacks: RemotePackMap
   onRefreshStickers: () => Promise<void>
 }) => {
@@ -6715,6 +6717,7 @@ const ChatRoute = ({
         onToggleKeepalive={onToggleKeepalive}
         user={user}
         toolStatus={toolStatus}
+        autonomousBusy={autonomousBusy}
         remoteStickerPacks={remoteStickerPacks}
         onRefreshStickers={onRefreshStickers}
         shareDraft={shareDraftRef.current ?? undefined}
