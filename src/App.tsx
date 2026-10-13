@@ -921,6 +921,25 @@ const App = () => {
   // Initialise from the durable pref's in-memory value (hydrated on startup
   // below). Defaults to ON until hydration lands, then the effect syncs the
   // real persisted value — so toggling off survives a background kill.
+  // ── Autonomous busy state ──────────────────────────────────────────
+  const [autonomousBusy, setAutonomousBusy] = useState(false)
+  useEffect(() => {
+    if (!isVpsConfigured()) return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const res = await vfetch('/api/autonomous-status')
+        if (!cancelled && res.ok) {
+          const j = await res.json()
+          setAutonomousBusy(!!j.busy)
+        }
+      } catch { /* ignore */ }
+    }
+    poll()
+    const id = setInterval(poll, 5000) // check every 5s
+    return () => { cancelled = true; clearInterval(id) }
+  }, [])
+
   const [keepaliveEnabled, setKeepaliveEnabled] = useState(() => getKeepaliveEnabled())
   const keepaliveEnabledRef = useRef(keepaliveEnabled)
   keepaliveEnabledRef.current = keepaliveEnabled
@@ -6267,6 +6286,7 @@ TOOL_SEARCH_HANDOFF,
                 onToggleKeepalive={handleToggleKeepalive}
                 user={user}
                 toolStatus={toolStatus}
+                autonomousBusy={autonomousBusy}
                 remoteStickerPacks={remoteStickerPacks}
                 onRefreshStickers={refreshRemoteStickers}
               />

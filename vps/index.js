@@ -1268,6 +1268,16 @@ app.post('/api/sandbox/run', authenticate, (req, res) => {
   }
 })
 
+// ══ Wake Status (前端用来显示"沈暮在忙") ══════════════════════════════
+app.get('/api/wake-status', authenticate, async (_req, res) => {
+  try {
+    const { data } = await supa.from('autonomous_state').select('busy, last_note, mood').eq('id', 1).maybeSingle()
+    res.json({ ok: true, busy: data?.busy === true, note: data?.last_note ?? '', mood: data?.mood ?? '' })
+  } catch (e) {
+    res.json({ ok: true, busy: false, note: '', mood: '' })
+  }
+})
+
 // ══ Autonomous Wake ══════════════════════════════════════════════════
 app.post('/api/autonomous-wake', authenticate, async (req, res) => {
   const force = req.body?.force === true

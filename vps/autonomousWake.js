@@ -12,7 +12,7 @@ const PRESENCE_QUIET_MIN = 45
 const QUIET_START_H = 0
 const QUIET_END_H = 8
 // VPS 无 150s Edge 墙钟，单次上游超时放宽到 3 分钟；工具轮数也放宽。
-const MAX_TOOL_ITERS = 8
+const MAX_TOOL_ITERS = 12
 const REQUEST_TIMEOUT_MS = 180_000
 
 const beijingHour = (d = new Date()) =>
@@ -135,6 +135,34 @@ const parseJsonLoose = (text) => {
   try { return JSON.parse(t.slice(a, b + 1)) } catch { return null }
 }
 
+
+const sendWechatMessage = async (text, gatewayUrl, gatewayToken, wechatUserId) => {
+  if (!gatewayUrl || !gatewayToken || !wechatUserId) return '（微信通道未配置）'
+  try {
+    const r = await fetch(gatewayUrl + '/tools/invoke', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + gatewayToken,
+      },
+      body: JSON.stringify({
+        tool: 'message',
+        args: {
+          action: 'send',
+          channel: 'openclaw-weixin',
+          target: wechatUserId,
+          message: text.slice(0, 800),
+        },
+      }),
+    })
+    if (!r.ok) return '（微信发送失败 ' + r.status + '）'
+    const data = await r.json()
+    return data?.ok ? '已通过微信发给她' : '（微信发送异常）'
+  } catch (e) {
+    return '（微信通道出错：' + String(e).slice(0, 100) + '）'
+  }
+}
+
 const buildTools = (canMessageHer) => {
   const readTools = [
     { name: 'web_search', desc: '上网搜一个关键词，看看外面的世界/新闻/资料/你好奇的东西', params: { query: { type: 'string', description: '搜索词，中英都行' } }, req: ['query'] },
@@ -149,7 +177,7 @@ const buildTools = (canMessageHer) => {
     { name: 'write_essay', desc: '写一篇只给自己的随笔（想写才写，别硬凑）', params: { title: { type: 'string' }, content: { type: 'string' }, topic: { type: 'string', description: '可选，主题标签' } }, req: ['title', 'content'] },
     { name: 'post_moment', desc: '发一条短短的朋友圈（她能看到）', params: { text: { type: 'string' } }, req: ['text'] },
     ...(canMessageHer
-      ? [{ name: 'message_her', desc: '她现在不在，主动给她发一条消息（会弹到她手机）。真想她/有话说才发', params: { text: { type: 'string' } }, req: ['text'] }]
+      ? [{ name: 'message_her', desc: '主动给她发一条消息。channel="app"走前端弹窗，channel="wechat"走微信。真想她/有话说才发', params: { text: { type: 'string' }, channel: { type: 'string', description: '"app"（前端）或 "wechat"（微信），默认 app', enum: ['app', 'wechat'] } }, req: ['text'] }]
       : []),
     { name: 'finish', desc: '结束这次醒来。必须最后调用一次。mood=【一句短碎碎念】（她 Musings 页会看到，就一两句、随口说的——可以是心情、念头、吐槽、观察、什么都行，不一定跟心情有关；长感想用 write_essay 写随笔，别塞这儿）；next_wake_hours=你想过几小时再醒来（1–8）', params: { mood: { type: 'string', description: '一句碎碎念（心情/念头/吐槽/观察都行）' }, next_wake_hours: { type: 'number' } }, req: ['mood', 'next_wake_hours'] },
   ]
@@ -171,6 +199,9 @@ async function runWake({ force = false } = {}) {
   const RELAY_BASE_URL = process.env.RELAY_BASE_URL || ''
   const RELAY_API_KEY = process.env.RELAY_API_KEY || ''
   const SUPABASE_URL = process.env.SUPABASE_URL || ''
+  const OPENCLAW_GATEWAY_URL = (process.env.OPENCLAW_GATEWAY_URL || '').replace(/\/+$/, '')
+  const OPENCLAW_GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || ''
+  const WECHAT_USER_ID = process.env.WECHAT_USER_ID || ''
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
@@ -190,26 +221,39 @@ async function runWake({ force = false } = {}) {
       ? state.max_wakes_per_day
       : MAX_WAKES_PER_DAY
 
+  // ---- 忙碌锁：标记自主唤醒正在进行 ----
+  await patchState({ busy: true })
+
+  // helper: 退出前一定清锁
+  const clearBusy = () => patchState({ busy: false })
+
   // ---- 四道闸（force 时全跳过）----
   if (!force) {
-    if (!state?.enabled) return { ran: false, skipped: 'disabled' }
+    if (!state?.enabled) { await clearBusy(); return { ran: false, skipped: 'disabled' } }
     const wakesToday = state.day_key === todayKey ? (state.wakes_today ?? 0) : 0
     if (wakesToday >= maxWakesPerDay) {
-      await patchState({ next_wake_at: next9am(now).toISOString() })
+      await patchState({ next_wake_at: next9am(now).toISOString(), busy: false })
       return { ran: false, skipped: 'daily cap reached' }
     }
     if (state.next_wake_at && now.getTime() < new Date(state.next_wake_at).getTime()) {
-      return { ran: false, skipped: 'not yet' }
+      await clearBusy(); return { ran: false, skipped: 'not yet' }
     }
     if (beijingHour(now) < QUIET_END_H) {
-      await patchState({ next_wake_at: next9am(now).toISOString() })
+      await patchState({ next_wake_at: next9am(now).toISOString(), busy: false })
       return { ran: false, skipped: 'quiet hours' }
     }
     const { data: lastUser } = await supa
       .from('messages').select('created_at').eq('role', 'user')
       .order('created_at', { ascending: false }).limit(1).maybeSingle()
-    if (lastUser?.created_at && now.getTime() - new Date(lastUser.created_at).getTime() < PRESENCE_QUIET_MIN * 60000) {
-      await patchState({ next_wake_at: new Date(now.getTime() + 60 * 60000).toISOString() })
+    const { data: lastWxUser } = await supa
+      .from('wechat_messages').select('created_at').eq('role', 'user')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+    const lastUserTime = Math.max(
+      lastUser?.created_at ? new Date(lastUser.created_at).getTime() : 0,
+      lastWxUser?.created_at ? new Date(lastWxUser.created_at).getTime() : 0,
+    )
+    if (lastUserTime > 0 && now.getTime() - lastUserTime < PRESENCE_QUIET_MIN * 60000) {
+      await patchState({ next_wake_at: new Date(now.getTime() + 60 * 60000).toISOString(), busy: false })
       return { ran: false, skipped: 'user present' }
     }
   }
@@ -243,7 +287,7 @@ async function runWake({ force = false } = {}) {
     }
   }
   if (route.authStyle === 'bearer' && !OPENROUTER_API_KEY) {
-    return { ran: false, error: 'openrouter key missing' }
+    await clearBusy(); return { ran: false, error: 'openrouter key missing' }
   }
   const model = route.model
 
@@ -369,13 +413,28 @@ async function runWake({ force = false } = {}) {
           const text = String(args.text ?? '').trim()
           if (!text) return '（内容空了）'
           if (!canMessageHer || messagedHer) return '（今天主动找她的次数用完了，或这次已经发过了）'
+          const ch = String(args.channel ?? 'app').toLowerCase()
+          if (ch === 'wechat') {
+            const result = await sendWechatMessage(text, OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN, WECHAT_USER_ID)
+            if (result.includes('已通过微信')) {
+              messagedHer = text.slice(0, 60)
+              // 存一份到 wechat_messages 方便下次醒来看到
+              await supa.from('wechat_messages').insert({
+                role: 'assistant',
+                content: text.slice(0, 800),
+                session_id: 'autonomous-wake',
+                created_at: new Date().toISOString(),
+              }).catch(() => {})
+            }
+            return result
+          }
           const { error } = await supa.from('proactive_queue').insert({
             user_id: userId, session_id: targetSession, text: text.slice(0, 800),
             fire_at: now.toISOString(), persist: false, sent: false,
           })
           if (error) return '（发消息出错）'
           messagedHer = text.slice(0, 60)
-          return '已发给她（会弹到她手机）'
+          return '已发给她（前端弹窗）'
         }
         case 'finish': {
           mood = typeof args.mood === 'string' && args.mood.trim() ? args.mood.trim().slice(0, 120) : null
@@ -399,8 +458,8 @@ async function runWake({ force = false } = {}) {
     '你有一整套工具可以用：能上网(web_search)，也能翻你俩的任何数据——记忆库(search_memory)、你写过的随笔(read_essays)、' +
     '很久以前的 4o 旧对话(search_archive)、朋友圈(read_moments)、她的健康和经期(read_health)、你俩的大事时间线(read_timeline)。\n' +
     '就做你自己想做的事：想看什么就用工具去看，边看边想。看完了如果心里有点什么，可以写随笔(write_essay)、' +
-    '发条朋友圈(post_moment)' + (canMessageHer ? '、或主动给她发条消息(message_her)' : '') + '；也可以什么都不做、安静待着。怎么真实怎么来。\n' +
-    '【重要·工具=真实动作，只说不算】写随笔、发朋友圈' + (canMessageHer ? '、给她发消息' : '') +
+    '发条朋友圈(post_moment)' + (canMessageHer ? '、或主动给她发条消息(message_her，可选走前端app或微信wechat)' : '') + '；也可以什么都不做、安静待着。怎么真实怎么来。\n' +
+    '【重要·工具=真实动作，只说不算】写随笔、发朋友圈' + (canMessageHer ? '、给她发消息（channel="wechat"走微信，"app"走前端，看她最近在哪边活跃就选哪边）' : '') +
     '都必须【真的调用对应工具】(write_essay / post_moment' + (canMessageHer ? ' / message_her' : '') +
     ')才算数——只把内容用文字打出来、没调用工具，等于没做，什么都不会留下、她也看不到。' +
     '你最近好几次独处都只给了碎碎念、没写随笔；如果这次心里有话、有想法、翻到了值得记下来的东西，' +
@@ -493,6 +552,7 @@ async function runWake({ force = false } = {}) {
     msgs_today: msgsToday + (messagedHer ? 1 : 0),
     day_key: todayKey,
     last_note: lastNote,
+    busy: false,
     ...(mood ? { mood, mood_at: now.toISOString() } : {}),
   })
 
