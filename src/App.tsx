@@ -2091,6 +2091,9 @@ const App = () => {
                 condition: weatherSnap.condition,
                 ...(weatherSnap.city ? { city: weatherSnap.city } : {}),
                 ...(weatherSnap.windKmh > 0 ? { windKmh: weatherSnap.windKmh } : {}),
+                ...(weatherSnap.lat != null && weatherSnap.lon != null
+                  ? { lat: weatherSnap.lat, lon: weatherSnap.lon }
+                  : {}),
               },
             }
           : {}),
@@ -2760,6 +2763,9 @@ const App = () => {
             const weatherStr = weatherMeta
               ? ` [当时天气] ${weatherCityPrefix}${weatherMeta.temperatureC}°C ${weatherMeta.condition}${weatherFeelSuffix}${weatherWindSuffix}`
               : ''
+            const gpsStr = weatherMeta?.lat && weatherMeta?.lon
+              ? ` [GPS] ${weatherMeta.lat.toFixed(6)},${weatherMeta.lon.toFixed(6)}`
+              : ''
             const envMeta = message.role === 'user' ? message.meta?.envSnapshot : undefined
             const envStr = envMeta ? ` [手机] ${envMeta}` : ''
             const healthMeta = message.role === 'user' ? message.meta?.healthSnapshot : undefined
@@ -2783,7 +2789,7 @@ const App = () => {
             const moodMeta = message.role === 'user' ? message.meta?.moodNarration : undefined
             const moodStr = moodMeta ? `${moodMeta}\n\n` : ''
             const prefix = stamp
-              ? `[当前时间] ${stamp}${weatherStr}${envStr}${statusStr}${briefStr}${awayStr}${recallStr}\n\n${moodStr}`
+              ? `[当前时间] ${stamp}${weatherStr}${gpsStr}${envStr}${statusStr}${briefStr}${awayStr}${recallStr}\n\n${moodStr}`
               : moodStr
             if (message.role === 'user' && imageAttachments.length > 0) {
               const blocks: RequestContentBlock[] = []
@@ -5637,6 +5643,9 @@ TOOL_SEARCH_HANDOFF,
                 condition: weatherSnap.condition,
                 ...(weatherSnap.city ? { city: weatherSnap.city } : {}),
                 ...(weatherSnap.windKmh > 0 ? { windKmh: weatherSnap.windKmh } : {}),
+                ...(weatherSnap.lat != null && weatherSnap.lon != null
+                  ? { lat: weatherSnap.lat, lon: weatherSnap.lon }
+                  : {}),
               },
             }
           : {}),
