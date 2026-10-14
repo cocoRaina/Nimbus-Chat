@@ -40,6 +40,8 @@ export type ChatMessage = {
       feelsLikeC?: number
       city?: string
       windKmh?: number
+      lat?: number
+      lon?: number
     }
     healthSnapshot?: string
     deviceSnapshot?: string
